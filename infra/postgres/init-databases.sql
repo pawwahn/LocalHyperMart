@@ -1,0 +1,12 @@
+CREATE DATABASE hyperlocalmart_user;
+CREATE DATABASE hyperlocalmart_town;
+CREATE DATABASE hyperlocalmart_vendor;
+CREATE DATABASE hyperlocalmart_catalog;
+CREATE DATABASE hyperlocalmart_cart;
+CREATE DATABASE hyperlocalmart_order;
+CREATE DATABASE hyperlocalmart_payment;
+CREATE DATABASE hyperlocalmart_delivery;
+CREATE DATABASE hyperlocalmart_notification;
+CREATE DATABASE hyperlocalmart_billing;
+CREATE DATABASE hyperlocalmart_media;
+CREATE DATABASE hyperlocalmart_reporting;

@@ -1,0 +1,51 @@
+﻿server:
+  port: 8081
+
+spring:
+  application:
+    name: user-service
+  datasource:
+    url: jdbc:postgresql://localhost:5432/hyperlocalmart_user
+    username: hyperlocalmart
+    password: hyperlocalmart
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+  kafka:
+    bootstrap-servers: localhost:9092
+
+hyperlocalmart:
+  security:
+    jwt:
+      secret: ${JWT_SECRET:hyperlocalmart-dev-secret-change-in-production-min-32-chars!!}
+      access-token-expiration-minutes: 60
+      refresh-token-expiration-days: 7
+    login:
+      max-failed-attempts: 5
+      lock-duration-minutes: 30
+    otp:
+      expiration-minutes: 5
+      max-requests-per-hour: 5
+      max-verify-attempts: 5
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+
+logging:
+  level:
+    com.hyperlocalmart.user: INFO

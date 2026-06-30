@@ -1,0 +1,64 @@
+package com.hyperlocalmart.common.web;
+
+import com.hyperlocalmart.common.api.ApiResponse;
+import com.hyperlocalmart.common.api.FieldErrorDetail;
+import com.hyperlocalmart.common.exception.BusinessException;
+import com.hyperlocalmart.common.exception.ErrorCode;
+import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.validation.FieldError;
+import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
+
+import java.time.Instant;
+import java.util.List;
+
+@RestControllerAdvice
+public class GlobalExceptionHandler {
+
+    @ExceptionHandler(BusinessException.class)
+    public ResponseEntity<ApiResponse<Void>> handleBusiness(BusinessException ex, HttpServletRequest request) {
+        return ResponseEntity.status(ex.getHttpStatus()).body(errorBody(ex.getErrorCode().name(), ex.getMessage(), request, null));
+    }
+
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public ResponseEntity<ApiResponse<List<FieldErrorDetail>>> handleValidation(
+            MethodArgumentNotValidException ex, HttpServletRequest request) {
+        List<FieldErrorDetail> errors = ex.getBindingResult().getFieldErrors().stream()
+                .map(this::toFieldError)
+                .toList();
+        ApiResponse<List<FieldErrorDetail>> body = ApiResponse.<List<FieldErrorDetail>>builder()
+                .success(false)
+                .message(ErrorCode.VALIDATION_ERROR.getDefaultMessage())
+                .data(errors)
+                .timestamp(Instant.now())
+                .correlationId(CorrelationIdFilter.getCorrelationId(request))
+                .build();
+        return ResponseEntity.badRequest().body(body);
+    }
+
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity<ApiResponse<Void>> handleGeneric(Exception ex, HttpServletRequest request) {
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(errorBody(ErrorCode.INTERNAL_ERROR.name(), ErrorCode.INTERNAL_ERROR.getDefaultMessage(), request, null));
+    }
+
+    private FieldErrorDetail toFieldError(FieldError fieldError) {
+        return FieldErrorDetail.builder()
+                .field(fieldError.getField())
+                .message(fieldError.getDefaultMessage())
+                .build();
+    }
+
+    private ApiResponse<Void> errorBody(String errorCode, String message, HttpServletRequest request, Object data) {
+        return ApiResponse.<Void>builder()
+                .success(false)
+                .message(message)
+                .data(null)
+                .timestamp(Instant.now())
+                .correlationId(CorrelationIdFilter.getCorrelationId(request))
+                .build();
+    }
+}

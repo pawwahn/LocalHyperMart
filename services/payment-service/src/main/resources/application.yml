@@ -1,0 +1,42 @@
+﻿server:
+  port: 8087
+
+spring:
+  application:
+    name: payment-service
+  datasource:
+    url: jdbc:postgresql://localhost:5432/hyperlocalmart_payment
+    username: hyperlocalmart
+    password: hyperlocalmart
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+  kafka:
+    bootstrap-servers: localhost:9092
+
+hyperlocalmart:
+  security:
+    jwt:
+      secret: ${JWT_SECRET:hyperlocalmart-dev-secret-change-in-production-min-32-chars!!}
+  order-service:
+    base-url: http://localhost:8086
+  payment:
+    dev-webhook-bypass-secret: dev-bypass
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs

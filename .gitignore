@@ -1,0 +1,40 @@
+# Build
+target/
+!.mvn/wrapper/maven-wrapper.jar
+build/
+out/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+*.swp
+*.swo
+.classpath
+.project
+.settings/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Env
+.env
+.env.local
+*.local.yml
+
+# Flutter (future apps/)
+apps/**/.dart_tool/
+apps/**/build/
+apps/**/.flutter-plugins-dependencies
+
+# Node (future web/)
+web/**/node_modules/
+web/**/dist/
+
+# Docker volumes
+data/
