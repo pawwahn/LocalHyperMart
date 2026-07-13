@@ -1,4 +1,4 @@
-﻿package com.hyperlocalmart.media;
+package com.hyperlocalmart.media;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;

@@ -98,7 +98,7 @@ hyperlocalmart/
 ├── gateway/api-gateway/       # Spring Cloud Gateway
 ├── services/                  # Microservices (one DB each)
 ├── apps/                      # Flutter apps (TODO)
-├── web/                       # React portals (TODO)
+├── web/                       # React portals (Vite+TS) — vendor-portal in progress
 ├── infra/                     # Postgres init, K8s (TODO)
 ├── docs/                      # PRD, design, API contracts
 └── docker-compose.yml
@@ -136,6 +136,53 @@ hyperlocalmart/
 | Vendor dashboard | order-service | Done (`GET /orders/vendor/dashboard`) |
 | Hub admin order views | order-service | Done (`GET /orders/admin`) |
 | Agent CRUD | delivery-service | Done (`POST/GET/PATCH /delivery/agents`) |
+| Hub dashboard | delivery-service | Done (`GET /delivery/hubs/{hubId}/dashboard`) |
+| Delivery reassign | delivery-service | Done (`PATCH /delivery/assignments/{id}/reassign`) |
+
+## Phase 1 Progress Checklist
+
+Track overall MVP completion. Status: **Done** | **Partial** | **Not started**
+
+| Area | Item | Status |
+|---|---|---|
+| **Buyer** | Register / login / JWT | Done |
+| | Town selection + addresses | Done |
+| | Catalog browse + cart + checkout | Done |
+| | Order history, detail, reorder | Done |
+| | Invoice PDF | Done |
+| | FCM device registration | Not started |
+| | Flutter buyer app | Not started |
+| **Vendor** | Sub-orders (ready/reject) | Done |
+| | Listing CRUD | Done |
+| | Dashboard (orders + earnings) | Done |
+| | Registration / approval flow | Not started |
+| | Bulk price CSV | Not started |
+| | Flutter vendor app | Not started |
+| **Hub / delivery** | Pickup + hub receipt + last-mile + OTP | Done |
+| | Admin order views | Done |
+| | Agent CRUD | Done |
+| | Hub dashboard | Done |
+| | Delivery reassign | Done |
+| | Hub admin PIN | Not started |
+| | Agent offline sync | Not started |
+| | Flutter delivery app | Not started |
+| **Platform** | API gateway + JWT | Done |
+| | Payment stub + refund stub | Partial |
+| | Notification SMS stub | Partial |
+| | Real Razorpay / MSG91 / FCM | Not started |
+| | Kafka event bus | Not started |
+| | OpenSearch catalog search | Not started |
+| | billing / media / reporting services | Not started |
+| | Settlements + COD reconciliation | Not started |
+| | Super-admin town/vendor/catalog admin | Not started |
+| | React web portals | Not started |
+| **Ops** | Docker Compose infra | Done |
+| | Dev scripts (`start-dev.ps1`) | Done |
+| | CI/CD, K8s, integration tests | Not started |
+
+**Rough completion:** core pilot backend flow ~**80%** · all Phase 1 backend APIs ~**60%** · full Phase 1 MVP (incl. apps) ~**35%**
+
+**Architecture:** Loosely coupled microservices and UI (wireframe-resilient) — see `docs/02_SYSTEM_DESIGN.md` §2.1–§2.2 and `.cursor/rules/loose-coupling.mdc`.
 
 ### Pilot dev accounts (password: `password`)
 
@@ -174,7 +221,7 @@ POST http://localhost:8085/api/v1/cart/items
 Authorization: Bearer <token>
 {
   "townId": "a1111111-1111-4111-8111-111111111111",
-  "listingId": "l1111111-1111-4111-8111-111111111111",
+  "listingId": "01111111-1111-4111-8111-111111111111",
   "quantity": 2
 }
 
@@ -315,6 +362,18 @@ PATCH http://localhost:8080/api/v1/delivery/agents/{agentId}/status
 Authorization: Bearer <hub-admin-token>
 { "status": "INACTIVE" }
 # DISABLED requires SUPER_ADMIN role
+
+# 18. Hub admin — dashboard + reassign
+GET http://localhost:8080/api/v1/delivery/hubs/me
+Authorization: Bearer <hub-admin-token>
+
+GET http://localhost:8080/api/v1/delivery/hubs/d1111111-1111-4111-8111-111111111111/dashboard
+Authorization: Bearer <hub-admin-token>
+# → activeAgents, order queues, pickup/last-mile counts, activeAssignments
+
+PATCH http://localhost:8080/api/v1/delivery/assignments/{assignmentId}/reassign
+Authorization: Bearer <hub-admin-token>
+{ "newAgentId": "e1111111-1111-4111-8111-111111111111", "reason": "Agent unavailable" }
 ```
 
 Notifications (ORDER_PLACED, SUB_ORDER_READY, OUT_FOR_DELIVERY, ORDER_DELIVERED, etc.) are sent asynchronously to notification-service and logged in `notification_logs` (dev stub — no real SMS).
@@ -324,7 +383,7 @@ Notifications (ORDER_PLACED, SUB_ORDER_READY, OUT_FOR_DELIVERY, ORDER_DELIVERED,
 1. **Real Razorpay/PhonePe** and **MSG91/FCM** (deferred per your plan)
 2. **Media service** for delivery proof photos (deferred)
 3. **Kafka event bus** (replace direct HTTP between services)
-4. **Hub dashboard** or **delivery reassign**
+4. **Agent offline sync** or **hub admin PIN**
 
 ## Pending (not yet built)
 
@@ -357,8 +416,6 @@ Install the above, then run `.\scripts\start-dev.ps1` — Flyway migrations run 
 
 | Feature | Status |
 |---|---|
-| Hub dashboard | Not started |
-| Delivery reassign | Not started |
 | Agent offline sync | Not started |
 | Hub admin PIN for sensitive actions | Not started |
 
@@ -387,7 +444,7 @@ Install the above, then run `.\scripts\start-dev.ps1` — Flyway migrations run 
 | Item | Status |
 |---|---|
 | Flutter buyer app | TODO (`apps/`) |
-| React vendor/hub portals | TODO (`web/`) |
+| React portals (Vite+TS, all apps) | Vendor `:5173` · Delivery `:5174` · Buyer `:5175` |
 
 ## Pilot Town
 

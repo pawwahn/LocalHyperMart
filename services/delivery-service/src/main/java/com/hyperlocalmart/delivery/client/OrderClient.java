@@ -7,6 +7,7 @@ import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
+import java.time.LocalDate;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
@@ -42,6 +43,18 @@ public class OrderClient {
         return response.getData();
     }
 
+    public PickupManifest getPickupManifest(UUID subOrderId) {
+        RestClient client = restClientBuilder.baseUrl(orderServiceProperties.getBaseUrl()).build();
+        ApiResponse<PickupManifest> response = client.get()
+                .uri("/api/v1/internal/orders/sub-orders/{subOrderId}/pickup-manifest", subOrderId)
+                .retrieve()
+                .body(new ParameterizedTypeReference<ApiResponse<PickupManifest>>() {});
+        if (response == null || response.getData() == null) {
+            throw new IllegalStateException("Pickup manifest not found");
+        }
+        return response.getData();
+    }
+
     public void markDelivered(UUID orderId, UUID agentUserId, String recipientName) {
         RestClient client = restClientBuilder.baseUrl(orderServiceProperties.getBaseUrl()).build();
         Map<String, Object> body = new HashMap<>();
@@ -62,7 +75,8 @@ public class OrderClient {
             UUID townId,
             UUID vendorId,
             String status,
-            String orderNumber
+            String orderNumber,
+            String subOrderNumber
     ) {
     }
 
@@ -73,6 +87,68 @@ public class OrderClient {
             String status,
             String orderNumber,
             String buyerPhone
+    ) {
+    }
+
+    public HubOrderStats getHubOrderStats(UUID townId) {
+        RestClient client = restClientBuilder.baseUrl(orderServiceProperties.getBaseUrl()).build();
+        ApiResponse<HubOrderStats> response = client.get()
+                .uri("/api/v1/internal/towns/{townId}/hub-order-stats", townId)
+                .retrieve()
+                .body(new ParameterizedTypeReference<ApiResponse<HubOrderStats>>() {});
+        if (response == null || response.getData() == null) {
+            return new HubOrderStats(0, 0);
+        }
+        return response.getData();
+    }
+
+    public HubTownReportStats getHubTownReportStats(UUID townId, LocalDate from, LocalDate to) {
+        RestClient client = restClientBuilder.baseUrl(orderServiceProperties.getBaseUrl()).build();
+        ApiResponse<HubTownReportStats> response = client.get()
+                .uri(uriBuilder -> uriBuilder
+                        .path("/api/v1/internal/towns/{townId}/hub-report-stats")
+                        .queryParam("from", from.toString())
+                        .queryParam("to", to.toString())
+                        .build(townId))
+                .retrieve()
+                .body(new ParameterizedTypeReference<ApiResponse<HubTownReportStats>>() {});
+        if (response == null || response.getData() == null) {
+            return new HubTownReportStats(from, to, 0, 0, 0, 0, 0);
+        }
+        return response.getData();
+    }
+
+    public record HubOrderStats(long readyForPickupCount, long placedOrdersCount) {
+    }
+
+    public record HubTownReportStats(
+            LocalDate from,
+            LocalDate to,
+            long ordersPlaced,
+            long ordersDelivered,
+            long ordersCancelled,
+            long subOrdersPlaced,
+            long bagsMarkedReady
+    ) {
+    }
+
+    public record PickupManifestLine(
+            String name,
+            int quantity,
+            String unitCode,
+            java.math.BigDecimal lineTotal
+    ) {
+    }
+
+    public record PickupManifest(
+            UUID subOrderId,
+            String subOrderNumber,
+            String orderNumber,
+            UUID shopId,
+            String shopName,
+            java.math.BigDecimal subtotal,
+            int totalItemCount,
+            java.util.List<PickupManifestLine> items
     ) {
     }
 }

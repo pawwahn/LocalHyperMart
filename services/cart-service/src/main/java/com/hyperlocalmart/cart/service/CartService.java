@@ -4,6 +4,7 @@ import com.hyperlocalmart.cart.client.CatalogListingClient;
 import com.hyperlocalmart.cart.client.TownConfigClient;
 import com.hyperlocalmart.cart.client.VendorShopClient;
 import com.hyperlocalmart.cart.dto.request.AddCartItemRequest;
+import com.hyperlocalmart.cart.dto.request.ApplyPromoRequest;
 import com.hyperlocalmart.cart.dto.request.ChangeTownRequest;
 import com.hyperlocalmart.cart.dto.request.ReorderLineRequest;
 import com.hyperlocalmart.cart.dto.request.UpdateCartItemRequest;
@@ -15,8 +16,11 @@ import com.hyperlocalmart.cart.dto.response.CartResponse;
 import com.hyperlocalmart.cart.entity.Cart;
 import com.hyperlocalmart.cart.entity.CartItem;
 import com.hyperlocalmart.cart.entity.CartStatus;
+import com.hyperlocalmart.cart.entity.DiscountType;
+import com.hyperlocalmart.cart.entity.PromoCode;
 import com.hyperlocalmart.cart.repository.CartItemRepository;
 import com.hyperlocalmart.cart.repository.CartRepository;
+import com.hyperlocalmart.cart.repository.PromoCodeRepository;
 import com.hyperlocalmart.common.exception.BusinessException;
 import com.hyperlocalmart.common.exception.ErrorCode;
 import lombok.RequiredArgsConstructor;
@@ -24,6 +28,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -34,6 +40,7 @@ public class CartService {
 
     private final CartRepository cartRepository;
     private final CartItemRepository cartItemRepository;
+    private final PromoCodeRepository promoCodeRepository;
     private final CatalogListingClient catalogListingClient;
     private final VendorShopClient vendorShopClient;
     private final TownConfigClient townConfigClient;
@@ -79,6 +86,7 @@ public class CartService {
             cart.getItems().add(item);
         }
 
+        refreshPromo(cart);
         return toResponse(cartRepository.save(cart));
     }
 
@@ -87,6 +95,7 @@ public class CartService {
         CartItem item = findUserItem(userId, itemId);
         item.setQuantity(request.getQuantity());
         item.setLineTotal(calculateLineTotal(item.getQuantity(), item.getUnitPrice(), item.getDiscountPrice()));
+        refreshPromo(item.getCart());
         return toResponse(item.getCart());
     }
 
@@ -96,7 +105,33 @@ public class CartService {
         Cart cart = item.getCart();
         cart.getItems().remove(item);
         cartItemRepository.delete(item);
+        refreshPromo(cart);
         return toResponse(cart);
+    }
+
+    @Transactional
+    public CartResponse applyPromo(UUID userId, UUID townId, ApplyPromoRequest request) {
+        Cart cart = cartRepository.findByUserIdAndTownIdAndStatus(userId, townId, CartStatus.ACTIVE)
+                .orElseThrow(() -> new BusinessException(ErrorCode.VALIDATION_ERROR, "Add items to cart before applying a coupon"));
+        if (cart.getItems().isEmpty()) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Add items to cart before applying a coupon");
+        }
+
+        PromoCode promo = findValidPromo(request.getCode(), itemsSubtotal(cart));
+        cart.setPromoCode(promo.getCode());
+        cart.setPromoDiscount(computeDiscount(itemsSubtotal(cart), promo));
+        return toResponse(cartRepository.save(cart));
+    }
+
+    @Transactional
+    public CartResponse removePromo(UUID userId, UUID townId) {
+        Cart cart = cartRepository.findByUserIdAndTownIdAndStatus(userId, townId, CartStatus.ACTIVE)
+                .orElse(null);
+        if (cart == null) {
+            return emptyCartResponse(townId);
+        }
+        clearPromo(cart);
+        return toResponse(cartRepository.save(cart));
     }
 
     @Transactional
@@ -112,6 +147,7 @@ public class CartService {
         for (Cart cart : activeCarts) {
             if (!cart.getTownId().equals(request.getNewTownId())) {
                 cart.getItems().clear();
+                clearPromo(cart);
                 cart.setStatus(CartStatus.ABANDONED);
                 cartRepository.save(cart);
             }
@@ -120,38 +156,47 @@ public class CartService {
         return getCart(userId, request.getNewTownId());
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public CartInternalResponse getCartForCheckout(UUID userId, UUID cartId, UUID townId) {
-        Cart cart = cartRepository.findByIdAndUserIdAndTownIdAndStatus(cartId, userId, townId, CartStatus.ACTIVE)
-                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Active cart not found"));
-        if (cart.getItems().isEmpty()) {
-            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Cart is empty");
+        Cart cart = cartRepository.findById(cartId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Cart not found"));
+        if (!cart.getUserId().equals(userId) || !cart.getTownId().equals(townId)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "Cart not found");
         }
+        if (cart.getStatus() != CartStatus.ACTIVE) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Cart is not active");
+        }
+        refreshPromo(cart);
         CartResponse response = toResponse(cart);
-        if (!response.isMinOrderMet()) {
-            throw new BusinessException(ErrorCode.MIN_ORDER_NOT_MET, "Minimum order value not met");
-        }
         return toInternalResponse(cart, response);
     }
 
     @Transactional
     public void convertCart(UUID userId, UUID cartId, UUID townId) {
-        Cart cart = cartRepository.findByIdAndUserIdAndTownIdAndStatus(cartId, userId, townId, CartStatus.ACTIVE)
-                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Active cart not found"));
+        Cart cart = cartRepository.findById(cartId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Cart not found"));
+        if (!cart.getUserId().equals(userId) || !cart.getTownId().equals(townId)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "Cart not found");
+        }
+        if (cart.getPromoCode() != null) {
+            promoCodeRepository.findByCodeIgnoreCase(cart.getPromoCode()).ifPresent(promo -> {
+                promo.setUsedCount(promo.getUsedCount() + 1);
+                promoCodeRepository.save(promo);
+            });
+        }
         cart.setStatus(CartStatus.CONVERTED);
         cartRepository.save(cart);
     }
 
     @Transactional
-    public CartReorderResponse replaceCartItems(UUID userId, UUID townId, List<ReorderLineRequest> items) {
-        ensureNoConflictingTownCart(userId, townId);
+    public CartReorderResponse replaceCartItems(UUID userId, UUID townId, List<ReorderLineRequest> lines) {
         Cart cart = getOrCreateCart(userId, townId);
         cart.getItems().clear();
-
-        for (ReorderLineRequest line : items) {
+        clearPromo(cart);
+        for (ReorderLineRequest line : lines) {
             CatalogListingClient.ListingSnapshot listing =
                     catalogListingClient.getListing(line.getListingId(), townId);
-            CartItem cartItem = CartItem.builder()
+            CartItem item = CartItem.builder()
                     .cart(cart)
                     .listingId(listing.listingId())
                     .vendorId(listing.vendorId())
@@ -163,9 +208,8 @@ public class CartService {
                     .discountPrice(listing.discountPrice())
                     .lineTotal(calculateLineTotal(line.getQuantity(), listing.price(), listing.discountPrice()))
                     .build();
-            cart.getItems().add(cartItem);
+            cart.getItems().add(item);
         }
-
         CartResponse response = toResponse(cartRepository.save(cart));
         return CartReorderResponse.builder()
                 .cartId(response.getCartId())
@@ -205,6 +249,9 @@ public class CartService {
                 .townId(cart.getTownId())
                 .status(cart.getStatus().name())
                 .itemsSubtotal(response.getItemsSubtotal())
+                .promoDiscount(response.getPromoDiscount())
+                .promoCode(response.getPromoCode())
+                .payableSubtotal(response.getPayableSubtotal())
                 .itemCount(response.getItemCount())
                 .minOrderMet(response.isMinOrderMet())
                 .items(items)
@@ -217,6 +264,7 @@ public class CartService {
                         .userId(userId)
                         .townId(townId)
                         .status(CartStatus.ACTIVE)
+                        .promoDiscount(BigDecimal.ZERO)
                         .build()));
     }
 
@@ -238,6 +286,80 @@ public class CartService {
         return item;
     }
 
+    private void refreshPromo(Cart cart) {
+        if (cart.getPromoCode() == null || cart.getPromoCode().isBlank()) {
+            clearPromo(cart);
+            return;
+        }
+        try {
+            PromoCode promo = findValidPromo(cart.getPromoCode(), itemsSubtotal(cart));
+            cart.setPromoCode(promo.getCode());
+            cart.setPromoDiscount(computeDiscount(itemsSubtotal(cart), promo));
+        } catch (BusinessException ex) {
+            clearPromo(cart);
+        }
+    }
+
+    private void clearPromo(Cart cart) {
+        cart.setPromoCode(null);
+        cart.setPromoDiscount(BigDecimal.ZERO);
+    }
+
+    private PromoCode findValidPromo(String rawCode, BigDecimal subtotal) {
+        String code = normalizeCode(rawCode);
+        if (code.isEmpty()) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Enter a coupon code");
+        }
+        PromoCode promo = promoCodeRepository.findByCodeIgnoreCase(code)
+                .orElseThrow(() -> new BusinessException(ErrorCode.VALIDATION_ERROR, "Invalid coupon code"));
+        if (!promo.isActive()) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "This coupon is not active");
+        }
+        if (promo.getExpiresAt() != null && promo.getExpiresAt().isBefore(Instant.now())) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "This coupon has expired");
+        }
+        if (promo.getUsageLimit() != null && promo.getUsedCount() >= promo.getUsageLimit()) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "This coupon has reached its usage limit");
+        }
+        if (subtotal.compareTo(promo.getMinOrderValue()) < 0) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR,
+                    "Minimum order ₹" + promo.getMinOrderValue().setScale(0, RoundingMode.HALF_UP)
+                            + " required for this coupon");
+        }
+        BigDecimal discount = computeDiscount(subtotal, promo);
+        if (discount.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "This coupon does not apply to your cart");
+        }
+        return promo;
+    }
+
+    private BigDecimal computeDiscount(BigDecimal subtotal, PromoCode promo) {
+        if (subtotal.compareTo(BigDecimal.ZERO) <= 0) {
+            return BigDecimal.ZERO;
+        }
+        BigDecimal discount;
+        if (promo.getDiscountType() == DiscountType.PERCENT) {
+            discount = subtotal.multiply(promo.getDiscountValue())
+                    .divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
+            if (promo.getMaxDiscount() != null) {
+                discount = discount.min(promo.getMaxDiscount());
+            }
+        } else {
+            discount = promo.getDiscountValue();
+        }
+        return discount.min(subtotal).setScale(2, RoundingMode.HALF_UP);
+    }
+
+    private String normalizeCode(String code) {
+        return code == null ? "" : code.trim().toUpperCase().replaceAll("\\s+", "");
+    }
+
+    private BigDecimal itemsSubtotal(Cart cart) {
+        return cart.getItems().stream()
+                .map(CartItem::getLineTotal)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
     private CartResponse toResponse(Cart cart) {
         List<UUID> shopIds = cart.getItems().stream().map(CartItem::getShopId).distinct().toList();
         Map<UUID, String> shopNames = vendorShopClient.getShopNames(shopIds);
@@ -255,15 +377,26 @@ public class CartService {
                         .build())
                 .toList();
 
-        BigDecimal subtotal = cart.getItems().stream()
-                .map(CartItem::getLineTotal)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal subtotal = itemsSubtotal(cart);
+        BigDecimal promoDiscount = cart.getPromoDiscount() == null ? BigDecimal.ZERO : cart.getPromoDiscount();
+        BigDecimal payable = subtotal.subtract(promoDiscount).max(BigDecimal.ZERO);
         int itemCount = cart.getItems().stream().mapToInt(CartItem::getQuantity).sum();
+
+        String promoDescription = null;
+        if (cart.getPromoCode() != null) {
+            promoDescription = promoCodeRepository.findByCodeIgnoreCase(cart.getPromoCode())
+                    .map(PromoCode::getDescription)
+                    .orElse(null);
+        }
 
         return CartResponse.builder()
                 .cartId(cart.getId())
                 .townId(cart.getTownId())
                 .itemsSubtotal(subtotal)
+                .promoCode(cart.getPromoCode())
+                .promoDiscount(promoDiscount)
+                .promoDescription(promoDescription)
+                .payableSubtotal(payable)
                 .itemCount(itemCount)
                 .items(items)
                 .minOrderValue(minOrderValue)
@@ -277,6 +410,10 @@ public class CartService {
                 .cartId(null)
                 .townId(townId)
                 .itemsSubtotal(BigDecimal.ZERO)
+                .promoDiscount(BigDecimal.ZERO)
+                .promoCode(null)
+                .promoDescription(null)
+                .payableSubtotal(BigDecimal.ZERO)
                 .itemCount(0)
                 .items(List.of())
                 .minOrderValue(minOrderValue)

@@ -159,6 +159,7 @@ public class VendorSubOrderService {
                 .toList();
         return VendorSubOrderResponse.builder()
                 .subOrderId(subOrder.getId())
+                .subOrderNumber(subOrder.getSubOrderNumber())
                 .orderId(subOrder.getOrder().getId())
                 .orderNumber(subOrder.getOrder().getOrderNumber())
                 .vendorId(subOrder.getVendorId())

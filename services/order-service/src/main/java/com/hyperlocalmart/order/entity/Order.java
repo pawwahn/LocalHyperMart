@@ -57,6 +57,13 @@ public class Order extends BaseAuditEntity {
     @Column(name = "items_subtotal", nullable = false, precision = 12, scale = 2)
     private BigDecimal itemsSubtotal;
 
+    @Column(name = "promo_code", length = 40)
+    private String promoCode;
+
+    @Column(name = "promo_discount", nullable = false, precision = 12, scale = 2)
+    @Builder.Default
+    private BigDecimal promoDiscount = BigDecimal.ZERO;
+
     @Column(name = "delivery_fee", nullable = false, precision = 12, scale = 2)
     private BigDecimal deliveryFee;
 

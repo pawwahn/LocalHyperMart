@@ -110,6 +110,7 @@ public class VendorDashboardService {
         int itemCount = subOrder.getItems().stream().mapToInt(OrderItem::getQuantity).sum();
         return VendorDashboardRecentOrder.builder()
                 .subOrderId(subOrder.getId())
+                .subOrderNumber(subOrder.getSubOrderNumber())
                 .orderId(subOrder.getOrder().getId())
                 .orderNumber(subOrder.getOrder().getOrderNumber())
                 .subtotal(subOrder.getSubtotal())

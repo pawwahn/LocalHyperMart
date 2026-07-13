@@ -1,0 +1,93 @@
+---
+description: Enforce loosely coupled boundaries for backend and UI (wireframe-resilient)
+alwaysApply: true
+---
+
+# Loose Coupling (HyperLocalMart)
+
+Every change must preserve service and UI autonomy. When in doubt, favor boundaries over convenience.
+
+## Backend — hard rules
+
+- **One database per service** — never query or migrate another service's tables.
+- **No entity leakage** — expose DTOs/records at REST and Kafka boundaries, not JPA entities.
+- **Internal APIs only for sync** — `/api/v1/internal/**` is service-to-service; never expose via gateway.
+- **Single owner per capability** — e.g. orders in order-service, payments in payment-service.
+- **Idempotent writes** — checkout, webhooks, and consumers must tolerate retries.
+
+## Backend — prefer events over chains
+
+- **Side effects** (SMS, push, reporting, search index) → Kafka event + consumer, not blocking HTTP.
+- **Sync HTTP** is OK for read enrichment or request/response flows (cart pricing, checkout validation).
+- Avoid deep call chains (A → B → C → D) in one request; publish an event or return async.
+
+## UI / frontend — hard rules (Flutter + React)
+
+Wireframes will change. UI must survive new layouts without rewriting business logic or API integration.
+
+- **Three layers** — Presentation (screens/widgets) → State (hooks/BLoC/controllers) → Data (repositories/API clients). Never skip layers.
+- **API boundary** — Screens never call `fetch`/HTTP directly. All network I/O goes through a typed client/repository that mirrors `docs/05_API_CONTRACTS.md`.
+- **View models, not raw DTOs** — Map API responses to UI models in the data layer. Wireframe changes touch presentation + view models only, not repositories.
+- **Design tokens** — Colors, spacing, typography, radii live in theme/tokens — not hardcoded per screen.
+- **Dumb components** — Presentational widgets/components receive props/callbacks; no API calls or domain rules inside.
+- **Feature modules** — Organize by domain (`features/cart`, `features/orders`), not by wireframe page names.
+- **Navigation decoupled** — Route tables separate from screen implementation so flows can reorder without refactors.
+- **Composition over monolith screens** — Build lists, cards, headers, empty states as reusable pieces; screens assemble them.
+
+## UI — wireframe change checklist
+
+1. Can we reskin this by changing **layout + tokens** only?
+2. Is business logic in **state/repository**, not in the widget tree?
+3. Does the screen depend on a **view model** interface, not a specific API field layout?
+4. Are loading/error/empty states **generic components**, not copy-pasted per screen?
+5. Will a new wireframe require **new components**, not changes to API clients?
+
+## Integration patterns
+
+| Need | Do | Don't |
+|---|---|---|
+| Read data from another domain | Internal REST + DTO snapshot | Cross-DB join or shared table |
+| UI needs order data | Repository → view model → screen | Screen parses JSON and encodes checkout rules |
+| New wireframe for checkout | New layout composing existing cart/order components | Duplicate API + validation logic in new page |
+| Shared UI styling | Theme / design tokens | Magic numbers and hex colors in every file |
+| Notify another domain | Kafka event (target: outbox) | Direct DB write in peer service |
+
+## Examples
+
+```java
+// BAD — order-service reaching into payment schema
+@Query("SELECT * FROM hyperlocalmart_payment.payments ...")
+
+// GOOD — payment-service owns data; order calls internal API or consumes PaymentCaptured event
+paymentClient.initiatePayment(...)
+```
+
+```typescript
+// BAD — screen coupled to API shape and wireframe layout together
+function CheckoutPage() {
+  const res = await fetch('/api/v1/orders', { ... });
+  return <div className="p-4">{res.data.itemsSubtotal}</div>;
+}
+
+// GOOD — layers separated; wireframe can change independently
+function CheckoutPage() {
+  const { summary, placeOrder, status } = useCheckout();
+  return <CheckoutLayout summary={summary} onSubmit={placeOrder} status={status} />;
+}
+```
+
+## New feature checklist
+
+**Backend**
+1. Which service **owns** the data and API?
+2. Can this be **async** via Kafka instead of sync HTTP?
+3. What **DTO/contract** does the consumer see (not internal schema)?
+4. Is the operation **idempotent** under retry?
+5. Does gateway expose only the **public** surface (buyer/vendor/hub roles)?
+
+**UI**
+1. Which **repository** owns API calls for this feature?
+2. What **view model** does the screen consume?
+3. Which parts are **reusable components** vs screen-specific layout?
+4. Are styles from **theme tokens**?
+5. Will a future wireframe swap require changes only in **presentation**?

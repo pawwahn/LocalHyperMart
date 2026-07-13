@@ -61,7 +61,8 @@ class AssignmentServiceTest {
                         .build()));
         when(agentHubLinkRepository.existsByAgentIdAndHubIdAndActiveTrue(agentId, hubId)).thenReturn(true);
         when(orderClient.getSubOrder(subOrderId)).thenReturn(new OrderClient.SubOrderSnapshot(
-                subOrderId, orderId, townId, UUID.randomUUID(), "READY_FOR_PICKUP", "ORD-001"
+                subOrderId, orderId, townId, UUID.randomUUID(), "READY_FOR_PICKUP",
+                "NRPT/AP-260708-O0001", "NRPT/AP-260708-O0001-1/2"
         ));
         when(deliveryAssignmentRepository.existsByVendorSubOrderIdAndLegTypeAndStatusIn(
                 subOrderId, AssignmentLegType.PICKUP,
@@ -83,5 +84,8 @@ class AssignmentServiceTest {
         assertThat(response.getOrderId()).isEqualTo(orderId);
         assertThat(response.getAgentId()).isEqualTo(agentId);
         assertThat(response.getHubId()).isEqualTo(hubId);
+        assertThat(response.getAssignmentNumber()).isEqualTo("NRPT/AP-260708-O0001-1/2-TO-HUB");
+        assertThat(response.getOrderNumber()).isEqualTo("NRPT/AP-260708-O0001");
+        assertThat(response.getSubOrderNumber()).isEqualTo("NRPT/AP-260708-O0001-1/2");
     }
 }

@@ -16,6 +16,9 @@ public class CartInternalResponse {
     private UUID townId;
     private String status;
     private BigDecimal itemsSubtotal;
+    private BigDecimal promoDiscount;
+    private String promoCode;
+    private BigDecimal payableSubtotal;
     private int itemCount;
     private boolean minOrderMet;
     private List<CartInternalItemResponse> items;

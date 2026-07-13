@@ -1,4 +1,4 @@
-﻿package com.hyperlocalmart.order;
+package com.hyperlocalmart.order;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;

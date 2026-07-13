@@ -36,7 +36,7 @@ class CatalogBrowseServiceTest {
         UUID townId = UUID.fromString("a1111111-1111-4111-8111-111111111111");
         UUID shopId = UUID.fromString("c1111111-1111-4111-8111-111111111111");
         VendorListing listing = sampleListing(shopId);
-        when(vendorListingRepository.searchActiveByTown(eq(townId), isNull(), any(PageRequest.class)))
+        when(vendorListingRepository.findActiveByTown(eq(townId), any(PageRequest.class)))
                 .thenReturn(new PageImpl<>(List.of(listing)));
         when(vendorShopClient.getShopsByIds(anyList())).thenReturn(Map.of(
                 shopId, new VendorShopClient.ShopInfo(shopId, listing.getVendorId(), "Ravi Kirana")

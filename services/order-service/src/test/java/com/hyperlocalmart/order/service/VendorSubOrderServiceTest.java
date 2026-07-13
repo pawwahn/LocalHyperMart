@@ -111,6 +111,7 @@ class VendorSubOrderServiceTest {
                 .order(order)
                 .vendorId(vendorId)
                 .shopId(UUID.randomUUID())
+                .subOrderNumber("NRPT-00001-1/1")
                 .status(VendorSubOrderStatus.PLACED)
                 .subtotal(new BigDecimal("500.00"))
                 .items(new ArrayList<>(List.of(OrderItem.builder()

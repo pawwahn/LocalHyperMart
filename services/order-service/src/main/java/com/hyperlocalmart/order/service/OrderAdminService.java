@@ -4,6 +4,7 @@ import com.hyperlocalmart.common.api.PageResponse;
 import com.hyperlocalmart.common.exception.BusinessException;
 import com.hyperlocalmart.common.exception.ErrorCode;
 import com.hyperlocalmart.order.client.DeliveryClient;
+import com.hyperlocalmart.order.dto.response.AdminOrderResponses.AdminAssignmentEventResponse;
 import com.hyperlocalmart.order.dto.response.AdminOrderResponses.AdminAssignmentResponse;
 import com.hyperlocalmart.order.dto.response.AdminOrderResponses.AdminOrderDetailResponse;
 import com.hyperlocalmart.order.dto.response.AdminOrderResponses.AdminOrderSummaryResponse;
@@ -12,6 +13,7 @@ import com.hyperlocalmart.order.entity.Order;
 import com.hyperlocalmart.order.entity.OrderItem;
 import com.hyperlocalmart.order.entity.OrderStatus;
 import com.hyperlocalmart.order.entity.VendorSubOrder;
+import com.hyperlocalmart.order.entity.VendorSubOrderStatus;
 import com.hyperlocalmart.order.repository.OrderRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -67,11 +69,23 @@ public class OrderAdminService {
         List<AdminAssignmentResponse> assignments = deliveryClient.getAssignmentsForOrder(orderId).stream()
                 .map(a -> AdminAssignmentResponse.builder()
                         .assignmentId(a.assignmentId())
+                        .assignmentNumber(a.assignmentNumber())
+                        .orderNumber(a.orderNumber())
+                        .subOrderNumber(a.subOrderNumber())
                         .agentId(a.agentId())
                         .legType(a.legType())
                         .status(a.status())
                         .assignedAt(a.assignedAt())
+                        .startedAt(a.startedAt())
                         .completedAt(a.completedAt())
+                        .events(a.events() == null ? List.of() : a.events().stream()
+                                .map(e -> AdminAssignmentEventResponse.builder()
+                                        .eventId(e.eventId())
+                                        .eventType(e.eventType())
+                                        .createdAt(e.createdAt())
+                                        .createdBy(e.createdBy())
+                                        .build())
+                                .toList())
                         .build())
                 .toList();
 
@@ -106,6 +120,9 @@ public class OrderAdminService {
     }
 
     private AdminOrderSummaryResponse toSummary(Order order) {
+        int readySubOrderCount = (int) order.getVendorSubOrders().stream()
+                .filter(sub -> sub.getStatus() == VendorSubOrderStatus.READY_FOR_PICKUP)
+                .count();
         return AdminOrderSummaryResponse.builder()
                 .orderId(order.getId())
                 .orderNumber(order.getOrderNumber())
@@ -115,15 +132,21 @@ public class OrderAdminService {
                 .totalAmount(order.getTotalAmount())
                 .placedAt(order.getPlacedAt())
                 .subOrderCount(order.getVendorSubOrders().size())
+                .readySubOrderCount(readySubOrderCount)
                 .build();
     }
 
     private AdminSubOrderResponse toSubOrder(VendorSubOrder subOrder) {
         int itemCount = subOrder.getItems().stream().mapToInt(OrderItem::getQuantity).sum();
+        String shopName = subOrder.getItems().isEmpty()
+                ? "Shop"
+                : subOrder.getItems().getFirst().getShopNameSnapshot();
         return AdminSubOrderResponse.builder()
                 .subOrderId(subOrder.getId())
+                .subOrderNumber(subOrder.getSubOrderNumber())
                 .vendorId(subOrder.getVendorId())
                 .shopId(subOrder.getShopId())
+                .shopName(shopName != null && !shopName.isBlank() ? shopName : "Shop")
                 .status(subOrder.getStatus())
                 .subtotal(subOrder.getSubtotal())
                 .readyForPickupAt(subOrder.getReadyForPickupAt())

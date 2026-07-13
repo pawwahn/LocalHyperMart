@@ -10,6 +10,7 @@ import java.util.UUID;
 public class SubOrderInternalSnapshotResponse {
 
     UUID subOrderId;
+    String subOrderNumber;
     UUID orderId;
     UUID townId;
     UUID vendorId;

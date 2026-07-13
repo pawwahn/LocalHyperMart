@@ -1,4 +1,4 @@
-﻿package com.hyperlocalmart.notification.web;
+package com.hyperlocalmart.notification.web;
 
 import com.hyperlocalmart.common.api.ApiResponse;
 import org.springframework.web.bind.annotation.GetMapping;

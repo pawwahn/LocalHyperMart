@@ -40,6 +40,59 @@
 6. **Events are immutable**; state changes drive new events.
 7. **Fail closed on auth** — invalid token or wrong town → 403.
 
+## 2.1 Loose coupling (mandatory)
+
+HyperLocalMart is a **loosely coupled** microservice platform. Convenience must not collapse service boundaries.
+
+| Rule | Requirement |
+|---|---|
+| Data ownership | Each service owns its PostgreSQL schema; no cross-DB reads/writes |
+| API boundaries | Peers integrate via versioned REST internal APIs or Kafka contracts |
+| No entity leakage | JPA entities stay inside a service; DTOs/records cross boundaries |
+| Async side effects | Notifications, search indexing, reporting → events, not blocking HTTP |
+| Single writer | One service owns each aggregate (Order, Payment, Listing, Assignment) |
+| Idempotency | Writes that can retry (checkout, webhooks, consumers) use keys or dedup tables |
+| Gateway scope | Public clients use gateway routes only; `/internal/**` stays private |
+
+**Acceptable sync HTTP (pilot):** cart pricing, checkout validation, hub dashboard stats enrichment — short request/response with timeouts and DTOs.
+
+**Move to Kafka next:** order placed, payment captured, sub-order ready, delivered — replace fire-and-forget HTTP where possible.
+
+**Anti-patterns:** shared tables, importing another service's entities, long synchronous chains, exposing internal URLs on the gateway, failing checkout when a non-critical notifier is down.
+
+## 2.2 UI loose coupling (Flutter + React)
+
+Client apps must stay **wireframe-resilient** — new designs should not force API or domain rewrites.
+
+| Layer | Responsibility | Changes when wireframes update |
+|---|---|---|
+| **Presentation** | Layout, components, navigation shell | Often |
+| **State** | Hooks, BLoC, controllers, form flow | Sometimes |
+| **Data** | API clients, repositories, DTO → view model mappers | Rarely |
+
+**Rules**
+
+1. Screens/widgets **never** call HTTP directly — use repositories typed against `05_API_CONTRACTS.md`.
+2. Map API DTOs to **view models** before rendering; do not bind UI to raw JSON field names in templates.
+3. **Design tokens** (theme) for color, spacing, typography — no per-screen magic values.
+4. **Presentational components** are prop-driven; business rules live in state layer or backend.
+5. Organize by **feature domain** (`cart`, `orders`, `vendor/listings`), not by one-off wireframe filenames.
+6. Extract **loading / error / empty** states as shared components.
+7. Keep **routing** in a single module so screen order can change without moving logic.
+
+**Target folder shape (when apps are built)**
+
+```text
+apps/buyer/  or  web/vendor-portal/
+  features/<domain>/
+    data/       # api client, repository, mappers
+    state/      # hooks / bloc / store
+    ui/         # screens + presentational widgets
+  shared/       # theme tokens, generic components, routing
+```
+
+Project rule: `.cursor/rules/loose-coupling.mdc`
+
 ---
 
 # 3. High-Level Architecture

@@ -14,6 +14,10 @@ public class CartResponse {
     private UUID cartId;
     private UUID townId;
     private BigDecimal itemsSubtotal;
+    private BigDecimal promoDiscount;
+    private String promoCode;
+    private String promoDescription;
+    private BigDecimal payableSubtotal;
     private int itemCount;
     private List<CartItemResponse> items;
     private BigDecimal minOrderValue;

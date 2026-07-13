@@ -45,4 +45,12 @@ class OrderNumberGeneratorTest {
         verify(dailyOrderSequenceRepository).save(captor.capture());
         assertThat(captor.getValue().getLastSequence()).isEqualTo(1);
     }
+
+    @Test
+    void subOrderNumber_appendsIndexAndTotal() {
+        assertThat(OrderNumberGenerator.subOrderNumber("NRPT/AP-260708-O0001", 1, 3))
+                .isEqualTo("NRPT/AP-260708-O0001-1/3");
+        assertThat(OrderNumberGenerator.subOrderNumber("NRPT/AP-260708-O0001", 2, 3))
+                .isEqualTo("NRPT/AP-260708-O0001-2/3");
+    }
 }

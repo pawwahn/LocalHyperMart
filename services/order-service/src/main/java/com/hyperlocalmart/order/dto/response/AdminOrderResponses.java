@@ -28,14 +28,18 @@ public final class AdminOrderResponses {
         BigDecimal totalAmount;
         Instant placedAt;
         int subOrderCount;
+        int readySubOrderCount;
     }
 
     @Value
     @Builder
     public static class AdminSubOrderResponse {
         UUID subOrderId;
+        String subOrderNumber;
         UUID vendorId;
         UUID shopId;
+        /** Snapshot shop/vendor name for hub staff (call the shop). */
+        String shopName;
         VendorSubOrderStatus status;
         BigDecimal subtotal;
         Instant readyForPickupAt;
@@ -46,11 +50,25 @@ public final class AdminOrderResponses {
     @Builder
     public static class AdminAssignmentResponse {
         UUID assignmentId;
+        String assignmentNumber;
+        String orderNumber;
+        String subOrderNumber;
         UUID agentId;
         String legType;
         String status;
         Instant assignedAt;
+        Instant startedAt;
         Instant completedAt;
+        List<AdminAssignmentEventResponse> events;
+    }
+
+    @Value
+    @Builder
+    public static class AdminAssignmentEventResponse {
+        UUID eventId;
+        String eventType;
+        Instant createdAt;
+        UUID createdBy;
     }
 
     @Value

@@ -1,4 +1,4 @@
-﻿package com.hyperlocalmart.town.web;
+package com.hyperlocalmart.town.web;
 
 import com.hyperlocalmart.common.api.ApiResponse;
 import org.springframework.web.bind.annotation.GetMapping;

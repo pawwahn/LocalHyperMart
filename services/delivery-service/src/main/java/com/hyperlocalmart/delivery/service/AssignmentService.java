@@ -1,18 +1,25 @@
 package com.hyperlocalmart.delivery.service;
 
+import com.hyperlocalmart.common.api.PageResponse;
 import com.hyperlocalmart.common.exception.BusinessException;
 import com.hyperlocalmart.common.exception.ErrorCode;
 import com.hyperlocalmart.delivery.client.NotificationClient;
 import com.hyperlocalmart.delivery.client.OrderClient;
+import com.hyperlocalmart.delivery.dto.request.ReassignAssignmentRequest;
 import com.hyperlocalmart.delivery.dto.request.AssignLastMileRequest;
 import com.hyperlocalmart.delivery.dto.request.AssignPickupRequest;
 import com.hyperlocalmart.delivery.dto.request.BuyerRejectedRequest;
 import com.hyperlocalmart.delivery.dto.request.DeliverRequest;
 import com.hyperlocalmart.delivery.dto.request.PickedFromVendorRequest;
 import com.hyperlocalmart.delivery.dto.response.AssignmentResponse;
+import com.hyperlocalmart.delivery.dto.response.DeliveryEventResponse;
+import com.hyperlocalmart.delivery.dto.response.PickupManifestLineResponse;
+import com.hyperlocalmart.delivery.dto.response.PickupManifestResponse;
 import com.hyperlocalmart.delivery.entity.*;
 import com.hyperlocalmart.delivery.repository.*;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -20,7 +27,9 @@ import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -63,6 +72,9 @@ public class AssignmentService {
         }
 
         DeliveryAssignment assignment = DeliveryAssignment.builder()
+                .assignmentNumber(AssignmentNumberFormatter.pickup(subOrder.subOrderNumber()))
+                .orderNumber(subOrder.orderNumber())
+                .subOrderNumber(subOrder.subOrderNumber())
                 .orderId(subOrder.orderId())
                 .vendorSubOrderId(subOrder.subOrderId())
                 .townId(subOrder.townId())
@@ -106,6 +118,8 @@ public class AssignmentService {
         }
 
         DeliveryAssignment assignment = DeliveryAssignment.builder()
+                .assignmentNumber(AssignmentNumberFormatter.lastMile(order.orderNumber()))
+                .orderNumber(order.orderNumber())
                 .orderId(request.getOrderId())
                 .townId(hub.getTownId())
                 .hubId(hubAdmin.getHubId())
@@ -132,6 +146,42 @@ public class AssignmentService {
         return toResponse(assignment);
     }
 
+    @Transactional
+    public AssignmentResponse reassign(UUID hubAdminUserId, UUID assignmentId, ReassignAssignmentRequest request) {
+        HubAdmin hubAdmin = resolveActiveHubAdmin(hubAdminUserId);
+
+        DeliveryAssignment assignment = deliveryAssignmentRepository.findById(assignmentId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Assignment not found"));
+
+        if (!assignment.getHubId().equals(hubAdmin.getHubId())) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "Assignment does not belong to your hub");
+        }
+        if (assignment.getStatus() != AssignmentStatus.ASSIGNED
+                && assignment.getStatus() != AssignmentStatus.IN_PROGRESS) {
+            throw new BusinessException(ErrorCode.CONFLICT, "Only active assignments can be reassigned");
+        }
+        if (assignment.getAgentId().equals(request.getNewAgentId())) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "New agent must differ from current agent");
+        }
+
+        DeliveryAgent newAgent = resolveActiveAgentLinkedToHub(request.getNewAgentId(), hubAdmin.getHubId());
+        UUID previousAgentId = assignment.getAgentId();
+
+        assignment.setAgentId(newAgent.getId());
+        assignment.setAssignedBy(hubAdminUserId);
+        assignment.setAssignedAt(Instant.now());
+        assignment.setUpdatedBy(hubAdminUserId);
+        deliveryAssignmentRepository.save(assignment);
+
+        logEvent(assignment.getId(), "REASSIGNED", hubAdminUserId, Map.of(
+                "previousAgentId", previousAgentId.toString(),
+                "newAgentId", newAgent.getId().toString(),
+                "reason", request.getReason()
+        ));
+
+        return toResponse(assignment);
+    }
+
     @Transactional(readOnly = true)
     public List<AssignmentResponse> listAgentAssignments(UUID agentUserId, AssignmentStatus status) {
         DeliveryAgent agent = deliveryAgentRepository.findByUserId(agentUserId)
@@ -141,7 +191,75 @@ public class AssignmentService {
                 ? deliveryAssignmentRepository.findByAgentIdOrderByAssignedAtDesc(agent.getId())
                 : deliveryAssignmentRepository.findByAgentIdAndStatusOrderByAssignedAtDesc(agent.getId(), status);
 
-        return assignments.stream().map(this::toResponse).toList();
+        return toResponseList(assignments);
+    }
+
+    @Transactional(readOnly = true)
+    public PageResponse<AssignmentResponse> listAgentAssignmentsPaged(
+            UUID agentUserId, String scope, int page, int size) {
+        DeliveryAgent agent = deliveryAgentRepository.findByUserId(agentUserId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Delivery agent not found"));
+
+        Page<DeliveryAssignment> assignments;
+        PageRequest pageable = PageRequest.of(page, size);
+        String normalizedScope = scope == null ? "active" : scope.toLowerCase();
+        if ("completed".equals(normalizedScope)) {
+            assignments = deliveryAssignmentRepository.findByAgentIdAndStatusOrderByAssignedAtDesc(
+                    agent.getId(), AssignmentStatus.COMPLETED, pageable);
+        } else if ("all".equals(normalizedScope)) {
+            assignments = deliveryAssignmentRepository.findByAgentIdOrderByAssignedAtDesc(agent.getId(), pageable);
+        } else {
+            assignments = deliveryAssignmentRepository.findByAgentIdAndStatusInOrderByAssignedAtDesc(
+                    agent.getId(), Set.of(AssignmentStatus.ASSIGNED, AssignmentStatus.IN_PROGRESS), pageable);
+        }
+
+        List<AssignmentResponse> items = toResponseList(assignments.getContent());
+        return PageResponse.<AssignmentResponse>builder()
+                .items(items)
+                .page(assignments.getNumber())
+                .size(assignments.getSize())
+                .totalElements(assignments.getTotalElements())
+                .totalPages(assignments.getTotalPages())
+                .build();
+    }
+
+    @Transactional(readOnly = true)
+    public PickupManifestResponse getPickupManifest(UUID agentUserId, UUID assignmentId) {
+        DeliveryAgent agent = deliveryAgentRepository.findByUserId(agentUserId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Delivery agent not found"));
+
+        DeliveryAssignment assignment = deliveryAssignmentRepository.findById(assignmentId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Assignment not found"));
+
+        if (!assignment.getAgentId().equals(agent.getId())) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "Assignment does not belong to agent");
+        }
+        if (assignment.getLegType() != AssignmentLegType.PICKUP) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Pickup manifest is only for vendor pickup trips");
+        }
+        if (assignment.getVendorSubOrderId() == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "Sub-order not linked to assignment");
+        }
+
+        OrderClient.PickupManifest manifest = orderClient.getPickupManifest(assignment.getVendorSubOrderId());
+        return PickupManifestResponse.builder()
+                .assignmentId(assignment.getId())
+                .subOrderId(manifest.subOrderId())
+                .subOrderNumber(manifest.subOrderNumber())
+                .orderNumber(manifest.orderNumber())
+                .shopId(manifest.shopId())
+                .shopName(manifest.shopName())
+                .subtotal(manifest.subtotal())
+                .totalItemCount(manifest.totalItemCount())
+                .items(manifest.items().stream()
+                        .map(line -> PickupManifestLineResponse.builder()
+                                .name(line.name())
+                                .quantity(line.quantity())
+                                .unitCode(line.unitCode())
+                                .lineTotal(line.lineTotal())
+                                .build())
+                        .toList())
+                .build();
     }
 
     @Transactional
@@ -247,6 +365,7 @@ public class AssignmentService {
         }
 
         assignment.setStatus(AssignmentStatus.CANCELLED);
+        assignment.setCompletedAt(Instant.now());
         assignment.setUpdatedBy(agentUserId);
         deliveryAssignmentRepository.save(assignment);
 
@@ -259,6 +378,12 @@ public class AssignmentService {
         resolveActiveHubAdmin(hubAdminUserId);
         OrderClient.DeliveryOrderSnapshot order = orderClient.getDeliveryOrder(orderId);
         String otp = deliveryOtpService.overrideOtp(orderId, hubAdminUserId, reason);
+        deliveryAssignmentRepository.findByOrderIdOrderByAssignedAtDesc(orderId).stream()
+                .filter(a -> a.getLegType() == AssignmentLegType.LAST_MILE)
+                .filter(a -> a.getStatus() == AssignmentStatus.ASSIGNED || a.getStatus() == AssignmentStatus.IN_PROGRESS)
+                .findFirst()
+                .ifPresent(a -> logEvent(a.getId(), "OTP_OVERRIDE", hubAdminUserId,
+                        Map.of("reason", reason == null ? "" : reason)));
         notificationClient.notifyOutForDelivery(
                 order.townId(), order.orderId(), order.buyerId(), order.buyerPhone(),
                 order.orderNumber(), otp);
@@ -308,11 +433,29 @@ public class AssignmentService {
         deliveryEventRepository.save(event);
     }
 
+    private List<AssignmentResponse> toResponseList(List<DeliveryAssignment> assignments) {
+        Map<UUID, List<DeliveryEventResponse>> eventsByAssignment = loadEventResponses(assignments.stream()
+                .map(DeliveryAssignment::getId)
+                .toList());
+        return assignments.stream()
+                .map(a -> toResponse(a, eventsByAssignment.getOrDefault(a.getId(), List.of())))
+                .toList();
+    }
+
     private AssignmentResponse toResponse(DeliveryAssignment assignment) {
+        List<DeliveryEventResponse> events = loadEventResponses(List.of(assignment.getId()))
+                .getOrDefault(assignment.getId(), List.of());
+        return toResponse(assignment, events);
+    }
+
+    private AssignmentResponse toResponse(DeliveryAssignment assignment, List<DeliveryEventResponse> events) {
         return AssignmentResponse.builder()
                 .assignmentId(assignment.getId())
+                .assignmentNumber(assignment.getAssignmentNumber())
                 .orderId(assignment.getOrderId())
+                .orderNumber(assignment.getOrderNumber())
                 .vendorSubOrderId(assignment.getVendorSubOrderId())
+                .subOrderNumber(assignment.getSubOrderNumber())
                 .townId(assignment.getTownId())
                 .hubId(assignment.getHubId())
                 .agentId(assignment.getAgentId())
@@ -320,7 +463,37 @@ public class AssignmentService {
                 .status(assignment.getStatus())
                 .assignedBy(assignment.getAssignedBy())
                 .assignedAt(assignment.getAssignedAt())
+                .startedAt(deriveStartedAt(events))
                 .completedAt(assignment.getCompletedAt())
+                .events(events)
                 .build();
+    }
+
+    private Map<UUID, List<DeliveryEventResponse>> loadEventResponses(List<UUID> assignmentIds) {
+        if (assignmentIds == null || assignmentIds.isEmpty()) {
+            return Map.of();
+        }
+        return deliveryEventRepository.findByAssignmentIdInOrderByCreatedAtAsc(assignmentIds).stream()
+                .collect(Collectors.groupingBy(
+                        DeliveryEvent::getAssignmentId,
+                        Collectors.mapping(this::toEventResponse, Collectors.toList())));
+    }
+
+    private DeliveryEventResponse toEventResponse(DeliveryEvent event) {
+        return DeliveryEventResponse.builder()
+                .eventId(event.getId())
+                .eventType(event.getEventType())
+                .createdAt(event.getCreatedAt())
+                .createdBy(event.getCreatedBy())
+                .metadata(event.getMetadata())
+                .build();
+    }
+
+    private Instant deriveStartedAt(List<DeliveryEventResponse> events) {
+        return events.stream()
+                .filter(e -> e.getEventType() != null && e.getEventType().startsWith("PICKED_"))
+                .map(DeliveryEventResponse::getCreatedAt)
+                .findFirst()
+                .orElse(null);
     }
 }

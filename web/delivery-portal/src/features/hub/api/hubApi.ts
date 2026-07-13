@@ -1,0 +1,258 @@
+import { apiRequest, type PageData } from '@/shared/api/http';
+
+export type HubMeDto = {
+  hubId: string;
+  townId: string;
+  hubName: string;
+  address?: string;
+  phone?: string;
+};
+
+export type HubDashboardDto = {
+  hubId: string;
+  townId: string;
+  hubName: string;
+  activeAgents: number;
+  orders: { readyForPickup: number; placedAwaitingDelivery: number };
+  pickups: { assigned: number; inProgress: number; completedToday: number };
+  lastMile: { assigned: number; inProgress: number; completedToday: number };
+  activeAssignments: number;
+};
+
+export type AdminOrderDto = {
+  orderId: string;
+  orderNumber: string;
+  buyerId: string;
+  status: string;
+  paymentStatus: string;
+  totalAmount: number;
+  placedAt?: string;
+  subOrderCount: number;
+  readySubOrderCount: number;
+};
+
+export type AdminOrderDetailDto = {
+  orderId: string;
+  orderNumber: string;
+  townId: string;
+  status: string;
+  totalAmount: number;
+  placedAt?: string;
+  deliveredAt?: string | null;
+  cancelledAt?: string | null;
+  subOrders: Array<{
+    subOrderId: string;
+    subOrderNumber: string;
+    vendorId: string;
+    shopName?: string | null;
+    status: string;
+    subtotal: number;
+    itemCount: number;
+    readyForPickupAt?: string | null;
+  }>;
+  assignments: Array<{
+    assignmentId: string;
+    assignmentNumber: string;
+    orderNumber: string;
+    subOrderNumber?: string | null;
+    agentId: string;
+    legType: string;
+    status: string;
+    assignedAt?: string | null;
+    startedAt?: string | null;
+    completedAt?: string | null;
+    events?: Array<{
+      eventId: string;
+      eventType: string;
+      createdAt: string;
+      createdBy?: string | null;
+    }>;
+  }>;
+};
+
+export type AssignmentDto = {
+  assignmentId: string;
+  assignmentNumber: string;
+  orderId: string;
+  orderNumber: string;
+  vendorSubOrderId?: string | null;
+  subOrderNumber?: string | null;
+  townId: string;
+  hubId: string;
+  agentId: string;
+  legType: string;
+  status: string;
+  assignedAt?: string | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  events?: Array<{
+    eventId: string;
+    eventType: string;
+    createdAt: string;
+    createdBy?: string | null;
+  }>;
+};
+
+export type HubDashboardView = {
+  hubName: string;
+  hubId: string;
+  townId: string;
+  activeAgents: number;
+  readyForPickup: number;
+  awaitingDelivery: number;
+  activeAssignments: number;
+  pickupAssigned: number;
+  lastMileAssigned: number;
+};
+
+export type OrderRowView = {
+  id: string;
+  orderNumber: string;
+  status: string;
+  paymentStatus: string;
+  totalLabel: string;
+  subOrderCount: number;
+  readySubOrderCount: number;
+  pickupReadiness: 'none' | 'partial' | 'all';
+};
+
+export type SubOrderRowView = {
+  id: string;
+  subOrderNumber: string;
+  shopName: string;
+  status: string;
+  subtotalLabel: string;
+  itemCount: number;
+  vendorId: string;
+};
+
+function money(v: number | null | undefined): string {
+  return `₹${Number(v ?? 0).toFixed(2)}`;
+}
+
+export function toHubDashboardView(dto: HubDashboardDto): HubDashboardView {
+  return {
+    hubName: dto.hubName,
+    hubId: dto.hubId,
+    townId: dto.townId,
+    activeAgents: dto.activeAgents ?? 0,
+    readyForPickup: dto.orders?.readyForPickup ?? 0,
+    awaitingDelivery: dto.orders?.placedAwaitingDelivery ?? 0,
+    activeAssignments: dto.activeAssignments ?? 0,
+    pickupAssigned: dto.pickups?.assigned ?? 0,
+    lastMileAssigned: dto.lastMile?.assigned ?? 0,
+  };
+}
+
+export function toOrderRow(dto: AdminOrderDto): OrderRowView {
+  const ready = dto.readySubOrderCount ?? 0;
+  const total = dto.subOrderCount ?? 0;
+  const pickupReadiness: OrderRowView['pickupReadiness'] =
+    ready <= 0 ? 'none' : ready >= total ? 'all' : 'partial';
+  return {
+    id: dto.orderId,
+    orderNumber: dto.orderNumber,
+    status: dto.status,
+    paymentStatus: dto.paymentStatus,
+    totalLabel: money(dto.totalAmount),
+    subOrderCount: total,
+    readySubOrderCount: ready,
+    pickupReadiness,
+  };
+}
+
+export async function fetchMyHub(token: string): Promise<HubMeDto> {
+  return apiRequest<HubMeDto>('/api/v1/delivery/hubs/me', { token });
+}
+
+export async function fetchHubDashboard(token: string, hubId: string): Promise<HubDashboardView> {
+  const data = await apiRequest<HubDashboardDto>(`/api/v1/delivery/hubs/${hubId}/dashboard`, { token });
+  return toHubDashboardView(data);
+}
+
+export type HubReportDto = {
+  hubId: string;
+  townId: string;
+  hubName: string;
+  from: string;
+  to: string;
+  ordersPlaced: number;
+  ordersDelivered: number;
+  ordersCancelled: number;
+  subOrdersPlaced: number;
+  bagsMarkedReady: number;
+  shopPickupsCompleted: number;
+  homeDeliveriesCompleted: number;
+  agents: Array<{
+    agentId: string;
+    name: string;
+    phone: string;
+    status: string;
+    shopPickupsCompleted: number;
+    homeDeliveriesCompleted: number;
+    totalCompleted: number;
+  }>;
+};
+
+export async function fetchHubReport(
+  token: string,
+  hubId: string,
+  from: string,
+  to: string,
+): Promise<HubReportDto> {
+  return apiRequest<HubReportDto>(
+    `/api/v1/delivery/hubs/${hubId}/reports?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+    { token },
+  );
+}
+
+export async function fetchAdminOrders(
+  token: string,
+  townId: string,
+  options?: { page?: number; size?: number; status?: string },
+): Promise<PageData<AdminOrderDto>> {
+  const page = options?.page ?? 0;
+  const size = options?.size ?? 20;
+  const statusQ = options?.status ? `&status=${encodeURIComponent(options.status)}` : '';
+  return apiRequest<PageData<AdminOrderDto>>(
+    `/api/v1/orders/admin?townId=${townId}&page=${page}&size=${size}${statusQ}`,
+    { token },
+  );
+}
+
+export async function fetchAdminOrderDetail(
+  token: string,
+  townId: string,
+  orderId: string,
+): Promise<AdminOrderDetailDto> {
+  return apiRequest<AdminOrderDetailDto>(`/api/v1/orders/admin/${orderId}?townId=${townId}`, {
+    token,
+  });
+}
+
+export async function assignPickup(
+  token: string,
+  vendorSubOrderId: string,
+  agentId: string,
+): Promise<AssignmentDto> {
+  return apiRequest<AssignmentDto>('/api/v1/delivery/assignments/pickup', {
+    method: 'POST',
+    token,
+    body: { vendorSubOrderId, agentId },
+  });
+}
+
+export async function assignLastMile(token: string, orderId: string, agentId: string): Promise<AssignmentDto> {
+  return apiRequest<AssignmentDto>('/api/v1/delivery/assignments/last-mile', {
+    method: 'POST',
+    token,
+    body: { orderId, agentId },
+  });
+}
+
+export async function markSubOrderAtHub(token: string, vendorSubOrderId: string): Promise<AssignmentDto> {
+  return apiRequest<AssignmentDto>(`/api/v1/delivery/sub-orders/${vendorSubOrderId}/at-hub`, {
+    method: 'POST',
+    token,
+  });
+}

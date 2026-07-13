@@ -14,6 +14,7 @@ import java.util.UUID;
 public class VendorSubOrderResponse {
 
     private UUID subOrderId;
+    private String subOrderNumber;
     private UUID orderId;
     private String orderNumber;
     private UUID vendorId;

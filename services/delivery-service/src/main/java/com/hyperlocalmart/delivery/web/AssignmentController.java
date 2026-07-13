@@ -5,6 +5,7 @@ import com.hyperlocalmart.common.exception.BusinessException;
 import com.hyperlocalmart.common.exception.ErrorCode;
 import com.hyperlocalmart.delivery.dto.request.AssignLastMileRequest;
 import com.hyperlocalmart.delivery.dto.request.AssignPickupRequest;
+import com.hyperlocalmart.delivery.dto.request.ReassignAssignmentRequest;
 import com.hyperlocalmart.delivery.dto.response.AssignmentResponse;
 import com.hyperlocalmart.delivery.security.AuthUserPrincipal;
 import com.hyperlocalmart.delivery.service.AssignmentService;
@@ -53,6 +54,17 @@ public class AssignmentController {
         requireHubAdmin(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
                 assignmentService.markAtHub(principal.getUserId(), vendorSubOrderId)));
+    }
+
+    @PatchMapping("/{assignmentId}/reassign")
+    public ResponseEntity<ApiResponse<AssignmentResponse>> reassign(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @PathVariable UUID assignmentId,
+            @Valid @RequestBody ReassignAssignmentRequest request,
+            HttpServletRequest httpRequest) {
+        requireHubAdmin(principal);
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                assignmentService.reassign(principal.getUserId(), assignmentId, request)));
     }
 
     private void requireHubAdmin(AuthUserPrincipal principal) {

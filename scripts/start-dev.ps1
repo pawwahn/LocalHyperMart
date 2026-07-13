@@ -66,11 +66,11 @@ New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 foreach ($svc in $services) {
     $logFile = Join-Path $logDir "$($svc.Name).log"
     Write-Host "==> Starting $($svc.Name) on port $($svc.Port) -> $logFile"
-    Start-Process -FilePath "mvn" `
-        -ArgumentList "-pl", $svc.Module, "spring-boot:run" `
+    # PowerShell cannot redirect stdout and stderr to the same file via Start-Process.
+    $mvnCmd = "mvn -pl $($svc.Module) spring-boot:run >> `"$logFile`" 2>&1"
+    Start-Process -FilePath "cmd.exe" `
+        -ArgumentList "/c", $mvnCmd `
         -WorkingDirectory $Root `
-        -RedirectStandardOutput $logFile `
-        -RedirectStandardError $logFile `
         -WindowStyle Hidden
     Start-Sleep -Seconds 3
 }

@@ -1,6 +1,7 @@
 package com.hyperlocalmart.cart.web;
 
 import com.hyperlocalmart.cart.dto.request.AddCartItemRequest;
+import com.hyperlocalmart.cart.dto.request.ApplyPromoRequest;
 import com.hyperlocalmart.cart.dto.request.ChangeTownRequest;
 import com.hyperlocalmart.cart.dto.request.UpdateCartItemRequest;
 import com.hyperlocalmart.cart.dto.response.CartResponse;
@@ -62,5 +63,24 @@ public class CartController {
             @Valid @RequestBody ChangeTownRequest request,
             HttpServletRequest httpRequest) {
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, cartService.changeTown(principal.getUserId(), request)));
+    }
+
+    @PostMapping("/promo")
+    public ResponseEntity<ApiResponse<CartResponse>> applyPromo(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @RequestParam UUID townId,
+            @Valid @RequestBody ApplyPromoRequest request,
+            HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                cartService.applyPromo(principal.getUserId(), townId, request)));
+    }
+
+    @DeleteMapping("/promo")
+    public ResponseEntity<ApiResponse<CartResponse>> removePromo(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @RequestParam UUID townId,
+            HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                cartService.removePromo(principal.getUserId(), townId)));
     }
 }

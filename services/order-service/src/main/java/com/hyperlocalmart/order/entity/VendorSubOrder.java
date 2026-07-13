@@ -33,6 +33,9 @@ public class VendorSubOrder extends BaseAuditEntity {
     @Column(name = "shop_id", nullable = false)
     private UUID shopId;
 
+    @Column(name = "sub_order_number", nullable = false, unique = true, length = 50)
+    private String subOrderNumber;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 40)
     private VendorSubOrderStatus status;

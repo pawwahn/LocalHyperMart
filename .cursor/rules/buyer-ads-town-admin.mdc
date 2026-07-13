@@ -1,0 +1,24 @@
+---
+description: Town-level buyer ads ownership — admin only, never hub
+alwaysApply: true
+---
+
+# Buyer portal ads (town-level)
+
+## Product rules
+
+- Buyer ads are **scoped to a town** (not hub, not vendor, not nationwide-only inventory unless assigned per town).
+- **Only platform/town admin** may create, edit, enable/disable, or schedule ads.
+- **Delivery hub admin must not** manage, approve, or see ad inventory tools. Hub desk/reports stay ops-only (orders, agents, trips).
+- Do **not** put ad CRUD into `delivery-portal` hub flows.
+
+## When building admin screen
+
+- Implement ad management on the **admin** surface (town-scoped slots: home hero, under search, mid-grid, cart upsell, etc.).
+- Persist creatives/slot fills per `townId`; buyer portal should load ads for the buyer's active town.
+- Keep `AdSlot` / slot IDs stable; replace pilot `adsInventory.ts` with admin-backed API when ready.
+
+## Current pilot
+
+- Buyer-web has placeholder slots only (`features/ads`). Treat as UI inventory until admin APIs exist.
+- Home currently shows **2** slots: `home_hero` + `home_mid_grid`. `home_search_strip` is reserved for later. Cart keeps `cart_upsell`.

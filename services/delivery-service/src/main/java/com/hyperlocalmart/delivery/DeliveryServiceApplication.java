@@ -1,4 +1,4 @@
-﻿package com.hyperlocalmart.delivery;
+package com.hyperlocalmart.delivery;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;

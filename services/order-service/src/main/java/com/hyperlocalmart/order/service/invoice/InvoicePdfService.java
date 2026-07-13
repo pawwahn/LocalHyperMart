@@ -31,7 +31,8 @@ public class InvoicePdfService {
     private static final Font SMALL_FONT = FontFactory.getFont(FontFactory.HELVETICA, 8, Font.NORMAL, Color.DARK_GRAY);
 
     public byte[] generate(InvoiceDocument invoice) {
-        try (ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        try {
             Document document = new Document(PageSize.A4, 36, 36, 36, 36);
             PdfWriter.getInstance(document, output);
             document.open();

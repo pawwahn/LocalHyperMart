@@ -1,4 +1,4 @@
-﻿package com.hyperlocalmart.town;
+package com.hyperlocalmart.town;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;

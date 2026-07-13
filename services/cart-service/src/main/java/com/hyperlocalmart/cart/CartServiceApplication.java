@@ -1,4 +1,4 @@
-﻿package com.hyperlocalmart.cart;
+package com.hyperlocalmart.cart;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;

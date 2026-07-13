@@ -1,5 +1,6 @@
 package com.hyperlocalmart.user.dto.response;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Builder;
 import lombok.Data;
 
@@ -18,5 +19,6 @@ public class AddressResponse {
     private String line2;
     private String landmark;
     private String pincode;
+    @JsonProperty("isDefault")
     private boolean isDefault;
 }

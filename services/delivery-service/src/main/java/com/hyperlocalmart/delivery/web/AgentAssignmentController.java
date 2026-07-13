@@ -1,14 +1,18 @@
 package com.hyperlocalmart.delivery.web;
 
 import com.hyperlocalmart.common.api.ApiResponse;
+import com.hyperlocalmart.common.api.PageResponse;
 import com.hyperlocalmart.common.exception.BusinessException;
 import com.hyperlocalmart.common.exception.ErrorCode;
 import com.hyperlocalmart.delivery.dto.request.BuyerRejectedRequest;
 import com.hyperlocalmart.delivery.dto.request.DeliverRequest;
 import com.hyperlocalmart.delivery.dto.request.PickedFromVendorRequest;
+import com.hyperlocalmart.delivery.dto.response.AgentStatsResponse;
 import com.hyperlocalmart.delivery.dto.response.AssignmentResponse;
+import com.hyperlocalmart.delivery.dto.response.PickupManifestResponse;
 import com.hyperlocalmart.delivery.entity.AssignmentStatus;
 import com.hyperlocalmart.delivery.security.AuthUserPrincipal;
+import com.hyperlocalmart.delivery.service.AgentStatsService;
 import com.hyperlocalmart.delivery.service.AssignmentService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -17,7 +21,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -25,15 +28,37 @@ import java.util.UUID;
 public class AgentAssignmentController {
 
     private final AssignmentService assignmentService;
+    private final AgentStatsService agentStatsService;
 
-    @GetMapping("/api/v1/delivery/agents/me/assignments")
-    public ResponseEntity<ApiResponse<List<AssignmentResponse>>> listMyAssignments(
+    @GetMapping("/api/v1/delivery/agents/me/stats")
+    public ResponseEntity<ApiResponse<AgentStatsResponse>> myStats(
             @AuthenticationPrincipal AuthUserPrincipal principal,
-            @RequestParam(required = false) AssignmentStatus status,
             HttpServletRequest httpRequest) {
         requireDeliveryAgent(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
-                assignmentService.listAgentAssignments(principal.getUserId(), status)));
+                agentStatsService.getMyStats(principal.getUserId())));
+    }
+
+    @GetMapping("/api/v1/delivery/agents/me/assignments")
+    public ResponseEntity<ApiResponse<PageResponse<AssignmentResponse>>> listMyAssignments(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @RequestParam(defaultValue = "active") String scope,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            HttpServletRequest httpRequest) {
+        requireDeliveryAgent(principal);
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                assignmentService.listAgentAssignmentsPaged(principal.getUserId(), scope, page, size)));
+    }
+
+    @GetMapping("/api/v1/delivery/agents/me/assignments/{id}/pickup-manifest")
+    public ResponseEntity<ApiResponse<PickupManifestResponse>> pickupManifest(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @PathVariable("id") UUID assignmentId,
+            HttpServletRequest httpRequest) {
+        requireDeliveryAgent(principal);
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                assignmentService.getPickupManifest(principal.getUserId(), assignmentId)));
     }
 
     @PostMapping("/api/v1/delivery/assignments/{id}/picked-from-vendor")

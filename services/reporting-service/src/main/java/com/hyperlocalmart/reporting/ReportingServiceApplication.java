@@ -1,4 +1,4 @@
-﻿package com.hyperlocalmart.reporting;
+package com.hyperlocalmart.reporting;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;

@@ -31,6 +31,7 @@ public class VendorDashboardResponse {
     @Builder
     public static class VendorDashboardRecentOrder {
         private UUID subOrderId;
+        private String subOrderNumber;
         private UUID orderId;
         private String orderNumber;
         private BigDecimal subtotal;

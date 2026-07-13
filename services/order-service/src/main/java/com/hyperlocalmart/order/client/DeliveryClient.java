@@ -54,11 +54,24 @@ public class DeliveryClient {
 
     public record OrderAssignment(
             UUID assignmentId,
+            String assignmentNumber,
+            String orderNumber,
+            String subOrderNumber,
             UUID agentId,
             String legType,
             String status,
             Instant assignedAt,
-            Instant completedAt
+            Instant startedAt,
+            Instant completedAt,
+            List<OrderAssignmentEvent> events
+    ) {
+    }
+
+    public record OrderAssignmentEvent(
+            UUID eventId,
+            String eventType,
+            Instant createdAt,
+            UUID createdBy
     ) {
     }
 }

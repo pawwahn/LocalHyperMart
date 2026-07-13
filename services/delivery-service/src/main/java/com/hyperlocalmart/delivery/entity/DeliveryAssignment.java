@@ -20,6 +20,15 @@ public class DeliveryAssignment extends BaseAuditEntity {
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
+    @Column(name = "assignment_number", unique = true, length = 60)
+    private String assignmentNumber;
+
+    @Column(name = "order_number", length = 40)
+    private String orderNumber;
+
+    @Column(name = "sub_order_number", length = 50)
+    private String subOrderNumber;
+
     @Column(name = "order_id", nullable = false)
     private UUID orderId;
 

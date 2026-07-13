@@ -30,6 +30,10 @@ hyperlocalmart:
     base-url: http://localhost:8086
   notification-service:
     base-url: http://localhost:8089
+  delivery:
+    otp:
+      # Local/dev only — agent can always enter 111111. Clear this in production.
+      fixed-code: ${DELIVERY_OTP_FIXED_CODE:111111}
 
 management:
   endpoints:

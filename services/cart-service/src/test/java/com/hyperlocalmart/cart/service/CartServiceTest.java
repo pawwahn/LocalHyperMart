@@ -38,7 +38,7 @@ class CartServiceTest {
     void addItem_createsCartWithLineTotal() {
         UUID userId = UUID.randomUUID();
         UUID townId = UUID.fromString("a1111111-1111-4111-8111-111111111111");
-        UUID listingId = UUID.fromString("l1111111-1111-4111-8111-111111111111");
+        UUID listingId = UUID.fromString("01111111-1111-4111-8111-111111111111");
         UUID shopId = UUID.fromString("c1111111-1111-4111-8111-111111111111");
 
         AddCartItemRequest request = new AddCartItemRequest();

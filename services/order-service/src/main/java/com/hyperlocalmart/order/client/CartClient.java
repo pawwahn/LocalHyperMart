@@ -86,6 +86,9 @@ public class CartClient {
             UUID townId,
             String status,
             BigDecimal itemsSubtotal,
+            BigDecimal promoDiscount,
+            String promoCode,
+            BigDecimal payableSubtotal,
             int itemCount,
             boolean minOrderMet,
             List<CartItemSnapshot> items

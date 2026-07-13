@@ -35,4 +35,8 @@ public class OrderNumberGenerator {
         return String.format("%s/%s-%s-O%04d",
                 townCode, stateCode, orderDate.format(DATE_FMT), sequence.getLastSequence());
     }
+
+    public static String subOrderNumber(String orderNumber, int index, int total) {
+        return orderNumber + "-" + index + "/" + total;
+    }
 }

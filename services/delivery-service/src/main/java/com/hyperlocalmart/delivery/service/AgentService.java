@@ -5,6 +5,7 @@ import com.hyperlocalmart.common.exception.ErrorCode;
 import com.hyperlocalmart.delivery.dto.request.CreateAgentRequest;
 import com.hyperlocalmart.delivery.dto.request.UpdateAgentStatusRequest;
 import com.hyperlocalmart.delivery.dto.response.AgentResponse;
+import com.hyperlocalmart.delivery.dto.response.DeliveryEventResponse;
 import com.hyperlocalmart.delivery.dto.response.HubAdminContextResponse;
 import com.hyperlocalmart.delivery.dto.response.OrderAssignmentResponse;
 import com.hyperlocalmart.delivery.entity.*;
@@ -13,9 +14,12 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -28,6 +32,7 @@ public class AgentService {
     private final DeliveryAgentRepository deliveryAgentRepository;
     private final AgentHubLinkRepository agentHubLinkRepository;
     private final DeliveryAssignmentRepository deliveryAssignmentRepository;
+    private final DeliveryEventRepository deliveryEventRepository;
 
     @Transactional(readOnly = true)
     public HubAdminContextResponse getHubAdminContext(UUID userId) {
@@ -44,16 +49,53 @@ public class AgentService {
 
     @Transactional(readOnly = true)
     public List<OrderAssignmentResponse> getAssignmentsForOrder(UUID orderId) {
-        return deliveryAssignmentRepository.findByOrderIdOrderByAssignedAtDesc(orderId).stream()
-                .map(a -> OrderAssignmentResponse.builder()
-                        .assignmentId(a.getId())
-                        .agentId(a.getAgentId())
-                        .legType(a.getLegType().name())
-                        .status(a.getStatus().name())
-                        .assignedAt(a.getAssignedAt())
-                        .completedAt(a.getCompletedAt())
-                        .build())
+        List<DeliveryAssignment> assignments =
+                deliveryAssignmentRepository.findByOrderIdOrderByAssignedAtDesc(orderId);
+        Map<UUID, List<DeliveryEventResponse>> eventsByAssignment = loadEventResponses(
+                assignments.stream().map(DeliveryAssignment::getId).toList());
+        return assignments.stream()
+                .map(a -> {
+                    List<DeliveryEventResponse> events =
+                            eventsByAssignment.getOrDefault(a.getId(), List.of());
+                    return OrderAssignmentResponse.builder()
+                            .assignmentId(a.getId())
+                            .assignmentNumber(a.getAssignmentNumber())
+                            .orderNumber(a.getOrderNumber())
+                            .subOrderNumber(a.getSubOrderNumber())
+                            .agentId(a.getAgentId())
+                            .legType(a.getLegType().name())
+                            .status(a.getStatus().name())
+                            .assignedAt(a.getAssignedAt())
+                            .startedAt(deriveStartedAt(events))
+                            .completedAt(a.getCompletedAt())
+                            .events(events)
+                            .build();
+                })
                 .toList();
+    }
+
+    private Map<UUID, List<DeliveryEventResponse>> loadEventResponses(List<UUID> assignmentIds) {
+        if (assignmentIds == null || assignmentIds.isEmpty()) {
+            return Map.of();
+        }
+        return deliveryEventRepository.findByAssignmentIdInOrderByCreatedAtAsc(assignmentIds).stream()
+                .collect(Collectors.groupingBy(
+                        DeliveryEvent::getAssignmentId,
+                        Collectors.mapping(e -> DeliveryEventResponse.builder()
+                                .eventId(e.getId())
+                                .eventType(e.getEventType())
+                                .createdAt(e.getCreatedAt())
+                                .createdBy(e.getCreatedBy())
+                                .metadata(e.getMetadata())
+                                .build(), Collectors.toList())));
+    }
+
+    private Instant deriveStartedAt(List<DeliveryEventResponse> events) {
+        return events.stream()
+                .filter(e -> e.getEventType() != null && e.getEventType().startsWith("PICKED_"))
+                .map(DeliveryEventResponse::getCreatedAt)
+                .findFirst()
+                .orElse(null);
     }
 
     @Transactional

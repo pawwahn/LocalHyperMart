@@ -28,6 +28,9 @@ public interface VendorSubOrderRepository extends JpaRepository<VendorSubOrder, 
     @Query("SELECT v FROM VendorSubOrder v JOIN FETCH v.order WHERE v.id = :id")
     Optional<VendorSubOrder> findDetailedById(UUID id);
 
+    @Query("SELECT v FROM VendorSubOrder v JOIN FETCH v.order JOIN FETCH v.items WHERE v.id = :id")
+    Optional<VendorSubOrder> findDetailedByIdWithItems(UUID id);
+
     @Query("""
             SELECT COUNT(v) FROM VendorSubOrder v JOIN v.order o
             WHERE v.vendorId = :vendorId
@@ -63,4 +66,28 @@ public interface VendorSubOrderRepository extends JpaRepository<VendorSubOrder, 
             """)
     List<VendorSubOrder> findRecentByVendorIdAndPlacedAtBetween(
             UUID vendorId, Instant start, Instant end, Pageable pageable);
+
+    @Query("""
+            SELECT COUNT(v) FROM VendorSubOrder v JOIN v.order o
+            WHERE o.townId = :townId
+              AND o.status = com.hyperlocalmart.order.entity.OrderStatus.PLACED
+              AND v.status = com.hyperlocalmart.order.entity.VendorSubOrderStatus.READY_FOR_PICKUP
+            """)
+    long countReadyForPickupByTownId(UUID townId);
+
+    @Query("""
+            SELECT COUNT(v) FROM VendorSubOrder v JOIN v.order o
+            WHERE o.townId = :townId
+              AND o.placedAt IS NOT NULL
+              AND o.placedAt >= :start AND o.placedAt < :end
+            """)
+    long countByTownIdAndPlacedAtBetween(UUID townId, Instant start, Instant end);
+
+    @Query("""
+            SELECT COUNT(v) FROM VendorSubOrder v JOIN v.order o
+            WHERE o.townId = :townId
+              AND v.readyForPickupAt IS NOT NULL
+              AND v.readyForPickupAt >= :start AND v.readyForPickupAt < :end
+            """)
+    long countMarkedReadyByTownIdAndReadyAtBetween(UUID townId, Instant start, Instant end);
 }

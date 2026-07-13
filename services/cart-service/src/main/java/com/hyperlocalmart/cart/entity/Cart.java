@@ -7,6 +7,7 @@ import lombok.*;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.math.BigDecimal;
 
 @Entity
 @Table(name = "carts")
@@ -34,4 +35,11 @@ public class Cart extends BaseAuditEntity {
     @OneToMany(mappedBy = "cart", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
     @Builder.Default
     private List<CartItem> items = new ArrayList<>();
+
+    @Column(name = "promo_code", length = 40)
+    private String promoCode;
+
+    @Column(name = "promo_discount", nullable = false, precision = 12, scale = 2)
+    @Builder.Default
+    private BigDecimal promoDiscount = BigDecimal.ZERO;
 }

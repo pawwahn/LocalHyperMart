@@ -72,6 +72,7 @@ class OrderInvoiceServiceTest {
                 .lineTotal(new BigDecimal("60.00"))
                 .build();
         VendorSubOrder subOrder = VendorSubOrder.builder()
+                .subOrderNumber("NRPT-00001-1/1")
                 .items(List.of(item))
                 .build();
         item.setVendorSubOrder(subOrder);

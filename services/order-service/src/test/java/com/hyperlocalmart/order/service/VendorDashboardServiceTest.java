@@ -86,6 +86,7 @@ class VendorDashboardServiceTest {
                 .id(UUID.randomUUID())
                 .vendorId(vendorId)
                 .order(order)
+                .subOrderNumber(orderNumber + "-1/1")
                 .status(VendorSubOrderStatus.PLACED)
                 .subtotal(subtotal)
                 .items(List.of(item))

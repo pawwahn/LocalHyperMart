@@ -1,4 +1,4 @@
-﻿package com.hyperlocalmart.notification;
+package com.hyperlocalmart.notification;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;

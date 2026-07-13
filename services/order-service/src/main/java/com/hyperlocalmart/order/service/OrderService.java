@@ -102,11 +102,43 @@ public class OrderService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Sub-order not found"));
         return SubOrderInternalSnapshotResponse.builder()
                 .subOrderId(subOrder.getId())
+                .subOrderNumber(subOrder.getSubOrderNumber())
                 .orderId(subOrder.getOrder().getId())
                 .townId(subOrder.getOrder().getTownId())
                 .vendorId(subOrder.getVendorId())
                 .status(subOrder.getStatus().name())
                 .orderNumber(subOrder.getOrder().getOrderNumber())
+                .build();
+    }
+
+    @Transactional(readOnly = true)
+    public SubOrderPickupManifestResponse getPickupManifest(UUID subOrderId) {
+        VendorSubOrder subOrder = vendorSubOrderRepository.findDetailedByIdWithItems(subOrderId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Sub-order not found"));
+
+        List<PickupLineItemResponse> items = subOrder.getItems().stream()
+                .map(item -> PickupLineItemResponse.builder()
+                        .name(item.getItemNameSnapshot())
+                        .quantity(item.getQuantity())
+                        .unitCode(item.getUnitCodeSnapshot())
+                        .lineTotal(item.getLineTotal())
+                        .build())
+                .toList();
+
+        int totalItemCount = items.stream().mapToInt(PickupLineItemResponse::getQuantity).sum();
+        String shopName = subOrder.getItems().isEmpty()
+                ? "Vendor shop"
+                : subOrder.getItems().getFirst().getShopNameSnapshot();
+
+        return SubOrderPickupManifestResponse.builder()
+                .subOrderId(subOrder.getId())
+                .subOrderNumber(subOrder.getSubOrderNumber())
+                .orderNumber(subOrder.getOrder().getOrderNumber())
+                .shopId(subOrder.getShopId())
+                .shopName(shopName)
+                .subtotal(subOrder.getSubtotal())
+                .totalItemCount(totalItemCount)
+                .items(items)
                 .build();
     }
 
@@ -255,7 +287,11 @@ public class OrderService {
 
         String orderNumber = orderNumberGenerator.nextOrderNumber(request.getTownId(), town.townCode(), town.stateCode());
         BigDecimal deliveryFee = checkoutProperties.getDeliveryFee();
-        BigDecimal totalAmount = cart.itemsSubtotal().add(deliveryFee);
+        BigDecimal promoDiscount = cart.promoDiscount() == null ? BigDecimal.ZERO : cart.promoDiscount();
+        BigDecimal payableSubtotal = cart.payableSubtotal() != null
+                ? cart.payableSubtotal()
+                : cart.itemsSubtotal().subtract(promoDiscount).max(BigDecimal.ZERO);
+        BigDecimal totalAmount = payableSubtotal.add(deliveryFee);
 
         boolean isCod = request.getPaymentMethod() == PaymentMethod.COD;
         OrderStatus orderStatus = isCod ? OrderStatus.PLACED : OrderStatus.PAYMENT_PENDING;
@@ -270,6 +306,8 @@ public class OrderService {
                 .paymentMethod(request.getPaymentMethod())
                 .paymentStatus(paymentStatus)
                 .itemsSubtotal(cart.itemsSubtotal())
+                .promoCode(cart.promoCode())
+                .promoDiscount(promoDiscount)
                 .deliveryFee(deliveryFee)
                 .totalAmount(totalAmount)
                 .deliveryAddressSnapshot(addressSnapshot)
@@ -315,10 +353,16 @@ public class OrderService {
     }
 
     private void buildVendorSubOrders(Order order, CartClient.CartSnapshot cart) {
-        Map<String, List<CartClient.CartItemSnapshot>> grouped = cart.items().stream()
-                .collect(Collectors.groupingBy(item -> item.vendorId() + ":" + item.shopId()));
+        List<List<CartClient.CartItemSnapshot>> groups = cart.items().stream()
+                .collect(Collectors.groupingBy(item -> item.vendorId() + ":" + item.shopId()))
+                .entrySet().stream()
+                .sorted(Map.Entry.comparingByKey())
+                .map(Map.Entry::getValue)
+                .toList();
+        int total = groups.size();
 
-        for (List<CartClient.CartItemSnapshot> groupItems : grouped.values()) {
+        for (int i = 0; i < groups.size(); i++) {
+            List<CartClient.CartItemSnapshot> groupItems = groups.get(i);
             CartClient.CartItemSnapshot first = groupItems.getFirst();
             BigDecimal subtotal = groupItems.stream()
                     .map(CartClient.CartItemSnapshot::lineTotal)
@@ -328,6 +372,7 @@ public class OrderService {
                     .order(order)
                     .vendorId(first.vendorId())
                     .shopId(first.shopId())
+                    .subOrderNumber(OrderNumberGenerator.subOrderNumber(order.getOrderNumber(), i + 1, total))
                     .status(VendorSubOrderStatus.PLACED)
                     .subtotal(subtotal)
                     .items(new ArrayList<>())

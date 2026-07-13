@@ -26,7 +26,9 @@ public class CatalogBrowseService {
     public PageResponse<CatalogItemResponse> browse(UUID townId, String query, int page, int size) {
         String normalizedQuery = query == null || query.isBlank() ? null : query.trim();
         PageRequest pageable = PageRequest.of(page, size);
-        Page<VendorListing> listings = vendorListingRepository.searchActiveByTown(townId, normalizedQuery, pageable);
+        Page<VendorListing> listings = normalizedQuery == null
+                ? vendorListingRepository.findActiveByTown(townId, pageable)
+                : vendorListingRepository.searchActiveByTown(townId, normalizedQuery, pageable);
 
         List<UUID> shopIds = listings.getContent().stream().map(VendorListing::getShopId).distinct().toList();
         Map<UUID, VendorShopClient.ShopInfo> shops = vendorShopClient.getShopsByIds(shopIds);

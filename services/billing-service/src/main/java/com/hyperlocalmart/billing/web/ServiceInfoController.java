@@ -1,4 +1,4 @@
-﻿package com.hyperlocalmart.billing.web;
+package com.hyperlocalmart.billing.web;
 
 import com.hyperlocalmart.common.api.ApiResponse;
 import org.springframework.web.bind.annotation.GetMapping;
