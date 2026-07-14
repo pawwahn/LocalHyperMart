@@ -4,6 +4,7 @@ import { PortalShell } from '@/shared/layout/PortalShell';
 import { Badge, Banner, Button, Card, EmptyState, LoadingBlock } from '@/shared/ui';
 import { useShop } from '../hooks/useShop';
 import { useOrderDetail } from '../hooks/useOrderDetail';
+import { formatBuyerPaymentLabel } from '../lib/formatBuyerPaymentLabel';
 
 function statusTone(status: string): 'neutral' | 'success' | 'warning' | 'danger' | 'brand' {
   const s = status.toLowerCase();
@@ -73,7 +74,12 @@ export function OrderDetailPage() {
               <div>
                 <p style={styles.orderNo}>{order.orderNumber}</p>
                 <p style={styles.meta}>
-                  Payment: {order.paymentStatus} · {order.paymentMethod}
+                  Payment:{' '}
+                  {formatBuyerPaymentLabel({
+                    paymentMethod: order.paymentMethod,
+                    paymentStatus: order.paymentStatus,
+                    orderStatus: order.status,
+                  })}
                 </p>
               </div>
               <Badge tone={statusTone(order.displayStatus || order.status)}>

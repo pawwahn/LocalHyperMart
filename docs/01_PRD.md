@@ -926,6 +926,8 @@ See `04_DATABASE_SCHEMA_AND_ERD.md` for schema (**v2.0**).
 | `03_EVENT_DRIVEN_ARCHITECTURE.md` | Kafka topics, outbox, idempotency |
 | `04_DATABASE_SCHEMA_AND_ERD.md` | Table definitions (**v2.0**) |
 | `05_API_CONTRACTS.md` | REST API specs (**v2.0**) |
+| `06_SECURITY_REQUIREMENTS.md` | Security / PIN / pen test |
+| `08_GO_LIVE_PLAN.md` | 12-week Narsaraopet soft → public plan |
 
 ---
 

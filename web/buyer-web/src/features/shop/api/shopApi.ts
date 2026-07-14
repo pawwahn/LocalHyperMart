@@ -52,6 +52,7 @@ export type OrderSummaryDto = {
   status: string;
   displayStatus?: string;
   totalAmount: number;
+  paymentMethod?: string;
   paymentStatus: string;
   placedAt?: string;
   itemCount: number;

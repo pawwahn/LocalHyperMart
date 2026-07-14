@@ -31,9 +31,12 @@ type RequestOptions = {
   body?: unknown;
   token?: string | null;
   headers?: Record<string, string>;
+  /** Abort hanging requests so UI cannot stick on Loading forever. */
+  timeoutMs?: number;
 };
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
+const DEFAULT_TIMEOUT_MS = 15_000;
 
 /** Fired when the API rejects a request as unauthorized (expired/invalid JWT). */
 export const AUTH_UNAUTHORIZED_EVENT = 'hlm:unauthorized';
@@ -52,11 +55,29 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   if (options.body !== undefined) headers['Content-Type'] = 'application/json';
   if (options.token) headers.Authorization = `Bearer ${options.token}`;
 
-  const response = await fetch(`${API_BASE}${path}`, {
-    method: options.method ?? (options.body !== undefined ? 'POST' : 'GET'),
-    headers,
-    body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
-  });
+  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE}${path}`, {
+      method: options.method ?? (options.body !== undefined ? 'POST' : 'GET'),
+      headers,
+      body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+      signal: controller.signal,
+    });
+  } catch (err) {
+    const aborted =
+      (err instanceof DOMException && err.name === 'AbortError') ||
+      (err instanceof Error && err.name === 'AbortError');
+    if (aborted) {
+      throw new ApiError('Request timed out. Check services are running, then refresh.', 408);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
 
   let payload: ApiEnvelope<T> | null = null;
   const text = await response.text();

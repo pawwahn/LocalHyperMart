@@ -406,6 +406,7 @@ public class OrderService {
                 .status(order.getStatus())
                 .displayStatus(displayStatus(order.getStatus()))
                 .totalAmount(order.getTotalAmount())
+                .paymentMethod(order.getPaymentMethod())
                 .paymentStatus(order.getPaymentStatus())
                 .placedAt(order.getPlacedAt())
                 .itemCount(itemCount)

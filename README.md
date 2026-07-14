@@ -10,6 +10,7 @@ Town-based hyperlocal marketplace for Tier-2/3 India. Monorepo with Java 21 micr
 | [docs/02_SYSTEM_DESIGN.md](docs/02_SYSTEM_DESIGN.md) | Architecture & flows |
 | [docs/04_DATABASE_SCHEMA_AND_ERD.md](docs/04_DATABASE_SCHEMA_AND_ERD.md) | Database schema |
 | [docs/05_API_CONTRACTS.md](docs/05_API_CONTRACTS.md) | REST API contracts |
+| [docs/08_GO_LIVE_PLAN.md](docs/08_GO_LIVE_PLAN.md) | Narsaraopet 12-week go-live plan |
 
 ## Prerequisites
 

@@ -25,18 +25,17 @@ export async function loginBuyer(phone: string, password: string): Promise<AuthS
   const data = await apiRequest<AuthApi>('/api/v1/auth/login', {
     method: 'POST',
     body: { phone, password },
+    timeoutMs: 12_000,
   });
 
-  // Set default town for checkout/cart context
-  try {
-    await apiRequest('/api/v1/users/me', {
-      method: 'PATCH',
-      token: data.accessToken,
-      body: { defaultTownId: PILOT_TOWN_ID },
-    });
-  } catch {
-    // non-fatal for already configured profiles
-  }
+  // Town is applied on the client session. Do not block login on profile PATCH
+  // (that call was leaving the Sign in button stuck on "Please wait…").
+  void apiRequest('/api/v1/users/me', {
+    method: 'PATCH',
+    token: data.accessToken,
+    body: { defaultTownId: PILOT_TOWN_ID },
+    timeoutMs: 8_000,
+  }).catch(() => undefined);
 
   return {
     accessToken: data.accessToken,

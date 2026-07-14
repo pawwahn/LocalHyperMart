@@ -49,68 +49,77 @@ export function useShop() {
     setError(null);
 
     const activeTownId = townId || PILOT_TOWN_ID;
+    const errors: string[] = [];
+
+    const noteFailure = (err: unknown, fallback: string) => {
+      if (err instanceof ApiError && err.isUnauthorized) {
+        throw err;
+      }
+      errors.push(err instanceof Error ? err.message : fallback);
+    };
 
     try {
-      const catalog = await fetchCatalog(activeTownId, query || undefined);
-      setItems(catalog);
+      // Catalog must not block cart/orders (Orders page was stuck when catalog hung).
+      const catalogTask = fetchCatalog(activeTownId, query || undefined)
+        .then((catalog) => {
+          setItems(catalog);
+        })
+        .catch((err) => {
+          setItems([]);
+          noteFailure(err, 'Failed to load catalog');
+        });
+
+      if (!session) {
+        await catalogTask;
+        setCart(null);
+        setAddresses([]);
+        setOrders([]);
+        return;
+      }
+
+      const cartTask = fetchCart(session.accessToken, activeTownId)
+        .then((next) => {
+          setCart(next);
+        })
+        .catch((err) => noteFailure(err, 'Cart failed'));
+
+      const addressTask = listAddresses(session.accessToken)
+        .then((addrs) => {
+          setAddresses(addrs);
+          setSelectedAddressId((prev) => {
+            if (prev && addrs.some((a) => a.id === prev)) return prev;
+            const preferred = addrs.find((a) => a.isDefault || a.default) ?? addrs[0];
+            return preferred?.id ?? '';
+          });
+        })
+        .catch((err) => noteFailure(err, 'Addresses failed'));
+
+      const ordersTask = listMyOrders(session.accessToken, activeTownId)
+        .then((next) => {
+          setOrders(next);
+        })
+        .catch((err) => {
+          setOrders([]);
+          noteFailure(err, 'Orders failed');
+        });
+
+      await Promise.all([catalogTask, cartTask, addressTask, ordersTask]);
     } catch (err) {
-      setItems([]);
-      setError(err instanceof ApiError || err instanceof Error ? err.message : 'Failed to load catalog');
+      if (err instanceof ApiError && err.isUnauthorized) {
+        setError('Your sign-in expired. Please sign in again.');
+        setCart(null);
+        setAddresses([]);
+        setOrders([]);
+        errors.length = 0;
+        return;
+      }
+      errors.push(err instanceof Error ? err.message : 'Failed to load');
+    } finally {
+      if (errors.length > 0) {
+        setError([...new Set(errors)].join(' · '));
+      }
       setLoading(false);
-      return;
     }
-
-    if (!session) {
-      setCart(null);
-      setAddresses([]);
-      setOrders([]);
-      setLoading(false);
-      return;
-    }
-
-    const secondaryErrors: string[] = [];
-    try {
-      setCart(await fetchCart(session.accessToken, activeTownId));
-    } catch (err) {
-      if (err instanceof ApiError && err.isUnauthorized) {
-        setError('Your sign-in expired. Please sign in again.');
-        setLoading(false);
-        return;
-      }
-      secondaryErrors.push(err instanceof Error ? err.message : 'Cart failed');
-    }
-    try {
-      const addrs = await listAddresses(session.accessToken);
-      setAddresses(addrs);
-      setSelectedAddressId((prev) => {
-        if (prev && addrs.some((a) => a.id === prev)) return prev;
-        const preferred = addrs.find((a) => a.isDefault || a.default) ?? addrs[0];
-        return preferred?.id ?? '';
-      });
-    } catch (err) {
-      if (err instanceof ApiError && err.isUnauthorized) {
-        setError('Your sign-in expired. Please sign in again.');
-        setLoading(false);
-        return;
-      }
-      secondaryErrors.push(err instanceof Error ? err.message : 'Addresses failed');
-    }
-    try {
-      setOrders(await listMyOrders(session.accessToken, activeTownId));
-    } catch (err) {
-      if (err instanceof ApiError && err.isUnauthorized) {
-        setError('Your sign-in expired. Please sign in again.');
-        setLoading(false);
-        return;
-      }
-      secondaryErrors.push(err instanceof Error ? err.message : 'Orders failed');
-    }
-
-    if (secondaryErrors.length > 0) {
-      // Deduplicate identical messages (e.g. same JWT failure text).
-      setError([...new Set(secondaryErrors)].join(' · '));
-    }
-    setLoading(false);
   }, [session, townId, query]);
 
   useEffect(() => {

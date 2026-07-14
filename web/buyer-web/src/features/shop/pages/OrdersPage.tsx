@@ -2,6 +2,7 @@ import type { CSSProperties } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { PortalShell } from '@/shared/layout/PortalShell';
 import { Badge, Banner, Button, Card, EmptyState, LoadingBlock } from '@/shared/ui';
+import { formatBuyerPaymentLabel } from '../lib/formatBuyerPaymentLabel';
 import { useShop } from '../hooks/useShop';
 
 function statusTone(status: string): 'neutral' | 'success' | 'warning' | 'danger' | 'brand' {
@@ -92,7 +93,14 @@ export function OrdersPage() {
                   {' · '}
                   {o.itemCount} item{o.itemCount === 1 ? '' : 's'}
                 </p>
-                <p style={styles.meta}>Payment: {o.paymentStatus}</p>
+                <p style={styles.meta}>
+                  Payment:{' '}
+                  {formatBuyerPaymentLabel({
+                    paymentMethod: o.paymentMethod,
+                    paymentStatus: o.paymentStatus,
+                    orderStatus: o.status,
+                  })}
+                </p>
                 <p style={styles.viewHint}>View items & invoice →</p>
               </Card>
             </button>
