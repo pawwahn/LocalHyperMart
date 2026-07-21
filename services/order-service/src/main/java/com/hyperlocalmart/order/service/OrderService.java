@@ -6,6 +6,7 @@ import com.hyperlocalmart.common.exception.ErrorCode;
 import com.hyperlocalmart.order.client.AddressClient;
 import com.hyperlocalmart.order.client.CartClient;
 import com.hyperlocalmart.order.client.CatalogClient;
+import com.hyperlocalmart.order.client.DeliveryClient;
 import com.hyperlocalmart.order.client.NotificationClient;
 import com.hyperlocalmart.order.client.PaymentClient;
 import com.hyperlocalmart.order.client.TownClient;
@@ -27,10 +28,13 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 @Service
 @RequiredArgsConstructor
@@ -49,6 +53,7 @@ public class OrderService {
     private final NotificationClient notificationClient;
     private final CatalogClient catalogClient;
     private final OrderInvoiceService orderInvoiceService;
+    private final DeliveryClient deliveryClient;
 
     @Transactional
     public CreateOrderResponse createOrder(UUID buyerId, String buyerPhone, String idempotencyKey, CreateOrderRequest request) {
@@ -474,11 +479,13 @@ public class OrderService {
                         .build());
             }
         }
+        List<DeliveryClient.OrderAssignment> assignments = deliveryClient.getAssignmentsForOrder(order.getId());
         return OrderDetailResponse.builder()
                 .orderId(order.getId())
                 .orderNumber(order.getOrderNumber())
                 .status(order.getStatus())
-                .displayStatus(displayStatus(order.getStatus()))
+                .displayStatus(buyerDisplayStatus(order, assignments))
+                .placedAt(order.getPlacedAt())
                 .itemsSubtotal(order.getItemsSubtotal())
                 .deliveryFee(order.getDeliveryFee())
                 .storeCreditApplied(order.getStoreCreditApplied() == null ? BigDecimal.ZERO : order.getStoreCreditApplied())
@@ -488,6 +495,233 @@ public class OrderService {
                 .deliveryAddress(order.getDeliveryAddressSnapshot())
                 .items(items)
                 .invoicePdfUrl(orderInvoiceService.invoicePdfUrl(order))
+                .timeline(buildTimeline(order, assignments))
+                .build();
+    }
+
+    private List<OrderTimelineStepResponse> buildTimeline(
+            Order order, List<DeliveryClient.OrderAssignment> assignments) {
+        OrderStatus status = order.getStatus();
+        List<VendorSubOrder> subs = order.getVendorSubOrders() == null ? List.of() : order.getVendorSubOrders();
+        List<VendorSubOrder> activeSubs = subs.stream()
+                .filter(s -> s.getStatus() != VendorSubOrderStatus.VENDOR_REJECTED)
+                .toList();
+
+        Instant placedAt = order.getPlacedAt();
+        Instant readyAt = activeSubs.stream()
+                .map(VendorSubOrder::getReadyForPickupAt)
+                .filter(Objects::nonNull)
+                .min(Instant::compareTo)
+                .orElse(null);
+        Instant deliveredAt = order.getDeliveredAt();
+        Instant cancelledAt = order.getCancelledAt();
+
+        boolean anyReady = activeSubs.stream()
+                .anyMatch(s -> s.getStatus() == VendorSubOrderStatus.READY_FOR_PICKUP
+                        || s.getStatus() == VendorSubOrderStatus.DELIVERED);
+        boolean allReady = !activeSubs.isEmpty() && activeSubs.stream()
+                .allMatch(s -> s.getStatus() == VendorSubOrderStatus.READY_FOR_PICKUP
+                        || s.getStatus() == VendorSubOrderStatus.DELIVERED);
+
+        Instant pickedFromShopAt = firstEventAt(assignments, "PICKED_FROM_VENDOR");
+        Instant atHubAt = firstEventAt(assignments, "BROUGHT_TO_HUB");
+        Instant lastMileAssignedAt = firstEventAt(assignments, "LAST_MILE_ASSIGNED");
+        Instant leftHubAt = firstEventAt(assignments, "PICKED_FROM_HUB");
+        Instant deliveredEventAt = firstEventAt(assignments, "DELIVERED");
+        if (deliveredAt == null) {
+            deliveredAt = deliveredEventAt;
+        }
+
+        boolean pickedFromShop = pickedFromShopAt != null;
+        boolean atHub = atHubAt != null || hasCompletedPickupLeg(assignments);
+        boolean agentAssigned = lastMileAssignedAt != null;
+        boolean leftHub = leftHubAt != null || hasInProgressOrCompletedLastMile(assignments);
+        boolean delivered = status == OrderStatus.DELIVERED || deliveredEventAt != null;
+
+        List<OrderTimelineStepResponse> steps = new ArrayList<>();
+
+        if (status == OrderStatus.PAYMENT_PENDING) {
+            steps.add(step("PAYMENT_PENDING", "Awaiting payment", "CURRENT", null, null));
+            appendHappyPathSkeleton(steps);
+            return steps;
+        }
+
+        if (status == OrderStatus.PAYMENT_FAILED) {
+            steps.add(step("PAYMENT_FAILED", "Payment failed", "CURRENT", null, "Try placing the order again"));
+            return steps;
+        }
+
+        if (status == OrderStatus.CANCELLED) {
+            steps.add(step("ORDER_PLACED", "Order placed", "DONE", placedAt, null));
+            steps.add(step("CANCELLED", "Cancelled", "CURRENT", cancelledAt,
+                    order.getCancelReason() != null ? order.getCancelReason() : null));
+            return steps;
+        }
+
+        steps.add(step("ORDER_PLACED", "Order placed", "DONE", placedAt, null));
+
+        String preparingState = stateAfter(true, delivered || allReady || anyReady || pickedFromShop || atHub);
+        steps.add(step("SHOP_PREPARING", "Shop is preparing", preparingState, placedAt,
+                "CURRENT".equals(preparingState)
+                        ? (subs.size() > 1 ? "Waiting for shops to confirm" : "Waiting for the shop to confirm")
+                        : null));
+
+        String readyState = stateAfter(
+                "DONE".equals(preparingState),
+                delivered || allReady || pickedFromShop || atHub || agentAssigned || leftHub);
+        String readyNote = null;
+        if ("CURRENT".equals(readyState) && activeSubs.size() > 1 && !allReady) {
+            long readyCount = activeSubs.stream()
+                    .filter(s -> s.getStatus() == VendorSubOrderStatus.READY_FOR_PICKUP
+                            || s.getStatus() == VendorSubOrderStatus.DELIVERED)
+                    .count();
+            readyNote = readyCount + " of " + activeSubs.size() + " shops ready";
+        } else if ("CURRENT".equals(readyState)) {
+            readyNote = "Waiting for pickup agent at the shop";
+        }
+        steps.add(step("READY_AT_SHOP", "Ready at shop", readyState, readyAt, readyNote));
+
+        String pickedShopState = stateAfter(
+                "DONE".equals(readyState),
+                delivered || pickedFromShop || atHub || agentAssigned || leftHub);
+        steps.add(step("PICKED_FROM_SHOP", "Picked up from shop", pickedShopState, pickedFromShopAt,
+                "CURRENT".equals(pickedShopState) ? "Agent is bringing your order to the delivery hub" : null));
+
+        String hubState = stateAfter(
+                "DONE".equals(pickedShopState),
+                delivered || atHub || agentAssigned || leftHub);
+        steps.add(step("AT_HUB", "Arrived at delivery hub", hubState, atHubAt,
+                "CURRENT".equals(hubState) ? "Hub received and checked your order" : null));
+
+        String assignState = stateAfter(
+                "DONE".equals(hubState),
+                delivered || agentAssigned || leftHub);
+        steps.add(step("AGENT_ASSIGNED", "Delivery agent assigned", assignState, lastMileAssignedAt,
+                "CURRENT".equals(assignState) ? "Waiting for the agent to leave the hub" : null));
+
+        String outState;
+        if (delivered) {
+            outState = "DONE";
+        } else if (leftHub) {
+            outState = "CURRENT";
+        } else {
+            outState = stateAfter("DONE".equals(assignState), false);
+        }
+        steps.add(step("OUT_FOR_DELIVERY", "Out for delivery", outState, leftHubAt,
+                "CURRENT".equals(outState) ? "Agent left the hub — on the way to you" : null));
+
+        steps.add(step("DELIVERED", "Delivered",
+                delivered ? "DONE" : "UPCOMING",
+                deliveredAt,
+                null));
+
+        return normalizeCurrent(steps);
+    }
+
+    private void appendHappyPathSkeleton(List<OrderTimelineStepResponse> steps) {
+        steps.add(step("ORDER_PLACED", "Order placed", "UPCOMING", null, null));
+        steps.add(step("SHOP_PREPARING", "Shop is preparing", "UPCOMING", null, null));
+        steps.add(step("READY_AT_SHOP", "Ready at shop", "UPCOMING", null, null));
+        steps.add(step("PICKED_FROM_SHOP", "Picked up from shop", "UPCOMING", null, null));
+        steps.add(step("AT_HUB", "Arrived at delivery hub", "UPCOMING", null, null));
+        steps.add(step("AGENT_ASSIGNED", "Delivery agent assigned", "UPCOMING", null, null));
+        steps.add(step("OUT_FOR_DELIVERY", "Out for delivery", "UPCOMING", null, null));
+        steps.add(step("DELIVERED", "Delivered", "UPCOMING", null, null));
+    }
+
+    /** DONE if done; else CURRENT if previousDone; else UPCOMING. */
+    private String stateAfter(boolean previousDone, boolean done) {
+        if (done) return "DONE";
+        if (previousDone) return "CURRENT";
+        return "UPCOMING";
+    }
+
+    private List<OrderTimelineStepResponse> normalizeCurrent(List<OrderTimelineStepResponse> steps) {
+        // Ensure exactly one CURRENT when order is in progress (last DONE's next UPCOMING).
+        boolean hasCurrent = steps.stream().anyMatch(s -> "CURRENT".equals(s.getState()));
+        if (hasCurrent) return steps;
+        boolean sawDone = false;
+        for (int i = 0; i < steps.size(); i++) {
+            OrderTimelineStepResponse s = steps.get(i);
+            if ("DONE".equals(s.getState())) {
+                sawDone = true;
+                continue;
+            }
+            if (sawDone && "UPCOMING".equals(s.getState())) {
+                steps.set(i, step(s.getCode(), s.getLabel(), "CURRENT", s.getAt(), s.getNote()));
+                break;
+            }
+        }
+        return steps;
+    }
+
+    private Instant firstEventAt(List<DeliveryClient.OrderAssignment> assignments, String eventType) {
+        if (assignments == null || assignments.isEmpty()) return null;
+        return assignments.stream()
+                .flatMap(a -> a.events() == null ? Stream.empty() : a.events().stream())
+                .filter(e -> eventType.equalsIgnoreCase(e.eventType()))
+                .map(DeliveryClient.OrderAssignmentEvent::createdAt)
+                .filter(Objects::nonNull)
+                .min(Comparator.naturalOrder())
+                .orElse(null);
+    }
+
+    private boolean hasCompletedPickupLeg(List<DeliveryClient.OrderAssignment> assignments) {
+        if (assignments == null) return false;
+        return assignments.stream()
+                .anyMatch(a -> "PICKUP".equalsIgnoreCase(a.legType())
+                        && "COMPLETED".equalsIgnoreCase(a.status()));
+    }
+
+    private boolean hasInProgressOrCompletedLastMile(List<DeliveryClient.OrderAssignment> assignments) {
+        if (assignments == null) return false;
+        return assignments.stream()
+                .anyMatch(a -> "LAST_MILE".equalsIgnoreCase(a.legType())
+                        && ("IN_PROGRESS".equalsIgnoreCase(a.status())
+                        || "COMPLETED".equalsIgnoreCase(a.status())));
+    }
+
+    private String buyerDisplayStatus(Order order, List<DeliveryClient.OrderAssignment> assignments) {
+        OrderStatus status = order.getStatus();
+        if (status == OrderStatus.PAYMENT_PENDING) return "Awaiting Payment";
+        if (status == OrderStatus.PAYMENT_FAILED) return "Payment Failed";
+        if (status == OrderStatus.CANCELLED) return "Cancelled";
+        if (status == OrderStatus.DELIVERED || firstEventAt(assignments, "DELIVERED") != null) {
+            return "Delivered";
+        }
+        if (firstEventAt(assignments, "PICKED_FROM_HUB") != null
+                || hasInProgressOrCompletedLastMile(assignments)) {
+            return "Out for Delivery";
+        }
+        if (firstEventAt(assignments, "LAST_MILE_ASSIGNED") != null) {
+            return "Agent Assigned";
+        }
+        if (firstEventAt(assignments, "BROUGHT_TO_HUB") != null || hasCompletedPickupLeg(assignments)) {
+            return "At Delivery Hub";
+        }
+        if (firstEventAt(assignments, "PICKED_FROM_VENDOR") != null) {
+            return "Picked from Shop";
+        }
+        List<VendorSubOrder> activeSubs = order.getVendorSubOrders() == null
+                ? List.of()
+                : order.getVendorSubOrders().stream()
+                .filter(s -> s.getStatus() != VendorSubOrderStatus.VENDOR_REJECTED)
+                .toList();
+        boolean allReady = !activeSubs.isEmpty() && activeSubs.stream()
+                .allMatch(s -> s.getStatus() == VendorSubOrderStatus.READY_FOR_PICKUP
+                        || s.getStatus() == VendorSubOrderStatus.DELIVERED);
+        if (allReady) return "Ready at Shop";
+        if (status == OrderStatus.PLACED) return "Shop Preparing";
+        return displayStatus(status);
+    }
+
+    private OrderTimelineStepResponse step(String code, String label, String state, Instant at, String note) {
+        return OrderTimelineStepResponse.builder()
+                .code(code)
+                .label(label)
+                .state(state)
+                .at(at)
+                .note(note)
                 .build();
     }
 

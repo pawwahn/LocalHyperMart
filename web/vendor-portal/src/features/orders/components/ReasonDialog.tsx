@@ -6,6 +6,8 @@ export type ReasonDialogProps = {
   title: string;
   description: string;
   confirmLabel: string;
+  /** Label for dismiss / keep action (default: Go back). */
+  cancelLabel?: string;
   defaultReason?: string;
   danger?: boolean;
   busy?: boolean;
@@ -18,6 +20,7 @@ export function ReasonDialog({
   title,
   description,
   confirmLabel,
+  cancelLabel = 'Go back',
   defaultReason = 'Out of stock',
   danger,
   busy,
@@ -33,10 +36,8 @@ export function ReasonDialog({
     if (!open) return;
     setReason(defaultReason);
     setLocalError(null);
-    const t = window.setTimeout(() => {
-      inputRef.current?.focus();
-      inputRef.current?.select();
-    }, 0);
+    // Focus reason field but do not select-all — avoids accidental Enter submitting immediately.
+    const t = window.setTimeout(() => inputRef.current?.focus(), 0);
     return () => window.clearTimeout(t);
   }, [open, defaultReason]);
 
@@ -106,7 +107,7 @@ export function ReasonDialog({
 
           <div style={styles.actions}>
             <Button type="button" variant="ghost" disabled={busy} onClick={onClose}>
-              Cancel
+              {cancelLabel}
             </Button>
             <Button type="submit" variant={danger ? 'danger' : 'primary'} disabled={busy}>
               {busy ? '…' : confirmLabel}

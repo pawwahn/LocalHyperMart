@@ -6,6 +6,7 @@ import { useVendorShop } from '@/features/shop/hooks/useVendorShop';
 import { DashboardStats } from '../components/DashboardStats';
 import { SubOrderList } from '../components/SubOrderList';
 import { ReasonDialog } from '../components/ReasonDialog';
+import { ConfirmDialog } from '../components/ConfirmDialog';
 
 const FILTERS: Array<{ value: string; label: string }> = [
   { value: 'PLACED', label: 'New' },
@@ -16,7 +17,16 @@ const FILTERS: Array<{ value: string; label: string }> = [
 
 type PromptState =
   | { kind: 'reject'; subOrderId: string }
+  | { kind: 'cancelItemAsk'; subOrderId: string; itemId: string; itemName: string }
   | { kind: 'cancelItem'; subOrderId: string; itemId: string; itemName: string }
+  | {
+      kind: 'restoreItem';
+      subOrderId: string;
+      itemId: string;
+      itemName: string;
+      creditLabel: string;
+    }
+  | { kind: 'actionResult'; ok: boolean; title: string; message: string }
   | null;
 
 export function DashboardPage() {
@@ -35,6 +45,7 @@ export function DashboardPage() {
     markReady,
     reject,
     cancelItem,
+    restoreItem,
   } = useVendorOrders();
   const {
     acceptingOrders,
@@ -48,7 +59,10 @@ export function DashboardPage() {
     prompt &&
       (prompt.kind === 'reject'
         ? actionId === prompt.subOrderId
-        : actionId === `${prompt.subOrderId}:${prompt.itemId}`),
+        : prompt.kind === 'cancelItem' || prompt.kind === 'restoreItem'
+          ? actionId === `${prompt.subOrderId}:${prompt.itemId}` ||
+            actionId === `${prompt.subOrderId}:${prompt.itemId}:restore`
+          : false),
   );
 
   return (
@@ -67,6 +81,8 @@ export function DashboardPage() {
         </Banner>
       ) : null}
       {shopError ? <Banner tone="danger">{shopError}</Banner> : null}
+      {error ? <Banner tone="danger">{error}</Banner> : null}
+      {notice ? <Banner tone="success">{notice}</Banner> : null}
 
       <DashboardStats
         dashboard={dashboard}
@@ -95,9 +111,6 @@ export function DashboardPage() {
           </div>
         </div>
 
-        {error ? <Banner tone="danger">{error}</Banner> : null}
-        {notice ? <Banner tone="success">{notice}</Banner> : null}
-
         {loading && orders.length === 0 ? (
           <p style={styles.muted}>Loading orders…</p>
         ) : (
@@ -107,17 +120,44 @@ export function DashboardPage() {
             onReady={(id) => void markReady(id)}
             onReject={(id) => setPrompt({ kind: 'reject', subOrderId: id })}
             onCancelItem={(subOrderId, itemId, itemName) =>
-              setPrompt({ kind: 'cancelItem', subOrderId, itemId, itemName })
+              setPrompt({ kind: 'cancelItemAsk', subOrderId, itemId, itemName })
+            }
+            onRestoreItem={(subOrderId, itemId, itemName, creditLabel) =>
+              setPrompt({ kind: 'restoreItem', subOrderId, itemId, itemName, creditLabel })
             }
           />
         )}
       </section>
 
+      <ConfirmDialog
+        open={prompt?.kind === 'cancelItemAsk'}
+        title={
+          prompt?.kind === 'cancelItemAsk'
+            ? `Cancel “${prompt.itemName}” from this order?`
+            : 'Cancel item?'
+        }
+        description="This cannot be undone here. The buyer gets store credit for this item only. Other shops on the order are not affected. You can Restore later only if the buyer has not used that credit and the agent has not picked up yet."
+        confirmLabel="Continue"
+        cancelLabel="Keep item"
+        danger
+        onClose={() => setPrompt(null)}
+        onConfirm={() => {
+          if (prompt?.kind !== 'cancelItemAsk') return;
+          setPrompt({
+            kind: 'cancelItem',
+            subOrderId: prompt.subOrderId,
+            itemId: prompt.itemId,
+            itemName: prompt.itemName,
+          });
+        }}
+      />
+
       <ReasonDialog
         open={prompt?.kind === 'cancelItem'}
-        title={prompt?.kind === 'cancelItem' ? `Cancel “${prompt.itemName}”?` : 'Cancel item'}
-        description="Buyer gets store credit for this line only. Other shops on the order are not affected."
-        confirmLabel="Cancel item"
+        title={prompt?.kind === 'cancelItem' ? `Confirm cancel: “${prompt.itemName}”` : 'Cancel item'}
+        description="Enter a reason. Buyer gets store credit for this line only."
+        confirmLabel="Yes, cancel item"
+        cancelLabel="Keep item"
         defaultReason="Out of stock"
         danger
         busy={dialogBusy}
@@ -126,18 +166,67 @@ export function DashboardPage() {
         }}
         onConfirm={(reason) => {
           if (prompt?.kind !== 'cancelItem') return;
-          const { subOrderId, itemId } = prompt;
-          void cancelItem(subOrderId, itemId, reason).then((ok) => {
-            if (ok) setPrompt(null);
+          const { subOrderId, itemId, itemName } = prompt;
+          void cancelItem(subOrderId, itemId, reason, itemName).then((result) => {
+            setPrompt({
+              kind: 'actionResult',
+              ok: result.ok,
+              title: result.ok ? 'Item cancelled' : 'Couldn’t cancel',
+              message: result.message,
+            });
           });
         }}
+      />
+
+      <ConfirmDialog
+        open={prompt?.kind === 'restoreItem'}
+        title={
+          prompt?.kind === 'restoreItem'
+            ? `Restore “${prompt.itemName}” to this order?`
+            : 'Restore item?'
+        }
+        description={
+          prompt?.kind === 'restoreItem'
+            ? `We will check the buyer’s wallet. Restore succeeds only if at least ${prompt.creditLabel} store credit is still available; that amount will be reversed.`
+            : 'Wallet credit must still be available.'
+        }
+        confirmLabel="Yes, restore"
+        cancelLabel="Don’t restore"
+        busy={dialogBusy}
+        onClose={() => {
+          if (!dialogBusy) setPrompt(null);
+        }}
+        onConfirm={() => {
+          if (prompt?.kind !== 'restoreItem') return;
+          const { subOrderId, itemId, itemName } = prompt;
+          void restoreItem(subOrderId, itemId, itemName).then((result) => {
+            setPrompt({
+              kind: 'actionResult',
+              ok: result.ok,
+              title: result.ok ? 'Item restored' : 'Couldn’t restore',
+              message: result.message,
+            });
+          });
+        }}
+      />
+
+      <ConfirmDialog
+        open={prompt?.kind === 'actionResult'}
+        title={prompt?.kind === 'actionResult' ? prompt.title : 'Result'}
+        description={prompt?.kind === 'actionResult' ? prompt.message : ''}
+        confirmLabel="OK"
+        alertOnly
+        danger={prompt?.kind === 'actionResult' ? !prompt.ok : false}
+        onClose={() => setPrompt(null)}
+        onConfirm={() => setPrompt(null)}
       />
 
       <ReasonDialog
         open={prompt?.kind === 'reject'}
         title="Reject entire shop order?"
         description="This cancels the whole multi-vendor order for the buyer, including items from other shops."
-        confirmLabel="Reject all"
+        confirmLabel="Yes, reject all"
+        cancelLabel="Keep order"
         defaultReason="Out of stock today"
         danger
         busy={dialogBusy}

@@ -7,6 +7,7 @@ import lombok.Builder;
 import lombok.Data;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -19,6 +20,7 @@ public class OrderDetailResponse {
     private String orderNumber;
     private OrderStatus status;
     private String displayStatus;
+    private Instant placedAt;
     private BigDecimal itemsSubtotal;
     private BigDecimal deliveryFee;
     private BigDecimal storeCreditApplied;
@@ -28,4 +30,5 @@ public class OrderDetailResponse {
     private Map<String, Object> deliveryAddress;
     private List<OrderItemDetailResponse> items;
     private String invoicePdfUrl;
+    private List<OrderTimelineStepResponse> timeline;
 }

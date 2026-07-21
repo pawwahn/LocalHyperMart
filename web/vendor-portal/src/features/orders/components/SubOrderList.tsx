@@ -9,9 +9,17 @@ type Props = {
   onReady: (id: string) => void;
   onReject: (id: string) => void;
   onCancelItem: (subOrderId: string, itemId: string, itemName: string) => void;
+  onRestoreItem: (subOrderId: string, itemId: string, itemName: string, creditLabel: string) => void;
 };
 
-export function SubOrderList({ orders, actionId, onReady, onReject, onCancelItem }: Props) {
+export function SubOrderList({
+  orders,
+  actionId,
+  onReady,
+  onReject,
+  onCancelItem,
+  onRestoreItem,
+}: Props) {
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(25);
@@ -107,6 +115,25 @@ export function SubOrderList({ orders, actionId, onReady, onReject, onCancelItem
                                 onClick={() => onCancelItem(order.id, item.orderItemId, item.name)}
                               >
                                 Cancel item
+                              </Button>
+                            ) : null}
+                            {item.canRestore ? (
+                              <Button
+                                variant="secondary"
+                                size="sm"
+                                disabled={busy}
+                                onClick={() =>
+                                  onRestoreItem(
+                                    order.id,
+                                    item.orderItemId,
+                                    item.name,
+                                    item.storeCreditAmount != null
+                                      ? `₹${Number(item.storeCreditAmount).toFixed(2)}`
+                                      : item.lineTotalLabel,
+                                  )
+                                }
+                              >
+                                Restore
                               </Button>
                             ) : null}
                           </li>

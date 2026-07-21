@@ -1,5 +1,7 @@
 package com.hyperlocalmart.order.client;
 
+import com.hyperlocalmart.common.exception.BusinessException;
+import com.hyperlocalmart.common.exception.ErrorCode;
 import com.hyperlocalmart.common.api.ApiResponse;
 import com.hyperlocalmart.order.config.PaymentServiceProperties;
 import com.hyperlocalmart.order.dto.response.PaymentInfoResponse;
@@ -7,6 +9,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientResponseException;
 
 import java.math.BigDecimal;
 import java.util.Map;
@@ -108,15 +111,23 @@ public class PaymentClient {
         body.put("referenceId", referenceId);
         body.put("orderId", orderId);
         body.put("note", note != null ? note : "");
-        ApiResponse<WalletBalanceResult> response = client.post()
-                .uri("/api/v1/internal/wallet/debit")
-                .body(body)
-                .retrieve()
-                .body(new ParameterizedTypeReference<ApiResponse<WalletBalanceResult>>() {});
-        if (response == null || response.getData() == null || response.getData().balance() == null) {
-            throw new IllegalStateException("Wallet debit failed");
+        try {
+            ApiResponse<WalletBalanceResult> response = client.post()
+                    .uri("/api/v1/internal/wallet/debit")
+                    .body(body)
+                    .retrieve()
+                    .body(new ParameterizedTypeReference<ApiResponse<WalletBalanceResult>>() {});
+            if (response == null || response.getData() == null || response.getData().balance() == null) {
+                throw new IllegalStateException("Wallet debit failed");
+            }
+            return response.getData().balance();
+        } catch (RestClientResponseException ex) {
+            String payload = ex.getResponseBodyAsString();
+            if (payload != null && payload.toLowerCase().contains("insufficient")) {
+                throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Insufficient store credit");
+            }
+            throw new IllegalStateException("Wallet debit failed: " + ex.getMessage(), ex);
         }
-        return response.getData().balance();
     }
 
     public record PaymentInitiateResult(UUID paymentId, UUID orderId, String status, String upiIntent, String qrPayload) {

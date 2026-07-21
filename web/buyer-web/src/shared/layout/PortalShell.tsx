@@ -2,8 +2,11 @@ import type { CSSProperties, ReactNode } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { ThemePicker } from '@hlm-theme';
 import { useAuth } from '@/shared/auth/AuthContext';
+import { useTown } from '@/shared/town/TownContext';
+import { useWallet } from '@/features/shop/hooks/useWallet';
 import { StickyCartBar } from '@/features/shop/components/StickyCartBar';
 import { AdSlot } from '@/features/ads/components/AdSlot';
+import { TownPickerSheet } from '@/features/towns/components/TownPickerSheet';
 
 type Props = {
   title?: string;
@@ -31,6 +34,8 @@ export function PortalShell({
   footerSlot,
 }: Props) {
   const { session, logout } = useAuth();
+  const { townLabel, openPicker } = useTown();
+  const { balance: walletBalance } = useWallet();
   const location = useLocation();
   const onCart = location.pathname.startsWith('/cart');
   const showFloatingCart = showStickyCart && !onCart && cartCount > 0;
@@ -45,22 +50,40 @@ export function PortalShell({
           : 'calc(var(--tabbar-h) + 1.25rem)',
       }}
     >
+      <TownPickerSheet />
       <header style={styles.header}>
         <div style={styles.headerTop}>
           <div style={styles.locationBlock}>
             <p style={styles.brandMark}>HyperLocalMart</p>
-            <button type="button" style={styles.locationBtn} aria-label="Delivery location">
-              <span style={styles.pin} aria-hidden>
-                ▾
+            <button
+              type="button"
+              style={styles.locationBtn}
+              aria-label={`Change town. Currently ${townLabel}`}
+              title="Tap to change town"
+              onClick={openPicker}
+            >
+              <span style={styles.locationEyebrow}>Your town · tap to change</span>
+              <span style={styles.locationRow}>
+                <span style={styles.locationValue}>{townLabel}</span>
+                <span style={styles.chevron} aria-hidden>
+                  ▾
+                </span>
               </span>
-              <div>
-                <p style={styles.locationLabel}>Delivery in today</p>
-                <p style={styles.locationValue}>Narsaraopet, AP</p>
-              </div>
             </button>
           </div>
           <div style={styles.headerActions}>
-            <ThemePicker compact />
+            {session ? (
+              <Link
+                to="/wallet"
+                style={styles.walletChip}
+                title="Your store credit wallet"
+                aria-label={`Wallet balance ₹${walletBalance.toFixed(2)}`}
+              >
+                <span style={styles.walletChipLabel}>Wallet</span>
+                <span style={styles.walletChipAmt}>₹{walletBalance.toFixed(0)}</span>
+              </Link>
+            ) : null}
+            {session ? <ThemePicker compact /> : null}
             {onRefresh ? (
               <button type="button" style={styles.iconBtn} onClick={onRefresh} aria-label="Refresh">
                 ↻
@@ -100,6 +123,7 @@ export function PortalShell({
         <Tab to="/shop" current={location.pathname} icon="🏠" label="Home" />
         <Tab to="/cart" current={location.pathname} icon="🛒" label="Cart" badge={cartCount} />
         <Tab to="/orders" current={location.pathname} icon="📦" label="Orders" />
+        <Tab to="/wallet" current={location.pathname} icon="👛" label="Wallet" />
       </nav>
     </div>
   );
@@ -169,26 +193,69 @@ const styles: Record<string, CSSProperties> = {
     color: 'var(--accent)',
   },
   locationBtn: {
-    display: 'flex',
-    alignItems: 'flex-start',
-    gap: '0.35rem',
-    border: 'none',
-    background: 'transparent',
-    padding: 0,
+    display: 'grid',
+    gap: '0.12rem',
+    border: '1px dashed color-mix(in srgb, var(--accent) 45%, var(--border))',
+    background: 'color-mix(in srgb, var(--accent) 8%, var(--bg-elevated))',
+    padding: '0.4rem 0.65rem',
     textAlign: 'left',
-    cursor: 'default',
+    cursor: 'pointer',
+    borderRadius: 'var(--radius-md)',
+    maxWidth: '100%',
   },
-  pin: { color: 'var(--accent)', fontWeight: 800, marginTop: '0.15rem' },
-  locationLabel: {
+  locationEyebrow: {
+    margin: 0,
+    fontSize: '0.72rem',
+    fontWeight: 700,
+    color: 'var(--accent)',
+    letterSpacing: '0.01em',
+  },
+  locationRow: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '0.35rem',
+    minWidth: 0,
+  },
+  locationValue: {
     margin: 0,
     fontFamily: 'var(--font-display)',
     fontWeight: 800,
     fontSize: '1.05rem',
     color: 'var(--text)',
     lineHeight: 1.15,
+    textDecoration: 'underline',
+    textDecorationStyle: 'dotted',
+    textUnderlineOffset: '3px',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
   },
-  locationValue: { margin: 0, fontSize: '0.82rem', color: 'var(--text-muted)', fontWeight: 600 },
+  chevron: {
+    color: 'var(--accent)',
+    fontWeight: 800,
+    fontSize: '0.85rem',
+    flexShrink: 0,
+  },
   headerActions: { display: 'flex', gap: '0.45rem', alignItems: 'center' },
+  walletChip: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '0.35rem',
+    padding: '0.35rem 0.65rem',
+    borderRadius: 'var(--radius-full)',
+    border: '1px solid color-mix(in srgb, var(--accent) 35%, var(--border))',
+    background: 'color-mix(in srgb, var(--accent) 10%, var(--bg-elevated))',
+    textDecoration: 'none',
+    color: 'var(--text)',
+  },
+  walletChipLabel: {
+    fontSize: '0.68rem',
+    fontWeight: 800,
+    textTransform: 'uppercase',
+    letterSpacing: '0.04em',
+    color: 'var(--accent)',
+  },
+  walletChipAmt: { fontSize: '0.85rem', fontWeight: 800 },
   iconBtn: {
     width: 36,
     height: 36,
@@ -240,7 +307,7 @@ const styles: Record<string, CSSProperties> = {
     height: 'calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px))',
     paddingBottom: 'env(safe-area-inset-bottom, 0px)',
     display: 'grid',
-    gridTemplateColumns: 'repeat(3, 1fr)',
+    gridTemplateColumns: 'repeat(4, 1fr)',
     background: 'var(--bg-elevated)',
     borderTop: '1px solid var(--border)',
     zIndex: 50,

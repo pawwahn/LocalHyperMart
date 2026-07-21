@@ -1,0 +1,28 @@
+---
+description: New UI must use portal theme tokens; never native browser dialogs
+alwaysApply: true
+---
+
+# UI theme & dialogs (HyperLocalMart web)
+
+When building or changing any portal screen (buyer-web, vendor-portal, delivery-portal, super-admin):
+
+## Theme — required
+
+- Use existing CSS variables from `@hlm-theme` / portal tokens: `--bg`, `--bg-elevated`, `--text`, `--text-muted`, `--accent`, `--border`, `--danger`, `--radius-*`, `--font-display`, `--shadow-*`.
+- Reuse shared components (`Button`, `Banner`, `Card`, `TextField`, `PortalShell`, theme dialogs) before inventing new chrome.
+- Match the surrounding portal’s layout density and patterns; do not ship unstyled browser defaults for primary UX.
+- Guests share the default theme; personal theme picker only after login (buyer/vendor).
+
+## Dialogs / alerts — hard rules
+
+- **Never** use `window.alert`, `window.confirm`, or `window.prompt` for product UX. They ignore theme and show “localhost says…”.
+- Use themed modals (`ConfirmDialog`, `ReasonDialog`, or equivalent styled with theme tokens).
+- Destructive actions need a clear keep/go-back action and an explicit confirm label (e.g. “Keep item” / “Yes, cancel item”).
+
+## Checklist before finishing a new screen
+
+1. Looks correct in light + current accent (and dark if the portal supports it).
+2. No native browser dialogs for confirmations.
+3. Interactive controls use shared `Button` / form fields where possible.
+4. Loading, empty, and error states use existing Banner / Empty patterns.

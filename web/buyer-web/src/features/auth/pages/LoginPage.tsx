@@ -1,15 +1,17 @@
 import type { CSSProperties } from 'react';
 import { Link } from 'react-router-dom';
-import { LoginThemeCorner } from '@hlm-theme';
 import { Banner, Button, TextField } from '@/shared/ui';
 import { useAuthForms } from '../hooks/useAuthForms';
+import { useTown } from '@/shared/town/TownContext';
+import { TownPickerSheet } from '@/features/towns/components/TownPickerSheet';
 
 export function LoginPage() {
   const f = useAuthForms();
+  const { townLabel, openPicker, towns, loading: townsLoading } = useTown();
 
   return (
     <div style={styles.shell}>
-      <LoginThemeCorner />
+      <TownPickerSheet />
       <div style={styles.panel}>
         <div style={styles.hero}>
           <p style={styles.brand}>HyperLocalMart</p>
@@ -19,7 +21,15 @@ export function LoginPage() {
 
         <div style={styles.card}>
           <h2 style={styles.title}>{f.mode === 'login' ? 'Welcome back' : 'Create account'}</h2>
-          <p style={styles.sub}>Shop local from Narsaraopet vendors.</p>
+          <p style={styles.sub}>Choose your town, then shop from local vendors.</p>
+
+          <button type="button" style={styles.townSelect} onClick={openPicker}>
+            <span style={styles.townSelectLabel}>Your town</span>
+            <span style={styles.townSelectValue}>
+              {townsLoading && towns.length === 0 ? 'Loading…' : townLabel}
+            </span>
+            <span style={styles.townSelectHint}>Tap to change</span>
+          </button>
 
           {f.mode === 'register' ? (
             <div style={styles.row}>
@@ -124,6 +134,19 @@ const styles: Record<string, CSSProperties> = {
   },
   title: { margin: 0, fontFamily: 'var(--font-display)', fontSize: '1.65rem', fontWeight: 800 },
   sub: { margin: 0, color: 'var(--text-muted)' },
+  townSelect: {
+    display: 'grid',
+    gap: '0.15rem',
+    textAlign: 'left',
+    border: '1px solid var(--border)',
+    borderRadius: 'var(--radius-md)',
+    background: 'var(--bg)',
+    padding: '0.75rem 0.9rem',
+    cursor: 'pointer',
+  },
+  townSelectLabel: { fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)' },
+  townSelectValue: { fontWeight: 800, color: 'var(--text)', fontSize: '1rem' },
+  townSelectHint: { fontSize: '0.78rem', color: 'var(--accent)', fontWeight: 700 },
   row: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' },
   linkBtn: {
     border: 'none',

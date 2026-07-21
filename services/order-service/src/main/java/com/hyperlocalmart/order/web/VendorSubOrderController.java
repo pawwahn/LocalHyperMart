@@ -81,6 +81,19 @@ public class VendorSubOrderController {
                         vendorId, subOrderId, itemId, principal.getUserId(), request)));
     }
 
+    @PostMapping("/{subOrderId}/items/{itemId}/restore")
+    public ResponseEntity<ApiResponse<VendorSubOrderResponse>> restoreItem(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @RequestHeader("X-Vendor-Id") UUID vendorId,
+            @PathVariable UUID subOrderId,
+            @PathVariable UUID itemId,
+            HttpServletRequest httpRequest) {
+        requireVendor(principal);
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                vendorSubOrderService.restoreItem(
+                        vendorId, subOrderId, itemId, principal.getUserId())));
+    }
+
     private void requireVendor(AuthUserPrincipal principal) {
         if (principal == null || !principal.getRoles().contains("VENDOR")) {
             throw new com.hyperlocalmart.common.exception.BusinessException(

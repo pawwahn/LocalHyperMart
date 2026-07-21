@@ -5,6 +5,8 @@ import com.hyperlocalmart.common.exception.ErrorCode;
 import com.hyperlocalmart.payment.dto.request.WalletCreditRequest;
 import com.hyperlocalmart.payment.dto.request.WalletDebitRequest;
 import com.hyperlocalmart.payment.dto.response.WalletBalanceResponse;
+import com.hyperlocalmart.payment.dto.response.WalletTransactionListResponse;
+import com.hyperlocalmart.payment.dto.response.WalletTransactionResponse;
 import com.hyperlocalmart.payment.entity.WalletAccount;
 import com.hyperlocalmart.payment.entity.WalletTransaction;
 import com.hyperlocalmart.payment.repository.WalletAccountRepository;
@@ -14,6 +16,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.UUID;
 
 @Service
@@ -23,15 +26,31 @@ public class WalletService {
     private final WalletAccountRepository walletAccountRepository;
     private final WalletTransactionRepository walletTransactionRepository;
 
-    @Transactional(readOnly = true)
+    /** Ensures every buyer has a wallet row; returns current balance (often ₹0). */
+    @Transactional
     public WalletBalanceResponse getBalance(UUID userId) {
-        WalletAccount wallet = walletAccountRepository.findByUserId(userId)
-                .orElse(null);
+        WalletAccount wallet = getOrCreate(userId);
         return WalletBalanceResponse.builder()
                 .userId(userId)
-                .balance(wallet == null ? BigDecimal.ZERO : wallet.getBalance())
-                .status(wallet == null ? "ACTIVE" : wallet.getStatus())
+                .balance(wallet.getBalance())
+                .status(wallet.getStatus())
                 .build();
+    }
+
+    @Transactional(readOnly = true)
+    public WalletTransactionListResponse listTransactions(UUID userId, int limit) {
+        WalletAccount wallet = walletAccountRepository.findByUserId(userId).orElse(null);
+        if (wallet == null) {
+            return WalletTransactionListResponse.builder().items(List.of()).build();
+        }
+        int size = Math.min(Math.max(limit, 1), 100);
+        List<WalletTransaction> rows =
+                walletTransactionRepository.findByWalletIdOrderByCreatedAtDesc(wallet.getId());
+        List<WalletTransactionResponse> items = rows.stream()
+                .limit(size)
+                .map(this::toTransactionResponse)
+                .toList();
+        return WalletTransactionListResponse.builder().items(items).build();
     }
 
     @Transactional
@@ -107,5 +126,39 @@ public class WalletService {
                         .balance(BigDecimal.ZERO)
                         .status("ACTIVE")
                         .build()));
+    }
+
+    private WalletTransactionResponse toTransactionResponse(WalletTransaction tx) {
+        return WalletTransactionResponse.builder()
+                .id(tx.getId())
+                .type(tx.getType())
+                .amount(tx.getAmount())
+                .balanceAfter(tx.getBalanceAfter())
+                .referenceType(tx.getReferenceType())
+                .referenceId(tx.getReferenceId())
+                .orderId(tx.getOrderId())
+                .orderItemId(tx.getOrderItemId())
+                .note(tx.getNote())
+                .createdAt(tx.getCreatedAt() == null ? null : tx.getCreatedAt().toString())
+                .title(friendlyTitle(tx))
+                .build();
+    }
+
+    private String friendlyTitle(WalletTransaction tx) {
+        String ref = tx.getReferenceType() == null ? "" : tx.getReferenceType();
+        boolean credit = "CREDIT".equalsIgnoreCase(tx.getType());
+        if ("ORDER_ITEM_CANCEL".equals(ref)) {
+            return credit ? "Store credit added - shop cancelled an item" : "Store credit adjustment";
+        }
+        if ("ORDER_ITEM_RESTORE".equals(ref)) {
+            return "Store credit removed - shop restored an item";
+        }
+        if ("ORDER_CHECKOUT".equals(ref)) {
+            return "Used on an order at checkout";
+        }
+        if (tx.getNote() != null && !tx.getNote().isBlank()) {
+            return tx.getNote();
+        }
+        return credit ? "Store credit added" : "Store credit used";
     }
 }

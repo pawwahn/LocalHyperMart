@@ -10,10 +10,12 @@ import com.hyperlocalmart.order.dto.request.RejectSubOrderRequest;
 import com.hyperlocalmart.order.dto.response.OrderItemDetailResponse;
 import com.hyperlocalmart.order.dto.response.VendorSubOrderResponse;
 import com.hyperlocalmart.order.entity.*;
+import com.hyperlocalmart.order.repository.OrderItemRepository;
 import com.hyperlocalmart.order.repository.OrderRepository;
 import com.hyperlocalmart.order.repository.OrderStatusHistoryRepository;
 import com.hyperlocalmart.order.repository.VendorSubOrderRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
@@ -24,12 +26,14 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class VendorSubOrderService {
 
     private final VendorSubOrderRepository vendorSubOrderRepository;
     private final OrderRepository orderRepository;
+    private final OrderItemRepository orderItemRepository;
     private final OrderStatusHistoryRepository orderStatusHistoryRepository;
     private final PaymentClient paymentClient;
     private final NotificationClient notificationClient;
@@ -181,23 +185,10 @@ public class VendorSubOrderService {
         item.setCancelledBy(actorUserId);
         item.setStoreCreditAmount(creditAmount);
 
-        BigDecimal newSubtotal = subOrder.getItems().stream()
-                .filter(i -> i.getStatus() == null || i.getStatus() == OrderItemStatus.ACTIVE)
-                .map(OrderItem::getLineTotal)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-        subOrder.setSubtotal(newSubtotal);
-
-        BigDecimal newItemsSubtotal = order.getVendorSubOrders().stream()
-                .flatMap(so -> so.getItems().stream())
-                .filter(i -> i.getStatus() == null || i.getStatus() == OrderItemStatus.ACTIVE)
-                .map(OrderItem::getLineTotal)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-        order.setItemsSubtotal(newItemsSubtotal);
-        BigDecimal promo = order.getPromoDiscount() == null ? BigDecimal.ZERO : order.getPromoDiscount();
-        BigDecimal payableItems = newItemsSubtotal.subtract(promo).max(BigDecimal.ZERO);
-        BigDecimal newTotal = payableItems.add(order.getDeliveryFee() == null ? BigDecimal.ZERO : order.getDeliveryFee());
-        BigDecimal creditApplied = order.getStoreCreditApplied() == null ? BigDecimal.ZERO : order.getStoreCreditApplied();
-        order.setTotalAmount(newTotal.subtract(creditApplied).max(BigDecimal.ZERO));
+        // Persist cancelled state before query-based totals (avoids lazy sibling collection issues).
+        vendorSubOrderRepository.saveAndFlush(subOrder);
+        orderRepository.saveAndFlush(order);
+        recalculateTotals(subOrder, order);
 
         boolean subOrderEmpty = subOrder.getItems().stream()
                 .noneMatch(i -> i.getStatus() == null || i.getStatus() == OrderItemStatus.ACTIVE);
@@ -215,9 +206,8 @@ public class VendorSubOrderService {
                     .build());
         }
 
-        boolean orderEmpty = order.getVendorSubOrders().stream()
-                .flatMap(so -> so.getItems().stream())
-                .noneMatch(i -> i.getStatus() == null || i.getStatus() == OrderItemStatus.ACTIVE);
+        BigDecimal remainingActive = orderItemRepository.sumActiveLineTotalsForOrder(order.getId());
+        boolean orderEmpty = remainingActive == null || remainingActive.compareTo(BigDecimal.ZERO) == 0;
         if (orderEmpty) {
             OrderStatus prior = order.getStatus();
             order.setStatus(OrderStatus.CANCELLED);
@@ -236,26 +226,193 @@ public class VendorSubOrderService {
         orderRepository.save(order);
         vendorSubOrderRepository.save(subOrder);
 
-        BigDecimal balance = paymentClient.creditWallet(
-                order.getBuyerId(),
-                creditAmount,
-                "ORDER_ITEM_CANCEL",
-                item.getId(),
-                order.getId(),
-                item.getId(),
-                "Item cancelled: " + item.getItemNameSnapshot());
+        BigDecimal balance;
+        try {
+            balance = paymentClient.creditWallet(
+                    order.getBuyerId(),
+                    creditAmount,
+                    "ORDER_ITEM_CANCEL",
+                    item.getId(),
+                    order.getId(),
+                    item.getId(),
+                    "Item cancelled: " + item.getItemNameSnapshot());
+        } catch (RuntimeException ex) {
+            log.error("Wallet credit failed while cancelling item {}", itemId, ex);
+            throw new BusinessException(ErrorCode.INTERNAL_ERROR,
+                    "Could not credit buyer wallet. Try again in a moment.");
+        }
 
-        notificationClient.notifyItemCancelledStoreCredit(
-                order.getTownId(),
-                order.getId(),
-                order.getBuyerId(),
-                order.getBuyerPhoneSnapshot(),
-                order.getOrderNumber(),
-                item.getItemNameSnapshot(),
-                creditAmount,
-                balance);
+        try {
+            notificationClient.notifyItemCancelledStoreCredit(
+                    order.getTownId(),
+                    order.getId(),
+                    order.getBuyerId(),
+                    order.getBuyerPhoneSnapshot(),
+                    order.getOrderNumber(),
+                    item.getItemNameSnapshot(),
+                    creditAmount,
+                    balance);
+        } catch (RuntimeException ex) {
+            log.warn("Cancel notification failed for item {}: {}", itemId, ex.toString());
+        }
 
         return toResponse(subOrder);
+    }
+
+    /**
+     * Restore a cancelled line before pickup, only if the buyer still has enough store credit
+     * to reverse the earlier credit. Debits wallet then reactivates the item.
+     */
+    @Transactional
+    public VendorSubOrderResponse restoreItem(UUID vendorId, UUID subOrderId, UUID itemId, UUID actorUserId) {
+        VendorSubOrder subOrder = loadForVendorAction(vendorId, subOrderId);
+        VendorSubOrderStatus status = subOrder.getStatus();
+        boolean restorableStatus = status == VendorSubOrderStatus.PLACED
+                || status == VendorSubOrderStatus.READY_FOR_PICKUP
+                || status == VendorSubOrderStatus.VENDOR_REJECTED;
+        if (!restorableStatus) {
+            throw new BusinessException(ErrorCode.CONFLICT,
+                    "Item can only be restored before the delivery agent picks up from your shop");
+        }
+
+        Order order = subOrder.getOrder();
+        if (order.getStatus() == OrderStatus.CANCELLED || order.getStatus() == OrderStatus.DELIVERED) {
+            throw new BusinessException(ErrorCode.CONFLICT, "Order cannot be modified");
+        }
+
+        OrderItem item = subOrder.getItems().stream()
+                .filter(i -> i.getId().equals(itemId))
+                .findFirst()
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Order item not found"));
+        if (item.getStatus() != OrderItemStatus.CANCELLED) {
+            throw new BusinessException(ErrorCode.CONFLICT, "Item is not cancelled");
+        }
+
+        BigDecimal creditAmount = item.getStoreCreditAmount() != null
+                ? item.getStoreCreditAmount()
+                : item.getLineTotal();
+        if (creditAmount == null || creditAmount.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new BusinessException(ErrorCode.CONFLICT, "No store credit on this item to reverse");
+        }
+
+        BigDecimal balance;
+        try {
+            balance = paymentClient.getWalletBalance(order.getBuyerId());
+        } catch (RuntimeException ex) {
+            log.error("Wallet balance check failed for restore item {}", itemId, ex);
+            throw new BusinessException(ErrorCode.INTERNAL_ERROR,
+                    "Could not check buyer wallet. Try again in a moment.");
+        }
+        if (balance.compareTo(creditAmount) < 0) {
+            throw new BusinessException(ErrorCode.CONFLICT,
+                    "Can't restore — buyer has already used this store credit.");
+        }
+
+        String priorCancelReason = item.getCancelReason();
+        Instant priorCancelledAt = item.getCancelledAt();
+        UUID priorCancelledBy = item.getCancelledBy();
+        BigDecimal priorCredit = item.getStoreCreditAmount();
+        VendorSubOrderStatus priorSubStatus = subOrder.getStatus();
+
+        item.setStatus(OrderItemStatus.ACTIVE);
+        item.setCancelReason(null);
+        item.setCancelledAt(null);
+        item.setCancelledBy(null);
+        item.setStoreCreditAmount(null);
+
+        // Persist item state before money move so query-based totals see ACTIVE lines.
+        vendorSubOrderRepository.saveAndFlush(subOrder);
+        orderRepository.saveAndFlush(order);
+        recalculateTotals(subOrder, order);
+
+        if (subOrder.getStatus() == VendorSubOrderStatus.VENDOR_REJECTED) {
+            VendorSubOrderStatus restoredStatus = subOrder.getReadyForPickupAt() != null
+                    ? VendorSubOrderStatus.READY_FOR_PICKUP
+                    : VendorSubOrderStatus.PLACED;
+            subOrder.setStatus(restoredStatus);
+            subOrder.setRejectReason(null);
+            orderStatusHistoryRepository.save(OrderStatusHistory.builder()
+                    .orderId(order.getId())
+                    .vendorSubOrderId(subOrder.getId())
+                    .fromStatus(VendorSubOrderStatus.VENDOR_REJECTED.name())
+                    .toStatus(restoredStatus.name())
+                    .changedBy(actorUserId)
+                    .changedByRole("VENDOR")
+                    .note("Item restored: " + item.getItemNameSnapshot())
+                    .build());
+        }
+
+        orderRepository.save(order);
+        vendorSubOrderRepository.save(subOrder);
+
+        try {
+            paymentClient.debitWallet(
+                    order.getBuyerId(),
+                    creditAmount,
+                    "ORDER_ITEM_RESTORE",
+                    item.getId(),
+                    order.getId(),
+                    "Item restored: " + item.getItemNameSnapshot());
+        } catch (RuntimeException ex) {
+            log.warn("Wallet debit failed while restoring item {}: {}", itemId, ex.toString());
+            item.setStatus(OrderItemStatus.CANCELLED);
+            item.setCancelReason(priorCancelReason);
+            item.setCancelledAt(priorCancelledAt);
+            item.setCancelledBy(priorCancelledBy);
+            item.setStoreCreditAmount(priorCredit);
+            subOrder.setStatus(priorSubStatus);
+            vendorSubOrderRepository.saveAndFlush(subOrder);
+            orderRepository.saveAndFlush(order);
+            recalculateTotals(subOrder, order);
+            orderRepository.save(order);
+            vendorSubOrderRepository.save(subOrder);
+            throw new BusinessException(ErrorCode.CONFLICT,
+                    "Can't restore — buyer has already used this store credit.");
+        }
+
+        orderStatusHistoryRepository.save(OrderStatusHistory.builder()
+                .orderId(order.getId())
+                .vendorSubOrderId(subOrder.getId())
+                .fromStatus(status.name())
+                .toStatus(subOrder.getStatus().name())
+                .changedBy(actorUserId)
+                .changedByRole("VENDOR")
+                .note("Restored item: " + item.getItemNameSnapshot())
+                .build());
+
+        try {
+            notificationClient.notifyItemRestored(
+                    order.getTownId(),
+                    order.getId(),
+                    order.getBuyerId(),
+                    order.getBuyerPhoneSnapshot(),
+                    order.getOrderNumber(),
+                    item.getItemNameSnapshot(),
+                    creditAmount);
+        } catch (RuntimeException ex) {
+            log.warn("Restore notification failed for item {}: {}", itemId, ex.toString());
+        }
+
+        return toResponse(subOrder);
+    }
+
+    private void recalculateTotals(VendorSubOrder subOrder, Order order) {
+        BigDecimal newSubtotal = orderItemRepository.sumActiveLineTotalsForSubOrder(subOrder.getId());
+        if (newSubtotal == null) {
+            newSubtotal = BigDecimal.ZERO;
+        }
+        subOrder.setSubtotal(newSubtotal);
+
+        BigDecimal newItemsSubtotal = orderItemRepository.sumActiveLineTotalsForOrder(order.getId());
+        if (newItemsSubtotal == null) {
+            newItemsSubtotal = BigDecimal.ZERO;
+        }
+        order.setItemsSubtotal(newItemsSubtotal);
+        BigDecimal promo = order.getPromoDiscount() == null ? BigDecimal.ZERO : order.getPromoDiscount();
+        BigDecimal payableItems = newItemsSubtotal.subtract(promo).max(BigDecimal.ZERO);
+        BigDecimal newTotal = payableItems.add(order.getDeliveryFee() == null ? BigDecimal.ZERO : order.getDeliveryFee());
+        BigDecimal creditApplied = order.getStoreCreditApplied() == null ? BigDecimal.ZERO : order.getStoreCreditApplied();
+        order.setTotalAmount(newTotal.subtract(creditApplied).max(BigDecimal.ZERO));
     }
 
     private VendorSubOrder loadForVendorAction(UUID vendorId, UUID subOrderId) {

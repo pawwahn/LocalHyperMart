@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react';
 import { useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { AdSlot } from '@/features/ads/components/AdSlot';
 import { PortalShell } from '@/shared/layout/PortalShell';
 import { useAuth } from '@/shared/auth/AuthContext';
@@ -245,7 +245,10 @@ export function CartPage() {
             </div>
             {storeCreditBalance > 0 ? (
               <Banner tone="success" style={{ marginTop: '0.75rem' }}>
-                Store credit ₹{storeCreditBalance.toFixed(2)} will apply automatically at checkout.
+                Store credit ₹{storeCreditBalance.toFixed(2)} will apply automatically at checkout.{' '}
+                <Link to="/wallet" style={{ color: 'inherit', fontWeight: 800 }}>
+                  View wallet →
+                </Link>
               </Banner>
             ) : null}
             <Banner tone={cart.minOrderMet ? 'success' : 'warning'} style={{ marginTop: '0.75rem' }}>

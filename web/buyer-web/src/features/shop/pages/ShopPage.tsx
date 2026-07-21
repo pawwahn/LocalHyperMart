@@ -5,6 +5,7 @@ import { PortalShell } from '@/shared/layout/PortalShell';
 import { Banner, EmptyState, LoadingBlock } from '@/shared/ui';
 import { ProductCard } from '../components/ProductCard';
 import { AISLES, matchesAisle } from '../lib/aisles';
+import { useBrowserVoiceSearch } from '../hooks/useBrowserVoiceSearch';
 import { useShop } from '../hooks/useShop';
 
 /** Insert a sponsored mid-grid ad after this many product cards (1 full row at 3-up). */
@@ -26,6 +27,9 @@ export function ShopPage() {
     doDecrease,
   } = useShop();
   const [aisleId, setAisleId] = useState('all');
+  const { listening, supported, error: voiceError, toggle: toggleVoice } = useBrowserVoiceSearch(
+    (transcript) => setQuery(transcript),
+  );
 
   const visible = useMemo(
     () => items.filter((item) => matchesAisle(item.name, aisleId)),
@@ -45,12 +49,25 @@ export function ShopPage() {
         </span>
         <input
           aria-label="Search products"
-          placeholder="Search for atta, dal, milk and more"
+          placeholder={listening ? 'Listening… say a product' : 'Search for atta, dal, milk and more'}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           style={styles.search}
         />
+        {supported ? (
+          <button
+            type="button"
+            style={listening ? styles.micActive : styles.mic}
+            onClick={toggleVoice}
+            aria-label={listening ? 'Stop voice search' : 'Voice search'}
+            title="Voice search"
+          >
+            {listening ? '●' : '🎤'}
+          </button>
+        ) : null}
       </div>
+      {voiceError ? <Banner tone="warning">{voiceError}</Banner> : null}
+      {listening ? <Banner tone="info">Listening… say something like “milk” or “rice”</Banner> : null}
 
       <div className="hlm-hide-scrollbar" style={styles.aisles} role="tablist" aria-label="Categories">
         {AISLES.map((aisle) => {
@@ -154,6 +171,28 @@ const styles: Record<string, CSSProperties> = {
     padding: '0.85rem 0',
     fontSize: '0.95rem',
     color: 'var(--text)',
+  },
+  mic: {
+    border: '1px solid var(--border)',
+    background: 'var(--accent-soft)',
+    width: 36,
+    height: 36,
+    borderRadius: 'var(--radius-full)',
+    cursor: 'pointer',
+    fontSize: '1rem',
+    lineHeight: 1,
+  },
+  micActive: {
+    border: '1px solid var(--accent)',
+    background: 'var(--accent)',
+    color: 'var(--text-inverse)',
+    width: 36,
+    height: 36,
+    borderRadius: 'var(--radius-full)',
+    cursor: 'pointer',
+    fontSize: '0.85rem',
+    lineHeight: 1,
+    fontWeight: 800,
   },
   aisles: {
     display: 'flex',

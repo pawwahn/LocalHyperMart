@@ -1,11 +1,13 @@
 package com.hyperlocalmart.order.service;
 
+import com.hyperlocalmart.common.exception.BusinessException;
 import com.hyperlocalmart.order.client.NotificationClient;
 import com.hyperlocalmart.order.client.PaymentClient;
 import com.hyperlocalmart.order.dto.request.CancelOrderItemRequest;
 import com.hyperlocalmart.order.dto.request.RejectSubOrderRequest;
 import com.hyperlocalmart.order.dto.response.VendorSubOrderResponse;
 import com.hyperlocalmart.order.entity.*;
+import com.hyperlocalmart.order.repository.OrderItemRepository;
 import com.hyperlocalmart.order.repository.OrderRepository;
 import com.hyperlocalmart.order.repository.OrderStatusHistoryRepository;
 import com.hyperlocalmart.order.repository.VendorSubOrderRepository;
@@ -23,6 +25,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
@@ -32,6 +35,7 @@ class VendorSubOrderServiceTest {
 
     @Mock private VendorSubOrderRepository vendorSubOrderRepository;
     @Mock private OrderRepository orderRepository;
+    @Mock private OrderItemRepository orderItemRepository;
     @Mock private OrderStatusHistoryRepository orderStatusHistoryRepository;
     @Mock private PaymentClient paymentClient;
     @Mock private NotificationClient notificationClient;
@@ -174,7 +178,13 @@ class VendorSubOrderServiceTest {
         when(vendorSubOrderRepository.findDetailedByIdAndVendorId(subOrderId, vendorId))
                 .thenReturn(Optional.of(subOrder));
         when(orderRepository.save(order)).thenReturn(order);
+        when(orderRepository.saveAndFlush(order)).thenReturn(order);
         when(vendorSubOrderRepository.save(subOrder)).thenReturn(subOrder);
+        when(vendorSubOrderRepository.saveAndFlush(subOrder)).thenReturn(subOrder);
+        when(orderItemRepository.sumActiveLineTotalsForSubOrder(subOrderId))
+                .thenReturn(new BigDecimal("200.00"));
+        when(orderItemRepository.sumActiveLineTotalsForOrder(order.getId()))
+                .thenReturn(new BigDecimal("500.00"));
         when(paymentClient.creditWallet(any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(new BigDecimal("300.00"));
 
@@ -208,6 +218,160 @@ class VendorSubOrderServiceTest {
                 eq(new BigDecimal("300.00")),
                 eq(new BigDecimal("300.00")));
         verify(paymentClient, never()).initiateRefund(any(), any(), any(), any());
+    }
+
+    @Test
+    void restoreItem_debitsWalletWhenCreditStillAvailable() {
+        UUID vendorId = UUID.randomUUID();
+        UUID subOrderId = UUID.randomUUID();
+        UUID actorId = UUID.randomUUID();
+        UUID buyerId = UUID.randomUUID();
+        UUID itemId = UUID.randomUUID();
+        UUID keepId = UUID.randomUUID();
+
+        Order order = Order.builder()
+                .id(UUID.randomUUID())
+                .orderNumber("NRPT-00020")
+                .townId(UUID.randomUUID())
+                .buyerId(buyerId)
+                .buyerPhoneSnapshot("9876500999")
+                .status(OrderStatus.PLACED)
+                .paymentMethod(PaymentMethod.COD)
+                .paymentStatus(PaymentStatus.PENDING)
+                .itemsSubtotal(new BigDecimal("100.00"))
+                .deliveryFee(new BigDecimal("38.00"))
+                .storeCreditApplied(BigDecimal.ZERO)
+                .totalAmount(new BigDecimal("138.00"))
+                .deliveryAddressSnapshot(java.util.Map.of("line1", "MG Road"))
+                .vendorSubOrders(new ArrayList<>())
+                .build();
+
+        OrderItem cancelled = OrderItem.builder()
+                .id(itemId)
+                .itemNameSnapshot("Banana Chips")
+                .shopNameSnapshot("Ravi Kirana")
+                .quantity(1)
+                .lineTotal(new BigDecimal("60.00"))
+                .status(OrderItemStatus.CANCELLED)
+                .storeCreditAmount(new BigDecimal("60.00"))
+                .build();
+        OrderItem keep = OrderItem.builder()
+                .id(keepId)
+                .itemNameSnapshot("Milk")
+                .shopNameSnapshot("Ravi Kirana")
+                .quantity(1)
+                .lineTotal(new BigDecimal("100.00"))
+                .status(OrderItemStatus.ACTIVE)
+                .build();
+
+        VendorSubOrder subOrder = VendorSubOrder.builder()
+                .id(subOrderId)
+                .order(order)
+                .vendorId(vendorId)
+                .shopId(UUID.randomUUID())
+                .subOrderNumber("NRPT-00020-1/1")
+                .status(VendorSubOrderStatus.READY_FOR_PICKUP)
+                .readyForPickupAt(java.time.Instant.now())
+                .subtotal(new BigDecimal("100.00"))
+                .items(new ArrayList<>(List.of(cancelled, keep)))
+                .build();
+        cancelled.setVendorSubOrder(subOrder);
+        keep.setVendorSubOrder(subOrder);
+        order.getVendorSubOrders().add(subOrder);
+
+        when(vendorSubOrderRepository.findDetailedByIdAndVendorId(subOrderId, vendorId))
+                .thenReturn(Optional.of(subOrder));
+        when(orderRepository.save(order)).thenReturn(order);
+        when(orderRepository.saveAndFlush(order)).thenReturn(order);
+        when(vendorSubOrderRepository.save(subOrder)).thenReturn(subOrder);
+        when(vendorSubOrderRepository.saveAndFlush(subOrder)).thenReturn(subOrder);
+        when(orderItemRepository.sumActiveLineTotalsForSubOrder(subOrderId))
+                .thenReturn(new BigDecimal("160.00"));
+        when(orderItemRepository.sumActiveLineTotalsForOrder(order.getId()))
+                .thenReturn(new BigDecimal("160.00"));
+        when(paymentClient.getWalletBalance(buyerId)).thenReturn(new BigDecimal("60.00"));
+        when(paymentClient.debitWallet(any(), any(), any(), any(), any(), any()))
+                .thenReturn(BigDecimal.ZERO);
+
+        VendorSubOrderResponse response = vendorSubOrderService.restoreItem(
+                vendorId, subOrderId, itemId, actorId);
+
+        assertThat(cancelled.getStatus()).isEqualTo(OrderItemStatus.ACTIVE);
+        assertThat(subOrder.getSubtotal()).isEqualByComparingTo("160.00");
+        assertThat(order.getItemsSubtotal()).isEqualByComparingTo("160.00");
+        assertThat(response.getStatus()).isEqualTo(VendorSubOrderStatus.READY_FOR_PICKUP);
+        verify(paymentClient).debitWallet(
+                eq(buyerId),
+                eq(new BigDecimal("60.00")),
+                eq("ORDER_ITEM_RESTORE"),
+                eq(itemId),
+                eq(order.getId()),
+                any());
+        verify(notificationClient).notifyItemRestored(
+                eq(order.getTownId()),
+                eq(order.getId()),
+                eq(buyerId),
+                eq("9876500999"),
+                eq("NRPT-00020"),
+                eq("Banana Chips"),
+                eq(new BigDecimal("60.00")));
+    }
+
+    @Test
+    void restoreItem_blocksWhenWalletCreditAlreadyUsed() {
+        UUID vendorId = UUID.randomUUID();
+        UUID subOrderId = UUID.randomUUID();
+        UUID actorId = UUID.randomUUID();
+        UUID buyerId = UUID.randomUUID();
+        UUID itemId = UUID.randomUUID();
+
+        Order order = Order.builder()
+                .id(UUID.randomUUID())
+                .orderNumber("NRPT-00021")
+                .townId(UUID.randomUUID())
+                .buyerId(buyerId)
+                .status(OrderStatus.PLACED)
+                .paymentMethod(PaymentMethod.COD)
+                .paymentStatus(PaymentStatus.PENDING)
+                .itemsSubtotal(BigDecimal.ZERO)
+                .deliveryFee(new BigDecimal("38.00"))
+                .storeCreditApplied(BigDecimal.ZERO)
+                .totalAmount(new BigDecimal("38.00"))
+                .deliveryAddressSnapshot(java.util.Map.of("line1", "MG Road"))
+                .vendorSubOrders(new ArrayList<>())
+                .build();
+
+        OrderItem cancelled = OrderItem.builder()
+                .id(itemId)
+                .itemNameSnapshot("Banana Chips")
+                .quantity(1)
+                .lineTotal(new BigDecimal("60.00"))
+                .status(OrderItemStatus.CANCELLED)
+                .storeCreditAmount(new BigDecimal("60.00"))
+                .build();
+
+        VendorSubOrder subOrder = VendorSubOrder.builder()
+                .id(subOrderId)
+                .order(order)
+                .vendorId(vendorId)
+                .shopId(UUID.randomUUID())
+                .subOrderNumber("NRPT-00021-1/1")
+                .status(VendorSubOrderStatus.READY_FOR_PICKUP)
+                .subtotal(BigDecimal.ZERO)
+                .items(new ArrayList<>(List.of(cancelled)))
+                .build();
+        cancelled.setVendorSubOrder(subOrder);
+        order.getVendorSubOrders().add(subOrder);
+
+        when(vendorSubOrderRepository.findDetailedByIdAndVendorId(subOrderId, vendorId))
+                .thenReturn(Optional.of(subOrder));
+        when(paymentClient.getWalletBalance(buyerId)).thenReturn(new BigDecimal("10.00"));
+
+        assertThatThrownBy(() -> vendorSubOrderService.restoreItem(vendorId, subOrderId, itemId, actorId))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("already used this store credit");
+        verify(paymentClient, never()).debitWallet(any(), any(), any(), any(), any(), any());
+        assertThat(cancelled.getStatus()).isEqualTo(OrderItemStatus.CANCELLED);
     }
 
     private VendorSubOrder placedSubOrder(UUID vendorId, UUID subOrderId) {

@@ -1,10 +1,12 @@
 import type { CSSProperties } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { PortalShell } from '@/shared/layout/PortalShell';
 import { Badge, Banner, Button, Card, EmptyState, LoadingBlock } from '@/shared/ui';
 import { useShop } from '../hooks/useShop';
 import { useOrderDetail } from '../hooks/useOrderDetail';
 import { formatBuyerPaymentLabel } from '../lib/formatBuyerPaymentLabel';
+import { OrderStatusTimeline } from '../components/OrderStatusTimeline';
+import type { OrderDetailDto } from '../api/shopApi';
 
 function statusTone(status: string): 'neutral' | 'success' | 'warning' | 'danger' | 'brand' {
   const s = status.toLowerCase();
@@ -38,10 +40,12 @@ function formatAddress(address?: Record<string, unknown> | null): string[] {
 
 export function OrderDetailPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { orderId } = useParams<{ orderId: string }>();
+  const preview = (location.state as { preview?: OrderDetailDto } | null)?.preview ?? null;
   const { cart } = useShop();
   const { order, loading, error, invoiceBusy, invoiceError, reload, downloadInvoice } =
-    useOrderDetail(orderId);
+    useOrderDetail(orderId, preview);
 
   const canDownloadInvoice = Boolean(order?.invoicePdfUrl);
 
@@ -82,9 +86,11 @@ export function OrderDetailPage() {
                   })}
                 </p>
               </div>
-              <Badge tone={statusTone(order.displayStatus || order.status)}>
-                {order.displayStatus || order.status}
-              </Badge>
+              <div style={styles.badgeCol}>
+                <Badge tone={statusTone(order.displayStatus || order.status)}>
+                  {order.displayStatus || order.status}
+                </Badge>
+              </div>
             </div>
             <div style={styles.actions}>
               <Button
@@ -94,41 +100,58 @@ export function OrderDetailPage() {
               >
                 {invoiceBusy ? 'Preparing PDF…' : 'Download invoice'}
               </Button>
-              {!canDownloadInvoice ? (
-                <p style={styles.hint}>Invoice will be available once payment is confirmed.</p>
-              ) : null}
+              <p style={{ ...styles.hint, visibility: canDownloadInvoice ? 'hidden' : 'visible' }}>
+                Invoice will be available once payment is confirmed.
+              </p>
             </div>
             {invoiceError ? <Banner tone="danger">{invoiceError}</Banner> : null}
           </Card>
 
+          {order.timeline && order.timeline.length > 0 ? (
+            <OrderStatusTimeline steps={order.timeline} />
+          ) : null}
+
           <section style={styles.section}>
             <h2 style={styles.h2}>Items in this order</h2>
-            <div style={styles.list}>
-              {order.items.map((item, index) => {
-                const cancelled = (item.status ?? 'ACTIVE').toUpperCase() === 'CANCELLED';
-                return (
-                  <Card
-                    key={item.orderItemId ?? `${item.name}-${item.shopName}-${index}`}
-                    style={styles.itemRow}
-                  >
-                    <div>
-                      <p style={cancelled ? { ...styles.itemName, ...styles.cancelled } : styles.itemName}>
-                        {item.quantity}× {item.name}
-                        {cancelled ? ' (cancelled)' : ''}
-                      </p>
-                      <p style={styles.meta}>{item.shopName}</p>
-                      {cancelled && item.storeCreditAmount ? (
-                        <p style={styles.creditNote}>
-                          ₹{Number(item.storeCreditAmount).toFixed(2)} credited for next order
-                          {item.cancelReason ? ` · ${item.cancelReason}` : ''}
+            {(order.items?.length ?? 0) === 0 ? (
+              <LoadingBlock label="Loading items…" />
+            ) : (
+              <div style={styles.list}>
+                {order.items.map((item, index) => {
+                  const cancelled = (item.status ?? 'ACTIVE').toUpperCase() === 'CANCELLED';
+                  return (
+                    <Card
+                      key={item.orderItemId ?? `${item.name}-${item.shopName}-${index}`}
+                      style={styles.itemRow}
+                    >
+                      <div>
+                        <p
+                          style={
+                            cancelled ? { ...styles.itemName, ...styles.cancelled } : styles.itemName
+                          }
+                        >
+                          {item.quantity}× {item.name}
+                          {cancelled ? ' (cancelled)' : ''}
                         </p>
-                      ) : null}
-                    </div>
-                    <strong style={styles.lineTotal}>{money(item.lineTotal)}</strong>
-                  </Card>
-                );
-              })}
-            </div>
+                        <p style={styles.meta}>{item.shopName}</p>
+                        {cancelled && item.storeCreditAmount ? (
+                          <p style={styles.creditNote}>
+                            ₹{Number(item.storeCreditAmount).toFixed(2)} added to your wallet as store
+                            credit
+                            {item.cancelReason ? ` · ${item.cancelReason}` : ''}
+                            {' · '}
+                            <Link to="/wallet" style={styles.walletLink}>
+                              Open wallet
+                            </Link>
+                          </p>
+                        ) : null}
+                      </div>
+                      <strong style={styles.lineTotal}>{money(item.lineTotal)}</strong>
+                    </Card>
+                  );
+                })}
+              </div>
+            )}
           </section>
 
           <Card elevated style={styles.totals}>
@@ -176,17 +199,22 @@ const styles: Record<string, CSSProperties> = {
     fontSize: '0.92rem',
   },
   stack: { display: 'grid', gap: '1rem' },
-  headerCard: { display: 'grid', gap: '0.85rem' },
+  headerCard: { display: 'grid', gap: '0.85rem', animation: 'none' },
   headerTop: {
     display: 'flex',
     justifyContent: 'space-between',
     gap: '0.75rem',
     alignItems: 'flex-start',
   },
+  badgeCol: {
+    display: 'grid',
+    gap: '0.25rem',
+    justifyItems: 'end',
+  },
   orderNo: { margin: 0, fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: '1.2rem' },
   meta: { margin: '0.2rem 0 0', color: 'var(--text-muted)', fontSize: '0.9rem' },
   actions: { display: 'grid', gap: '0.4rem', justifyItems: 'start' },
-  hint: { margin: 0, color: 'var(--text-muted)', fontSize: '0.82rem' },
+  hint: { margin: 0, color: 'var(--text-muted)', fontSize: '0.82rem', minHeight: '1.2rem' },
   section: { display: 'grid', gap: '0.65rem' },
   h2: { margin: 0, fontFamily: 'var(--font-display)', fontSize: '1.1rem', fontWeight: 800 },
   list: { display: 'grid', gap: '0.55rem' },
@@ -199,6 +227,7 @@ const styles: Record<string, CSSProperties> = {
   itemName: { margin: 0, fontWeight: 700 },
   cancelled: { textDecoration: 'line-through', color: 'var(--text-muted)' },
   creditNote: { margin: '0.25rem 0 0', color: 'var(--accent-hover)', fontSize: '0.82rem', fontWeight: 600 },
+  walletLink: { color: 'inherit', fontWeight: 800, textDecoration: 'underline' },
   lineTotal: { fontFamily: 'var(--font-display)' },
   totals: { display: 'grid', gap: '0.45rem' },
   totalRow: {

@@ -76,11 +76,20 @@ export type OrderItemDetailDto = {
   storeCreditAmount?: number;
 };
 
+export type OrderTimelineStepDto = {
+  code: string;
+  label: string;
+  state: string;
+  at?: string | null;
+  note?: string | null;
+};
+
 export type OrderDetailDto = {
   orderId: string;
   orderNumber: string;
   status: string;
   displayStatus?: string;
+  placedAt?: string;
   itemsSubtotal: number;
   deliveryFee: number;
   storeCreditApplied?: number;
@@ -90,12 +99,29 @@ export type OrderDetailDto = {
   deliveryAddress?: Record<string, unknown> | null;
   items: OrderItemDetailDto[];
   invoicePdfUrl?: string | null;
+  timeline?: OrderTimelineStepDto[];
 };
 
 export type WalletBalanceDto = {
   userId: string;
   balance: number;
   status?: string;
+};
+
+export type WalletTransactionDto = {
+  id: string;
+  type: string;
+  amount: number;
+  balanceAfter: number;
+  referenceType?: string;
+  orderId?: string | null;
+  note?: string | null;
+  createdAt?: string;
+  title?: string;
+};
+
+export type WalletTransactionListDto = {
+  items: WalletTransactionDto[];
 };
 
 export type CreateOrderDto = {
@@ -297,7 +323,7 @@ export async function placeCodOrder(
 
 export async function listMyOrders(token: string, townId: string): Promise<OrderSummaryDto[]> {
   const data = await apiRequest<PageData<OrderSummaryDto>>(
-    `/api/v1/orders?townId=${townId}&page=0&size=50`,
+    `/api/v1/orders?townId=${townId}&page=0&size=100`,
     { token },
   );
   return data.items ?? [];
@@ -309,6 +335,17 @@ export async function fetchOrderDetail(token: string, orderId: string): Promise<
 
 export async function fetchWalletBalance(token: string): Promise<WalletBalanceDto> {
   return apiRequest<WalletBalanceDto>('/api/v1/payments/wallet/me', { token });
+}
+
+export async function fetchWalletTransactions(
+  token: string,
+  limit = 100,
+): Promise<WalletTransactionDto[]> {
+  const data = await apiRequest<WalletTransactionListDto>(
+    `/api/v1/payments/wallet/me/transactions?limit=${limit}`,
+    { token },
+  );
+  return data.items ?? [];
 }
 
 /** Downloads invoice PDF with auth; returns filename for local save. */

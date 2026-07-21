@@ -18,8 +18,6 @@ import {
 } from '@/features/orders/lib/orderAlertSound';
 
 const POLL_MS = 15_000;
-/** Re-alert while PLACED orders still sit unacked. */
-const NAG_MS = 90_000;
 
 type OrderAlertContextValue = {
   alertMessage: string | null;
@@ -44,7 +42,6 @@ export function OrderAlertProvider({ children }: { children: ReactNode }) {
 
   const knownIds = useRef<Set<string>>(new Set());
   const seeded = useRef(false);
-  const lastAlertAt = useRef(0);
 
   const clearAlert = useCallback(() => setAlertMessage(null), []);
 
@@ -68,20 +65,14 @@ export function OrderAlertProvider({ children }: { children: ReactNode }) {
     };
   }, [isAuthenticated]);
 
-  const fireAlert = useCallback(
-    (msg: string, opts?: { nag?: boolean }) => {
-      setAlertMessage(msg);
-      lastAlertAt.current = Date.now();
-      if (!opts?.nag) {
-        setAlertVersion((v) => v + 1);
-      }
-      // Play even if tab is backgrounded/minimized (needs prior unlock via click / Test).
-      playOrderReceivedVoice();
-      notifyBrowserOrder('HyperLocalMart — new order', msg);
-      void ensureNotificationPermission().then((ok) => setNotificationsReady(ok));
-    },
-    [],
-  );
+  const fireAlert = useCallback((msg: string) => {
+    setAlertMessage(msg);
+    setAlertVersion((v) => v + 1);
+    // Play even if tab is backgrounded/minimized (needs prior unlock via click / Test).
+    playOrderReceivedVoice();
+    notifyBrowserOrder('HyperLocalMart — new order', msg);
+    void ensureNotificationPermission().then((ok) => setNotificationsReady(ok));
+  }, []);
 
   useEffect(() => {
     if (!isAuthenticated || !session) {
@@ -105,6 +96,7 @@ export function OrderAlertProvider({ children }: { children: ReactNode }) {
         if (!seeded.current) {
           knownIds.current = nextIds;
           seeded.current = true;
+          // Quiet banner only on first load — no sound for already-waiting orders.
           if (nextIds.size > 0) {
             setAlertMessage(
               nextIds.size === 1
@@ -127,14 +119,8 @@ export function OrderAlertProvider({ children }: { children: ReactNode }) {
           return;
         }
 
-        // Still have open PLACED? Nudge so they don't forget (sound + banner).
-        if (nextIds.size > 0 && Date.now() - lastAlertAt.current >= NAG_MS) {
-          fireAlert(
-            nextIds.size === 1
-              ? `Still 1 order waiting — pack and mark Ready`
-              : `Still ${nextIds.size} orders waiting — pack and mark Ready`,
-            { nag: true },
-          );
+        if (nextIds.size === 0) {
+          setAlertMessage(null);
         }
       } catch {
         /* quiet on poll errors */

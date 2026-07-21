@@ -7,6 +7,7 @@ import {
   fetchSubOrders,
   markSubOrderReady,
   rejectSubOrder,
+  restoreSubOrderItem,
   type DashboardView,
   type SubOrderView,
 } from '../api/ordersApi';
@@ -128,19 +129,70 @@ export function useVendorOrders() {
     }
   }
 
-  async function cancelItem(subOrderId: string, itemId: string, reason: string): Promise<boolean> {
-    if (!session) return false;
+  async function cancelItem(
+    subOrderId: string,
+    itemId: string,
+    reason: string,
+    itemName?: string,
+  ): Promise<{ ok: boolean; message: string }> {
+    if (!session) {
+      return { ok: false, message: 'Not signed in' };
+    }
+    const label = itemName?.trim() ? `“${itemName.trim()}”` : 'Item';
     setActionId(`${subOrderId}:${itemId}`);
     setNotice(null);
     setError(null);
     try {
       await cancelSubOrderItem(session.accessToken, session.vendorId, subOrderId, itemId, reason);
-      setNotice('Item cancelled. Buyer store credit issued.');
-      await reload();
-      return true;
+      const message = `${label} cancelled. Buyer store credit issued.`;
+      setNotice(message);
+      try {
+        await reload();
+      } catch {
+        // Cancel already succeeded — don't keep the dialog open if list refresh fails.
+      }
+      return { ok: true, message };
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not cancel item');
-      return false;
+      const reasonText =
+        err instanceof ApiError || err instanceof Error ? err.message : 'Could not cancel item';
+      const message = `${label} could not be cancelled. ${reasonText}`;
+      setError(message);
+      return { ok: false, message };
+    } finally {
+      setActionId(null);
+    }
+  }
+
+  async function restoreItem(
+    subOrderId: string,
+    itemId: string,
+    itemName?: string,
+  ): Promise<{ ok: boolean; message: string }> {
+    if (!session) {
+      return { ok: false, message: 'Not signed in' };
+    }
+    const label = itemName?.trim() ? `“${itemName.trim()}”` : 'Item';
+    setActionId(`${subOrderId}:${itemId}:restore`);
+    setNotice(null);
+    setError(null);
+    try {
+      await restoreSubOrderItem(session.accessToken, session.vendorId, subOrderId, itemId);
+      const message = `${label} restored. Buyer store credit reversed.`;
+      setNotice(message);
+      try {
+        await reload();
+      } catch {
+        // Restore already succeeded — still show success to the seller.
+      }
+      return { ok: true, message };
+    } catch (err) {
+      const reason =
+        err instanceof ApiError || err instanceof Error
+          ? err.message
+          : 'Could not restore item';
+      const message = `${label} could not be restored. ${reason}`;
+      setError(message);
+      return { ok: false, message };
     } finally {
       setActionId(null);
     }
@@ -164,5 +216,6 @@ export function useVendorOrders() {
     markReady,
     reject,
     cancelItem,
+    restoreItem,
   };
 }

@@ -1,6 +1,7 @@
+import type { ReactNode } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { ThemeProvider } from '@hlm-theme';
-import { AuthProvider } from '@/shared/auth/AuthContext';
+import { AuthProvider, useAuth } from '@/shared/auth/AuthContext';
 import { RequireAuth } from '@/shared/routing/RequireAuth';
 import { LoginPage } from '@/features/auth/pages/LoginPage';
 import { DashboardPage } from '@/features/orders/pages/DashboardPage';
@@ -9,10 +10,23 @@ import { ReportsPage } from '@/features/reports/pages/ReportsPage';
 import { PayoutsPage } from '@/features/payouts/pages/PayoutsPage';
 import { SettingsPage } from '@/features/settings/pages/SettingsPage';
 
+function AuthBoundTheme({ children }: { children: ReactNode }) {
+  const { isAuthenticated } = useAuth();
+  return (
+    <ThemeProvider
+      storageKey="hlm.vendor.theme"
+      defaultAccent="forest"
+      personalized={isAuthenticated}
+    >
+      {children}
+    </ThemeProvider>
+  );
+}
+
 export function AppRouter() {
   return (
-    <ThemeProvider storageKey="hlm.vendor.theme" defaultAccent="forest">
-      <AuthProvider>
+    <AuthProvider>
+      <AuthBoundTheme>
         <BrowserRouter>
           <Routes>
             <Route path="/login" element={<LoginPage />} />
@@ -26,7 +40,7 @@ export function AppRouter() {
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>
         </BrowserRouter>
-      </AuthProvider>
-    </ThemeProvider>
+      </AuthBoundTheme>
+    </AuthProvider>
   );
 }

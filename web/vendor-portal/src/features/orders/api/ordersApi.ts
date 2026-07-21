@@ -68,6 +68,9 @@ export type SubOrderItemView = {
   lineTotalLabel: string;
   status: string;
   cancelled: boolean;
+  storeCreditAmount?: number;
+  /** True when vendor may offer Restore (before pickup). */
+  canRestore: boolean;
 };
 
 export type SubOrderView = {
@@ -98,9 +101,14 @@ function money(value: number | undefined | null): string {
   return `₹${n.toFixed(2)}`;
 }
 
-function toItemView(item: SubOrderItemDto): SubOrderItemView | null {
+function toItemView(item: SubOrderItemDto, subOrderStatus: SubOrderStatus): SubOrderItemView | null {
   if (!item.orderItemId) return null;
   const status = (item.status ?? 'ACTIVE').toUpperCase();
+  const cancelled = status === 'CANCELLED';
+  const restorableParent =
+    subOrderStatus === 'PLACED' ||
+    subOrderStatus === 'READY_FOR_PICKUP' ||
+    subOrderStatus === 'VENDOR_REJECTED';
   return {
     orderItemId: item.orderItemId,
     name: item.name ?? 'Item',
@@ -108,12 +116,16 @@ function toItemView(item: SubOrderItemDto): SubOrderItemView | null {
     unitCode: item.unitCode || undefined,
     lineTotalLabel: money(item.lineTotal),
     status,
-    cancelled: status === 'CANCELLED',
+    cancelled,
+    storeCreditAmount: item.storeCreditAmount,
+    canRestore: cancelled && restorableParent,
   };
 }
 
 export function toSubOrderView(dto: SubOrderDto): SubOrderView {
-  const items = (dto.items ?? []).map(toItemView).filter((i): i is SubOrderItemView => i != null);
+  const items = (dto.items ?? [])
+    .map((item) => toItemView(item, dto.status))
+    .filter((i): i is SubOrderItemView => i != null);
   const itemSummary =
     items.length > 0
       ? items
@@ -230,6 +242,23 @@ export async function cancelSubOrderItem(
       token,
       vendorId,
       body: { reason },
+    },
+  );
+  return toSubOrderView(data);
+}
+
+export async function restoreSubOrderItem(
+  token: string,
+  vendorId: string,
+  subOrderId: string,
+  itemId: string,
+): Promise<SubOrderView> {
+  const data = await apiRequest<SubOrderDto>(
+    `/api/v1/orders/vendor/sub-orders/${subOrderId}/items/${itemId}/restore`,
+    {
+      method: 'POST',
+      token,
+      vendorId,
     },
   );
   return toSubOrderView(data);
