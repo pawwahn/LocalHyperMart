@@ -23,6 +23,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.UUID;
 
 @Slf4j
 @Service
@@ -171,6 +172,34 @@ public class AuthService {
 
         otpRecord.setUsedAt(Instant.now());
         passwordResetOtpRepository.save(otpRecord);
+        revokeActiveRefreshTokens(user.getId());
+    }
+
+    @Transactional
+    public void changePassword(UUID userId, ChangePasswordRequest request) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "User not found"));
+
+        if (!passwordEncoder.matches(request.getCurrentPassword(), user.getPasswordHash())) {
+            throw new BusinessException(ErrorCode.UNAUTHORIZED, "Current password is incorrect");
+        }
+        if (passwordEncoder.matches(request.getNewPassword(), user.getPasswordHash())) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "New password must be different from current password");
+        }
+
+        user.setPasswordHash(passwordEncoder.encode(request.getNewPassword()));
+        user.setFailedLoginCount(0);
+        user.setLockedUntil(null);
+        userRepository.save(user);
+        revokeActiveRefreshTokens(userId);
+    }
+
+    private void revokeActiveRefreshTokens(UUID userId) {
+        Instant now = Instant.now();
+        for (RefreshToken token : refreshTokenRepository.findByUser_IdAndRevokedAtIsNull(userId)) {
+            token.setRevokedAt(now);
+            refreshTokenRepository.save(token);
+        }
     }
 
     private AuthResponse issueTokenPair(User user) {

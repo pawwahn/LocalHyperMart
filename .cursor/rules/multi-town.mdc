@@ -1,0 +1,34 @@
+---
+description: Multi-town is a first-class design constraint for LocalHyperMart
+alwaysApply: true
+---
+
+# Multi-town first
+
+LocalHyperMart is a **town-based** marketplace. Build every feature as if many towns (and their hubs) run in production — not as a single-town pilot hardcode.
+
+## Buyer town model
+
+- One **buyer account** can use the app across towns (login is not town-locked).
+- For each shopping session / order, the buyer **selects one town**.
+- They browse and order **only from that town’s vendors/listings**.
+- **Delivery is only within that selected town** — address must belong to the same town as the order.
+- Do not allow cart/checkout that mixes towns, or delivery to a different town than the selected browse town.
+- Changing town with items in cart: warn and clear cart (PRD).
+
+## Ops / data rules
+
+- **Town is the operational boundary** for catalog visibility, vendors, hubs, fees, agents, and orders.
+- Scope data and APIs by **`townId` / hub belonging to that town**. Never assume the pilot town (Narsaraopet) is the only one.
+- Hub admin actions apply only to **their hub’s town**. Do not leak another town’s agents, orders, listings, or config.
+- Prefer hub/town resolution from **auth context** (`hubs/me`, hub admin → hub → town) over hardcoded UUIDs in UI or services.
+- Phone/login users may be global; **role links** (vendor, agent↔hub, hub admin) must stay town/hub scoped.
+- Super-admin tools may see all towns, but lists/filters should still be **town-aware** (filter/group by town or hub).
+- When adding seeds, reports, or “simple” screens: ask “does this break or confuse town B?” before shipping.
+
+## Avoid
+
+- Hardcoding pilot town/hub/vendor IDs in product logic (seeds/docs are fine).
+- Global lists without town/hub filters where an operator works in one town.
+- Cross-town assign, browse, checkout, or payout behavior unless explicitly designed.
+- Delivering an order to a town other than the one the buyer selected for that order.

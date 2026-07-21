@@ -78,6 +78,10 @@ public class Order extends BaseAuditEntity {
     @Column(name = "total_amount", nullable = false, precision = 12, scale = 2)
     private BigDecimal totalAmount;
 
+    @Column(name = "store_credit_applied", nullable = false, precision = 12, scale = 2)
+    @Builder.Default
+    private BigDecimal storeCreditApplied = BigDecimal.ZERO;
+
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "delivery_address_snapshot", nullable = false, columnDefinition = "jsonb")
     private Map<String, Object> deliveryAddressSnapshot;

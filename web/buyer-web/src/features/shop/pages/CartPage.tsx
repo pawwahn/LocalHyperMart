@@ -16,6 +16,7 @@ export function CartPage() {
   const {
     cart,
     addresses,
+    storeCreditBalance,
     selectedAddressId,
     setSelectedAddressId,
     busy,
@@ -242,6 +243,11 @@ export function CartPage() {
               <span>Grand total</span>
               <strong style={styles.total}>{cart.payableLabel}</strong>
             </div>
+            {storeCreditBalance > 0 ? (
+              <Banner tone="success" style={{ marginTop: '0.75rem' }}>
+                Store credit ₹{storeCreditBalance.toFixed(2)} will apply automatically at checkout.
+              </Banner>
+            ) : null}
             <Banner tone={cart.minOrderMet ? 'success' : 'warning'} style={{ marginTop: '0.75rem' }}>
               {cart.minOrderMet
                 ? `Minimum order ${cart.minOrderLabel} — met`

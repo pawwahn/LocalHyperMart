@@ -9,6 +9,7 @@ import org.springframework.web.client.RestClient;
 
 import java.time.LocalDate;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -45,14 +46,32 @@ public class OrderClient {
 
     public PickupManifest getPickupManifest(UUID subOrderId) {
         RestClient client = restClientBuilder.baseUrl(orderServiceProperties.getBaseUrl()).build();
-        ApiResponse<PickupManifest> response = client.get()
+        ApiResponse<OrderPickupManifestDto> response = client.get()
                 .uri("/api/v1/internal/orders/sub-orders/{subOrderId}/pickup-manifest", subOrderId)
                 .retrieve()
-                .body(new ParameterizedTypeReference<ApiResponse<PickupManifest>>() {});
+                .body(new ParameterizedTypeReference<ApiResponse<OrderPickupManifestDto>>() {});
         if (response == null || response.getData() == null) {
             throw new IllegalStateException("Pickup manifest not found");
         }
-        return response.getData();
+        OrderPickupManifestDto dto = response.getData();
+        List<PickupManifestLine> lines = dto.getItems() == null
+                ? List.of()
+                : dto.getItems().stream()
+                .map(line -> new PickupManifestLine(
+                        line.getName(),
+                        line.getQuantity(),
+                        line.resolvedUnitCode(),
+                        line.getLineTotal()))
+                .toList();
+        return new PickupManifest(
+                dto.getSubOrderId(),
+                dto.getSubOrderNumber(),
+                dto.getOrderNumber(),
+                dto.getShopId(),
+                dto.getShopName(),
+                dto.getSubtotal(),
+                dto.getTotalItemCount(),
+                lines);
     }
 
     public void markDelivered(UUID orderId, UUID agentUserId, String recipientName) {

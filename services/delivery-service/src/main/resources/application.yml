@@ -28,6 +28,8 @@ hyperlocalmart:
       secret: ${JWT_SECRET:hyperlocalmart-dev-secret-change-in-production-min-32-chars!!}
   order-service:
     base-url: http://localhost:8086
+  user-service:
+    base-url: http://localhost:8081
   notification-service:
     base-url: http://localhost:8089
   delivery:

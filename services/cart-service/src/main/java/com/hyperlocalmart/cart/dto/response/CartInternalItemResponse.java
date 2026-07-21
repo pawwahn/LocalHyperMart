@@ -17,6 +17,7 @@ public class CartInternalItemResponse {
     private UUID masterItemId;
     private String itemName;
     private String shopName;
+    private String unitCode;
     private int quantity;
     private BigDecimal unitPrice;
     private BigDecimal discountPrice;

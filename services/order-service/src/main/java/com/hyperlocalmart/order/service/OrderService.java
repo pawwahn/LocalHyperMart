@@ -111,19 +111,40 @@ public class OrderService {
                 .build();
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public SubOrderPickupManifestResponse getPickupManifest(UUID subOrderId) {
         VendorSubOrder subOrder = vendorSubOrderRepository.findDetailedByIdWithItems(subOrderId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Sub-order not found"));
 
-        List<PickupLineItemResponse> items = subOrder.getItems().stream()
-                .map(item -> PickupLineItemResponse.builder()
-                        .name(item.getItemNameSnapshot())
-                        .quantity(item.getQuantity())
-                        .unitCode(item.getUnitCodeSnapshot())
-                        .lineTotal(item.getLineTotal())
-                        .build())
-                .toList();
+        UUID townId = subOrder.getOrder().getTownId();
+        boolean dirty = false;
+        List<PickupLineItemResponse> items = new ArrayList<>();
+        for (OrderItem item : subOrder.getItems()) {
+            if (item.getStatus() == OrderItemStatus.CANCELLED) {
+                continue;
+            }
+            String unitCode = item.getUnitCodeSnapshot();
+            if ((unitCode == null || unitCode.isBlank()) && item.getListingId() != null && townId != null) {
+                try {
+                    unitCode = catalogClient.getListingForOrderRead(item.getListingId(), townId).unit();
+                    if (unitCode != null && !unitCode.isBlank()) {
+                        item.setUnitCodeSnapshot(unitCode);
+                        dirty = true;
+                    }
+                } catch (RuntimeException ignored) {
+                    // Keep null; UI will show a clear "qty" fallback.
+                }
+            }
+            items.add(PickupLineItemResponse.builder()
+                    .name(item.getItemNameSnapshot())
+                    .quantity(item.getQuantity())
+                    .unitCode(unitCode)
+                    .lineTotal(item.getLineTotal())
+                    .build());
+        }
+        if (dirty) {
+            vendorSubOrderRepository.save(subOrder);
+        }
 
         int totalItemCount = items.stream().mapToInt(PickupLineItemResponse::getQuantity).sum();
         String shopName = subOrder.getItems().isEmpty()
@@ -209,7 +230,9 @@ public class OrderService {
                             "Item no longer available: " + item.getItemNameSnapshot());
                 }
                 BigDecimal snapshotPrice = effectivePrice(item.getUnitPrice(), item.getDiscountPrice());
-                BigDecimal currentPrice = effectivePrice(listing.price(), listing.discountPrice());
+                BigDecimal currentPrice = listing.effectivePrice() != null
+                        ? listing.effectivePrice()
+                        : effectivePrice(listing.price(), listing.discountPrice());
                 if (snapshotPrice.compareTo(currentPrice) != 0) {
                     priceChanged = true;
                 }
@@ -291,11 +314,17 @@ public class OrderService {
         BigDecimal payableSubtotal = cart.payableSubtotal() != null
                 ? cart.payableSubtotal()
                 : cart.itemsSubtotal().subtract(promoDiscount).max(BigDecimal.ZERO);
-        BigDecimal totalAmount = payableSubtotal.add(deliveryFee);
+        BigDecimal grossTotal = payableSubtotal.add(deliveryFee);
+
+        BigDecimal walletBalance = paymentClient.getWalletBalance(buyerId);
+        BigDecimal storeCreditApplied = walletBalance.min(grossTotal).max(BigDecimal.ZERO);
+        BigDecimal totalAmount = grossTotal.subtract(storeCreditApplied);
 
         boolean isCod = request.getPaymentMethod() == PaymentMethod.COD;
-        OrderStatus orderStatus = isCod ? OrderStatus.PLACED : OrderStatus.PAYMENT_PENDING;
-        PaymentStatus paymentStatus = isCod ? PaymentStatus.PAID : PaymentStatus.PENDING;
+        // Fully covered by store credit → treat as placed/paid with no COD/online charge.
+        boolean fullyCoveredByCredit = storeCreditApplied.compareTo(grossTotal) >= 0 && grossTotal.compareTo(BigDecimal.ZERO) > 0;
+        OrderStatus orderStatus = (isCod || fullyCoveredByCredit) ? OrderStatus.PLACED : OrderStatus.PAYMENT_PENDING;
+        PaymentStatus paymentStatus = (isCod || fullyCoveredByCredit) ? PaymentStatus.PAID : PaymentStatus.PENDING;
 
         Order order = Order.builder()
                 .orderNumber(orderNumber)
@@ -309,27 +338,40 @@ public class OrderService {
                 .promoCode(cart.promoCode())
                 .promoDiscount(promoDiscount)
                 .deliveryFee(deliveryFee)
+                .storeCreditApplied(storeCreditApplied)
                 .totalAmount(totalAmount)
                 .deliveryAddressSnapshot(addressSnapshot)
                 .buyerPhoneSnapshot(buyerPhone)
-                .placedAt(isCod ? Instant.now() : null)
+                .placedAt((isCod || fullyCoveredByCredit) ? Instant.now() : null)
                 .build();
 
         buildVendorSubOrders(order, cart);
         orderRepository.save(order);
+
+        if (storeCreditApplied.compareTo(BigDecimal.ZERO) > 0) {
+            paymentClient.debitWallet(
+                    buyerId,
+                    storeCreditApplied,
+                    "ORDER_CHECKOUT",
+                    order.getId(),
+                    order.getId(),
+                    "Store credit applied on order " + order.getOrderNumber());
+        }
 
         orderStatusHistoryRepository.save(OrderStatusHistory.builder()
                 .orderId(order.getId())
                 .toStatus(orderStatus.name())
                 .changedBy(buyerId)
                 .changedByRole("BUYER")
-                .note("Order created")
+                .note(storeCreditApplied.compareTo(BigDecimal.ZERO) > 0
+                        ? "Order created; store credit " + storeCreditApplied.toPlainString()
+                        : "Order created")
                 .build());
 
         cartClient.convertCart(request.getCartId(), buyerId, request.getTownId());
 
         PaymentInfoResponse paymentInfo = null;
-        if (!isCod) {
+        if (!isCod && !fullyCoveredByCredit) {
             paymentInfo = paymentClient.initiatePayment(
                     buyerId, order.getId(), request.getTownId(), request.getPaymentGateway(), idempotencyKey + "-pay");
         }
@@ -344,7 +386,7 @@ public class OrderService {
 
         idempotencyService.save(idempotencyKey, buyerId, order.getId(), response);
 
-        if (isCod) {
+        if (isCod || fullyCoveredByCredit) {
             notificationClient.notifyOrderPlaced(
                     order.getTownId(), order.getId(), buyerId, buyerPhone,
                     order.getOrderNumber(), order.getTotalAmount());
@@ -384,6 +426,7 @@ public class OrderService {
                         .listingId(item.listingId())
                         .masterItemId(item.masterItemId())
                         .itemNameSnapshot(item.itemName())
+                        .unitCodeSnapshot(item.unitCode())
                         .shopNameSnapshot(item.shopName())
                         .quantity(item.quantity())
                         .unitPrice(item.unitPrice())
@@ -418,10 +461,16 @@ public class OrderService {
         for (VendorSubOrder subOrder : order.getVendorSubOrders()) {
             for (OrderItem item : subOrder.getItems()) {
                 items.add(OrderItemDetailResponse.builder()
+                        .orderItemId(item.getId())
                         .name(item.getItemNameSnapshot())
                         .shopName(item.getShopNameSnapshot())
+                        .unitCode(item.getUnitCodeSnapshot())
                         .quantity(item.getQuantity())
                         .lineTotal(item.getLineTotal())
+                        .status(item.getStatus() == null ? OrderItemStatus.ACTIVE : item.getStatus())
+                        .cancelReason(item.getCancelReason())
+                        .cancelledAt(item.getCancelledAt())
+                        .storeCreditAmount(item.getStoreCreditAmount())
                         .build());
             }
         }
@@ -432,6 +481,7 @@ public class OrderService {
                 .displayStatus(displayStatus(order.getStatus()))
                 .itemsSubtotal(order.getItemsSubtotal())
                 .deliveryFee(order.getDeliveryFee())
+                .storeCreditApplied(order.getStoreCreditApplied() == null ? BigDecimal.ZERO : order.getStoreCreditApplied())
                 .totalAmount(order.getTotalAmount())
                 .paymentMethod(order.getPaymentMethod())
                 .paymentStatus(order.getPaymentStatus())

@@ -5,6 +5,7 @@ import com.hyperlocalmart.common.exception.ErrorCode;
 import com.hyperlocalmart.order.client.TownClient;
 import com.hyperlocalmart.order.entity.Order;
 import com.hyperlocalmart.order.entity.OrderItem;
+import com.hyperlocalmart.order.entity.OrderItemStatus;
 import com.hyperlocalmart.order.entity.OrderStatus;
 import com.hyperlocalmart.order.entity.VendorSubOrder;
 import com.hyperlocalmart.order.repository.OrderRepository;
@@ -14,6 +15,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -49,8 +51,21 @@ public class OrderInvoiceService {
 
     private InvoiceDocument toInvoiceDocument(Order order, String townName) {
         List<InvoiceDocument.InvoiceLineItem> lineItems = new ArrayList<>();
+        List<InvoiceDocument.CancelledLineItem> cancelledItems = new ArrayList<>();
         for (VendorSubOrder subOrder : order.getVendorSubOrders()) {
             for (OrderItem item : subOrder.getItems()) {
+                if (item.getStatus() == OrderItemStatus.CANCELLED) {
+                    cancelledItems.add(InvoiceDocument.CancelledLineItem.builder()
+                            .itemName(item.getItemNameSnapshot())
+                            .shopName(item.getShopNameSnapshot())
+                            .quantity(item.getQuantity())
+                            .storeCreditAmount(item.getStoreCreditAmount() != null
+                                    ? item.getStoreCreditAmount()
+                                    : item.getLineTotal())
+                            .reason(item.getCancelReason())
+                            .build());
+                    continue;
+                }
                 lineItems.add(InvoiceDocument.InvoiceLineItem.builder()
                         .itemName(item.getItemNameSnapshot())
                         .shopName(item.getShopNameSnapshot())
@@ -73,8 +88,10 @@ public class OrderInvoiceService {
                 .deliveryFee(order.getDeliveryFee())
                 .platformFee(order.getPlatformFee())
                 .taxAmount(order.getTaxAmount())
+                .storeCreditApplied(order.getStoreCreditApplied() == null ? BigDecimal.ZERO : order.getStoreCreditApplied())
                 .totalAmount(order.getTotalAmount())
                 .lineItems(lineItems)
+                .cancelledItems(cancelledItems)
                 .build();
     }
 

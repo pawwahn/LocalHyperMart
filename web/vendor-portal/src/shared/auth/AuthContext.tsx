@@ -5,6 +5,7 @@ type AuthContextValue = {
   session: AuthSession | null;
   isAuthenticated: boolean;
   setSession: (session: AuthSession) => void;
+  updateSession: (patch: Partial<AuthSession>) => void;
   logout: () => void;
 };
 
@@ -18,6 +19,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setSessionState(next);
   }, []);
 
+  const updateSession = useCallback((patch: Partial<AuthSession>) => {
+    setSessionState((prev) => {
+      if (!prev) return prev;
+      let changed = false;
+      for (const key of Object.keys(patch) as (keyof AuthSession)[]) {
+        if (patch[key] !== undefined && patch[key] !== prev[key]) {
+          changed = true;
+          break;
+        }
+      }
+      if (!changed) return prev;
+      const next = { ...prev, ...patch };
+      saveSession(next);
+      return next;
+    });
+  }, []);
+
   const logout = useCallback(() => {
     clearSession();
     setSessionState(null);
@@ -28,9 +46,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       session,
       isAuthenticated: Boolean(session?.accessToken),
       setSession,
+      updateSession,
       logout,
     }),
-    [session, setSession, logout],
+    [session, setSession, updateSession, logout],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

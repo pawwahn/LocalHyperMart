@@ -4,6 +4,7 @@ import lombok.Builder;
 import lombok.Data;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.UUID;
 
 @Data
@@ -18,8 +19,16 @@ public class VendorListingResponse {
     private UUID vendorId;
     private UUID shopId;
     private String shopName;
+    private BigDecimal masterMrp;
+    private BigDecimal vendorMrp;
+    private BigDecimal mrp;
     private BigDecimal price;
     private BigDecimal discountPrice;
+    private BigDecimal specialDiscountPrice;
+    private Instant specialDiscountValidFrom;
+    private Instant specialDiscountValidTo;
+    private boolean specialDiscountActive;
+    private BigDecimal effectivePrice;
     private String vendorNote;
     private boolean active;
 }

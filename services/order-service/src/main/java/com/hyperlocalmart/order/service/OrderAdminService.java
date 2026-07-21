@@ -8,9 +8,11 @@ import com.hyperlocalmart.order.dto.response.AdminOrderResponses.AdminAssignment
 import com.hyperlocalmart.order.dto.response.AdminOrderResponses.AdminAssignmentResponse;
 import com.hyperlocalmart.order.dto.response.AdminOrderResponses.AdminOrderDetailResponse;
 import com.hyperlocalmart.order.dto.response.AdminOrderResponses.AdminOrderSummaryResponse;
+import com.hyperlocalmart.order.dto.response.AdminOrderResponses.AdminSubOrderItemResponse;
 import com.hyperlocalmart.order.dto.response.AdminOrderResponses.AdminSubOrderResponse;
 import com.hyperlocalmart.order.entity.Order;
 import com.hyperlocalmart.order.entity.OrderItem;
+import com.hyperlocalmart.order.entity.OrderItemStatus;
 import com.hyperlocalmart.order.entity.OrderStatus;
 import com.hyperlocalmart.order.entity.VendorSubOrder;
 import com.hyperlocalmart.order.entity.VendorSubOrderStatus;
@@ -84,6 +86,7 @@ public class OrderAdminService {
                                         .eventType(e.eventType())
                                         .createdAt(e.createdAt())
                                         .createdBy(e.createdBy())
+                                        .metadata(e.metadata())
                                         .build())
                                 .toList())
                         .build())
@@ -137,10 +140,22 @@ public class OrderAdminService {
     }
 
     private AdminSubOrderResponse toSubOrder(VendorSubOrder subOrder) {
-        int itemCount = subOrder.getItems().stream().mapToInt(OrderItem::getQuantity).sum();
+        List<OrderItem> activeItems = subOrder.getItems().stream()
+                .filter(item -> item.getStatus() == null || item.getStatus() == OrderItemStatus.ACTIVE)
+                .toList();
+        int itemCount = activeItems.stream().mapToInt(OrderItem::getQuantity).sum();
         String shopName = subOrder.getItems().isEmpty()
                 ? "Shop"
                 : subOrder.getItems().getFirst().getShopNameSnapshot();
+        List<AdminSubOrderItemResponse> items = activeItems.stream()
+                .map(item -> AdminSubOrderItemResponse.builder()
+                        .name(item.getItemNameSnapshot())
+                        .unitCode(item.getUnitCodeSnapshot())
+                        .quantity(item.getQuantity())
+                        .lineTotal(item.getLineTotal())
+                        .status(item.getStatus() == null ? OrderItemStatus.ACTIVE.name() : item.getStatus().name())
+                        .build())
+                .toList();
         return AdminSubOrderResponse.builder()
                 .subOrderId(subOrder.getId())
                 .subOrderNumber(subOrder.getSubOrderNumber())
@@ -151,6 +166,7 @@ public class OrderAdminService {
                 .subtotal(subOrder.getSubtotal())
                 .readyForPickupAt(subOrder.getReadyForPickupAt())
                 .itemCount(itemCount)
+                .items(items)
                 .build();
     }
 }

@@ -9,6 +9,8 @@ type Props = {
   priceLabel: string;
   mrpLabel?: string | null;
   discountPercent?: number | null;
+  vendorNote?: string | null;
+  specialOfferActive?: boolean;
   quantity: number;
   busy?: boolean;
   onIncrease: () => void;
@@ -23,18 +25,21 @@ export function ProductCard({
   priceLabel,
   mrpLabel,
   discountPercent,
+  vendorNote,
+  specialOfferActive,
   quantity,
   busy,
   onIncrease,
   onDecrease,
 }: Props) {
   const visual = productVisual(name);
+  const badge = specialOfferActive ? 'SALE' : discountPercent && discountPercent > 0 ? `${discountPercent}% OFF` : null;
 
   return (
     <article style={styles.card}>
       <div style={{ ...styles.media, background: visual.tint }}>
-        {discountPercent && discountPercent > 0 ? (
-          <span style={styles.offer}>{discountPercent}% OFF</span>
+        {badge ? (
+          <span style={specialOfferActive ? styles.sale : styles.offer}>{badge}</span>
         ) : null}
         <span style={styles.emoji} aria-hidden>
           {visual.emoji}
@@ -53,6 +58,7 @@ export function ProductCard({
         <p style={styles.shop}>{shopName}</p>
         <h3 style={styles.name}>{name}</h3>
         <p style={styles.unit}>{unit}</p>
+        {vendorNote ? <p style={styles.note}>{vendorNote}</p> : null}
         <div style={styles.priceRow}>
           <span style={styles.price}>{priceLabel}</span>
           {mrpLabel ? <span style={styles.mrp}>{mrpLabel}</span> : null}
@@ -84,6 +90,21 @@ const styles: Record<string, CSSProperties> = {
     top: 4,
     left: 4,
     background: '#2563EB',
+    color: '#fff',
+    fontSize: '0.55rem',
+    fontWeight: 800,
+    padding: '0.12rem 0.28rem',
+    borderRadius: 3,
+    letterSpacing: '0.02em',
+    maxWidth: '70%',
+    overflow: 'hidden',
+    whiteSpace: 'nowrap',
+  },
+  sale: {
+    position: 'absolute',
+    top: 4,
+    left: 4,
+    background: '#DC2626',
     color: '#fff',
     fontSize: '0.55rem',
     fontWeight: 800,
@@ -137,6 +158,15 @@ const styles: Record<string, CSSProperties> = {
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
+  },
+  note: {
+    margin: 0,
+    fontSize: '0.58rem',
+    color: 'var(--text-muted)',
+    overflow: 'hidden',
+    display: '-webkit-box',
+    WebkitLineClamp: 1,
+    WebkitBoxOrient: 'vertical',
   },
   priceRow: {
     display: 'flex',

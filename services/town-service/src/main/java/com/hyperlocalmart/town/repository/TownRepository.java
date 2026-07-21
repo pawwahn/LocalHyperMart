@@ -10,4 +10,8 @@ import java.util.UUID;
 public interface TownRepository extends JpaRepository<Town, UUID> {
 
     List<Town> findByStatusOrderByDisplayNameAsc(TownStatus status);
+
+    List<Town> findAllByOrderByDisplayNameAsc();
+
+    boolean existsByTownCodeIgnoreCase(String townCode);
 }

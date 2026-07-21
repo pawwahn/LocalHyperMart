@@ -36,6 +36,9 @@ public class CartItem extends BaseAuditEntity {
     @Column(name = "item_name", nullable = false)
     private String itemName;
 
+    @Column(name = "unit_code", length = 20)
+    private String unitCode;
+
     @Column(name = "shop_id", nullable = false)
     private UUID shopId;
 

@@ -20,13 +20,25 @@ public class ListingLookupService {
 
     @Transactional(readOnly = true)
     public ListingSnapshotResponse getActiveListing(UUID listingId, UUID townId) {
+        return getListing(listingId, townId, true);
+    }
+
+    /**
+     * Lookup for order/delivery reads — still returns unit even if listing was later deactivated.
+     */
+    @Transactional(readOnly = true)
+    public ListingSnapshotResponse getListingForOrderRead(UUID listingId, UUID townId) {
+        return getListing(listingId, townId, false);
+    }
+
+    private ListingSnapshotResponse getListing(UUID listingId, UUID townId, boolean requireActive) {
         VendorListing listing = vendorListingRepository.findById(listingId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Listing not found"));
 
         if (!listing.getTownId().equals(townId)) {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Listing does not belong to this town");
         }
-        if (!listing.isActive() || listing.getMasterItem().getStatus() != CatalogItemStatus.ACTIVE) {
+        if (requireActive && (!listing.isActive() || listing.getMasterItem().getStatus() != CatalogItemStatus.ACTIVE)) {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Listing is not available");
         }
 
@@ -40,6 +52,7 @@ public class ListingLookupService {
                 .unit(listing.getMasterItem().getUnit().getCode())
                 .price(listing.getPrice())
                 .discountPrice(listing.getDiscountPrice())
+                .effectivePrice(ListingPricing.resolveEffectivePrice(listing))
                 .active(listing.isActive())
                 .build();
     }

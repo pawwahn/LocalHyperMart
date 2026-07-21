@@ -16,30 +16,51 @@ export function formatPortalTime(iso: string | null | undefined): string {
 export type ActionEventView = {
   eventType: string;
   createdAt: string;
+  metadata?: Record<string, unknown> | null;
 };
 
-/** Plain-language labels for delivery_events.event_type */
-export function actionEventLabel(eventType: string): string {
+/** Plain-language labels for delivery_events.event_type (keep short for one-liners). */
+export function actionEventLabel(
+  eventType: string,
+  metadata?: Record<string, unknown> | null,
+  resolveAgentName?: (agentId: string) => string | undefined,
+): string {
   switch (eventType) {
     case 'PICKUP_ASSIGNED':
-      return 'Hub sent boy to shop';
+      return 'Sent to shop';
     case 'LAST_MILE_ASSIGNED':
-      return 'Hub sent boy to home';
-    case 'REASSIGNED':
-      return 'Hub changed boy';
+      return 'Sent to home';
+    case 'REASSIGNED': {
+      const from =
+        stringMeta(metadata, 'previousAgentName') ||
+        resolveAgentName?.(stringMeta(metadata, 'previousAgentId') ?? '') ||
+        'Previous boy';
+      const to =
+        stringMeta(metadata, 'newAgentName') ||
+        resolveAgentName?.(stringMeta(metadata, 'newAgentId') ?? '') ||
+        'New boy';
+      return `Changed boy: ${from} → ${to}`;
+    }
     case 'PICKED_FROM_VENDOR':
-      return 'Boy took bag from shop';
+      return 'Took bag from shop';
     case 'PICKED_FROM_HUB':
-      return 'Boy left hub to home';
+      return 'Left hub to home';
     case 'BROUGHT_TO_HUB':
-      return 'Bag checked in at hub';
+      return 'Bag at hub';
     case 'DELIVERED':
-      return 'Delivered to customer';
+      return 'Delivered';
     case 'BUYER_REJECTED':
       return 'Customer refused';
     case 'OTP_OVERRIDE':
-      return 'Hub changed OTP';
+      return 'OTP changed';
     default:
       return eventType.replaceAll('_', ' ').toLowerCase();
   }
+}
+
+function stringMeta(metadata: Record<string, unknown> | null | undefined, key: string): string | undefined {
+  const value = metadata?.[key];
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  return trimmed || undefined;
 }

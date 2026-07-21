@@ -21,6 +21,7 @@ public class OrderDetailResponse {
     private String displayStatus;
     private BigDecimal itemsSubtotal;
     private BigDecimal deliveryFee;
+    private BigDecimal storeCreditApplied;
     private BigDecimal totalAmount;
     private PaymentMethod paymentMethod;
     private PaymentStatus paymentStatus;

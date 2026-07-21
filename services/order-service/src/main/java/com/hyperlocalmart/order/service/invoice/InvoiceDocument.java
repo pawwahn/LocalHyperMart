@@ -25,8 +25,10 @@ public class InvoiceDocument {
     BigDecimal deliveryFee;
     BigDecimal platformFee;
     BigDecimal taxAmount;
+    BigDecimal storeCreditApplied;
     BigDecimal totalAmount;
     List<InvoiceLineItem> lineItems;
+    List<CancelledLineItem> cancelledItems;
 
     @Value
     @Builder
@@ -37,5 +39,15 @@ public class InvoiceDocument {
         int quantity;
         BigDecimal unitPrice;
         BigDecimal lineTotal;
+    }
+
+    @Value
+    @Builder
+    public static class CancelledLineItem {
+        String itemName;
+        String shopName;
+        int quantity;
+        BigDecimal storeCreditAmount;
+        String reason;
     }
 }

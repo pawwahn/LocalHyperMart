@@ -13,5 +13,8 @@ public interface MasterItemRepository extends JpaRepository<MasterItem, UUID> {
 
     Page<MasterItem> findByStatusOrderByNameAsc(CatalogItemStatus status, Pageable pageable);
 
+    Page<MasterItem> findByStatusAndCategoryIdOrderByNameAsc(
+            CatalogItemStatus status, UUID categoryId, Pageable pageable);
+
     Optional<MasterItem> findByIdAndStatus(UUID id, CatalogItemStatus status);
 }

@@ -1,5 +1,6 @@
 package com.hyperlocalmart.delivery.service;
 
+import com.hyperlocalmart.delivery.client.UserClient;
 import com.hyperlocalmart.delivery.dto.request.CreateAgentRequest;
 import com.hyperlocalmart.delivery.entity.*;
 import com.hyperlocalmart.delivery.repository.*;
@@ -14,6 +15,8 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -24,6 +27,8 @@ class AgentServiceTest {
     @Mock private DeliveryAgentRepository deliveryAgentRepository;
     @Mock private AgentHubLinkRepository agentHubLinkRepository;
     @Mock private DeliveryAssignmentRepository deliveryAssignmentRepository;
+    @Mock private DeliveryEventRepository deliveryEventRepository;
+    @Mock private UserClient userClient;
 
     @InjectMocks
     private AgentService agentService;
@@ -36,16 +41,17 @@ class AgentServiceTest {
         UUID agentUserId = UUID.randomUUID();
 
         CreateAgentRequest request = new CreateAgentRequest();
-        request.setUserId(agentUserId);
         request.setName("New Agent");
         request.setPhone("9876500300");
+        request.setPassword("password1");
 
         when(hubAdminRepository.findByUserIdAndStatus(hubAdminUserId, "ACTIVE"))
                 .thenReturn(Optional.of(HubAdmin.builder().hubId(hubId).userId(hubAdminUserId).status("ACTIVE").build()));
         when(deliveryHubRepository.findById(hubId))
                 .thenReturn(Optional.of(DeliveryHub.builder().id(hubId).townId(townId).name("Narsaraopet Hub").build()));
-        when(deliveryAgentRepository.existsByUserId(agentUserId)).thenReturn(false);
         when(deliveryAgentRepository.existsByPhone("9876500300")).thenReturn(false);
+        when(userClient.createDeliveryAgentUser("9876500300", "password1", "New Agent")).thenReturn(agentUserId);
+        when(deliveryAgentRepository.existsByUserId(agentUserId)).thenReturn(false);
         when(deliveryAgentRepository.save(any())).thenAnswer(invocation -> {
             DeliveryAgent agent = invocation.getArgument(0);
             agent.setId(UUID.randomUUID());
@@ -57,6 +63,8 @@ class AgentServiceTest {
 
         assertThat(response.getName()).isEqualTo("New Agent");
         assertThat(response.getHubId()).isEqualTo(hubId);
+        assertThat(response.getHubName()).isEqualTo("Narsaraopet Hub");
         assertThat(response.getStatus()).isEqualTo(AgentStatus.ACTIVE);
+        verify(userClient).createDeliveryAgentUser(eq("9876500300"), eq("password1"), eq("New Agent"));
     }
 }

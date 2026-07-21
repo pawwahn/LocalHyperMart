@@ -2,6 +2,7 @@ package com.hyperlocalmart.delivery.service;
 
 import com.hyperlocalmart.common.exception.BusinessException;
 import com.hyperlocalmart.common.exception.ErrorCode;
+import com.hyperlocalmart.delivery.client.UserClient;
 import com.hyperlocalmart.delivery.dto.request.CreateAgentRequest;
 import com.hyperlocalmart.delivery.dto.request.UpdateAgentStatusRequest;
 import com.hyperlocalmart.delivery.dto.response.AgentResponse;
@@ -11,6 +12,7 @@ import com.hyperlocalmart.delivery.dto.response.OrderAssignmentResponse;
 import com.hyperlocalmart.delivery.entity.*;
 import com.hyperlocalmart.delivery.repository.*;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -21,6 +23,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class AgentService {
@@ -33,6 +36,7 @@ public class AgentService {
     private final AgentHubLinkRepository agentHubLinkRepository;
     private final DeliveryAssignmentRepository deliveryAssignmentRepository;
     private final DeliveryEventRepository deliveryEventRepository;
+    private final UserClient userClient;
 
     @Transactional(readOnly = true)
     public HubAdminContextResponse getHubAdminContext(UUID userId) {
@@ -104,34 +108,47 @@ public class AgentService {
         DeliveryHub hub = deliveryHubRepository.findById(hubAdmin.getHubId())
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Hub not found"));
 
-        if (deliveryAgentRepository.existsByUserId(request.getUserId())) {
-            throw new BusinessException(ErrorCode.CONFLICT, "User is already linked to a delivery agent");
-        }
-        if (deliveryAgentRepository.existsByPhone(request.getPhone())) {
+        String phone = request.getPhone().trim();
+        String name = request.getName().trim();
+        if (deliveryAgentRepository.existsByPhone(phone)) {
             throw new BusinessException(ErrorCode.CONFLICT, "Phone already registered for an agent");
         }
 
-        DeliveryAgent agent = DeliveryAgent.builder()
-                .userId(request.getUserId())
-                .name(request.getName())
-                .phone(request.getPhone())
-                .status(AgentStatus.ACTIVE)
-                .build();
-        agent.setCreatedBy(hubAdminUserId);
-        agent.setUpdatedBy(hubAdminUserId);
-        deliveryAgentRepository.save(agent);
+        UUID agentUserId = userClient.createDeliveryAgentUser(phone, request.getPassword(), name);
+        try {
+            if (deliveryAgentRepository.existsByUserId(agentUserId)) {
+                throw new BusinessException(ErrorCode.CONFLICT, "User is already linked to a delivery agent");
+            }
 
-        AgentHubLink link = AgentHubLink.builder()
-                .agentId(agent.getId())
-                .hubId(hub.getId())
-                .townId(hub.getTownId())
-                .active(true)
-                .build();
-        link.setCreatedBy(hubAdminUserId);
-        link.setUpdatedBy(hubAdminUserId);
-        agentHubLinkRepository.save(link);
+            DeliveryAgent agent = DeliveryAgent.builder()
+                    .userId(agentUserId)
+                    .name(name)
+                    .phone(phone)
+                    .status(AgentStatus.ACTIVE)
+                    .build();
+            agent.setCreatedBy(hubAdminUserId);
+            agent.setUpdatedBy(hubAdminUserId);
+            deliveryAgentRepository.save(agent);
 
-        return toResponse(agent, hub.getId());
+            AgentHubLink link = AgentHubLink.builder()
+                    .agentId(agent.getId())
+                    .hubId(hub.getId())
+                    .townId(hub.getTownId())
+                    .active(true)
+                    .build();
+            link.setCreatedBy(hubAdminUserId);
+            link.setUpdatedBy(hubAdminUserId);
+            agentHubLinkRepository.save(link);
+
+            return toResponse(agent, hub);
+        } catch (RuntimeException ex) {
+            try {
+                userClient.updateUserStatus(agentUserId, "DISABLED");
+            } catch (Exception cleanup) {
+                log.warn("Failed to roll back agent login {} after create failure: {}", agentUserId, cleanup.getMessage());
+            }
+            throw ex;
+        }
     }
 
     @Transactional(readOnly = true)
@@ -140,11 +157,28 @@ public class AgentService {
         if (!hubAdmin.getHubId().equals(hubId)) {
             throw new BusinessException(ErrorCode.FORBIDDEN, "Hub does not belong to admin");
         }
+        DeliveryHub hub = deliveryHubRepository.findById(hubId).orElse(null);
         List<AgentResponse> agents = new ArrayList<>();
         for (AgentHubLink link : agentHubLinkRepository.findByHubIdAndActiveTrue(hubId)) {
             deliveryAgentRepository.findById(link.getAgentId())
-                    .ifPresent(agent -> agents.add(toResponse(agent, hubId)));
+                    .ifPresent(agent -> agents.add(toResponse(agent, hub)));
         }
+        return agents;
+    }
+
+    @Transactional(readOnly = true)
+    public List<AgentResponse> listAllAgentsForSuperAdmin() {
+        List<AgentResponse> agents = new ArrayList<>();
+        for (DeliveryAgent agent : deliveryAgentRepository.findAll()) {
+            UUID hubId = resolveHubIdForAgent(agent.getId());
+            DeliveryHub hub = hubId == null ? null : deliveryHubRepository.findById(hubId).orElse(null);
+            agents.add(toResponse(agent, hub));
+        }
+        agents.sort((a, b) -> {
+            int byHub = String.valueOf(a.getHubName()).compareToIgnoreCase(String.valueOf(b.getHubName()));
+            if (byHub != 0) return byHub;
+            return a.getName().compareToIgnoreCase(b.getName());
+        });
         return agents;
     }
 
@@ -152,24 +186,57 @@ public class AgentService {
     public AgentResponse updateAgentStatus(UUID actorUserId, List<String> roles, UUID agentId, UpdateAgentStatusRequest request) {
         DeliveryAgent agent = deliveryAgentRepository.findById(agentId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Agent not found"));
+        boolean superAdmin = roles.contains("SUPER_ADMIN");
 
-        if (request.getStatus() == AgentStatus.DISABLED && !roles.contains("SUPER_ADMIN")) {
-            throw new BusinessException(ErrorCode.FORBIDDEN, "Only super admin can disable agents permanently");
+        if (request.getStatus() == AgentStatus.DISABLED && !superAdmin) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "Only super admin can permanently disable agents");
         }
-
-        if (roles.contains("HUB_ADMIN") && !roles.contains("SUPER_ADMIN")) {
+        if (!superAdmin) {
+            if (request.getStatus() != AgentStatus.ACTIVE && request.getStatus() != AgentStatus.INACTIVE) {
+                throw new BusinessException(ErrorCode.FORBIDDEN, "Hub admin can only activate or deactivate agents");
+            }
+            if (agent.getStatus() == AgentStatus.DISABLED) {
+                throw new BusinessException(ErrorCode.FORBIDDEN, "Permanently disabled agents can only be restored by super admin");
+            }
             HubAdmin hubAdmin = resolveActiveHubAdmin(actorUserId);
             ensureAgentLinkedToHub(agentId, hubAdmin.getHubId());
         }
 
         if (request.getStatus() == AgentStatus.DISABLED) {
             agent.setDisabledBy(actorUserId);
+        } else if (agent.getStatus() == AgentStatus.DISABLED && request.getStatus() == AgentStatus.ACTIVE) {
+            agent.setDisabledBy(null);
         }
         agent.setStatus(request.getStatus());
         agent.setUpdatedBy(actorUserId);
         deliveryAgentRepository.save(agent);
 
-        return toResponse(agent, resolveHubIdForAgent(agentId));
+        syncLoginStatus(agent);
+
+        UUID hubId = resolveHubIdForAgent(agentId);
+        DeliveryHub hub = hubId == null ? null : deliveryHubRepository.findById(hubId).orElse(null);
+        return toResponse(agent, hub);
+    }
+
+    @Transactional
+    public AgentResponse permanentlyDisableAgent(UUID superAdminUserId, UUID agentId) {
+        UpdateAgentStatusRequest request = new UpdateAgentStatusRequest();
+        request.setStatus(AgentStatus.DISABLED);
+        return updateAgentStatus(superAdminUserId, List.of("SUPER_ADMIN"), agentId, request);
+    }
+
+    private void syncLoginStatus(DeliveryAgent agent) {
+        if (agent.getUserId() == null) return;
+        try {
+            if (agent.getStatus() == AgentStatus.DISABLED) {
+                userClient.updateUserStatus(agent.getUserId(), "DISABLED");
+            } else if (agent.getStatus() == AgentStatus.ACTIVE || agent.getStatus() == AgentStatus.INACTIVE) {
+                // Keep login usable while inactive so boy can still open app; assignments block INACTIVE.
+                userClient.updateUserStatus(agent.getUserId(), "ACTIVE");
+            }
+        } catch (Exception ex) {
+            log.warn("Could not sync login status for agent {}: {}", agent.getId(), ex.getMessage());
+        }
     }
 
     private UUID resolveHubIdForAgent(UUID agentId) {
@@ -189,11 +256,12 @@ public class AgentService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.FORBIDDEN, "Active hub admin not found"));
     }
 
-    private AgentResponse toResponse(DeliveryAgent agent, UUID hubId) {
+    private AgentResponse toResponse(DeliveryAgent agent, DeliveryHub hub) {
         return AgentResponse.builder()
                 .agentId(agent.getId())
                 .userId(agent.getUserId())
-                .hubId(hubId)
+                .hubId(hub == null ? null : hub.getId())
+                .hubName(hub == null ? null : hub.getName())
                 .name(agent.getName())
                 .phone(agent.getPhone())
                 .status(agent.getStatus())

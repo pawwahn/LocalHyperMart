@@ -49,6 +49,13 @@ export type AdminOrderDetailDto = {
     subtotal: number;
     itemCount: number;
     readyForPickupAt?: string | null;
+    items?: Array<{
+      name: string;
+      unitCode?: string | null;
+      quantity: number;
+      lineTotal?: number;
+      status?: string;
+    }>;
   }>;
   assignments: Array<{
     assignmentId: string;
@@ -66,6 +73,7 @@ export type AdminOrderDetailDto = {
       eventType: string;
       createdAt: string;
       createdBy?: string | null;
+      metadata?: Record<string, unknown> | null;
     }>;
   }>;
 };
@@ -90,6 +98,7 @@ export type AssignmentDto = {
     eventType: string;
     createdAt: string;
     createdBy?: string | null;
+    metadata?: Record<string, unknown> | null;
   }>;
 };
 
@@ -116,6 +125,13 @@ export type OrderRowView = {
   pickupReadiness: 'none' | 'partial' | 'all';
 };
 
+export type SubOrderItemView = {
+  name: string;
+  quantity: number;
+  unitCode?: string;
+  lineTotalLabel?: string;
+};
+
 export type SubOrderRowView = {
   id: string;
   subOrderNumber: string;
@@ -124,6 +140,7 @@ export type SubOrderRowView = {
   subtotalLabel: string;
   itemCount: number;
   vendorId: string;
+  items: SubOrderItemView[];
 };
 
 function money(v: number | null | undefined): string {
@@ -247,6 +264,59 @@ export async function assignLastMile(token: string, orderId: string, agentId: st
     method: 'POST',
     token,
     body: { orderId, agentId },
+  });
+}
+
+export async function reassignAssignment(
+  token: string,
+  assignmentId: string,
+  newAgentId: string,
+  reason = 'Changed by hub',
+): Promise<AssignmentDto> {
+  return apiRequest<AssignmentDto>(`/api/v1/delivery/assignments/${assignmentId}/reassign`, {
+    method: 'PATCH',
+    token,
+    body: { newAgentId, reason },
+  });
+}
+
+export type AgentDto = {
+  agentId: string;
+  userId?: string;
+  hubId?: string;
+  hubName?: string | null;
+  name: string;
+  phone: string;
+  status: string;
+};
+
+export async function fetchHubAgents(token: string, hubId: string): Promise<AgentDto[]> {
+  const data = await apiRequest<AgentDto[]>(`/api/v1/delivery/agents?hubId=${encodeURIComponent(hubId)}`, {
+    token,
+  });
+  return data ?? [];
+}
+
+export async function createHubAgent(
+  token: string,
+  body: { name: string; phone: string; password: string },
+): Promise<AgentDto> {
+  return apiRequest<AgentDto>('/api/v1/delivery/agents', {
+    method: 'POST',
+    token,
+    body,
+  });
+}
+
+export async function updateHubAgentStatus(
+  token: string,
+  agentId: string,
+  status: 'ACTIVE' | 'INACTIVE',
+): Promise<AgentDto> {
+  return apiRequest<AgentDto>(`/api/v1/delivery/agents/${agentId}/status`, {
+    method: 'PATCH',
+    token,
+    body: { status },
   });
 }
 

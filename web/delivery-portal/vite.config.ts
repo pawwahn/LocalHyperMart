@@ -8,6 +8,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
+      '@hlm-theme': fileURLToPath(new URL('../shared/theme', import.meta.url)),
     },
   },
   server: {

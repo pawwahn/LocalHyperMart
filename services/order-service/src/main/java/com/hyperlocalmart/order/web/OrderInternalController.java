@@ -7,10 +7,12 @@ import com.hyperlocalmart.order.dto.response.HubOrderStatsResponse;
 import com.hyperlocalmart.order.dto.response.HubTownReportStatsResponse;
 import com.hyperlocalmart.order.dto.response.OrderDeliveryInfoResponse;
 import com.hyperlocalmart.order.dto.response.OrderInternalSnapshotResponse;
+import com.hyperlocalmart.order.dto.response.SettlementCandidateResponse;
 import com.hyperlocalmart.order.dto.response.SubOrderInternalSnapshotResponse;
 import com.hyperlocalmart.order.dto.response.SubOrderPickupManifestResponse;
 import com.hyperlocalmart.order.service.HubOrderStatsService;
 import com.hyperlocalmart.order.service.OrderService;
+import com.hyperlocalmart.order.service.SettlementCandidateService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -19,6 +21,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
+import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -27,6 +30,7 @@ public class OrderInternalController {
 
     private final OrderService orderService;
     private final HubOrderStatsService hubOrderStatsService;
+    private final SettlementCandidateService settlementCandidateService;
 
     @GetMapping("/api/v1/internal/orders/{orderId}")
     public ResponseEntity<ApiResponse<OrderInternalSnapshotResponse>> getOrderSnapshot(
@@ -96,5 +100,25 @@ public class OrderInternalController {
             HttpServletRequest httpRequest) {
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
                 hubOrderStatsService.getTownReportStats(townId, from, to)));
+    }
+
+    @GetMapping("/api/v1/internal/orders/settlement-candidates")
+    public ResponseEntity<ApiResponse<SettlementCandidateResponse>> getSettlementCandidates(
+            @RequestParam UUID vendorId,
+            @RequestParam UUID townId,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                settlementCandidateService.listCandidates(vendorId, townId, from, to)));
+    }
+
+    @PostMapping("/api/v1/internal/orders/settlement-candidates/resolve")
+    public ResponseEntity<ApiResponse<List<SettlementCandidateResponse.Item>>> resolveSettlementSubOrders(
+            @RequestParam UUID vendorId,
+            @RequestBody List<UUID> subOrderIds,
+            HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                settlementCandidateService.resolveSubOrders(vendorId, subOrderIds)));
     }
 }

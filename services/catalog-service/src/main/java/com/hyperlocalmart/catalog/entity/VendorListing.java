@@ -34,11 +34,23 @@ public class VendorListing extends BaseAuditEntity {
     @JoinColumn(name = "master_item_id", nullable = false)
     private MasterItem masterItem;
 
+    @Column(name = "vendor_mrp", precision = 12, scale = 2)
+    private BigDecimal vendorMrp;
+
     @Column(nullable = false, precision = 12, scale = 2)
     private BigDecimal price;
 
     @Column(name = "discount_price", precision = 12, scale = 2)
     private BigDecimal discountPrice;
+
+    @Column(name = "special_discount_price", precision = 12, scale = 2)
+    private BigDecimal specialDiscountPrice;
+
+    @Column(name = "special_discount_valid_from")
+    private Instant specialDiscountValidFrom;
+
+    @Column(name = "special_discount_valid_to")
+    private Instant specialDiscountValidTo;
 
     @Column(name = "vendor_note", length = 500)
     private String vendorNote;

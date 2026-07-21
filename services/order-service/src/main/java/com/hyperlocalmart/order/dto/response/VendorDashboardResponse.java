@@ -21,6 +21,8 @@ public class VendorDashboardResponse {
     private long orderCountToday;
     private long orderCountWeek;
     private BigDecimal earningsGross;
+    private BigDecimal earningsToday;
+    private long pendingActionCount;
     private LocalDate from;
     private LocalDate to;
     @Singular("statusCount")

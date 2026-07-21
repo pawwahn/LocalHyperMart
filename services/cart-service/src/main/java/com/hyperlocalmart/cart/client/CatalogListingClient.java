@@ -49,6 +49,7 @@ public class CatalogListingClient {
             String unit,
             BigDecimal price,
             BigDecimal discountPrice,
+            BigDecimal effectivePrice,
             boolean active
     ) {
     }

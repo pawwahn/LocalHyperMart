@@ -11,6 +11,7 @@ import java.util.UUID;
 public class MasterItemSummaryResponse {
 
     private UUID masterItemId;
+    private UUID categoryId;
     private String name;
     private String unit;
     private String category;

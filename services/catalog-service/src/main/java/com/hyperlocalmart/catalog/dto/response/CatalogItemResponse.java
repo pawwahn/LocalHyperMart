@@ -16,7 +16,12 @@ public class CatalogItemResponse {
     private String unit;
     private String shopName;
     private UUID vendorId;
+    private BigDecimal mrp;
     private BigDecimal price;
     private BigDecimal discountPrice;
+    private BigDecimal specialDiscountPrice;
+    private BigDecimal effectivePrice;
+    private boolean specialOfferActive;
+    private String vendorNote;
     private String imageUrl;
 }

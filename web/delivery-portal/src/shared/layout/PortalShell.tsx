@@ -1,4 +1,5 @@
 import type { CSSProperties, ReactNode } from 'react';
+import { ThemePicker } from '@hlm-theme';
 import { useAuth } from '@/shared/auth/AuthContext';
 import { useIsMobile } from '@/shared/hooks/useIsMobile';
 import { Button } from '@/shared/ui';
@@ -42,6 +43,7 @@ export function PortalShell({ title, subtitle, children, onRefresh, footerNav }:
           {subtitle ? <p style={styles.context}>{subtitle}</p> : null}
         </div>
         <div style={styles.actions}>
+          <ThemePicker compact={isMobile} />
           {onRefresh ? (
             <Button variant="ghost" size="sm" onClick={onRefresh} aria-label="Refresh">
               {isMobile ? '↻' : 'Refresh'}

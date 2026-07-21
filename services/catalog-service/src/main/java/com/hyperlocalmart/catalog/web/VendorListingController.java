@@ -4,6 +4,7 @@ import com.hyperlocalmart.common.api.ApiResponse;
 import com.hyperlocalmart.common.api.PageResponse;
 import com.hyperlocalmart.common.exception.BusinessException;
 import com.hyperlocalmart.common.exception.ErrorCode;
+import com.hyperlocalmart.catalog.dto.request.BulkCreateVendorListingsRequest;
 import com.hyperlocalmart.catalog.dto.request.CreateVendorListingRequest;
 import com.hyperlocalmart.catalog.dto.request.UpdateVendorListingRequest;
 import com.hyperlocalmart.catalog.dto.response.VendorListingResponse;
@@ -17,6 +18,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -57,6 +59,18 @@ public class VendorListingController {
             HttpServletRequest httpRequest) {
         requireVendor(principal);
         VendorListingResponse response = vendorListingService.createListing(
+                vendorId, principal.getUserId(), request);
+        return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponses.ok(httpRequest, response));
+    }
+
+    @PostMapping("/bulk")
+    public ResponseEntity<ApiResponse<List<VendorListingResponse>>> bulkPublish(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @RequestHeader("X-Vendor-Id") UUID vendorId,
+            @Valid @RequestBody BulkCreateVendorListingsRequest request,
+            HttpServletRequest httpRequest) {
+        requireVendor(principal);
+        List<VendorListingResponse> response = vendorListingService.bulkPublish(
                 vendorId, principal.getUserId(), request);
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponses.ok(httpRequest, response));
     }

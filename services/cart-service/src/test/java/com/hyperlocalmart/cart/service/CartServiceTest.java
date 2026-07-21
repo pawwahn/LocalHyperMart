@@ -55,7 +55,7 @@ class CartServiceTest {
                         shopId,
                         UUID.fromString("f1111111-1111-4111-8111-111111111111"),
                         "Tomato", "KG",
-                        new BigDecimal("30.00"), new BigDecimal("28.00"), true
+                        new BigDecimal("30.00"), new BigDecimal("28.00"), new BigDecimal("28.00"), true
                 )
         );
         when(cartRepository.save(any(Cart.class))).thenAnswer(invocation -> {

@@ -18,8 +18,13 @@
     "noUncheckedSideEffectImports": true,
     "baseUrl": ".",
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": ["src/*"],
+      "@hlm-theme": ["../shared/theme"],
+      "@hlm-theme/*": ["../shared/theme/*"],
+      "react": ["./node_modules/@types/react/index.d.ts"],
+      "react/jsx-runtime": ["./node_modules/@types/react/jsx-runtime.d.ts"],
+      "react/jsx-dev-runtime": ["./node_modules/@types/react/jsx-dev-runtime.d.ts"]
     }
   },
-  "include": ["src"]
+  "include": ["src", "../shared/theme/**/*.ts", "../shared/theme/**/*.tsx"]
 }

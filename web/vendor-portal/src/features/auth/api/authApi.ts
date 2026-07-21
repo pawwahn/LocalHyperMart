@@ -15,6 +15,7 @@ export const PILOT_VENDOR_BY_PHONE: Record<string, string> = {
   '9876500002': 'b2222222-2222-4222-8222-222222222222',
 };
 
+/** Fallback display names until shop API loads. Prefer live shopName from /vendors/me/shop. */
 export const PILOT_SHOP_NAME_BY_PHONE: Record<string, string> = {
   '9876500001': 'Ravi Kirana',
   '9876500002': 'Siva General Store',
@@ -46,4 +47,30 @@ export async function login(phone: string, password: string): Promise<AuthSessio
     phone,
     shopName: PILOT_SHOP_NAME_BY_PHONE[phone] ?? 'Your shop',
   };
+}
+
+export async function forgotPassword(phone: string): Promise<void> {
+  await apiRequest<null>('/api/v1/auth/forgot-password', {
+    method: 'POST',
+    body: { phone },
+  });
+}
+
+export async function resetPassword(phone: string, otp: string, newPassword: string): Promise<void> {
+  await apiRequest<null>('/api/v1/auth/reset-password', {
+    method: 'POST',
+    body: { phone, otp, newPassword },
+  });
+}
+
+export async function changePassword(
+  token: string,
+  currentPassword: string,
+  newPassword: string,
+): Promise<void> {
+  await apiRequest<null>('/api/v1/auth/change-password', {
+    method: 'POST',
+    token,
+    body: { currentPassword, newPassword },
+  });
 }

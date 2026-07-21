@@ -2,29 +2,95 @@ package com.hyperlocalmart.user.service;
 
 import com.hyperlocalmart.common.exception.BusinessException;
 import com.hyperlocalmart.common.exception.ErrorCode;
+import com.hyperlocalmart.user.dto.request.CreateStaffUserRequest;
 import com.hyperlocalmart.user.dto.request.UpdateProfileRequest;
+import com.hyperlocalmart.user.dto.request.UpdateUserStatusRequest;
+import com.hyperlocalmart.user.dto.response.StaffUserResponse;
 import com.hyperlocalmart.user.dto.response.UserProfileResponse;
+import com.hyperlocalmart.user.entity.Role;
+import com.hyperlocalmart.user.entity.RoleName;
 import com.hyperlocalmart.user.entity.User;
 import com.hyperlocalmart.user.entity.UserRole;
+import com.hyperlocalmart.user.entity.UserStatus;
+import com.hyperlocalmart.user.repository.RoleRepository;
 import com.hyperlocalmart.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.EnumSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
 public class UserService {
 
+    private static final Set<RoleName> STAFF_ROLES = EnumSet.of(RoleName.DELIVERY_AGENT, RoleName.VENDOR, RoleName.HUB_ADMIN);
+
     private final UserRepository userRepository;
+    private final RoleRepository roleRepository;
+    private final PasswordEncoder passwordEncoder;
 
     @Transactional(readOnly = true)
     public UserProfileResponse getProfile(UUID userId) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "User not found"));
         return toProfile(user);
+    }
+
+    @Transactional
+    public StaffUserResponse createStaffUser(CreateStaffUserRequest request) {
+        if (!STAFF_ROLES.contains(request.getRole())) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Role cannot be provisioned via staff API");
+        }
+        if (userRepository.existsByPhone(request.getPhone())) {
+            throw new BusinessException(ErrorCode.CONFLICT, "Phone number already registered");
+        }
+
+        Role role = roleRepository.findByName(request.getRole())
+                .orElseThrow(() -> new BusinessException(ErrorCode.INTERNAL_ERROR, "Role not configured"));
+
+        User user = User.builder()
+                .phone(request.getPhone().trim())
+                .passwordHash(passwordEncoder.encode(request.getPassword()))
+                .firstName(request.getFirstName().trim())
+                .lastName(blankToNull(request.getLastName()))
+                .status(UserStatus.ACTIVE)
+                .build();
+
+        UserRole userRole = UserRole.builder().user(user).role(role).build();
+        user.getUserRoles().add(userRole);
+        userRepository.save(user);
+
+        return StaffUserResponse.builder()
+                .userId(user.getId())
+                .phone(user.getPhone())
+                .role(role.getName().name())
+                .status(user.getStatus().name())
+                .build();
+    }
+
+    @Transactional
+    public StaffUserResponse updateUserStatus(UUID userId, UpdateUserStatusRequest request) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "User not found"));
+        user.setStatus(request.getStatus());
+        userRepository.save(user);
+
+        String role = user.getUserRoles().stream()
+                .map(ur -> ur.getRole().getName().name())
+                .findFirst()
+                .orElse(null);
+
+        return StaffUserResponse.builder()
+                .userId(user.getId())
+                .phone(user.getPhone())
+                .role(role)
+                .status(user.getStatus().name())
+                .build();
     }
 
     @Transactional
@@ -67,5 +133,9 @@ public class UserService {
                 .roles(roles)
                 .defaultTownId(user.getDefaultTownId())
                 .build();
+    }
+
+    private String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value.trim();
     }
 }

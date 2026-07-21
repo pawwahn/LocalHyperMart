@@ -1,5 +1,6 @@
 import type { CSSProperties, ReactNode } from 'react';
 import { Link, useLocation } from 'react-router-dom';
+import { ThemePicker } from '@hlm-theme';
 import { useAuth } from '@/shared/auth/AuthContext';
 import { StickyCartBar } from '@/features/shop/components/StickyCartBar';
 import { AdSlot } from '@/features/ads/components/AdSlot';
@@ -59,6 +60,7 @@ export function PortalShell({
             </button>
           </div>
           <div style={styles.headerActions}>
+            <ThemePicker compact />
             {onRefresh ? (
               <button type="button" style={styles.iconBtn} onClick={onRefresh} aria-label="Refresh">
                 ↻
@@ -146,7 +148,7 @@ const styles: Record<string, CSSProperties> = {
     position: 'sticky',
     top: 0,
     zIndex: 30,
-    background: 'rgba(246, 247, 249, 0.92)',
+    background: 'color-mix(in srgb, var(--bg) 92%, transparent)',
     backdropFilter: 'blur(10px)',
     paddingTop: '0.35rem',
     margin: '0 -0.15rem',

@@ -104,17 +104,30 @@ export function OrderDetailPage() {
           <section style={styles.section}>
             <h2 style={styles.h2}>Items in this order</h2>
             <div style={styles.list}>
-              {order.items.map((item, index) => (
-                <Card key={`${item.name}-${item.shopName}-${index}`} style={styles.itemRow}>
-                  <div>
-                    <p style={styles.itemName}>
-                      {item.quantity}× {item.name}
-                    </p>
-                    <p style={styles.meta}>{item.shopName}</p>
-                  </div>
-                  <strong style={styles.lineTotal}>{money(item.lineTotal)}</strong>
-                </Card>
-              ))}
+              {order.items.map((item, index) => {
+                const cancelled = (item.status ?? 'ACTIVE').toUpperCase() === 'CANCELLED';
+                return (
+                  <Card
+                    key={item.orderItemId ?? `${item.name}-${item.shopName}-${index}`}
+                    style={styles.itemRow}
+                  >
+                    <div>
+                      <p style={cancelled ? { ...styles.itemName, ...styles.cancelled } : styles.itemName}>
+                        {item.quantity}× {item.name}
+                        {cancelled ? ' (cancelled)' : ''}
+                      </p>
+                      <p style={styles.meta}>{item.shopName}</p>
+                      {cancelled && item.storeCreditAmount ? (
+                        <p style={styles.creditNote}>
+                          ₹{Number(item.storeCreditAmount).toFixed(2)} credited for next order
+                          {item.cancelReason ? ` · ${item.cancelReason}` : ''}
+                        </p>
+                      ) : null}
+                    </div>
+                    <strong style={styles.lineTotal}>{money(item.lineTotal)}</strong>
+                  </Card>
+                );
+              })}
             </div>
           </section>
 
@@ -127,6 +140,12 @@ export function OrderDetailPage() {
               <span>Delivery fee</span>
               <strong>{money(order.deliveryFee)}</strong>
             </div>
+            {(order.storeCreditApplied ?? 0) > 0 ? (
+              <div style={styles.totalRow}>
+                <span>Store credit applied</span>
+                <strong>−{money(order.storeCreditApplied)}</strong>
+              </div>
+            ) : null}
             <div style={{ ...styles.totalRow, ...styles.grand }}>
               <span>Total paid</span>
               <strong style={styles.grandAmount}>{money(order.totalAmount)}</strong>
@@ -178,6 +197,8 @@ const styles: Record<string, CSSProperties> = {
     alignItems: 'center',
   },
   itemName: { margin: 0, fontWeight: 700 },
+  cancelled: { textDecoration: 'line-through', color: 'var(--text-muted)' },
+  creditNote: { margin: '0.25rem 0 0', color: 'var(--accent-hover)', fontSize: '0.82rem', fontWeight: 600 },
   lineTotal: { fontFamily: 'var(--font-display)' },
   totals: { display: 'grid', gap: '0.45rem' },
   totalRow: {

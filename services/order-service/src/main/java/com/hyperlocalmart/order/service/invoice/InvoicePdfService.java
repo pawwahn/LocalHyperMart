@@ -56,6 +56,21 @@ public class InvoicePdfService {
             document.add(buildLineItemsTable(invoice));
             document.add(Chunk.NEWLINE);
 
+            if (invoice.getCancelledItems() != null && !invoice.getCancelledItems().isEmpty()) {
+                document.add(new Paragraph("Cancelled items (store credit issued)", HEADING_FONT));
+                for (InvoiceDocument.CancelledLineItem cancelled : invoice.getCancelledItems()) {
+                    String reason = cancelled.getReason() != null && !cancelled.getReason().isBlank()
+                            ? " — " + cancelled.getReason()
+                            : "";
+                    document.add(new Paragraph(
+                            cancelled.getQuantity() + "× " + cancelled.getItemName()
+                                    + " (" + nullToDash(cancelled.getShopName()) + ") — credit "
+                                    + formatMoney(cancelled.getStoreCreditAmount()) + reason,
+                            SMALL_FONT));
+                }
+                document.add(Chunk.NEWLINE);
+            }
+
             document.add(buildTotalsTable(invoice));
             document.add(Chunk.NEWLINE);
 
@@ -109,6 +124,9 @@ public class InvoicePdfService {
         }
         if (isPositive(invoice.getTaxAmount())) {
             addTotalRow(table, "Tax", invoice.getTaxAmount());
+        }
+        if (isPositive(invoice.getStoreCreditApplied())) {
+            addTotalRow(table, "Store Credit Applied", invoice.getStoreCreditApplied().negate());
         }
         addTotalRow(table, "Grand Total", invoice.getTotalAmount(), true);
         return table;

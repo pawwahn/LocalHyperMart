@@ -33,4 +33,9 @@ public class Shop extends BaseAuditEntity {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 30)
     private ShopStatus status;
+
+    /** When false, shop is paused and should not appear in town browse. */
+    @Column(name = "accepting_orders", nullable = false)
+    @Builder.Default
+    private boolean acceptingOrders = true;
 }

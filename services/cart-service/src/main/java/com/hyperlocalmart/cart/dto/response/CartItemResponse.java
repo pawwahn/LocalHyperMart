@@ -14,6 +14,7 @@ public class CartItemResponse {
     private UUID listingId;
     private String name;
     private String shopName;
+    private String unitCode;
     private int quantity;
     private BigDecimal unitPrice;
     private BigDecimal lineTotal;

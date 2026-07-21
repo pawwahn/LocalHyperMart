@@ -1,0 +1,34 @@
+---
+description: Vendor portal (and similar ops UIs) must be built for real list scale
+alwaysApply: true
+---
+
+# Scale & list UX defaults
+
+When building or changing **any list/table/report** in LocalHyperMart portals (vendor, hub, admin, buyer history):
+
+## Assume hundreds of rows
+
+Do not ship a bare “map all rows” screen as the final UX. Default toolkit:
+
+- **Pagination** (25/50 default; Prev/Next is enough)
+- **Sort** on the columns people scan (date, amount, status, name)
+- **Search / filter** for the primary identifier (order #, product name, phone, etc.)
+- **Date or status scope** so the first load is not “all time, everything”
+- **Collapse detail** (line items, nested rows) — summary first, expand on demand
+- **Exports** may include the filtered set; say so if scoped
+
+## Density
+
+- Prefer one job per viewport (tabs over stacking two huge tables)
+- Primary KPIs only up front; secondary metrics behind “more”
+- Human labels (`New`, `Ready`) over raw enums in filters
+
+## Backend
+
+- Prefer server pagination/filter when payloads get large (items × orders).
+- Until then, client page/sort/filter is required — never leave an unbounded scroll as the only control.
+
+## Process
+
+Apply this **without waiting for the user to ask again**. If a new list ships, it should already be searchable, sortable, and paginated unless there is a hard reason (e.g. fixed 5-item checklist).

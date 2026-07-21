@@ -117,6 +117,8 @@ export function ShopPage() {
                 priceLabel={item.priceLabel}
                 mrpLabel={item.mrpLabel}
                 discountPercent={item.discountPercent}
+                vendorNote={item.vendorNote}
+                specialOfferActive={item.specialOfferActive}
                 quantity={quantityFor(item.listingId)}
                 busy={busyKey === item.listingId}
                 onIncrease={() => void doIncrease(item.listingId)}

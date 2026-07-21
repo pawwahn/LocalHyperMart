@@ -166,6 +166,9 @@ public class AssignmentService {
 
         DeliveryAgent newAgent = resolveActiveAgentLinkedToHub(request.getNewAgentId(), hubAdmin.getHubId());
         UUID previousAgentId = assignment.getAgentId();
+        String previousAgentName = deliveryAgentRepository.findById(previousAgentId)
+                .map(DeliveryAgent::getName)
+                .orElse("Previous boy");
 
         assignment.setAgentId(newAgent.getId());
         assignment.setAssignedBy(hubAdminUserId);
@@ -173,11 +176,13 @@ public class AssignmentService {
         assignment.setUpdatedBy(hubAdminUserId);
         deliveryAssignmentRepository.save(assignment);
 
-        logEvent(assignment.getId(), "REASSIGNED", hubAdminUserId, Map.of(
-                "previousAgentId", previousAgentId.toString(),
-                "newAgentId", newAgent.getId().toString(),
-                "reason", request.getReason()
-        ));
+        Map<String, Object> reassignMeta = new HashMap<>();
+        reassignMeta.put("previousAgentId", previousAgentId.toString());
+        reassignMeta.put("previousAgentName", previousAgentName);
+        reassignMeta.put("newAgentId", newAgent.getId().toString());
+        reassignMeta.put("newAgentName", newAgent.getName());
+        reassignMeta.put("reason", request.getReason());
+        logEvent(assignment.getId(), "REASSIGNED", hubAdminUserId, reassignMeta);
 
         return toResponse(assignment);
     }

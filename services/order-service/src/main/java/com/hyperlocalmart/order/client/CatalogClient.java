@@ -18,11 +18,21 @@ public class CatalogClient {
     private final CatalogServiceProperties catalogServiceProperties;
 
     public ListingSnapshot getListing(UUID listingId, UUID townId) {
+        return getListing(listingId, townId, true);
+    }
+
+    /** For order/delivery reads — returns unit even if listing is no longer active. */
+    public ListingSnapshot getListingForOrderRead(UUID listingId, UUID townId) {
+        return getListing(listingId, townId, false);
+    }
+
+    private ListingSnapshot getListing(UUID listingId, UUID townId, boolean requireActive) {
         RestClient client = restClientBuilder.baseUrl(catalogServiceProperties.getBaseUrl()).build();
         ApiResponse<ListingSnapshot> response = client.get()
                 .uri(uriBuilder -> uriBuilder
                         .path("/api/v1/internal/listings/{listingId}")
                         .queryParam("townId", townId)
+                        .queryParam("requireActive", requireActive)
                         .build(listingId))
                 .retrieve()
                 .body(new ParameterizedTypeReference<ApiResponse<ListingSnapshot>>() {});
@@ -42,6 +52,7 @@ public class CatalogClient {
             String unit,
             BigDecimal price,
             BigDecimal discountPrice,
+            BigDecimal effectivePrice,
             boolean active
     ) {
     }

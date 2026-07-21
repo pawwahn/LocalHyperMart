@@ -10,6 +10,7 @@ import org.springframework.web.client.RestClient;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @Slf4j
@@ -71,7 +72,8 @@ public class DeliveryClient {
             UUID eventId,
             String eventType,
             Instant createdAt,
-            UUID createdBy
+            UUID createdBy,
+            Map<String, Object> metadata
     ) {
     }
 }

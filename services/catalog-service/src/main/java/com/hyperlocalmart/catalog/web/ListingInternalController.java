@@ -20,7 +20,11 @@ public class ListingInternalController {
     public ResponseEntity<ApiResponse<ListingSnapshotResponse>> getListing(
             @PathVariable UUID listingId,
             @RequestParam UUID townId,
+            @RequestParam(defaultValue = "true") boolean requireActive,
             HttpServletRequest httpRequest) {
-        return ResponseEntity.ok(ApiResponses.ok(httpRequest, listingLookupService.getActiveListing(listingId, townId)));
+        ListingSnapshotResponse data = requireActive
+                ? listingLookupService.getActiveListing(listingId, townId)
+                : listingLookupService.getListingForOrderRead(listingId, townId);
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest, data));
     }
 }

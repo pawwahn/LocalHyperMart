@@ -41,7 +41,9 @@ class VendorDashboardServiceTest {
         when(vendorSubOrderRepository.countPlacedSubOrdersByVendorIdAndPlacedAtBetween(eq(vendorId), any(), any()))
                 .thenReturn(3L, 12L);
         when(vendorSubOrderRepository.sumEarningsByVendorIdAndPlacedAtBetween(eq(vendorId), any(), any()))
-                .thenReturn(new BigDecimal("2450.00"));
+                .thenReturn(new BigDecimal("2450.00"), new BigDecimal("180.00"));
+        when(vendorSubOrderRepository.countByVendorIdAndStatus(eq(vendorId), eq(VendorSubOrderStatus.PLACED)))
+                .thenReturn(2L);
         when(vendorSubOrderRepository.countStatusBreakdownByVendorIdAndPlacedAtBetween(eq(vendorId), any(), any()))
                 .thenReturn(List.<Object[]>of(new Object[] {VendorSubOrderStatus.PLACED, 2L}));
         when(vendorSubOrderRepository.findRecentByVendorIdAndPlacedAtBetween(
@@ -53,6 +55,8 @@ class VendorDashboardServiceTest {
         assertThat(result.getOrderCountToday()).isEqualTo(3L);
         assertThat(result.getOrderCountWeek()).isEqualTo(12L);
         assertThat(result.getEarningsGross()).isEqualByComparingTo("2450.00");
+        assertThat(result.getEarningsToday()).isEqualByComparingTo("180.00");
+        assertThat(result.getPendingActionCount()).isEqualTo(2L);
         assertThat(result.getFrom()).isEqualTo(from);
         assertThat(result.getTo()).isEqualTo(to);
         assertThat(result.getRecentOrders()).hasSize(1);

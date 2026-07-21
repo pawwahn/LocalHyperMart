@@ -19,5 +19,6 @@ public class ListingSnapshotResponse {
     private String unit;
     private BigDecimal price;
     private BigDecimal discountPrice;
+    private BigDecimal effectivePrice;
     private boolean active;
 }

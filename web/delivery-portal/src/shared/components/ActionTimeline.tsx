@@ -11,21 +11,24 @@ type Props = {
   startedAt?: string | null;
   completedAt?: string | null;
   compact?: boolean;
+  /** Optional name lookup for older REASSIGNED events that only stored agent IDs. */
+  resolveAgentName?: (agentId: string) => string | undefined;
 };
 
-/** Shared action-time list for hub desk and delivery agent. */
+/** Shared action-time list for hub desk and delivery agent — one line per event. */
 export function ActionTimeline({
   events,
   assignedAt,
   startedAt,
   completedAt,
   compact = false,
+  resolveAgentName,
 }: Props) {
   const rows =
     events && events.length > 0
       ? events.map((e) => ({
           key: `${e.eventType}-${e.createdAt}`,
-          label: actionEventLabel(e.eventType),
+          label: actionEventLabel(e.eventType, e.metadata, resolveAgentName),
           at: e.createdAt,
         }))
       : fallbackRows(assignedAt, startedAt, completedAt);
@@ -36,10 +39,13 @@ export function ActionTimeline({
     <ul style={compact ? styles.listCompact : styles.list} aria-label="Action times">
       {rows.map((row) => (
         <li key={row.key} style={styles.item}>
-          <span style={styles.label}>{row.label}</span>
-          <time style={styles.time} dateTime={row.at}>
-            {formatPortalTime(row.at)}
-          </time>
+          <span style={styles.line}>
+            <span style={styles.label}>{row.label}</span>
+            <span style={styles.dot}> · </span>
+            <time style={styles.time} dateTime={row.at}>
+              {formatPortalTime(row.at)}
+            </time>
+          </span>
         </li>
       ))}
     </ul>
@@ -62,27 +68,33 @@ const styles: Record<string, CSSProperties> = {
   list: {
     listStyle: 'none',
     margin: '0.55rem 0 0',
-    padding: '0.55rem 0.65rem',
+    padding: '0.5rem 0.65rem',
     display: 'grid',
-    gap: '0.35rem',
+    gap: '0.2rem',
     background: 'var(--bg-muted)',
     borderRadius: 10,
     border: '1px solid var(--border)',
   },
   listCompact: {
     listStyle: 'none',
-    margin: '0.4rem 0 0',
+    margin: 0,
     padding: 0,
     display: 'grid',
-    gap: '0.25rem',
+    gap: '0.08rem',
   },
-  item: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    gap: '0.75rem',
-    alignItems: 'baseline',
-    flexWrap: 'wrap',
+  item: { margin: 0 },
+  line: {
+    display: 'block',
+    fontSize: '0.78rem',
+    lineHeight: 1.35,
   },
-  label: { fontWeight: 700, fontSize: '0.82rem', color: 'var(--text)' },
-  time: { fontWeight: 700, fontSize: '0.78rem', color: 'var(--accent)', whiteSpace: 'nowrap' },
+  label: {
+    fontWeight: 800,
+    color: 'var(--text)',
+  },
+  time: {
+    fontWeight: 600,
+    color: 'var(--text-muted)',
+  },
+  dot: { color: 'var(--border)', fontWeight: 600 },
 };

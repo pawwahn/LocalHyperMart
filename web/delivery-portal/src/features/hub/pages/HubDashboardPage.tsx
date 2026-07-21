@@ -1,5 +1,5 @@
 import type { CSSProperties } from 'react';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ActionTimeline } from '@/shared/components/ActionTimeline';
 import { PaginationBar } from '@/shared/components/PaginationBar';
 import { WorklistToolbar } from '@/shared/components/WorklistToolbar';
@@ -7,7 +7,14 @@ import { useIsMobile } from '@/shared/hooks/useIsMobile';
 import { formatPortalTime } from '@/shared/time/formatPortalTime';
 import { HubShell } from '../layout/HubShell';
 import { useHubWorkspace, type HubOrderTab } from '../hooks/useHubWorkspace';
+import { AgentPickDialog } from '../components/AgentPickDialog';
 import type { OrderRowView } from '../api/hubApi';
+
+type AgentPrompt =
+  | { kind: 'pickup'; subOrderId: string; shopName: string }
+  | { kind: 'lastMile'; orderId: string; orderNumber: string }
+  | { kind: 'reassign'; assignmentId: string; currentAgentId: string; label: string }
+  | null;
 
 type PickupUiState = 'awaiting_vendor' | 'ready' | 'agent_assigned' | 'agent_collecting' | 'at_hub';
 
@@ -70,15 +77,15 @@ function orderRowStyle(order: OrderRowView, selected: boolean): CSSProperties {
 function vendorLegStatusLabel(state: PickupUiState): string {
   switch (state) {
     case 'awaiting_vendor':
-      return 'Shop packing';
+      return 'Packing';
     case 'ready':
-      return 'Ready at shop — send boy';
+      return 'Ready — send boy';
     case 'agent_assigned':
-      return 'Boy going to shop';
+      return 'Going to shop';
     case 'agent_collecting':
-      return 'Bag with boy — waiting at hub';
+      return 'Coming to hub';
     case 'at_hub':
-      return 'Bag arrived at hub ✓';
+      return 'At hub ✓';
   }
 }
 
@@ -90,26 +97,25 @@ type VendorLegAction =
 function vendorLegAction(state: PickupUiState): VendorLegAction {
   switch (state) {
     case 'ready':
-      return { kind: 'assign', label: 'Send boy to shop' };
+      return { kind: 'assign', label: 'Send boy' };
     case 'agent_collecting':
-      return { kind: 'confirm', label: 'Bag reached hub — tap here' };
+      return { kind: 'confirm', label: 'Bag at hub ✓' };
     default:
       return { kind: 'none' };
   }
 }
 
-function vendorLegHint(state: PickupUiState): string {
+/** Short hint only when there is no primary button yet. */
+function vendorLegHint(state: PickupUiState): string | null {
   switch (state) {
-    case 'ready':
-      return 'Shop packed this bag. Send a delivery boy to pick it up.';
     case 'awaiting_vendor':
-      return 'Wait. Shop has not packed yet.';
+      return 'Wait — shop still packing';
     case 'agent_assigned':
-      return 'Boy is going to the shop. Wait.';
-    case 'agent_collecting':
-      return 'Boy has the bag. When he reaches the hub, tap the green button.';
+      return 'Boy on the way to shop';
     case 'at_hub':
-      return 'This bag is already at your hub.';
+      return null;
+    default:
+      return null;
   }
 }
 
@@ -142,6 +148,8 @@ function allVendorPickupsComplete(
 
 function lastMileAssignment(
   assignments: Array<{
+    assignmentId: string;
+    agentId: string;
     legType: string;
     status: string;
     assignmentNumber?: string;
@@ -158,6 +166,9 @@ export function HubDashboardPage() {
   const {
     dashboard,
     orders,
+    agents,
+    lastAgentId,
+    agentLabel,
     orderTab,
     search,
     page,
@@ -183,11 +194,18 @@ export function HubDashboardPage() {
     doAssignPickup,
     doMarkAtHub,
     doAssignLastMile,
+    doReassign,
   } = useHubWorkspace();
 
   const isMobile = useIsMobile();
   const detailRef = useRef<HTMLDivElement>(null);
   const showMobileDetail = isMobile && Boolean(detail);
+  const [agentPrompt, setAgentPrompt] = useState<AgentPrompt>(null);
+  const [openItemBags, setOpenItemBags] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    setOpenItemBags({});
+  }, [selectedOrderId]);
 
   useEffect(() => {
     if (showMobileDetail && detailRef.current) {
@@ -398,75 +416,137 @@ export function HubDashboardPage() {
 
               <div style={styles.legSection}>
                 <h3 style={styles.h3}>
-                  <span style={styles.legVendor}>Step 1 — Bring bags from shop</span>
+                  <span style={styles.legVendor}>Step 1 — Shop → Hub</span>
                 </h3>
-                <p style={styles.legHintBlock}>Each shop bag needs its own trip to the hub.</p>
                 {subOrders.map((s) => {
                   const vendorPickup = (detail.assignments ?? []).find(
                     (a) => a.legType === 'PICKUP' && a.subOrderNumber === s.subOrderNumber,
                   );
                   const legState = vendorLegState(s.status, vendorPickup);
                   const action = vendorLegAction(legState);
+                  const hint = vendorLegHint(legState);
                   const canAssignPickup = !busy && action.kind === 'assign';
                   const canMarkAtHub = !busy && action.kind === 'confirm';
+                  const canChangeBoy =
+                    Boolean(vendorPickup) &&
+                    (vendorPickup?.status === 'ASSIGNED' || vendorPickup?.status === 'IN_PROGRESS') &&
+                    !busy;
+                  const pillStyle =
+                    legState === 'at_hub'
+                      ? styles.statusPillDone
+                      : legState === 'ready' || legState === 'agent_collecting'
+                        ? styles.statusPillActive
+                        : styles.statusPill;
                   return (
                     <div key={s.id} style={subOrderCardStyle(legState)}>
-                      <p style={styles.shopName}>🏪 {s.shopName}</p>
-                      <p style={styles.cardTitle}>
-                        Bag {s.subOrderNumber.split('-').pop() || s.subOrderNumber}
-                      </p>
+                      <div style={styles.cardHead}>
+                        <p style={styles.shopName}>🏪 {s.shopName}</p>
+                        <span style={pillStyle}>{vendorLegStatusLabel(legState)}</span>
+                      </div>
                       <p style={styles.meta}>
-                        {s.subtotalLabel} · {s.itemCount} item{s.itemCount === 1 ? '' : 's'}
+                        {s.subOrderNumber}
+                        {' · '}
+                        {s.subtotalLabel}
                       </p>
-                      <p
-                        style={
-                          legState === 'ready' || legState === 'at_hub'
-                            ? styles.statusReady
-                            : legState === 'awaiting_vendor'
+                      <button
+                        type="button"
+                        style={styles.itemsToggle}
+                        onClick={() =>
+                          setOpenItemBags((prev) => ({ ...prev, [s.id]: !prev[s.id] }))
+                        }
+                        aria-expanded={Boolean(openItemBags[s.id])}
+                      >
+                        {openItemBags[s.id] ? '▾' : '▸'} {s.itemCount} item
+                        {s.itemCount === 1 ? '' : 's'}
+                        {openItemBags[s.id] ? '' : ' — tap to see'}
+                      </button>
+                      {openItemBags[s.id] ? (
+                        s.items.length > 0 ? (
+                          <ul style={styles.itemList}>
+                            {s.items.map((item, idx) => (
+                              <li key={`${s.id}-${item.name}-${idx}`} style={styles.itemRow}>
+                                <span>
+                                  {item.quantity}
+                                  {item.unitCode ? ` ${item.unitCode.toLowerCase()}` : ''} × {item.name}
+                                </span>
+                                {item.lineTotalLabel ? (
+                                  <span style={styles.itemAmt}>{item.lineTotalLabel}</span>
+                                ) : null}
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <p style={styles.meta}>Item list not available for this bag.</p>
+                        )
+                      ) : null}
+                      {hint ? (
+                        <p
+                          style={
+                            legState === 'awaiting_vendor'
                               ? styles.statusWaiting
                               : styles.statusInProgress
-                        }
-                      >
-                        {vendorLegHint(legState)}
-                      </p>
-                      <p
-                        style={
-                          legState === 'at_hub'
-                            ? styles.statusPillDone
-                            : legState === 'ready' || legState === 'agent_collecting'
-                              ? styles.statusPillActive
-                              : styles.statusPill
-                        }
-                      >
-                        {vendorLegStatusLabel(legState)}
-                      </p>
-                      {vendorPickup ? (
-                        <ActionTimeline
-                          compact
-                          events={vendorPickup.events}
-                          assignedAt={vendorPickup.assignedAt}
-                          startedAt={vendorPickup.startedAt}
-                          completedAt={vendorPickup.completedAt}
-                        />
+                          }
+                        >
+                          {hint}
+                        </p>
                       ) : null}
-                      {action.kind !== 'none' ? (
+                      {vendorPickup ? (
+                        <div style={styles.tripBlock}>
+                          <p style={styles.boyLine}>Boy: {agentLabel(vendorPickup.agentId)}</p>
+                          <ActionTimeline
+                            compact
+                            events={vendorPickup.events}
+                            assignedAt={vendorPickup.assignedAt}
+                            startedAt={vendorPickup.startedAt}
+                            completedAt={vendorPickup.completedAt}
+                            resolveAgentName={(id) => agentLabel(id)}
+                          />
+                        </div>
+                      ) : null}
+                      {action.kind !== 'none' || canChangeBoy ? (
                         <div style={styles.rowActions}>
-                          <button
-                            type="button"
-                            style={
-                              action.kind === 'confirm'
-                                ? styles.hubConfirm
-                                : { ...styles.pickupReady, opacity: busy ? 0.7 : 1 }
-                            }
-                            disabled={action.kind === 'assign' ? !canAssignPickup : !canMarkAtHub}
-                            onClick={() =>
-                              void (action.kind === 'assign'
-                                ? doAssignPickup(s.id)
-                                : doMarkAtHub(s.id))
-                            }
-                          >
-                            {action.label}
-                          </button>
+                          {canChangeBoy && vendorPickup ? (
+                            <button
+                              type="button"
+                              style={
+                                action.kind !== 'none' ? styles.changeBoyBtnInline : styles.changeBoyBtn
+                              }
+                              onClick={() =>
+                                setAgentPrompt({
+                                  kind: 'reassign',
+                                  assignmentId: vendorPickup.assignmentId,
+                                  currentAgentId: vendorPickup.agentId,
+                                  label: `${s.shopName} shop pickup`,
+                                })
+                              }
+                            >
+                              Change boy
+                            </button>
+                          ) : null}
+                          {action.kind !== 'none' ? (
+                            <button
+                              type="button"
+                              style={
+                                action.kind === 'confirm'
+                                  ? styles.hubConfirm
+                                  : { ...styles.pickupReady, opacity: busy ? 0.7 : 1 }
+                              }
+                              disabled={action.kind === 'assign' ? !canAssignPickup : !canMarkAtHub}
+                              onClick={() => {
+                                if (action.kind === 'assign') {
+                                  setAgentPrompt({
+                                    kind: 'pickup',
+                                    subOrderId: s.id,
+                                    shopName: s.shopName,
+                                  });
+                                  return;
+                                }
+                                void doMarkAtHub(s.id);
+                              }}
+                            >
+                              {action.label}
+                            </button>
+                          ) : null}
                         </div>
                       ) : null}
                     </div>
@@ -510,19 +590,46 @@ export function HubDashboardPage() {
                           type="button"
                           style={canAssignDelivery ? styles.deliveryReady : styles.deliveryWaiting}
                           disabled={!canAssignDelivery}
-                          onClick={() => void doAssignLastMile(detail.orderId)}
+                          onClick={() =>
+                            setAgentPrompt({
+                              kind: 'lastMile',
+                              orderId: detail.orderId,
+                              orderNumber: detail.orderNumber,
+                            })
+                          }
                         >
                           {lastMile
                             ? `Boy sent to home (${assignmentStatusPlain(lastMile.status)})`
                             : 'Send boy to customer home'}
                         </button>
                         {lastMile ? (
-                          <ActionTimeline
-                            events={lastMile.events}
-                            assignedAt={lastMile.assignedAt}
-                            startedAt={lastMile.startedAt}
-                            completedAt={lastMile.completedAt}
-                          />
+                          <>
+                            <p style={styles.boyLine}>Boy: {agentLabel(lastMile.agentId)}</p>
+                            <ActionTimeline
+                              events={lastMile.events}
+                              assignedAt={lastMile.assignedAt}
+                              startedAt={lastMile.startedAt}
+                              completedAt={lastMile.completedAt}
+                              resolveAgentName={(id) => agentLabel(id)}
+                            />
+                            {(lastMile.status === 'ASSIGNED' || lastMile.status === 'IN_PROGRESS') &&
+                            !busy ? (
+                              <button
+                                type="button"
+                                style={styles.changeBoyBtn}
+                                onClick={() =>
+                                  setAgentPrompt({
+                                    kind: 'reassign',
+                                    assignmentId: lastMile.assignmentId,
+                                    currentAgentId: lastMile.agentId,
+                                    label: 'home delivery',
+                                  })
+                                }
+                              >
+                                Change boy
+                              </button>
+                            ) : null}
+                          </>
                         ) : null}
                       </div>
                     );
@@ -542,17 +649,25 @@ export function HubDashboardPage() {
                   {showHistory
                     ? (detail.assignments ?? []).map((a) => (
                         <div key={a.assignmentId} style={styles.historyCard}>
-                          <p style={styles.meta}>
+                          <p style={styles.tripHead}>
                             <span style={assignmentLegStyle(a.legType)}>{legLabel(a.legType)}</span>
-                            {' · '}
-                            <strong>{a.assignmentNumber}</strong> · {assignmentStatusPlain(a.status)}
-                            {a.subOrderNumber ? ` · bag ${a.subOrderNumber}` : ''}
+                            <span style={styles.tripBill}>
+                              {' '}
+                              {a.subOrderNumber || a.orderNumber}
+                            </span>
+                            <span style={styles.tripMeta}>
+                              {' · '}
+                              {assignmentStatusPlain(a.status)}
+                              {' · '}
+                              {agentLabel(a.agentId)}
+                            </span>
                           </p>
                           <ActionTimeline
                             events={a.events}
                             assignedAt={a.assignedAt}
                             startedAt={a.startedAt}
                             completedAt={a.completedAt}
+                            resolveAgentName={(id) => agentLabel(id)}
                           />
                         </div>
                       ))
@@ -565,11 +680,18 @@ export function HubDashboardPage() {
                         }
                         return active.map((a) => (
                           <div key={a.assignmentId} style={styles.historyCard}>
-                            <p style={styles.meta}>
+                            <p style={styles.tripHead}>
                               <span style={assignmentLegStyle(a.legType)}>{legLabel(a.legType)}</span>
-                              {' · '}
-                              <strong>{a.assignmentNumber}</strong> · {assignmentStatusPlain(a.status)}
-                              {a.subOrderNumber ? ` · bag ${a.subOrderNumber}` : ''}
+                              <span style={styles.tripBill}>
+                                {' '}
+                                {a.subOrderNumber || a.orderNumber}
+                              </span>
+                              <span style={styles.tripMeta}>
+                                {' · '}
+                                {assignmentStatusPlain(a.status)}
+                                {' · '}
+                                {agentLabel(a.agentId)}
+                              </span>
                             </p>
                             <ActionTimeline
                               compact
@@ -577,6 +699,7 @@ export function HubDashboardPage() {
                               assignedAt={a.assignedAt}
                               startedAt={a.startedAt}
                               completedAt={a.completedAt}
+                              resolveAgentName={(id) => agentLabel(id)}
                             />
                           </div>
                         ));
@@ -588,6 +711,53 @@ export function HubDashboardPage() {
         </div>
         ) : null}
       </section>
+
+      <AgentPickDialog
+        open={Boolean(agentPrompt)}
+        title={
+          agentPrompt?.kind === 'reassign'
+            ? 'Change boy?'
+            : agentPrompt?.kind === 'lastMile'
+              ? 'Who goes to customer home?'
+              : 'Who goes to the shop?'
+        }
+        description={
+          agentPrompt?.kind === 'reassign'
+            ? `Move ${agentPrompt.label} to another boy.`
+            : agentPrompt?.kind === 'lastMile'
+              ? `Pick a boy for ${agentPrompt.orderNumber} home delivery.`
+              : agentPrompt?.kind === 'pickup'
+                ? `Pick a boy to collect from ${agentPrompt.shopName}.`
+                : ''
+        }
+        confirmLabel={agentPrompt?.kind === 'reassign' ? 'Change boy' : 'Send this boy'}
+        agents={agents}
+        preferredAgentId={
+          agentPrompt?.kind === 'reassign' ? undefined : (lastAgentId ?? undefined)
+        }
+        excludeAgentId={
+          agentPrompt?.kind === 'reassign' ? agentPrompt.currentAgentId : undefined
+        }
+        busy={busy}
+        onClose={() => {
+          if (!busy) setAgentPrompt(null);
+        }}
+        onConfirm={(agentId) => {
+          if (!agentPrompt) return;
+          const prompt = agentPrompt;
+          void (async () => {
+            let ok = false;
+            if (prompt.kind === 'pickup') {
+              ok = await doAssignPickup(prompt.subOrderId, agentId);
+            } else if (prompt.kind === 'lastMile') {
+              ok = await doAssignLastMile(prompt.orderId, agentId);
+            } else {
+              ok = await doReassign(prompt.assignmentId, agentId);
+            }
+            if (ok) setAgentPrompt(null);
+          })();
+        }}
+      />
     </HubShell>
   );
 }
@@ -729,8 +899,8 @@ const styles: Record<string, CSSProperties> = {
   legSection: {
     border: '1px solid var(--border)',
     borderRadius: 'var(--radius-sm)',
-    padding: '0.85rem',
-    marginTop: '0.75rem',
+    padding: '0.7rem',
+    marginTop: '0.65rem',
   },
   legHintBlock: { margin: '0 0 0.5rem', color: 'var(--text-muted)', fontSize: '0.85rem', fontWeight: 600 },
   legVendor: {
@@ -785,15 +955,16 @@ const styles: Record<string, CSSProperties> = {
   },
   hubConfirm: {
     border: 'none',
-    borderRadius: 'var(--radius-sm)',
-    padding: '0.85rem 1rem',
-    width: '100%',
+    borderRadius: 12,
+    padding: '0.7rem 0.85rem',
+    flex: '1 1 9rem',
     minHeight: 'var(--touch-min)',
-    background: 'var(--success)',
+    background: '#10B981',
     color: '#0f1a10',
     fontWeight: 800,
-    fontSize: '1rem',
+    fontSize: '0.98rem',
     cursor: 'pointer',
+    boxShadow: '0 3px 12px rgba(16, 185, 129, 0.35)',
   },
   list: { display: 'grid', gap: '0.55rem' },
   order: {
@@ -835,6 +1006,25 @@ const styles: Record<string, CSSProperties> = {
     borderRadius: 12,
     border: '1px solid var(--border)',
     background: 'var(--bg-elevated)',
+    display: 'grid',
+    gap: '0.25rem',
+  },
+  tripHead: {
+    margin: 0,
+    display: 'flex',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: '0.2rem',
+    fontSize: '0.8rem',
+  },
+  tripBill: {
+    fontWeight: 800,
+    color: 'var(--text)',
+    fontFamily: 'var(--font-display)',
+  },
+  tripMeta: {
+    fontWeight: 600,
+    color: 'var(--text-muted)',
   },
   deliveredBanner: {
     margin: '0.75rem 0 0',
@@ -865,8 +1055,10 @@ const styles: Record<string, CSSProperties> = {
   card: {
     border: '1px solid var(--border)',
     borderRadius: 'var(--radius-sm)',
-    padding: '0.85rem',
-    marginTop: '0.55rem',
+    padding: '0.65rem 0.75rem',
+    marginTop: '0.45rem',
+    display: 'grid',
+    gap: '0.3rem',
   },
   cardWaiting: {
     borderColor: 'var(--danger)',
@@ -884,12 +1076,28 @@ const styles: Record<string, CSSProperties> = {
     borderColor: 'var(--warning)',
     background: 'rgba(255, 183, 77, 0.08)',
   },
+  cardHead: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: '0.5rem',
+    flexWrap: 'wrap',
+  },
   shopName: {
     margin: 0,
     fontFamily: 'var(--font-display)',
     fontWeight: 800,
-    fontSize: '1.15rem',
+    fontSize: '1.05rem',
     color: 'var(--text)',
+    flex: '1 1 auto',
+    minWidth: 0,
+  },
+  tripBlock: {
+    marginTop: '0.1rem',
+    paddingTop: '0.35rem',
+    borderTop: '1px dashed var(--border)',
+    display: 'grid',
+    gap: '0.15rem',
   },
   cardTitle: { margin: '0.2rem 0 0', fontWeight: 600, color: 'var(--text-muted)', fontSize: '0.82rem' },
   badgeWaiting: {
@@ -913,53 +1121,130 @@ const styles: Record<string, CSSProperties> = {
     fontWeight: 800,
     color: 'var(--success)',
   },
-  statusWaiting: { margin: '0.4rem 0 0', color: 'var(--danger)', fontSize: '0.9rem', fontWeight: 700 },
-  statusReady: { margin: '0.4rem 0 0', color: 'var(--success)', fontSize: '0.9rem', fontWeight: 700 },
-  statusInProgress: { margin: '0.4rem 0 0', color: 'var(--warning)', fontSize: '0.9rem', fontWeight: 700 },
+  statusWaiting: { margin: 0, color: 'var(--danger)', fontSize: '0.82rem', fontWeight: 700 },
+  statusReady: { margin: 0, color: 'var(--success)', fontSize: '0.82rem', fontWeight: 700 },
+  statusInProgress: { margin: 0, color: 'var(--warning)', fontSize: '0.82rem', fontWeight: 700 },
   statusPill: {
-    margin: '0.5rem 0 0',
+    margin: 0,
     display: 'inline-block',
-    padding: '0.25rem 0.65rem',
+    padding: '0.2rem 0.55rem',
     borderRadius: '999px',
-    fontSize: '0.8rem',
-    fontWeight: 700,
+    fontSize: '0.72rem',
+    fontWeight: 800,
     background: 'var(--bg-muted)',
     color: 'var(--text-muted)',
+    flexShrink: 0,
   },
   statusPillActive: {
-    margin: '0.5rem 0 0',
+    margin: 0,
     display: 'inline-block',
-    padding: '0.25rem 0.65rem',
+    padding: '0.2rem 0.55rem',
     borderRadius: '999px',
-    fontSize: '0.8rem',
-    fontWeight: 700,
-    background: 'rgba(129, 199, 132, 0.2)',
-    color: 'var(--success)',
+    fontSize: '0.72rem',
+    fontWeight: 800,
+    background: 'rgba(16, 185, 129, 0.18)',
+    color: '#047857',
+    flexShrink: 0,
   },
   statusPillDone: {
-    margin: '0.5rem 0 0',
+    margin: 0,
     display: 'inline-block',
-    padding: '0.25rem 0.65rem',
+    padding: '0.2rem 0.55rem',
     borderRadius: '999px',
-    fontSize: '0.8rem',
-    fontWeight: 700,
-    background: 'rgba(129, 199, 132, 0.15)',
-    color: 'var(--success)',
+    fontSize: '0.72rem',
+    fontWeight: 800,
+    background: 'rgba(16, 185, 129, 0.14)',
+    color: '#047857',
+    flexShrink: 0,
   },
   pickupReady: {
     border: 'none',
-    borderRadius: 'var(--radius-sm)',
-    padding: '0.75rem 1rem',
-    width: '100%',
+    borderRadius: 12,
+    padding: '0.7rem 0.85rem',
+    flex: '1 1 8rem',
     minHeight: 'var(--touch-min)',
-    background: 'var(--success)',
+    background: '#10B981',
     color: '#0f1a10',
     fontWeight: 800,
     fontSize: '0.95rem',
     cursor: 'pointer',
+    boxShadow: '0 3px 10px rgba(16, 185, 129, 0.28)',
   },
-  meta: { margin: '0.2rem 0 0', color: 'var(--text-muted)', fontSize: '0.88rem', fontWeight: 600 },
-  rowActions: { display: 'flex', gap: '0.5rem', marginTop: '0.65rem', flexWrap: 'wrap' },
+  meta: {
+    margin: 0,
+    color: 'var(--text-muted)',
+    fontSize: '0.78rem',
+    fontWeight: 600,
+    lineHeight: 1.35,
+    wordBreak: 'break-word',
+  },
+  itemsToggle: {
+    margin: 0,
+    padding: '0.35rem 0',
+    border: 'none',
+    background: 'transparent',
+    color: 'var(--accent)',
+    fontWeight: 800,
+    fontSize: '0.84rem',
+    textAlign: 'left',
+    cursor: 'pointer',
+    minHeight: 36,
+  },
+  itemList: {
+    listStyle: 'none',
+    margin: 0,
+    padding: '0.4rem 0.55rem',
+    display: 'grid',
+    gap: '0.3rem',
+    background: 'var(--bg-elevated)',
+    border: '1px solid var(--border)',
+    borderRadius: 10,
+  },
+  itemRow: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    gap: '0.5rem',
+    alignItems: 'baseline',
+    fontSize: '0.82rem',
+    fontWeight: 700,
+    color: 'var(--text)',
+  },
+  itemAmt: { color: 'var(--text-muted)', fontWeight: 700, whiteSpace: 'nowrap' },
+  boyLine: {
+    margin: 0,
+    color: 'var(--text)',
+    fontSize: '0.85rem',
+    fontWeight: 800,
+  },
+  changeBoyBtn: {
+    border: '2px solid var(--border)',
+    borderRadius: 12,
+    padding: '0.65rem 0.85rem',
+    minHeight: 'var(--touch-min)',
+    width: '100%',
+    background: 'var(--bg-elevated)',
+    color: 'var(--text)',
+    fontWeight: 800,
+    cursor: 'pointer',
+  },
+  changeBoyBtnInline: {
+    border: '2px solid var(--border)',
+    borderRadius: 12,
+    padding: '0.65rem 0.75rem',
+    minHeight: 'var(--touch-min)',
+    flex: '0 0 auto',
+    background: 'var(--bg-elevated)',
+    color: 'var(--text)',
+    fontWeight: 800,
+    cursor: 'pointer',
+  },
+  rowActions: {
+    display: 'flex',
+    gap: '0.45rem',
+    marginTop: '0.25rem',
+    flexWrap: 'wrap',
+    alignItems: 'stretch',
+  },
   error: { margin: 0, color: 'var(--danger)', fontWeight: 700 },
   notice: { margin: 0, color: 'var(--success)', fontWeight: 700 },
   muted: { color: 'var(--text-muted)', fontWeight: 600 },

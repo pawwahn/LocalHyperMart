@@ -69,19 +69,24 @@ public class CartService {
 
         if (existing != null) {
             existing.setQuantity(existing.getQuantity() + request.getQuantity());
+            if (existing.getUnitCode() == null || existing.getUnitCode().isBlank()) {
+                existing.setUnitCode(listing.unit());
+            }
             existing.setLineTotal(calculateLineTotal(existing.getQuantity(), existing.getUnitPrice(), existing.getDiscountPrice()));
         } else {
+            BigDecimal cartDiscount = resolveCartDiscountPrice(listing.price(), listing.effectivePrice());
             CartItem item = CartItem.builder()
                     .cart(cart)
                     .listingId(listing.listingId())
                     .vendorId(listing.vendorId())
                     .masterItemId(listing.masterItemId())
                     .itemName(listing.name())
+                    .unitCode(listing.unit())
                     .shopId(listing.shopId())
                     .quantity(request.getQuantity())
                     .unitPrice(listing.price())
-                    .discountPrice(listing.discountPrice())
-                    .lineTotal(calculateLineTotal(request.getQuantity(), listing.price(), listing.discountPrice()))
+                    .discountPrice(cartDiscount)
+                    .lineTotal(calculateLineTotal(request.getQuantity(), listing.price(), cartDiscount))
                     .build();
             cart.getItems().add(item);
         }
@@ -196,17 +201,19 @@ public class CartService {
         for (ReorderLineRequest line : lines) {
             CatalogListingClient.ListingSnapshot listing =
                     catalogListingClient.getListing(line.getListingId(), townId);
+            BigDecimal cartDiscount = resolveCartDiscountPrice(listing.price(), listing.effectivePrice());
             CartItem item = CartItem.builder()
                     .cart(cart)
                     .listingId(listing.listingId())
                     .vendorId(listing.vendorId())
                     .masterItemId(listing.masterItemId())
                     .itemName(listing.name())
+                    .unitCode(listing.unit())
                     .shopId(listing.shopId())
                     .quantity(line.getQuantity())
                     .unitPrice(listing.price())
-                    .discountPrice(listing.discountPrice())
-                    .lineTotal(calculateLineTotal(line.getQuantity(), listing.price(), listing.discountPrice()))
+                    .discountPrice(cartDiscount)
+                    .lineTotal(calculateLineTotal(line.getQuantity(), listing.price(), cartDiscount))
                     .build();
             cart.getItems().add(item);
         }
@@ -236,6 +243,7 @@ public class CartService {
                             .masterItemId(item.getMasterItemId())
                             .itemName(item.getItemName())
                             .shopName(shopName)
+                            .unitCode(item.getUnitCode())
                             .quantity(item.getQuantity())
                             .unitPrice(item.getUnitPrice())
                             .discountPrice(item.getDiscountPrice())
@@ -371,6 +379,7 @@ public class CartService {
                         .listingId(item.getListingId())
                         .name(item.getItemName())
                         .shopName(shopNames.getOrDefault(item.getShopId(), "Local Shop"))
+                        .unitCode(item.getUnitCode())
                         .quantity(item.getQuantity())
                         .unitPrice(effectiveUnitPrice(item.getUnitPrice(), item.getDiscountPrice()))
                         .lineTotal(item.getLineTotal())
@@ -419,6 +428,13 @@ public class CartService {
                 .minOrderValue(minOrderValue)
                 .minOrderMet(false)
                 .build();
+    }
+
+    private BigDecimal resolveCartDiscountPrice(BigDecimal regularPrice, BigDecimal effectivePrice) {
+        if (effectivePrice != null && effectivePrice.compareTo(regularPrice) < 0) {
+            return effectivePrice;
+        }
+        return null;
     }
 
     private BigDecimal effectiveUnitPrice(BigDecimal unitPrice, BigDecimal discountPrice) {

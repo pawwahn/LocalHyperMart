@@ -7,8 +7,13 @@ export type CatalogItemDto = {
   unit: string;
   shopName: string;
   vendorId: string;
+  mrp?: number | null;
   price: number;
   discountPrice?: number | null;
+  specialDiscountPrice?: number | null;
+  effectivePrice?: number | null;
+  specialOfferActive?: boolean;
+  vendorNote?: string | null;
 };
 
 export type CartDto = {
@@ -59,10 +64,16 @@ export type OrderSummaryDto = {
 };
 
 export type OrderItemDetailDto = {
+  orderItemId?: string;
   name: string;
   shopName: string;
+  unitCode?: string;
   quantity: number;
   lineTotal: number;
+  status?: string;
+  cancelReason?: string;
+  cancelledAt?: string;
+  storeCreditAmount?: number;
 };
 
 export type OrderDetailDto = {
@@ -72,12 +83,19 @@ export type OrderDetailDto = {
   displayStatus?: string;
   itemsSubtotal: number;
   deliveryFee: number;
+  storeCreditApplied?: number;
   totalAmount: number;
   paymentMethod: string;
   paymentStatus: string;
   deliveryAddress?: Record<string, unknown> | null;
   items: OrderItemDetailDto[];
   invoicePdfUrl?: string | null;
+};
+
+export type WalletBalanceDto = {
+  userId: string;
+  balance: number;
+  status?: string;
 };
 
 export type CreateOrderDto = {
@@ -95,6 +113,8 @@ export type CatalogItemView = {
   priceLabel: string;
   mrpLabel?: string | null;
   discountPercent?: number | null;
+  vendorNote?: string | null;
+  specialOfferActive?: boolean;
   price: number;
 };
 
@@ -127,9 +147,9 @@ function money(v: number | null | undefined): string {
 }
 
 export function toCatalogItem(dto: CatalogItemDto): CatalogItemView {
-  const mrp = Number(dto.price);
-  const price = Number(dto.discountPrice ?? dto.price);
-  const hasDiscount = dto.discountPrice != null && price < mrp && mrp > 0;
+  const mrp = Number(dto.mrp ?? dto.price);
+  const price = Number(dto.effectivePrice ?? dto.discountPrice ?? dto.price);
+  const hasDiscount = mrp > 0 && price < mrp;
   const discountPercent = hasDiscount ? Math.round(((mrp - price) / mrp) * 100) : null;
   return {
     listingId: dto.listingId,
@@ -140,6 +160,8 @@ export function toCatalogItem(dto: CatalogItemDto): CatalogItemView {
     priceLabel: money(price),
     mrpLabel: hasDiscount ? money(mrp) : null,
     discountPercent,
+    vendorNote: dto.vendorNote?.trim() || null,
+    specialOfferActive: Boolean(dto.specialOfferActive),
   };
 }
 
@@ -283,6 +305,10 @@ export async function listMyOrders(token: string, townId: string): Promise<Order
 
 export async function fetchOrderDetail(token: string, orderId: string): Promise<OrderDetailDto> {
   return apiRequest<OrderDetailDto>(`/api/v1/orders/${orderId}`, { token });
+}
+
+export async function fetchWalletBalance(token: string): Promise<WalletBalanceDto> {
+  return apiRequest<WalletBalanceDto>('/api/v1/payments/wallet/me', { token });
 }
 
 /** Downloads invoice PDF with auth; returns filename for local save. */

@@ -64,6 +64,64 @@ public class PaymentClient {
                 .toBodilessEntity();
     }
 
+    public BigDecimal getWalletBalance(UUID userId) {
+        RestClient client = restClientBuilder.baseUrl(paymentServiceProperties.getBaseUrl()).build();
+        ApiResponse<WalletBalanceResult> response = client.get()
+                .uri("/api/v1/internal/wallet/{userId}", userId)
+                .retrieve()
+                .body(new ParameterizedTypeReference<ApiResponse<WalletBalanceResult>>() {});
+        if (response == null || response.getData() == null || response.getData().balance() == null) {
+            return BigDecimal.ZERO;
+        }
+        return response.getData().balance();
+    }
+
+    public BigDecimal creditWallet(UUID userId, BigDecimal amount, String referenceType, UUID referenceId,
+                                   UUID orderId, UUID orderItemId, String note) {
+        RestClient client = restClientBuilder.baseUrl(paymentServiceProperties.getBaseUrl()).build();
+        Map<String, Object> body = new java.util.HashMap<>();
+        body.put("userId", userId);
+        body.put("amount", amount);
+        body.put("referenceType", referenceType);
+        body.put("referenceId", referenceId);
+        body.put("orderId", orderId);
+        body.put("orderItemId", orderItemId);
+        body.put("note", note != null ? note : "");
+        ApiResponse<WalletBalanceResult> response = client.post()
+                .uri("/api/v1/internal/wallet/credit")
+                .body(body)
+                .retrieve()
+                .body(new ParameterizedTypeReference<ApiResponse<WalletBalanceResult>>() {});
+        if (response == null || response.getData() == null || response.getData().balance() == null) {
+            throw new IllegalStateException("Wallet credit failed");
+        }
+        return response.getData().balance();
+    }
+
+    public BigDecimal debitWallet(UUID userId, BigDecimal amount, String referenceType, UUID referenceId,
+                                  UUID orderId, String note) {
+        RestClient client = restClientBuilder.baseUrl(paymentServiceProperties.getBaseUrl()).build();
+        Map<String, Object> body = new java.util.HashMap<>();
+        body.put("userId", userId);
+        body.put("amount", amount);
+        body.put("referenceType", referenceType);
+        body.put("referenceId", referenceId);
+        body.put("orderId", orderId);
+        body.put("note", note != null ? note : "");
+        ApiResponse<WalletBalanceResult> response = client.post()
+                .uri("/api/v1/internal/wallet/debit")
+                .body(body)
+                .retrieve()
+                .body(new ParameterizedTypeReference<ApiResponse<WalletBalanceResult>>() {});
+        if (response == null || response.getData() == null || response.getData().balance() == null) {
+            throw new IllegalStateException("Wallet debit failed");
+        }
+        return response.getData().balance();
+    }
+
     public record PaymentInitiateResult(UUID paymentId, UUID orderId, String status, String upiIntent, String qrPayload) {
+    }
+
+    public record WalletBalanceResult(UUID userId, BigDecimal balance, String status) {
     }
 }

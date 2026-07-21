@@ -4,12 +4,14 @@ import com.hyperlocalmart.common.api.ApiResponse;
 import com.hyperlocalmart.user.dto.request.*;
 import com.hyperlocalmart.user.dto.response.AuthResponse;
 import com.hyperlocalmart.user.dto.response.RegisterResponse;
+import com.hyperlocalmart.user.security.AuthUserPrincipal;
 import com.hyperlocalmart.user.service.AuthService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
@@ -61,5 +63,17 @@ public class AuthController {
             HttpServletRequest httpRequest) {
         authService.resetPassword(request);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, "Password reset successful", null));
+    }
+
+    @PostMapping("/change-password")
+    public ResponseEntity<ApiResponse<Void>> changePassword(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @Valid @RequestBody ChangePasswordRequest request,
+            HttpServletRequest httpRequest) {
+        if (principal == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        authService.changePassword(principal.getUserId(), request);
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest, "Password changed successfully", null));
     }
 }

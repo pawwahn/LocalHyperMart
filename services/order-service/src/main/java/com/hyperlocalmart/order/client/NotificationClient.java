@@ -58,6 +58,17 @@ public class NotificationClient {
         send("ORDER_DELIVERED", townId, orderId, buyerId, buyerPhone, params);
     }
 
+    public void notifyItemCancelledStoreCredit(UUID townId, UUID orderId, UUID buyerId, String buyerPhone,
+                                               String orderNumber, String itemName, BigDecimal amount,
+                                               BigDecimal balance) {
+        Map<String, String> params = new HashMap<>();
+        params.put("orderNumber", orderNumber);
+        params.put("itemName", itemName);
+        params.put("amount", amount.toPlainString());
+        params.put("balance", balance.toPlainString());
+        send("ITEM_CANCELLED_STORE_CREDIT", townId, orderId, buyerId, buyerPhone, params);
+    }
+
     private void send(String eventCode, UUID townId, UUID orderId, UUID recipientUserId,
                       String recipientPhone, Map<String, String> params) {
         try {

@@ -6,6 +6,7 @@ import com.hyperlocalmart.catalog.dto.response.VendorListingResponse;
 import com.hyperlocalmart.catalog.entity.CatalogItemStatus;
 import com.hyperlocalmart.catalog.entity.MasterItem;
 import com.hyperlocalmart.catalog.entity.Unit;
+import com.hyperlocalmart.catalog.repository.CategoryRepository;
 import com.hyperlocalmart.catalog.repository.MasterItemRepository;
 import com.hyperlocalmart.catalog.repository.VendorListingRepository;
 import org.junit.jupiter.api.Test;
@@ -27,6 +28,7 @@ class VendorListingServiceTest {
 
     @Mock private VendorListingRepository vendorListingRepository;
     @Mock private MasterItemRepository masterItemRepository;
+    @Mock private CategoryRepository categoryRepository;
     @Mock private VendorShopClient vendorShopClient;
 
     @InjectMocks
@@ -56,7 +58,8 @@ class VendorListingServiceTest {
                         .unit(Unit.builder().code("KG").label("Kilogram").build())
                         .status(CatalogItemStatus.ACTIVE)
                         .build()));
-        when(vendorListingRepository.existsByVendorIdAndMasterItemId(vendorId, masterItemId)).thenReturn(false);
+        when(vendorListingRepository.findByVendorIdAndMasterItemId(vendorId, masterItemId))
+                .thenReturn(Optional.empty());
         when(vendorListingRepository.save(any())).thenAnswer(invocation -> {
             com.hyperlocalmart.catalog.entity.VendorListing listing = invocation.getArgument(0);
             listing.setId(UUID.randomUUID());

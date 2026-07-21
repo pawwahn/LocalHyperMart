@@ -1,5 +1,6 @@
 import type { CSSProperties } from 'react';
 import { Link } from 'react-router-dom';
+import { LoginThemeCorner } from '@hlm-theme';
 import { Banner, Button, TextField } from '@/shared/ui';
 import { useAuthForms } from '../hooks/useAuthForms';
 
@@ -8,6 +9,7 @@ export function LoginPage() {
 
   return (
     <div style={styles.shell}>
+      <LoginThemeCorner />
       <div style={styles.panel}>
         <div style={styles.hero}>
           <p style={styles.brand}>HyperLocalMart</p>

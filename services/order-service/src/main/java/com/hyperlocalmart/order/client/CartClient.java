@@ -103,6 +103,7 @@ public class CartClient {
             UUID masterItemId,
             String itemName,
             String shopName,
+            String unitCode,
             int quantity,
             BigDecimal unitPrice,
             BigDecimal discountPrice,

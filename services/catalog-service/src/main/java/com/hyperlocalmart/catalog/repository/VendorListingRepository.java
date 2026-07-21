@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -14,9 +15,13 @@ public interface VendorListingRepository extends JpaRepository<VendorListing, UU
 
     Page<VendorListing> findByVendorIdOrderByCreatedAtDesc(UUID vendorId, Pageable pageable);
 
+    List<VendorListing> findByVendorIdOrderByCreatedAtDesc(UUID vendorId);
+
     Optional<VendorListing> findByIdAndVendorId(UUID id, UUID vendorId);
 
     boolean existsByVendorIdAndMasterItemId(UUID vendorId, UUID masterItemId);
+
+    Optional<VendorListing> findByVendorIdAndMasterItemId(UUID vendorId, UUID masterItemId);
 
     @Query("""
             SELECT vl FROM VendorListing vl
@@ -38,4 +43,18 @@ public interface VendorListingRepository extends JpaRepository<VendorListing, UU
             ORDER BY mi.name ASC
             """)
     Page<VendorListing> searchActiveByTown(@Param("townId") UUID townId, @Param("q") String q, Pageable pageable);
+
+    @Query("""
+            SELECT vl FROM VendorListing vl
+            JOIN vl.masterItem mi
+            WHERE (:townId IS NULL OR vl.townId = :townId)
+              AND (:vendorId IS NULL OR vl.vendorId = :vendorId)
+              AND (:active IS NULL OR vl.active = :active)
+            ORDER BY mi.name ASC
+            """)
+    Page<VendorListing> findForAdmin(
+            @Param("townId") UUID townId,
+            @Param("vendorId") UUID vendorId,
+            @Param("active") Boolean active,
+            Pageable pageable);
 }

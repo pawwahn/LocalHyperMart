@@ -11,6 +11,8 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -34,6 +36,7 @@ public class CatalogBrowseService {
         Map<UUID, VendorShopClient.ShopInfo> shops = vendorShopClient.getShopsByIds(shopIds);
 
         List<CatalogItemResponse> items = listings.getContent().stream()
+                .filter(listing -> shops.containsKey(listing.getShopId()))
                 .map(listing -> toItem(listing, shops.get(listing.getShopId())))
                 .toList();
 
@@ -47,17 +50,29 @@ public class CatalogBrowseService {
     }
 
     private CatalogItemResponse toItem(VendorListing listing, VendorShopClient.ShopInfo shop) {
-        String shopName = shop != null ? shop.shopName() : "Local Shop";
-        UUID vendorId = shop != null ? shop.vendorId() : listing.getVendorId();
+        Instant now = Instant.now();
+        BigDecimal mrp = ListingPricing.resolveMrp(listing);
+        BigDecimal effectivePrice = ListingPricing.resolveEffectivePrice(listing);
+        boolean specialActive = ListingPricing.isSpecialDiscountActive(
+                listing.getSpecialDiscountPrice(),
+                listing.getSpecialDiscountValidFrom(),
+                listing.getSpecialDiscountValidTo(),
+                now);
+
         return CatalogItemResponse.builder()
                 .listingId(listing.getId())
                 .masterItemId(listing.getMasterItem().getId())
                 .name(listing.getMasterItem().getName())
                 .unit(listing.getMasterItem().getUnit().getCode())
-                .shopName(shopName)
-                .vendorId(vendorId)
+                .shopName(shop.shopName())
+                .vendorId(shop.vendorId())
+                .mrp(mrp)
                 .price(listing.getPrice())
                 .discountPrice(listing.getDiscountPrice())
+                .specialDiscountPrice(listing.getSpecialDiscountPrice())
+                .effectivePrice(effectivePrice)
+                .specialOfferActive(specialActive)
+                .vendorNote(listing.getVendorNote())
                 .imageUrl(null)
                 .build();
     }

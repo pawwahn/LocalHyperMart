@@ -1,11 +1,23 @@
-import type { CSSProperties } from 'react';
+import { useState, type CSSProperties } from 'react';
 import { PortalShell } from '@/shared/layout/PortalShell';
 import { Banner } from '@/shared/ui';
 import { useVendorOrders } from '../hooks/useVendorOrders';
+import { useVendorShop } from '@/features/shop/hooks/useVendorShop';
 import { DashboardStats } from '../components/DashboardStats';
 import { SubOrderList } from '../components/SubOrderList';
+import { ReasonDialog } from '../components/ReasonDialog';
 
-const FILTERS = ['PLACED', 'READY_FOR_PICKUP', 'REJECTED', ''];
+const FILTERS: Array<{ value: string; label: string }> = [
+  { value: 'PLACED', label: 'New' },
+  { value: 'READY_FOR_PICKUP', label: 'Ready' },
+  { value: 'VENDOR_REJECTED', label: 'Rejected' },
+  { value: '', label: 'All' },
+];
+
+type PromptState =
+  | { kind: 'reject'; subOrderId: string }
+  | { kind: 'cancelItem'; subOrderId: string; itemId: string; itemName: string }
+  | null;
 
 export function DashboardPage() {
   const {
@@ -17,36 +29,66 @@ export function DashboardPage() {
     actionId,
     error,
     notice,
+    moneyWaitingLabel,
+    moneyWaitingHint,
     reload,
     markReady,
     reject,
+    cancelItem,
   } = useVendorOrders();
+  const {
+    acceptingOrders,
+    busy: shopBusy,
+    error: shopError,
+    setAcceptingOrders,
+  } = useVendorShop();
+  const [prompt, setPrompt] = useState<PromptState>(null);
 
-  function handleReject(id: string) {
-    const reason = window.prompt('Reason for rejection?', 'Out of stock today');
-    if (!reason || !reason.trim()) return;
-    void reject(id, reason.trim());
-  }
+  const dialogBusy = Boolean(
+    prompt &&
+      (prompt.kind === 'reject'
+        ? actionId === prompt.subOrderId
+        : actionId === `${prompt.subOrderId}:${prompt.itemId}`),
+  );
 
   return (
-    <PortalShell title="Orders dashboard" onRefresh={() => void reload()}>
-      <DashboardStats dashboard={dashboard} loading={loading} />
+    <PortalShell
+      title="Seller home"
+      onRefresh={() => void reload()}
+      shopPause={{
+        acceptingOrders,
+        busy: shopBusy,
+        onToggle: () => void setAcceptingOrders(!acceptingOrders),
+      }}
+    >
+      {!acceptingOrders ? (
+        <Banner tone="warning">
+          Shop is paused — buyers cannot see your products. Resume when you are ready.
+        </Banner>
+      ) : null}
+      {shopError ? <Banner tone="danger">{shopError}</Banner> : null}
+
+      <DashboardStats
+        dashboard={dashboard}
+        loading={loading}
+        moneyWaitingLabel={moneyWaitingLabel}
+        moneyWaitingHint={moneyWaitingHint}
+      />
 
       <section style={styles.section}>
         <div style={styles.sectionHead}>
-          <h2 style={styles.sectionTitle}>Sub-orders</h2>
+          <h2 style={styles.sectionTitle}>Orders</h2>
           <div style={styles.filters}>
             {FILTERS.map((f) => {
-              const label = f || 'ALL';
-              const active = statusFilter === f;
+              const active = statusFilter === f.value;
               return (
                 <button
-                  key={label}
+                  key={f.label}
                   type="button"
                   style={active ? styles.filterActive : styles.filter}
-                  onClick={() => setStatusFilter(f)}
+                  onClick={() => setStatusFilter(f.value)}
                 >
-                  {label}
+                  {f.label}
                 </button>
               );
             })}
@@ -57,16 +99,59 @@ export function DashboardPage() {
         {notice ? <Banner tone="success">{notice}</Banner> : null}
 
         {loading && orders.length === 0 ? (
-          <p style={styles.muted}>Loading sub-orders…</p>
+          <p style={styles.muted}>Loading orders…</p>
         ) : (
           <SubOrderList
             orders={orders}
             actionId={actionId}
             onReady={(id) => void markReady(id)}
-            onReject={handleReject}
+            onReject={(id) => setPrompt({ kind: 'reject', subOrderId: id })}
+            onCancelItem={(subOrderId, itemId, itemName) =>
+              setPrompt({ kind: 'cancelItem', subOrderId, itemId, itemName })
+            }
           />
         )}
       </section>
+
+      <ReasonDialog
+        open={prompt?.kind === 'cancelItem'}
+        title={prompt?.kind === 'cancelItem' ? `Cancel “${prompt.itemName}”?` : 'Cancel item'}
+        description="Buyer gets store credit for this line only. Other shops on the order are not affected."
+        confirmLabel="Cancel item"
+        defaultReason="Out of stock"
+        danger
+        busy={dialogBusy}
+        onClose={() => {
+          if (!dialogBusy) setPrompt(null);
+        }}
+        onConfirm={(reason) => {
+          if (prompt?.kind !== 'cancelItem') return;
+          const { subOrderId, itemId } = prompt;
+          void cancelItem(subOrderId, itemId, reason).then((ok) => {
+            if (ok) setPrompt(null);
+          });
+        }}
+      />
+
+      <ReasonDialog
+        open={prompt?.kind === 'reject'}
+        title="Reject entire shop order?"
+        description="This cancels the whole multi-vendor order for the buyer, including items from other shops."
+        confirmLabel="Reject all"
+        defaultReason="Out of stock today"
+        danger
+        busy={dialogBusy}
+        onClose={() => {
+          if (!dialogBusy) setPrompt(null);
+        }}
+        onConfirm={(reason) => {
+          if (prompt?.kind !== 'reject') return;
+          const { subOrderId } = prompt;
+          void reject(subOrderId, reason).then((ok) => {
+            if (ok) setPrompt(null);
+          });
+        }}
+      />
     </PortalShell>
   );
 }

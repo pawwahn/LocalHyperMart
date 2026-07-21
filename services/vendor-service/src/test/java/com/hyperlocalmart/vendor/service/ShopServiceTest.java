@@ -30,8 +30,15 @@ class ShopServiceTest {
         UUID shopId = UUID.fromString("c1111111-1111-4111-8111-111111111111");
         UUID vendorId = UUID.fromString("b1111111-1111-4111-8111-111111111111");
         Vendor vendor = Vendor.builder().id(vendorId).build();
-        Shop shop = Shop.builder().id(shopId).vendor(vendor).shopName("Ravi Kirana").status(ShopStatus.ACTIVE).build();
-        when(shopRepository.findByIdInAndStatus(List.of(shopId), ShopStatus.ACTIVE)).thenReturn(List.of(shop));
+        Shop shop = Shop.builder()
+                .id(shopId)
+                .vendor(vendor)
+                .shopName("Ravi Kirana")
+                .status(ShopStatus.ACTIVE)
+                .acceptingOrders(true)
+                .build();
+        when(shopRepository.findByIdInAndStatusAndAcceptingOrdersTrue(List.of(shopId), ShopStatus.ACTIVE))
+                .thenReturn(List.of(shop));
 
         List<ShopSummaryResponse> result = shopService.getShopsByIds(List.of(shopId));
 

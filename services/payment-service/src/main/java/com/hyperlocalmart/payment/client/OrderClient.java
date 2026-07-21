@@ -9,6 +9,10 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
 import java.math.BigDecimal;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.util.Collection;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -60,6 +64,41 @@ public class OrderClient {
                 .toBodilessEntity();
     }
 
+    public SettlementCandidates getSettlementCandidates(
+            UUID vendorId, UUID townId, LocalDate from, LocalDate to) {
+        RestClient client = restClientBuilder.baseUrl(orderServiceProperties.getBaseUrl()).build();
+        ApiResponse<SettlementCandidates> response = client.get()
+                .uri(uriBuilder -> uriBuilder
+                        .path("/api/v1/internal/orders/settlement-candidates")
+                        .queryParam("vendorId", vendorId)
+                        .queryParam("townId", townId)
+                        .queryParam("from", from)
+                        .queryParam("to", to)
+                        .build())
+                .retrieve()
+                .body(new ParameterizedTypeReference<ApiResponse<SettlementCandidates>>() {});
+        if (response == null || response.getData() == null) {
+            throw new IllegalStateException("Settlement candidates unavailable");
+        }
+        return response.getData();
+    }
+
+    public List<SettlementCandidateItem> resolveSettlementSubOrders(UUID vendorId, Collection<UUID> subOrderIds) {
+        RestClient client = restClientBuilder.baseUrl(orderServiceProperties.getBaseUrl()).build();
+        ApiResponse<List<SettlementCandidateItem>> response = client.post()
+                .uri(uriBuilder -> uriBuilder
+                        .path("/api/v1/internal/orders/settlement-candidates/resolve")
+                        .queryParam("vendorId", vendorId)
+                        .build())
+                .body(List.copyOf(subOrderIds))
+                .retrieve()
+                .body(new ParameterizedTypeReference<ApiResponse<List<SettlementCandidateItem>>>() {});
+        if (response == null || response.getData() == null) {
+            return List.of();
+        }
+        return response.getData();
+    }
+
     public record OrderSnapshot(
             UUID orderId,
             UUID buyerId,
@@ -68,6 +107,27 @@ public class OrderClient {
             String paymentStatus,
             String paymentMethod,
             BigDecimal totalAmount
+    ) {
+    }
+
+    public record SettlementCandidates(
+            UUID vendorId,
+            UUID townId,
+            String from,
+            String to,
+            List<SettlementCandidateItem> items
+    ) {
+    }
+
+    public record SettlementCandidateItem(
+            UUID subOrderId,
+            UUID orderId,
+            String orderNumber,
+            String subOrderNumber,
+            Instant placedAt,
+            String status,
+            String paymentStatus,
+            BigDecimal subtotal
     ) {
     }
 }

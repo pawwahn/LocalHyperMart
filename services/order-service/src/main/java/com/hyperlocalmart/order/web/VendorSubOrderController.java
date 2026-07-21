@@ -2,6 +2,7 @@ package com.hyperlocalmart.order.web;
 
 import com.hyperlocalmart.common.api.ApiResponse;
 import com.hyperlocalmart.common.api.PageResponse;
+import com.hyperlocalmart.order.dto.request.CancelOrderItemRequest;
 import com.hyperlocalmart.order.dto.request.RejectSubOrderRequest;
 import com.hyperlocalmart.order.dto.response.VendorSubOrderResponse;
 import com.hyperlocalmart.order.entity.VendorSubOrderStatus;
@@ -64,6 +65,20 @@ public class VendorSubOrderController {
         requireVendor(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
                 vendorSubOrderService.reject(vendorId, subOrderId, principal.getUserId(), request)));
+    }
+
+    @PostMapping("/{subOrderId}/items/{itemId}/cancel")
+    public ResponseEntity<ApiResponse<VendorSubOrderResponse>> cancelItem(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @RequestHeader("X-Vendor-Id") UUID vendorId,
+            @PathVariable UUID subOrderId,
+            @PathVariable UUID itemId,
+            @Valid @RequestBody CancelOrderItemRequest request,
+            HttpServletRequest httpRequest) {
+        requireVendor(principal);
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                vendorSubOrderService.cancelItem(
+                        vendorId, subOrderId, itemId, principal.getUserId(), request)));
     }
 
     private void requireVendor(AuthUserPrincipal principal) {

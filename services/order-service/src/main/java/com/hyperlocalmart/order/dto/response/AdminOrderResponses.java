@@ -10,6 +10,7 @@ import lombok.Value;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 public final class AdminOrderResponses {
@@ -33,6 +34,16 @@ public final class AdminOrderResponses {
 
     @Value
     @Builder
+    public static class AdminSubOrderItemResponse {
+        String name;
+        String unitCode;
+        int quantity;
+        BigDecimal lineTotal;
+        String status;
+    }
+
+    @Value
+    @Builder
     public static class AdminSubOrderResponse {
         UUID subOrderId;
         String subOrderNumber;
@@ -44,6 +55,7 @@ public final class AdminOrderResponses {
         BigDecimal subtotal;
         Instant readyForPickupAt;
         int itemCount;
+        List<AdminSubOrderItemResponse> items;
     }
 
     @Value
@@ -69,6 +81,7 @@ public final class AdminOrderResponses {
         String eventType;
         Instant createdAt;
         UUID createdBy;
+        Map<String, Object> metadata;
     }
 
     @Value

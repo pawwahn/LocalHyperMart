@@ -54,6 +54,10 @@ public class VendorDashboardService {
 
         BigDecimal earningsGross = vendorSubOrderRepository.sumEarningsByVendorIdAndPlacedAtBetween(
                 vendorId, rangeStart, rangeEnd);
+        BigDecimal earningsToday = vendorSubOrderRepository.sumEarningsByVendorIdAndPlacedAtBetween(
+                vendorId, todayStart, todayEnd);
+        long pendingActionCount = vendorSubOrderRepository.countByVendorIdAndStatus(
+                vendorId, VendorSubOrderStatus.PLACED);
 
         Map<String, Long> statusCounts = toStatusCounts(
                 vendorSubOrderRepository.countStatusBreakdownByVendorIdAndPlacedAtBetween(
@@ -70,6 +74,8 @@ public class VendorDashboardService {
                 .orderCountToday(orderCountToday)
                 .orderCountWeek(orderCountWeek)
                 .earningsGross(earningsGross)
+                .earningsToday(earningsToday)
+                .pendingActionCount(pendingActionCount)
                 .from(rangeFrom)
                 .to(rangeTo)
                 .statusCounts(statusCounts)

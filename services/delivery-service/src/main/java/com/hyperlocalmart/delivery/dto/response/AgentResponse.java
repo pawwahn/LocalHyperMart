@@ -13,6 +13,7 @@ public class AgentResponse {
     UUID agentId;
     UUID userId;
     UUID hubId;
+    String hubName;
     String name;
     String phone;
     AgentStatus status;

@@ -5,6 +5,7 @@ import com.hyperlocalmart.common.exception.BusinessException;
 import com.hyperlocalmart.common.exception.ErrorCode;
 import com.hyperlocalmart.order.client.NotificationClient;
 import com.hyperlocalmart.order.client.PaymentClient;
+import com.hyperlocalmart.order.dto.request.CancelOrderItemRequest;
 import com.hyperlocalmart.order.dto.request.RejectSubOrderRequest;
 import com.hyperlocalmart.order.dto.response.OrderItemDetailResponse;
 import com.hyperlocalmart.order.dto.response.VendorSubOrderResponse;
@@ -18,6 +19,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -60,6 +62,11 @@ public class VendorSubOrderService {
         VendorSubOrder subOrder = loadForVendorAction(vendorId, subOrderId);
         if (subOrder.getStatus() != VendorSubOrderStatus.PLACED) {
             throw new BusinessException(ErrorCode.CONFLICT, "Sub-order cannot be marked ready");
+        }
+        boolean hasActive = subOrder.getItems().stream()
+                .anyMatch(item -> item.getStatus() == null || item.getStatus() == OrderItemStatus.ACTIVE);
+        if (!hasActive) {
+            throw new BusinessException(ErrorCode.CONFLICT, "No active items left to mark ready");
         }
         subOrder.setStatus(VendorSubOrderStatus.READY_FOR_PICKUP);
         subOrder.setReadyForPickupAt(Instant.now());
@@ -143,6 +150,114 @@ public class VendorSubOrderService {
         return toResponse(subOrder);
     }
 
+    /**
+     * Cancel a single line item while the sub-order is still PLACED.
+     * Credits the buyer wallet for the line total; does not cancel sibling vendors' items.
+     */
+    @Transactional
+    public VendorSubOrderResponse cancelItem(UUID vendorId, UUID subOrderId, UUID itemId,
+                                             UUID actorUserId, CancelOrderItemRequest request) {
+        VendorSubOrder subOrder = loadForVendorAction(vendorId, subOrderId);
+        if (subOrder.getStatus() != VendorSubOrderStatus.PLACED) {
+            throw new BusinessException(ErrorCode.CONFLICT, "Items can only be cancelled while sub-order is PLACED");
+        }
+        Order order = subOrder.getOrder();
+        if (order.getStatus() == OrderStatus.CANCELLED || order.getStatus() == OrderStatus.DELIVERED) {
+            throw new BusinessException(ErrorCode.CONFLICT, "Order cannot be modified");
+        }
+
+        OrderItem item = subOrder.getItems().stream()
+                .filter(i -> i.getId().equals(itemId))
+                .findFirst()
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Order item not found"));
+        if (item.getStatus() == OrderItemStatus.CANCELLED) {
+            throw new BusinessException(ErrorCode.CONFLICT, "Item already cancelled");
+        }
+
+        BigDecimal creditAmount = item.getLineTotal();
+        item.setStatus(OrderItemStatus.CANCELLED);
+        item.setCancelReason(request.getReason());
+        item.setCancelledAt(Instant.now());
+        item.setCancelledBy(actorUserId);
+        item.setStoreCreditAmount(creditAmount);
+
+        BigDecimal newSubtotal = subOrder.getItems().stream()
+                .filter(i -> i.getStatus() == null || i.getStatus() == OrderItemStatus.ACTIVE)
+                .map(OrderItem::getLineTotal)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        subOrder.setSubtotal(newSubtotal);
+
+        BigDecimal newItemsSubtotal = order.getVendorSubOrders().stream()
+                .flatMap(so -> so.getItems().stream())
+                .filter(i -> i.getStatus() == null || i.getStatus() == OrderItemStatus.ACTIVE)
+                .map(OrderItem::getLineTotal)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        order.setItemsSubtotal(newItemsSubtotal);
+        BigDecimal promo = order.getPromoDiscount() == null ? BigDecimal.ZERO : order.getPromoDiscount();
+        BigDecimal payableItems = newItemsSubtotal.subtract(promo).max(BigDecimal.ZERO);
+        BigDecimal newTotal = payableItems.add(order.getDeliveryFee() == null ? BigDecimal.ZERO : order.getDeliveryFee());
+        BigDecimal creditApplied = order.getStoreCreditApplied() == null ? BigDecimal.ZERO : order.getStoreCreditApplied();
+        order.setTotalAmount(newTotal.subtract(creditApplied).max(BigDecimal.ZERO));
+
+        boolean subOrderEmpty = subOrder.getItems().stream()
+                .noneMatch(i -> i.getStatus() == null || i.getStatus() == OrderItemStatus.ACTIVE);
+        if (subOrderEmpty) {
+            subOrder.setStatus(VendorSubOrderStatus.VENDOR_REJECTED);
+            subOrder.setRejectReason(request.getReason());
+            orderStatusHistoryRepository.save(OrderStatusHistory.builder()
+                    .orderId(order.getId())
+                    .vendorSubOrderId(subOrder.getId())
+                    .fromStatus(VendorSubOrderStatus.PLACED.name())
+                    .toStatus(VendorSubOrderStatus.VENDOR_REJECTED.name())
+                    .changedBy(actorUserId)
+                    .changedByRole("VENDOR")
+                    .note("All items cancelled: " + request.getReason())
+                    .build());
+        }
+
+        boolean orderEmpty = order.getVendorSubOrders().stream()
+                .flatMap(so -> so.getItems().stream())
+                .noneMatch(i -> i.getStatus() == null || i.getStatus() == OrderItemStatus.ACTIVE);
+        if (orderEmpty) {
+            OrderStatus prior = order.getStatus();
+            order.setStatus(OrderStatus.CANCELLED);
+            order.setCancelReason(request.getReason());
+            order.setCancelledAt(Instant.now());
+            orderStatusHistoryRepository.save(OrderStatusHistory.builder()
+                    .orderId(order.getId())
+                    .fromStatus(prior.name())
+                    .toStatus(OrderStatus.CANCELLED.name())
+                    .changedBy(actorUserId)
+                    .changedByRole("VENDOR")
+                    .note("All items cancelled: " + request.getReason())
+                    .build());
+        }
+
+        orderRepository.save(order);
+        vendorSubOrderRepository.save(subOrder);
+
+        BigDecimal balance = paymentClient.creditWallet(
+                order.getBuyerId(),
+                creditAmount,
+                "ORDER_ITEM_CANCEL",
+                item.getId(),
+                order.getId(),
+                item.getId(),
+                "Item cancelled: " + item.getItemNameSnapshot());
+
+        notificationClient.notifyItemCancelledStoreCredit(
+                order.getTownId(),
+                order.getId(),
+                order.getBuyerId(),
+                order.getBuyerPhoneSnapshot(),
+                order.getOrderNumber(),
+                item.getItemNameSnapshot(),
+                creditAmount,
+                balance);
+
+        return toResponse(subOrder);
+    }
+
     private VendorSubOrder loadForVendorAction(UUID vendorId, UUID subOrderId) {
         return vendorSubOrderRepository.findDetailedByIdAndVendorId(subOrderId, vendorId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Sub-order not found"));
@@ -150,12 +265,7 @@ public class VendorSubOrderService {
 
     private VendorSubOrderResponse toResponse(VendorSubOrder subOrder) {
         List<OrderItemDetailResponse> items = subOrder.getItems().stream()
-                .map(item -> OrderItemDetailResponse.builder()
-                        .name(item.getItemNameSnapshot())
-                        .shopName(item.getShopNameSnapshot())
-                        .quantity(item.getQuantity())
-                        .lineTotal(item.getLineTotal())
-                        .build())
+                .map(this::toItemDetail)
                 .toList();
         return VendorSubOrderResponse.builder()
                 .subOrderId(subOrder.getId())
@@ -168,6 +278,21 @@ public class VendorSubOrderService {
                 .subtotal(subOrder.getSubtotal())
                 .readyForPickupAt(subOrder.getReadyForPickupAt())
                 .items(items)
+                .build();
+    }
+
+    private OrderItemDetailResponse toItemDetail(OrderItem item) {
+        return OrderItemDetailResponse.builder()
+                .orderItemId(item.getId())
+                .name(item.getItemNameSnapshot())
+                .shopName(item.getShopNameSnapshot())
+                .unitCode(item.getUnitCodeSnapshot())
+                .quantity(item.getQuantity())
+                .lineTotal(item.getLineTotal())
+                .status(item.getStatus() == null ? OrderItemStatus.ACTIVE : item.getStatus())
+                .cancelReason(item.getCancelReason())
+                .cancelledAt(item.getCancelledAt())
+                .storeCreditAmount(item.getStoreCreditAmount())
                 .build();
     }
 }

@@ -20,13 +20,12 @@ import java.util.List;
 import java.util.UUID;
 
 @RestController
-@RequestMapping("/api/v1/delivery/agents")
 @RequiredArgsConstructor
 public class AgentController {
 
     private final AgentService agentService;
 
-    @PostMapping
+    @PostMapping("/api/v1/delivery/agents")
     public ResponseEntity<ApiResponse<AgentResponse>> createAgent(
             @AuthenticationPrincipal AuthUserPrincipal principal,
             @Valid @RequestBody CreateAgentRequest request,
@@ -36,7 +35,7 @@ public class AgentController {
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponses.ok(httpRequest, response));
     }
 
-    @GetMapping
+    @GetMapping("/api/v1/delivery/agents")
     public ResponseEntity<ApiResponse<List<AgentResponse>>> listAgents(
             @AuthenticationPrincipal AuthUserPrincipal principal,
             @RequestParam UUID hubId,
@@ -46,7 +45,15 @@ public class AgentController {
                 agentService.listAgents(principal.getUserId(), hubId)));
     }
 
-    @PatchMapping("/{agentId}/status")
+    @GetMapping("/api/v1/delivery/admin/agents")
+    public ResponseEntity<ApiResponse<List<AgentResponse>>> listAllAgents(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            HttpServletRequest httpRequest) {
+        requireSuperAdmin(principal);
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest, agentService.listAllAgentsForSuperAdmin()));
+    }
+
+    @PatchMapping("/api/v1/delivery/agents/{agentId}/status")
     public ResponseEntity<ApiResponse<AgentResponse>> updateStatus(
             @AuthenticationPrincipal AuthUserPrincipal principal,
             @PathVariable UUID agentId,
@@ -58,9 +65,26 @@ public class AgentController {
                         principal.getUserId(), principal.getRoles(), agentId, request)));
     }
 
+    /** Permanent disable (soft delete). Hub admins cannot call this. */
+    @DeleteMapping("/api/v1/delivery/agents/{agentId}")
+    public ResponseEntity<ApiResponse<AgentResponse>> permanentlyDisable(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @PathVariable UUID agentId,
+            HttpServletRequest httpRequest) {
+        requireSuperAdmin(principal);
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                agentService.permanentlyDisableAgent(principal.getUserId(), agentId)));
+    }
+
     private void requireHubAdmin(AuthUserPrincipal principal) {
         if (principal == null || !principal.getRoles().contains("HUB_ADMIN")) {
             throw new BusinessException(ErrorCode.FORBIDDEN, "Hub admin role required");
+        }
+    }
+
+    private void requireSuperAdmin(AuthUserPrincipal principal) {
+        if (principal == null || !principal.getRoles().contains("SUPER_ADMIN")) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "Super admin role required");
         }
     }
 

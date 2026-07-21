@@ -8,6 +8,7 @@ import {
   createAddress,
   fetchCart,
   fetchCatalog,
+  fetchWalletBalance,
   listAddresses,
   listMyOrders,
   placeCodOrder,
@@ -35,6 +36,7 @@ export function useShop() {
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [storeCreditBalance, setStoreCreditBalance] = useState(0);
 
   const qtyByListingId = useMemo(() => {
     const map = new Map<string, CartLineView>();
@@ -74,6 +76,7 @@ export function useShop() {
         setCart(null);
         setAddresses([]);
         setOrders([]);
+        setStoreCreditBalance(0);
         return;
       }
 
@@ -103,13 +106,22 @@ export function useShop() {
           noteFailure(err, 'Orders failed');
         });
 
-      await Promise.all([catalogTask, cartTask, addressTask, ordersTask]);
+      const walletTask = fetchWalletBalance(session.accessToken)
+        .then((wallet) => {
+          setStoreCreditBalance(Number(wallet.balance ?? 0));
+        })
+        .catch(() => {
+          setStoreCreditBalance(0);
+        });
+
+      await Promise.all([catalogTask, cartTask, addressTask, ordersTask, walletTask]);
     } catch (err) {
       if (err instanceof ApiError && err.isUnauthorized) {
         setError('Your sign-in expired. Please sign in again.');
         setCart(null);
         setAddresses([]);
         setOrders([]);
+        setStoreCreditBalance(0);
         errors.length = 0;
         return;
       }
@@ -311,6 +323,7 @@ export function useShop() {
     cart,
     addresses,
     orders,
+    storeCreditBalance,
     query,
     setQuery,
     selectedAddressId,

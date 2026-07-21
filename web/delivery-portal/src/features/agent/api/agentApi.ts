@@ -14,7 +14,11 @@ export type AssignmentView = {
   assignedAt: string | null;
   startedAt: string | null;
   completedAt: string | null;
-  events: Array<{ eventType: string; createdAt: string }>;
+  events: Array<{
+    eventType: string;
+    createdAt: string;
+    metadata?: Record<string, unknown> | null;
+  }>;
 };
 
 export function toAssignmentView(dto: AssignmentDto): AssignmentView {
@@ -37,6 +41,7 @@ export function toAssignmentView(dto: AssignmentDto): AssignmentView {
     events: (dto.events ?? []).map((e) => ({
       eventType: e.eventType,
       createdAt: e.createdAt,
+      metadata: e.metadata ?? null,
     })),
   };
 }
@@ -98,7 +103,7 @@ function toPickupManifestView(dto: {
     items: (dto.items ?? []).map((item) => ({
       name: item.name,
       quantity: item.quantity,
-      unitCode: item.unitCode ?? null,
+      unitCode: item.unitCode ?? (item as { unit?: string | null }).unit ?? null,
       lineTotal: Number(item.lineTotal ?? 0),
     })),
   };
