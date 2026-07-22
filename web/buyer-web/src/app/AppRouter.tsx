@@ -9,6 +9,7 @@ import { CartPage } from '@/features/shop/pages/CartPage';
 import { OrdersPage } from '@/features/shop/pages/OrdersPage';
 import { OrderDetailPage } from '@/features/shop/pages/OrderDetailPage';
 import { WalletPage } from '@/features/shop/pages/WalletPage';
+import { AlertsPage } from '@/features/shop/pages/AlertsPage';
 import { WalletProvider } from '@/features/shop/hooks/useWallet';
 import { ShopProvider } from '@/features/shop/hooks/useShop';
 import type { ReactNode } from 'react';
@@ -42,6 +43,7 @@ export function AppRouter() {
                     <Route path="/cart" element={<CartPage />} />
                     <Route path="/orders" element={<OrdersPage />} />
                     <Route path="/orders/:orderId" element={<OrderDetailPage />} />
+                    <Route path="/alerts" element={<AlertsPage />} />
                     <Route path="/wallet" element={<WalletPage />} />
                   </Route>
                   <Route path="*" element={<Navigate to="/shop" replace />} />

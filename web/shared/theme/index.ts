@@ -4,4 +4,5 @@ export { loadThemePreference, saveThemePreference } from './storage';
 export { applyTheme, applyStoredTheme } from './applyTheme';
 export { ThemeProvider, useTheme } from './ThemeContext';
 export { ThemePicker } from './ThemePicker';
+export { HeaderIconButton } from './HeaderIconButton';
 export { LoginThemeCorner } from './LoginThemeCorner';

@@ -1,4 +1,4 @@
-import type { CSSProperties } from 'react';
+import { useState, type CSSProperties } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { PortalShell } from '@/shared/layout/PortalShell';
 import { Badge, Banner, Button, Card, EmptyState, LoadingBlock } from '@/shared/ui';
@@ -6,7 +6,10 @@ import { useShop } from '../hooks/useShop';
 import { useOrderDetail } from '../hooks/useOrderDetail';
 import { formatBuyerPaymentLabel } from '../lib/formatBuyerPaymentLabel';
 import { OrderStatusTimeline } from '../components/OrderStatusTimeline';
-import type { OrderDetailDto } from '../api/shopApi';
+import { ReasonDialog } from '../components/ReasonDialog';
+import { ClaimDialog } from '../components/ClaimDialog';
+import { ConfirmDialog } from '../components/ConfirmDialog';
+import type { ClaimType, OrderDetailDto } from '../api/shopApi';
 
 function statusTone(status: string): 'neutral' | 'success' | 'warning' | 'danger' | 'brand' {
   const s = status.toLowerCase();
@@ -38,16 +41,149 @@ function formatAddress(address?: Record<string, unknown> | null): string[] {
   return lines;
 }
 
+const ORDER_CANCEL_REASONS = [
+  'Changed my mind',
+  'Ordered by mistake',
+  'Found a better price',
+  'Delivery taking too long',
+  'Wrong address / contact details',
+  'Other',
+];
+
+const ITEM_CANCEL_REASONS = [
+  'Changed my mind',
+  'Don’t need this item',
+  'Ordered wrong item / quantity',
+  'Price concern',
+  'Other',
+];
+
+function claimTypeLabel(type: string): string {
+  switch (type) {
+    case 'WRONG_ITEM':
+      return 'Wrong item';
+    case 'DAMAGED':
+      return 'Damaged';
+    default:
+      return 'Missing';
+  }
+}
+
+type CancelTarget =
+  | { kind: 'order' }
+  | { kind: 'item'; itemId: string; itemName: string }
+  | null;
+
 export function OrderDetailPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const { orderId } = useParams<{ orderId: string }>();
   const preview = (location.state as { preview?: OrderDetailDto } | null)?.preview ?? null;
   const { cart } = useShop();
-  const { order, loading, error, invoiceBusy, invoiceError, reload, downloadInvoice } =
-    useOrderDetail(orderId, preview);
+  const {
+    order,
+    claims,
+    loading,
+    error,
+    invoiceBusy,
+    invoiceError,
+    cancelBusy,
+    claimBusy,
+    reload,
+    downloadInvoice,
+    cancelWholeOrder,
+    cancelItem,
+    fileClaim,
+  } = useOrderDetail(orderId, preview);
+
+  const [cancelTarget, setCancelTarget] = useState<CancelTarget>(null);
+  const [claimOpen, setClaimOpen] = useState(false);
+  const [claimPresetItemId, setClaimPresetItemId] = useState<string | null>(null);
+  const [resultDialog, setResultDialog] = useState<{ title: string; description: string } | null>(
+    null,
+  );
 
   const canDownloadInvoice = Boolean(order?.invoicePdfUrl);
+  const blockedClaimItemIds = new Set(
+    claims
+      .filter((c) => c.status === 'OPEN' || c.status === 'RESOLVED')
+      .map((c) => c.orderItemId)
+      .filter(Boolean) as string[],
+  );
+  const claimableItems = (order?.items ?? [])
+    .filter((item) => item.canFileClaim && item.orderItemId && !blockedClaimItemIds.has(item.orderItemId))
+    .map((item) => ({
+      ...item,
+      canFileClaim: true,
+    }));
+
+  async function onConfirmCancel(reason: string) {
+    if (!cancelTarget) return;
+    try {
+      if (cancelTarget.kind === 'order') {
+        const beforeCredit = Number(order?.storeCreditApplied ?? 0);
+        const method = (order?.paymentMethod || '').toUpperCase();
+        const payable = Number(order?.totalAmount ?? 0);
+        await cancelWholeOrder(reason);
+        setCancelTarget(null);
+        let description =
+          'Your order was cancelled. COD orders are not charged until delivery — so there was nothing to refund.';
+        if (method === 'ONLINE' && payable > 0) {
+          description =
+            'Online payment refund has been started. Any wallet credit used at checkout was also restored.';
+        } else if (method === 'ONLINE' && payable <= 0) {
+          description =
+            beforeCredit > 0
+              ? 'Order was paid fully from wallet — that credit was restored.'
+              : 'Order cancelled. No online payment was captured.';
+        } else if (beforeCredit > 0) {
+          description = 'Any wallet credit used on this order was restored to your wallet.';
+        }
+        setResultDialog({
+          title: 'Order cancelled',
+          description,
+        });
+      } else {
+        await cancelItem(cancelTarget.itemId, reason);
+        setCancelTarget(null);
+        setResultDialog({
+          title: 'Item cancelled',
+          description: `${cancelTarget.itemName} was cancelled. The amount was added to your wallet as store credit.`,
+        });
+      }
+    } catch (err) {
+      setCancelTarget(null);
+      setResultDialog({
+        title: 'Couldn’t cancel',
+        description: err instanceof Error ? err.message : 'Please try again in a moment.',
+      });
+    }
+  }
+
+  async function onConfirmClaim(payload: {
+    claimType: ClaimType;
+    orderItemId: string;
+    reason: string;
+  }) {
+    try {
+      const itemName =
+        order?.items.find((i) => i.orderItemId === payload.orderItemId)?.name ?? 'item';
+      await fileClaim(payload.claimType, payload.reason, payload.orderItemId);
+      setClaimOpen(false);
+      setClaimPresetItemId(null);
+      setResultDialog({
+        title: 'Issue reported',
+        description: `Thanks — we logged your claim for ${itemName}. The town hub will review and may add store credit up to that line’s amount.`,
+      });
+    } catch (err) {
+      setClaimOpen(false);
+      setClaimPresetItemId(null);
+      setResultDialog({
+        title: 'Couldn’t file claim',
+        description: err instanceof Error ? err.message : 'Please try again in a moment.',
+      });
+    }
+  }
 
   return (
     <PortalShell
@@ -100,11 +236,38 @@ export function OrderDetailPage() {
               >
                 {invoiceBusy ? 'Preparing PDF…' : 'Download invoice'}
               </Button>
+              {order.canCancelOrder ? (
+                <Button
+                  variant="danger"
+                  disabled={cancelBusy}
+                  onClick={() => setCancelTarget({ kind: 'order' })}
+                >
+                  Cancel order
+                </Button>
+              ) : null}
+              {order.canFileClaim && claimableItems.length > 0 ? (
+                <Button
+                  variant="ghost"
+                  disabled={claimBusy}
+                  onClick={() => {
+                    setClaimPresetItemId(null);
+                    setClaimOpen(true);
+                  }}
+                >
+                  Report issue
+                </Button>
+              ) : null}
               <p style={{ ...styles.hint, visibility: canDownloadInvoice ? 'hidden' : 'visible' }}>
                 Invoice will be available once payment is confirmed.
               </p>
             </div>
             {invoiceError ? <Banner tone="danger">{invoiceError}</Banner> : null}
+            {order.canCancelOrder ? (
+              <p style={styles.cancelHint}>
+                You can cancel before shops mark items ready. After that, cancel individual items
+                that are still waiting.
+              </p>
+            ) : null}
           </Card>
 
           {order.timeline && order.timeline.length > 0 ? (
@@ -124,7 +287,7 @@ export function OrderDetailPage() {
                       key={item.orderItemId ?? `${item.name}-${item.shopName}-${index}`}
                       style={styles.itemRow}
                     >
-                      <div>
+                      <div style={styles.itemBody}>
                         <p
                           style={
                             cancelled ? { ...styles.itemName, ...styles.cancelled } : styles.itemName
@@ -145,6 +308,37 @@ export function OrderDetailPage() {
                             </Link>
                           </p>
                         ) : null}
+                        {item.canCancel && item.orderItemId ? (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            disabled={cancelBusy}
+                            onClick={() =>
+                              setCancelTarget({
+                                kind: 'item',
+                                itemId: item.orderItemId!,
+                                itemName: item.name,
+                              })
+                            }
+                          >
+                            Cancel item
+                          </Button>
+                        ) : null}
+                        {item.canFileClaim &&
+                        item.orderItemId &&
+                        !blockedClaimItemIds.has(item.orderItemId) ? (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            disabled={claimBusy}
+                            onClick={() => {
+                              setClaimPresetItemId(item.orderItemId!);
+                              setClaimOpen(true);
+                            }}
+                          >
+                            Report issue
+                          </Button>
+                        ) : null}
                       </div>
                       <strong style={styles.lineTotal}>{money(item.lineTotal)}</strong>
                     </Card>
@@ -153,6 +347,46 @@ export function OrderDetailPage() {
               </div>
             )}
           </section>
+
+          {claims.length > 0 ? (
+            <section style={styles.section}>
+              <h2 style={styles.h2}>Your claims</h2>
+              <div style={styles.list}>
+                {claims.map((c) => (
+                  <Card key={c.claimId} style={styles.itemRow}>
+                    <div style={styles.itemBody}>
+                      <p style={styles.itemName}>
+                        {claimTypeLabel(c.claimType)}
+                        {c.itemName ? ` · ${c.itemName}` : ''}
+                        {c.shopName ? ` (${c.shopName})` : ''}
+                      </p>
+                      <p style={styles.meta}>
+                        {c.status}
+                        {c.suggestedCreditAmount != null && c.status === 'OPEN'
+                          ? ` · up to ₹${Number(c.suggestedCreditAmount).toFixed(2)}`
+                          : ''}
+                        {c.resolvedAmount != null && Number(c.resolvedAmount) > 0
+                          ? ` · ₹${Number(c.resolvedAmount).toFixed(2)} store credit`
+                          : ''}
+                      </p>
+                      <p style={styles.meta}>{c.reason}</p>
+                      {c.status === 'REJECTED' && c.resolutionNote ? (
+                        <p style={styles.meta}>Hub: {c.resolutionNote}</p>
+                      ) : null}
+                      {c.status === 'RESOLVED' ? (
+                        <p style={styles.creditNote}>
+                          Credit added to your wallet ·{' '}
+                          <Link to="/wallet" style={styles.walletLink}>
+                            Open wallet
+                          </Link>
+                        </p>
+                      ) : null}
+                    </div>
+                  </Card>
+                ))}
+              </div>
+            </section>
+          ) : null}
 
           <Card elevated style={styles.totals}>
             <div style={styles.totalRow}>
@@ -187,6 +421,49 @@ export function OrderDetailPage() {
           ) : null}
         </div>
       ) : null}
+
+      <ReasonDialog
+        open={cancelTarget != null}
+        title={cancelTarget?.kind === 'item' ? 'Cancel this item?' : 'Cancel this order?'}
+        description={
+          cancelTarget?.kind === 'item'
+            ? `We’ll credit ${cancelTarget.itemName} to your wallet as store credit.`
+            : 'This stops the order before shops pack. Online payments are refunded; COD just cancels.'
+        }
+        confirmLabel={cancelTarget?.kind === 'item' ? 'Cancel item' : 'Cancel order'}
+        reasons={cancelTarget?.kind === 'item' ? ITEM_CANCEL_REASONS : ORDER_CANCEL_REASONS}
+        commentPlaceholder="Anything else we should know? (optional)"
+        danger
+        busy={cancelBusy}
+        onConfirm={(reason) => void onConfirmCancel(reason)}
+        onClose={() => {
+          if (!cancelBusy) setCancelTarget(null);
+        }}
+      />
+
+      <ClaimDialog
+        open={claimOpen}
+        items={claimableItems}
+        presetItemId={claimPresetItemId}
+        busy={claimBusy}
+        onConfirm={(payload) => void onConfirmClaim(payload)}
+        onClose={() => {
+          if (!claimBusy) {
+            setClaimOpen(false);
+            setClaimPresetItemId(null);
+          }
+        }}
+      />
+
+      <ConfirmDialog
+        open={resultDialog != null}
+        alertOnly
+        title={resultDialog?.title ?? ''}
+        description={resultDialog?.description ?? ''}
+        confirmLabel="OK"
+        onConfirm={() => setResultDialog(null)}
+        onClose={() => setResultDialog(null)}
+      />
     </PortalShell>
   );
 }
@@ -198,45 +475,49 @@ const styles: Record<string, CSSProperties> = {
     fontWeight: 700,
     fontSize: '0.92rem',
   },
-  stack: { display: 'grid', gap: '1rem' },
-  headerCard: { display: 'grid', gap: '0.85rem', animation: 'none' },
+  stack: { display: 'grid', gap: '0.9rem' },
+  headerCard: { padding: '1rem 1.05rem', animation: 'none' },
   headerTop: {
     display: 'flex',
     justifyContent: 'space-between',
     gap: '0.75rem',
     alignItems: 'flex-start',
   },
-  badgeCol: {
-    display: 'grid',
-    gap: '0.25rem',
-    justifyItems: 'end',
+  orderNo: { margin: 0, fontWeight: 800, fontFamily: 'var(--font-display)', fontSize: '1.05rem' },
+  meta: { margin: '0.25rem 0 0', color: 'var(--text-muted)', fontSize: '0.85rem' },
+  badgeCol: { display: 'grid', gap: '0.35rem', justifyItems: 'end' },
+  actions: { display: 'grid', gap: '0.45rem', marginTop: '0.85rem' },
+  hint: { margin: 0, color: 'var(--text-muted)', fontSize: '0.78rem' },
+  cancelHint: { margin: '0.55rem 0 0', color: 'var(--text-muted)', fontSize: '0.8rem', lineHeight: 1.4 },
+  section: { display: 'grid', gap: '0.55rem' },
+  h2: {
+    margin: 0,
+    fontSize: '0.95rem',
+    fontWeight: 800,
+    fontFamily: 'var(--font-display)',
   },
-  orderNo: { margin: 0, fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: '1.2rem' },
-  meta: { margin: '0.2rem 0 0', color: 'var(--text-muted)', fontSize: '0.9rem' },
-  actions: { display: 'grid', gap: '0.4rem', justifyItems: 'start' },
-  hint: { margin: 0, color: 'var(--text-muted)', fontSize: '0.82rem', minHeight: '1.2rem' },
-  section: { display: 'grid', gap: '0.65rem' },
-  h2: { margin: 0, fontFamily: 'var(--font-display)', fontSize: '1.1rem', fontWeight: 800 },
   list: { display: 'grid', gap: '0.55rem' },
   itemRow: {
     display: 'flex',
     justifyContent: 'space-between',
-    gap: '1rem',
-    alignItems: 'center',
+    gap: '0.75rem',
+    padding: '0.8rem 0.9rem',
+    alignItems: 'flex-start',
   },
+  itemBody: { display: 'grid', gap: '0.25rem', minWidth: 0, flex: 1 },
   itemName: { margin: 0, fontWeight: 700 },
   cancelled: { textDecoration: 'line-through', color: 'var(--text-muted)' },
-  creditNote: { margin: '0.25rem 0 0', color: 'var(--accent-hover)', fontSize: '0.82rem', fontWeight: 600 },
-  walletLink: { color: 'inherit', fontWeight: 800, textDecoration: 'underline' },
-  lineTotal: { fontFamily: 'var(--font-display)' },
-  totals: { display: 'grid', gap: '0.45rem' },
+  creditNote: { margin: 0, fontSize: '0.8rem', color: 'var(--text-muted)', lineHeight: 1.4 },
+  walletLink: { color: 'var(--accent)', fontWeight: 700, textDecoration: 'none' },
+  lineTotal: { fontWeight: 800, whiteSpace: 'nowrap' },
+  totals: { padding: '0.9rem 1rem', display: 'grid', gap: '0.4rem' },
   totalRow: {
     display: 'flex',
     justifyContent: 'space-between',
-    color: 'var(--text-muted)',
-    fontWeight: 600,
+    gap: '0.75rem',
+    fontSize: '0.9rem',
   },
-  grand: { marginTop: '0.25rem', color: 'var(--text)' },
-  grandAmount: { fontFamily: 'var(--font-display)', fontSize: '1.35rem' },
-  addressCard: { display: 'grid', gap: '0.25rem' },
+  grand: { marginTop: '0.25rem', paddingTop: '0.45rem', borderTop: '1px solid var(--border)' },
+  grandAmount: { fontSize: '1.05rem' },
+  addressCard: { padding: '0.9rem 1rem', display: 'grid', gap: '0.25rem' },
 };

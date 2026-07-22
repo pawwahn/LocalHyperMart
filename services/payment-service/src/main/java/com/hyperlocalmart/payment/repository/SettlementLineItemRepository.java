@@ -18,6 +18,7 @@ public interface SettlementLineItemRepository extends JpaRepository<SettlementLi
             SELECT li FROM SettlementLineItem li
             JOIN FETCH li.settlement s
             WHERE li.subOrderId IN :subOrderIds
+              AND li.lineType = 'ORDER'
               AND s.payeeType = com.hyperlocalmart.payment.entity.SettlementPayeeType.VENDOR
               AND s.payeeId = :vendorId
             """)
@@ -29,6 +30,7 @@ public interface SettlementLineItemRepository extends JpaRepository<SettlementLi
             SELECT li.subOrderId FROM SettlementLineItem li
             JOIN li.settlement s
             WHERE li.subOrderId IN :subOrderIds
+              AND li.lineType = 'ORDER'
               AND s.status IN :statuses
             """)
     List<UUID> findSettledSubOrderIds(

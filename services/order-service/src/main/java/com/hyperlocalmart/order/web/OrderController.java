@@ -2,12 +2,18 @@ package com.hyperlocalmart.order.web;
 
 import com.hyperlocalmart.common.api.ApiResponse;
 import com.hyperlocalmart.common.api.PageResponse;
+import com.hyperlocalmart.order.dto.request.CancelOrderItemRequest;
+import com.hyperlocalmart.order.dto.request.CancelOrderRequest;
+import com.hyperlocalmart.order.dto.request.CreateClaimRequest;
 import com.hyperlocalmart.order.dto.request.CreateOrderRequest;
+import com.hyperlocalmart.order.dto.response.ClaimResponse;
 import com.hyperlocalmart.order.dto.response.CreateOrderResponse;
 import com.hyperlocalmart.order.dto.response.OrderDetailResponse;
 import com.hyperlocalmart.order.dto.response.OrderSummaryResponse;
 import com.hyperlocalmart.order.dto.response.ReorderResponse;
 import com.hyperlocalmart.order.security.AuthUserPrincipal;
+import com.hyperlocalmart.order.service.BuyerOrderCancelService;
+import com.hyperlocalmart.order.service.OrderClaimService;
 import com.hyperlocalmart.order.service.OrderInvoiceService;
 import com.hyperlocalmart.order.service.OrderService;
 import jakarta.servlet.http.HttpServletRequest;
@@ -20,6 +26,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -29,6 +36,8 @@ public class OrderController {
 
     private final OrderService orderService;
     private final OrderInvoiceService orderInvoiceService;
+    private final BuyerOrderCancelService buyerOrderCancelService;
+    private final OrderClaimService orderClaimService;
 
     @PostMapping
     public ResponseEntity<ApiResponse<CreateOrderResponse>> createOrder(
@@ -67,6 +76,48 @@ public class OrderController {
             HttpServletRequest httpRequest) {
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
                 orderService.reorder(principal.getUserId(), orderId)));
+    }
+
+    @PostMapping("/{orderId}/cancel")
+    public ResponseEntity<ApiResponse<OrderDetailResponse>> cancelOrder(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @PathVariable UUID orderId,
+            @Valid @RequestBody CancelOrderRequest request,
+            HttpServletRequest httpRequest) {
+        buyerOrderCancelService.cancelOrder(principal.getUserId(), orderId, request);
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                orderService.getOrder(principal.getUserId(), orderId)));
+    }
+
+    @PostMapping("/{orderId}/items/{itemId}/cancel")
+    public ResponseEntity<ApiResponse<OrderDetailResponse>> cancelItem(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @PathVariable UUID orderId,
+            @PathVariable UUID itemId,
+            @Valid @RequestBody CancelOrderItemRequest request,
+            HttpServletRequest httpRequest) {
+        buyerOrderCancelService.cancelItem(principal.getUserId(), orderId, itemId, request);
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                orderService.getOrder(principal.getUserId(), orderId)));
+    }
+
+    @PostMapping("/{orderId}/claims")
+    public ResponseEntity<ApiResponse<ClaimResponse>> createClaim(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @PathVariable UUID orderId,
+            @Valid @RequestBody CreateClaimRequest request,
+            HttpServletRequest httpRequest) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponses.ok(httpRequest,
+                orderClaimService.createClaim(principal.getUserId(), orderId, request)));
+    }
+
+    @GetMapping("/{orderId}/claims")
+    public ResponseEntity<ApiResponse<List<ClaimResponse>>> listClaims(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @PathVariable UUID orderId,
+            HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                orderClaimService.listBuyerClaims(principal.getUserId(), orderId)));
     }
 
     @GetMapping("/{orderId}/invoice")

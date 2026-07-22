@@ -316,6 +316,14 @@ public class AssignmentService {
                 "vendorSubOrderId", vendorSubOrderId.toString()
         ));
 
+        try {
+            OrderClient.DeliveryOrderSnapshot order = orderClient.getDeliveryOrder(assignment.getOrderId());
+            notificationClient.notifyOrderAtHub(
+                    order.townId(), order.orderId(), order.buyerId(), order.buyerPhone(), order.orderNumber());
+        } catch (RuntimeException ex) {
+            // Non-blocking: hub intake still succeeds if notify fails.
+        }
+
         return toResponse(assignment);
     }
 
@@ -375,6 +383,20 @@ public class AssignmentService {
         deliveryAssignmentRepository.save(assignment);
 
         logEvent(assignment.getId(), "BUYER_REJECTED", agentUserId, Map.of("reason", request.getReason()));
+
+        try {
+            OrderClient.DeliveryOrderSnapshot order = orderClient.getDeliveryOrder(assignment.getOrderId());
+            notificationClient.notifyBuyerRejected(
+                    order.townId(),
+                    order.orderId(),
+                    order.buyerId(),
+                    order.buyerPhone(),
+                    order.orderNumber(),
+                    request.getReason());
+        } catch (RuntimeException ex) {
+            // Non-blocking: rejection still recorded if notify fails.
+        }
+
         return toResponse(assignment);
     }
 

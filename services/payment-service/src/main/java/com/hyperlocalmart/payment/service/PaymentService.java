@@ -111,14 +111,13 @@ public class PaymentService {
     }
 
     private RefundResponse createRefund(Payment payment, InitiateRefundRequest request) {
-        if (request.getAmount().compareTo(payment.getAmount()) != 0) {
-            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Refund amount must match payment amount");
-        }
+        // Always refund the captured SUCCESS amount (order.totalAmount may have shrunk after item cancels).
+        BigDecimal amount = payment.getAmount();
 
         Refund refund = Refund.builder()
                 .paymentId(payment.getId())
                 .orderId(payment.getOrderId())
-                .amount(request.getAmount())
+                .amount(amount)
                 .reason(request.getReason())
                 .status(RefundStatus.INITIATED)
                 .gatewayRefundId("rfnd_dev_" + payment.getOrderId())

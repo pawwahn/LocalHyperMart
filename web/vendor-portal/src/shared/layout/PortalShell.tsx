@@ -1,11 +1,12 @@
 import type { CSSProperties, ReactNode } from 'react';
-import { Link, useLocation } from 'react-router-dom';
-import { ThemePicker } from '@hlm-theme';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { HeaderIconButton, ThemePicker } from '@hlm-theme';
 import { useAuth } from '@/shared/auth/AuthContext';
 import { PILOT_SHOP_NAME_BY_PHONE } from '@/features/auth/api/authApi';
 import { PILOT_HUB_HELP } from '@/features/shop/hooks/useVendorShop';
 import { useOrderAlert } from '@/features/orders/OrderAlertContext';
-import { Banner, Button } from '@/shared/ui';
+import { Banner } from '@/shared/ui';
+import { useIsNarrow } from '@/shared/hooks/useIsNarrow';
 
 type ShopPauseControl = {
   acceptingOrders: boolean;
@@ -17,14 +18,16 @@ type Props = {
   title: string;
   children: ReactNode;
   onRefresh?: () => void;
-  /** Shown under Refresh on Home (Pause / Resume shop). */
+  /** Shown in header icon row (Pause / Resume shop). */
   shopPause?: ShopPauseControl;
 };
 
 export function PortalShell({ title, children, onRefresh, shopPause }: Props) {
   const { session, logout } = useAuth();
   const location = useLocation();
+  const navigate = useNavigate();
   const { alertMessage, pendingCount, clearAlert } = useOrderAlert();
+  const narrow = useIsNarrow();
   const shopName =
     session?.shopName ??
     (session?.phone ? PILOT_SHOP_NAME_BY_PHONE[session.phone] : undefined) ??
@@ -32,21 +35,15 @@ export function PortalShell({ title, children, onRefresh, shopPause }: Props) {
 
   return (
     <div style={styles.page}>
-      <header style={styles.header}>
+      <header style={{ ...styles.header, ...(narrow ? styles.headerNarrow : null) }}>
         <div style={styles.brandBlock}>
           <div style={styles.topRow}>
             <p style={styles.brand}>HyperLocalMart</p>
             <span style={styles.dot} aria-hidden="true">
               ·
             </span>
-            <p style={styles.shop}>
+            <p style={{ ...styles.shop, ...(narrow ? styles.shopNarrow : null) }}>
               {shopName} · {session?.phone}
-              {pendingCount > 0 ? (
-                <span style={styles.pendingBadge} title="Orders waiting to pack">
-                  {' '}
-                  · {pendingCount} new
-                </span>
-              ) : null}
             </p>
           </div>
           <h1 style={styles.title}>{title}</h1>
@@ -70,26 +67,35 @@ export function PortalShell({ title, children, onRefresh, shopPause }: Props) {
         </div>
         <div style={styles.headerActions}>
           <ThemePicker />
-          <div style={styles.refreshStack}>
-            {onRefresh ? (
-              <Button variant="ghost" size="sm" onClick={onRefresh}>
-                Refresh
-              </Button>
-            ) : null}
-            {shopPause ? (
-              <Button
-                size="sm"
-                variant={shopPause.acceptingOrders ? 'secondary' : 'primary'}
-                disabled={shopPause.busy}
-                onClick={shopPause.onToggle}
-              >
-                {shopPause.busy ? '…' : shopPause.acceptingOrders ? 'Pause shop' : 'Resume shop'}
-              </Button>
-            ) : null}
-          </div>
-          <Button variant="secondary" size="sm" onClick={logout}>
-            Sign out
-          </Button>
+          {onRefresh ? (
+            <HeaderIconButton label="Refresh" onClick={onRefresh}>
+              ↻
+            </HeaderIconButton>
+          ) : null}
+          {pendingCount > 0 ? (
+            <HeaderIconButton
+              label={`${pendingCount} new orders`}
+              tone="accent"
+              onClick={() => {
+                if (location.pathname !== '/dashboard') navigate('/dashboard');
+              }}
+            >
+              {pendingCount > 99 ? '99+' : pendingCount}
+            </HeaderIconButton>
+          ) : null}
+          {shopPause ? (
+            <HeaderIconButton
+              label={shopPause.acceptingOrders ? 'Pause shop' : 'Resume shop'}
+              tone={shopPause.acceptingOrders ? 'neutral' : 'accent'}
+              disabled={shopPause.busy}
+              onClick={shopPause.onToggle}
+            >
+              {shopPause.busy ? '…' : shopPause.acceptingOrders ? '⏸' : '▶'}
+            </HeaderIconButton>
+          ) : null}
+          <HeaderIconButton label="Sign out" onClick={logout}>
+            ⎋
+          </HeaderIconButton>
         </div>
       </header>
 
@@ -142,9 +148,9 @@ const styles: Record<string, CSSProperties> = {
   page: {
     maxWidth: 1120,
     margin: '0 auto',
-    padding: '1rem 1rem 2.5rem',
+    padding: '0.75rem 0.75rem 2rem',
     display: 'grid',
-    gap: '1rem',
+    gap: '0.85rem',
   },
   header: {
     display: 'flex',
@@ -157,8 +163,16 @@ const styles: Record<string, CSSProperties> = {
     borderRadius: 'var(--radius-lg)',
     padding: '0.75rem 1rem',
     boxShadow: 'var(--shadow-card)',
+    position: 'relative',
+    zIndex: 30,
+    overflow: 'visible',
   },
-  brandBlock: { display: 'grid', gap: '0.35rem', minWidth: 0 },
+  headerNarrow: {
+    flexDirection: 'column',
+    padding: '0.65rem 0.75rem',
+    gap: '0.55rem',
+  },
+  brandBlock: { display: 'grid', gap: '0.35rem', minWidth: 0, flex: 1 },
   topRow: {
     display: 'flex',
     alignItems: 'baseline',
@@ -182,34 +196,44 @@ const styles: Record<string, CSSProperties> = {
     overflow: 'hidden',
     textOverflow: 'ellipsis',
   },
-  pendingBadge: { color: 'var(--accent-hover)', fontWeight: 800 },
+  shopNarrow: {
+    whiteSpace: 'normal',
+    overflow: 'visible',
+    textOverflow: 'unset',
+    lineHeight: 1.35,
+  },
   title: {
     margin: 0,
     fontFamily: 'var(--font-display)',
-    fontSize: 'clamp(1.2rem, 2.5vw, 1.45rem)',
+    fontSize: 'clamp(1.15rem, 4vw, 1.45rem)',
     fontWeight: 800,
     letterSpacing: '-0.02em',
   },
-  nav: { display: 'flex', gap: '0.25rem', flexWrap: 'wrap' },
+  nav: { display: 'flex', gap: '0.2rem', flexWrap: 'wrap' },
   navLink: {
     color: 'var(--text-muted)',
     textDecoration: 'none',
     fontWeight: 600,
-    fontSize: '0.85rem',
-    padding: '0.3rem 0.7rem',
+    fontSize: '0.82rem',
+    padding: '0.3rem 0.55rem',
     borderRadius: 'var(--radius-full)',
   },
   navActive: {
     color: 'var(--accent-hover)',
     textDecoration: 'none',
     fontWeight: 700,
-    fontSize: '0.85rem',
-    padding: '0.3rem 0.7rem',
+    fontSize: '0.82rem',
+    padding: '0.3rem 0.55rem',
     borderRadius: 'var(--radius-full)',
     background: 'var(--accent-soft)',
   },
-  headerActions: { display: 'flex', gap: '0.4rem', alignItems: 'flex-start' },
-  refreshStack: { display: 'grid', gap: '0.35rem', justifyItems: 'stretch' },
+  headerActions: {
+    display: 'flex',
+    gap: '0.35rem',
+    alignItems: 'center',
+    flexShrink: 0,
+    flexWrap: 'nowrap',
+  },
   alertBanner: {
     display: 'flex',
     justifyContent: 'space-between',
@@ -217,7 +241,7 @@ const styles: Record<string, CSSProperties> = {
     gap: '0.75rem',
     flexWrap: 'wrap',
   },
-  alertText: { fontWeight: 700 },
+  alertText: { fontWeight: 700, flex: '1 1 12rem' },
   alertActions: { display: 'flex', gap: '0.75rem', alignItems: 'center' },
   alertLink: {
     color: 'inherit',
@@ -233,7 +257,7 @@ const styles: Record<string, CSSProperties> = {
     opacity: 0.9,
     padding: 0,
   },
-  main: { display: 'grid', gap: '1rem' },
+  main: { display: 'grid', gap: '0.85rem', minWidth: 0 },
   footer: {
     color: 'var(--text-muted)',
     fontSize: '0.78rem',

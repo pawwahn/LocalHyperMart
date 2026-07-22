@@ -8,6 +8,7 @@ import org.springframework.web.client.RestClient;
 
 import java.math.BigDecimal;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -15,6 +16,8 @@ import java.util.UUID;
 @Component
 @RequiredArgsConstructor
 public class NotificationClient {
+
+    private static final List<String> CHANNELS = List.of("SMS", "PUSH");
 
     private final RestClient.Builder restClientBuilder;
     private final NotificationServiceProperties notificationServiceProperties;
@@ -31,7 +34,7 @@ public class NotificationClient {
                                      String orderNumber, String reason) {
         Map<String, String> params = new HashMap<>();
         params.put("orderNumber", orderNumber);
-        params.put("reason", reason);
+        params.put("reason", reason == null || reason.isBlank() ? "Cancelled" : reason);
         send("ORDER_CANCELLED", townId, orderId, buyerId, buyerPhone, params);
     }
 
@@ -48,7 +51,7 @@ public class NotificationClient {
                                     String orderNumber, String shopName) {
         Map<String, String> params = new HashMap<>();
         params.put("orderNumber", orderNumber);
-        params.put("shopName", shopName);
+        params.put("shopName", shopName == null || shopName.isBlank() ? "your shop" : shopName);
         send("SUB_ORDER_READY", townId, orderId, buyerId, buyerPhone, params);
     }
 
@@ -56,6 +59,12 @@ public class NotificationClient {
         Map<String, String> params = new HashMap<>();
         params.put("orderNumber", orderNumber);
         send("ORDER_DELIVERED", townId, orderId, buyerId, buyerPhone, params);
+    }
+
+    public void notifyPaymentFailed(UUID townId, UUID orderId, UUID buyerId, String buyerPhone, String orderNumber) {
+        Map<String, String> params = new HashMap<>();
+        params.put("orderNumber", orderNumber);
+        send("PAYMENT_FAILED", townId, orderId, buyerId, buyerPhone, params);
     }
 
     public void notifyItemCancelledStoreCredit(UUID townId, UUID orderId, UUID buyerId, String buyerPhone,
@@ -78,13 +87,46 @@ public class NotificationClient {
         send("ITEM_RESTORED", townId, orderId, buyerId, buyerPhone, params);
     }
 
+    public void notifyClaimOpened(UUID townId, UUID orderId, UUID buyerId, String buyerPhone,
+                                  String orderNumber, String claimType, String itemName) {
+        Map<String, String> params = new HashMap<>();
+        params.put("orderNumber", orderNumber);
+        params.put("claimType", claimType);
+        params.put("itemName", itemName == null || itemName.isBlank() ? "your order" : itemName);
+        send("CLAIM_OPENED", townId, orderId, buyerId, buyerPhone, params);
+    }
+
+    public void notifyClaimResolved(UUID townId, UUID orderId, UUID buyerId, String buyerPhone,
+                                    String orderNumber, BigDecimal amount, String itemName) {
+        Map<String, String> params = new HashMap<>();
+        params.put("orderNumber", orderNumber);
+        params.put("amount", amount == null ? "0" : amount.toPlainString());
+        params.put("itemName", itemName == null || itemName.isBlank() ? "your order" : itemName);
+        send("CLAIM_RESOLVED", townId, orderId, buyerId, buyerPhone, params);
+    }
+
+    public void notifyClaimRejected(UUID townId, UUID orderId, UUID buyerId, String buyerPhone,
+                                    String orderNumber, String reason) {
+        Map<String, String> params = new HashMap<>();
+        params.put("orderNumber", orderNumber);
+        params.put("reason", reason == null || reason.isBlank() ? "Not eligible" : reason);
+        send("CLAIM_REJECTED", townId, orderId, buyerId, buyerPhone, params);
+    }
+
     private void send(String eventCode, UUID townId, UUID orderId, UUID recipientUserId,
                       String recipientPhone, Map<String, String> params) {
+        for (String channel : CHANNELS) {
+            sendChannel(eventCode, channel, townId, orderId, recipientUserId, recipientPhone, params);
+        }
+    }
+
+    private void sendChannel(String eventCode, String channel, UUID townId, UUID orderId, UUID recipientUserId,
+                             String recipientPhone, Map<String, String> params) {
         try {
             RestClient client = restClientBuilder.baseUrl(notificationServiceProperties.getBaseUrl()).build();
             Map<String, Object> body = new HashMap<>();
             body.put("eventCode", eventCode);
-            body.put("channel", "SMS");
+            body.put("channel", channel);
             body.put("townId", townId);
             body.put("orderId", orderId);
             body.put("recipientUserId", recipientUserId);
@@ -96,7 +138,7 @@ public class NotificationClient {
                     .retrieve()
                     .toBodilessEntity();
         } catch (Exception ex) {
-            log.warn("Notification {} failed for order {}: {}", eventCode, orderId, ex.getMessage());
+            log.warn("Notification {}/{} failed for order {}: {}", eventCode, channel, orderId, ex.getMessage());
         }
     }
 }

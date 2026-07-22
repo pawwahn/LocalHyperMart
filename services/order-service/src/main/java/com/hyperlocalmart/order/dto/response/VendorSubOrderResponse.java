@@ -21,6 +21,7 @@ public class VendorSubOrderResponse {
     private UUID shopId;
     private VendorSubOrderStatus status;
     private BigDecimal subtotal;
+    private Instant placedAt;
     private Instant readyForPickupAt;
     private List<OrderItemDetailResponse> items;
 }

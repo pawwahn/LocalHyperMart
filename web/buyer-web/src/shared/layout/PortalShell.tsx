@@ -1,6 +1,6 @@
 import type { CSSProperties, ReactNode } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { ThemePicker } from '@hlm-theme';
+import { HeaderIconButton, ThemePicker } from '@hlm-theme';
 import { useAuth } from '@/shared/auth/AuthContext';
 import { useTown } from '@/shared/town/TownContext';
 import { useWallet } from '@/features/shop/hooks/useWallet';
@@ -74,6 +74,16 @@ export function PortalShell({
           <div style={styles.headerActions}>
             {session ? (
               <Link
+                to="/alerts"
+                style={styles.alertsChip}
+                title="Order alerts"
+                aria-label="Order alerts"
+              >
+                Alerts
+              </Link>
+            ) : null}
+            {session ? (
+              <Link
                 to="/wallet"
                 style={styles.walletChip}
                 title="Your store credit wallet"
@@ -83,16 +93,16 @@ export function PortalShell({
                 <span style={styles.walletChipAmt}>₹{walletBalance.toFixed(0)}</span>
               </Link>
             ) : null}
-            {session ? <ThemePicker compact /> : null}
+            {session ? <ThemePicker /> : null}
             {onRefresh ? (
-              <button type="button" style={styles.iconBtn} onClick={onRefresh} aria-label="Refresh">
+              <HeaderIconButton label="Refresh" onClick={onRefresh}>
                 ↻
-              </button>
+              </HeaderIconButton>
             ) : null}
             {session ? (
-              <button type="button" style={styles.avatarBtn} onClick={logout} title="Sign out">
+              <HeaderIconButton label="Sign out" onClick={logout}>
                 {(session.phone ?? 'B').slice(-2)}
-              </button>
+              </HeaderIconButton>
             ) : (
               <Link to="/login" style={styles.signIn}>
                 Login
@@ -247,6 +257,18 @@ const styles: Record<string, CSSProperties> = {
     background: 'color-mix(in srgb, var(--accent) 10%, var(--bg-elevated))',
     textDecoration: 'none',
     color: 'var(--text)',
+  },
+  alertsChip: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    padding: '0.35rem 0.65rem',
+    borderRadius: 'var(--radius-full)',
+    border: '1px solid var(--border)',
+    background: 'var(--bg-elevated)',
+    textDecoration: 'none',
+    color: 'var(--text)',
+    fontSize: '0.78rem',
+    fontWeight: 800,
   },
   walletChipLabel: {
     fontSize: '0.68rem',

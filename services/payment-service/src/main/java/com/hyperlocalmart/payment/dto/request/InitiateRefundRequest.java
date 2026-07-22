@@ -12,7 +12,7 @@ public class InitiateRefundRequest {
     @NotNull
     private UUID orderId;
 
-    @NotNull
+    /** Optional — payment-service always refunds the SUCCESS capture amount. */
     private BigDecimal amount;
 
     private String reason;

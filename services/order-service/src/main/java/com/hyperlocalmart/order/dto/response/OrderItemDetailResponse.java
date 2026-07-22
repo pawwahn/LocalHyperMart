@@ -22,4 +22,8 @@ public class OrderItemDetailResponse {
     private String cancelReason;
     private Instant cancelledAt;
     private BigDecimal storeCreditAmount;
+    /** True when buyer may cancel this line (shop still PLACED). */
+    private boolean canCancel;
+    /** True when buyer may file a claim on this delivered line. */
+    private boolean canFileClaim;
 }

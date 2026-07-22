@@ -1,22 +1,58 @@
-import { useEffect, useId, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import { ACCENT_PRESETS } from './presets';
 import { useTheme } from './ThemeContext';
 
 type Props = {
-  /** Compact icon control for mobile headers */
+  /** Compact circular icon (default). Pass false for a text “Theme” pill. */
   compact?: boolean;
 };
 
-export function ThemePicker({ compact = false }: Props) {
+type PanelPos = { top: number; left: number };
+
+export function ThemePicker({ compact = true }: Props) {
   const { preference, setMode, setAccent } = useTheme();
   const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState<PanelPos>({ top: 0, left: 0 });
   const rootRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   const panelId = useId();
+
+  useLayoutEffect(() => {
+    if (!open || !rootRef.current) return;
+
+    function place() {
+      const trigger = rootRef.current?.getBoundingClientRect();
+      if (!trigger) return;
+      const panelW = panelRef.current?.offsetWidth || 240;
+      const panelH = panelRef.current?.offsetHeight || 220;
+      const gap = 8;
+      let left = trigger.right - panelW;
+      left = Math.min(Math.max(8, left), window.innerWidth - panelW - 8);
+      let top = trigger.bottom + gap;
+      if (top + panelH > window.innerHeight - 8) {
+        top = Math.max(8, trigger.top - panelH - gap);
+      }
+      setPos((prev) => (prev.top === top && prev.left === left ? prev : { top, left }));
+    }
+
+    place();
+    // Re-measure after paint so panel size is accurate.
+    const raf = window.requestAnimationFrame(place);
+    window.addEventListener('resize', place);
+    window.addEventListener('scroll', place, true);
+    return () => {
+      window.cancelAnimationFrame(raf);
+      window.removeEventListener('resize', place);
+      window.removeEventListener('scroll', place, true);
+    };
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
     function onDoc(e: MouseEvent) {
-      if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
+      const t = e.target as Node;
+      if (rootRef.current?.contains(t)) return;
+      setOpen(false);
     }
     function onKey(e: KeyboardEvent) {
       if (e.key === 'Escape') setOpen(false);
@@ -43,7 +79,17 @@ export function ThemePicker({ compact = false }: Props) {
         {compact ? '◐' : 'Theme'}
       </button>
       {open ? (
-        <div id={panelId} role="dialog" aria-label="Choose theme" style={styles.panel}>
+        <div
+          ref={panelRef}
+          id={panelId}
+          role="dialog"
+          aria-label="Choose theme"
+          style={{
+            ...styles.panel,
+            top: pos.top,
+            left: pos.left,
+          }}
+        >
           <p style={styles.heading}>Appearance</p>
           <div style={styles.modeRow}>
             <button
@@ -76,8 +122,9 @@ export function ThemePicker({ compact = false }: Props) {
                   style={{
                     ...styles.swatch,
                     background: preset.accent,
-                    outline: active ? `2px solid ${preset.accentHover}` : '2px solid transparent',
-                    boxShadow: active ? `0 0 0 2px var(--bg-elevated), 0 0 0 4px ${preset.accent}` : 'none',
+                    boxShadow: active
+                      ? `0 0 0 2px var(--bg-elevated, #fff), 0 0 0 4px ${preset.accent}`
+                      : '0 0 0 1px rgba(15, 23, 20, 0.2)',
                   }}
                 />
               );
@@ -108,27 +155,29 @@ const styles: Record<string, CSSProperties> = {
   triggerCompact: {
     width: 36,
     height: 36,
+    minWidth: 36,
+    minHeight: 36,
     border: '1px solid var(--border)',
-    background: 'var(--bg-muted)',
+    background: 'var(--bg-elevated, var(--bg-muted))',
     color: 'var(--text)',
-    borderRadius: 'var(--radius-full)',
+    borderRadius: '999px',
     fontSize: '1rem',
     fontWeight: 700,
     cursor: 'pointer',
     display: 'grid',
     placeItems: 'center',
+    padding: 0,
+    boxSizing: 'border-box',
   },
   panel: {
-    position: 'absolute',
-    right: 0,
-    top: 'calc(100% + 0.4rem)',
-    width: 220,
+    position: 'fixed',
+    width: 240,
     background: 'var(--bg-elevated)',
     border: '1px solid var(--border)',
     borderRadius: 'var(--radius-lg)',
-    boxShadow: 'var(--shadow-soft)',
-    padding: '0.75rem',
-    zIndex: 80,
+    boxShadow: 'var(--shadow-elevated, 0 12px 40px rgba(15, 23, 20, 0.18))',
+    padding: '0.85rem',
+    zIndex: 5000,
     display: 'grid',
     gap: '0.55rem',
   },
@@ -163,12 +212,13 @@ const styles: Record<string, CSSProperties> = {
   },
   swatches: {
     display: 'grid',
-    gridTemplateColumns: 'repeat(7, 1fr)',
-    gap: '0.35rem',
+    gridTemplateColumns: 'repeat(auto-fill, minmax(28px, 1fr))',
+    gap: '0.45rem',
+    justifyItems: 'center',
   },
   swatch: {
-    width: 22,
-    height: 22,
+    width: 28,
+    height: 28,
     borderRadius: '999px',
     border: 'none',
     cursor: 'pointer',

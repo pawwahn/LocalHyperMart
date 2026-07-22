@@ -118,7 +118,7 @@ export function useVendorOrders() {
     setError(null);
     try {
       await rejectSubOrder(session.accessToken, session.vendorId, id, reason);
-      setNotice('Order rejected.');
+      setNotice('Your items rejected. Buyer credited (or refunded if this was the last shop).');
       await reload();
       return true;
     } catch (err) {

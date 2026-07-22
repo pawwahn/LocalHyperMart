@@ -74,6 +74,8 @@ export type OrderItemDetailDto = {
   cancelReason?: string;
   cancelledAt?: string;
   storeCreditAmount?: number;
+  canCancel?: boolean;
+  canFileClaim?: boolean;
 };
 
 export type OrderTimelineStepDto = {
@@ -100,6 +102,32 @@ export type OrderDetailDto = {
   items: OrderItemDetailDto[];
   invoicePdfUrl?: string | null;
   timeline?: OrderTimelineStepDto[];
+  canCancelOrder?: boolean;
+  canFileClaim?: boolean;
+};
+
+export type ClaimType = 'WRONG_ITEM' | 'MISSING' | 'DAMAGED';
+export type ClaimStatus = 'OPEN' | 'RESOLVED' | 'REJECTED';
+export type ClaimResolution = 'WALLET_CREDIT' | 'NONE';
+
+export type ClaimDto = {
+  claimId: string;
+  orderId: string;
+  orderNumber?: string | null;
+  orderItemId?: string | null;
+  itemName?: string | null;
+  shopName?: string | null;
+  quantity?: number | null;
+  unitCode?: string | null;
+  suggestedCreditAmount?: number | null;
+  claimType: ClaimType;
+  status: ClaimStatus;
+  reason: string;
+  resolution?: ClaimResolution | null;
+  resolvedAmount?: number | null;
+  resolutionNote?: string | null;
+  createdAt?: string;
+  resolvedAt?: string | null;
 };
 
 export type WalletBalanceDto = {
@@ -331,6 +359,47 @@ export async function listMyOrders(token: string, townId: string): Promise<Order
 
 export async function fetchOrderDetail(token: string, orderId: string): Promise<OrderDetailDto> {
   return apiRequest<OrderDetailDto>(`/api/v1/orders/${orderId}`, { token });
+}
+
+export async function cancelOrder(
+  token: string,
+  orderId: string,
+  reason: string,
+): Promise<OrderDetailDto> {
+  return apiRequest<OrderDetailDto>(`/api/v1/orders/${orderId}/cancel`, {
+    method: 'POST',
+    token,
+    body: { reason },
+  });
+}
+
+export async function cancelOrderItem(
+  token: string,
+  orderId: string,
+  itemId: string,
+  reason: string,
+): Promise<OrderDetailDto> {
+  return apiRequest<OrderDetailDto>(`/api/v1/orders/${orderId}/items/${itemId}/cancel`, {
+    method: 'POST',
+    token,
+    body: { reason },
+  });
+}
+
+export async function fetchOrderClaims(token: string, orderId: string): Promise<ClaimDto[]> {
+  return apiRequest<ClaimDto[]>(`/api/v1/orders/${orderId}/claims`, { token });
+}
+
+export async function createOrderClaim(
+  token: string,
+  orderId: string,
+  body: { claimType: ClaimType; orderItemId: string; reason: string },
+): Promise<ClaimDto> {
+  return apiRequest<ClaimDto>(`/api/v1/orders/${orderId}/claims`, {
+    method: 'POST',
+    token,
+    body,
+  });
 }
 
 export async function fetchWalletBalance(token: string): Promise<WalletBalanceDto> {

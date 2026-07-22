@@ -306,6 +306,9 @@ public class OrderService {
                 .changedByRole("SYSTEM")
                 .note(request.getReason())
                 .build());
+        notificationClient.notifyPaymentFailed(
+                order.getTownId(), order.getId(), order.getBuyerId(), order.getBuyerPhoneSnapshot(),
+                order.getOrderNumber());
     }
 
     private CreateOrderResponse createOrderInternal(UUID buyerId, String buyerPhone, String idempotencyKey, CreateOrderRequest request) {
@@ -463,8 +466,25 @@ public class OrderService {
 
     private OrderDetailResponse toDetail(Order order) {
         List<OrderItemDetailResponse> items = new ArrayList<>();
+        boolean orderPlaced = order.getStatus() == OrderStatus.PLACED;
+        boolean unpaidCancellable = order.getStatus() == OrderStatus.PAYMENT_PENDING
+                || order.getStatus() == OrderStatus.PAYMENT_FAILED;
+        boolean anyShopPastPlaced = order.getVendorSubOrders() != null && order.getVendorSubOrders().stream()
+                .anyMatch(s -> s.getStatus() != VendorSubOrderStatus.PLACED
+                        && s.getStatus() != VendorSubOrderStatus.VENDOR_REJECTED);
+        boolean hasActiveItems = false;
+
         for (VendorSubOrder subOrder : order.getVendorSubOrders()) {
+            boolean subCancellable = orderPlaced && subOrder.getStatus() == VendorSubOrderStatus.PLACED;
             for (OrderItem item : subOrder.getItems()) {
+                OrderItemStatus itemStatus = item.getStatus() == null ? OrderItemStatus.ACTIVE : item.getStatus();
+                boolean active = itemStatus == OrderItemStatus.ACTIVE;
+                if (active) {
+                    hasActiveItems = true;
+                }
+                boolean claimable = order.getStatus() == OrderStatus.DELIVERED
+                        && OrderClaimService.withinClaimWindow(order)
+                        && active;
                 items.add(OrderItemDetailResponse.builder()
                         .orderItemId(item.getId())
                         .name(item.getItemNameSnapshot())
@@ -472,14 +492,20 @@ public class OrderService {
                         .unitCode(item.getUnitCodeSnapshot())
                         .quantity(item.getQuantity())
                         .lineTotal(item.getLineTotal())
-                        .status(item.getStatus() == null ? OrderItemStatus.ACTIVE : item.getStatus())
+                        .status(itemStatus)
                         .cancelReason(item.getCancelReason())
                         .cancelledAt(item.getCancelledAt())
                         .storeCreditAmount(item.getStoreCreditAmount())
+                        .canCancel(subCancellable && active)
+                        .canFileClaim(claimable)
                         .build());
             }
         }
         List<DeliveryClient.OrderAssignment> assignments = deliveryClient.getAssignmentsForOrder(order.getId());
+        boolean canCancelOrder = (unpaidCancellable && hasActiveItems)
+                || (orderPlaced && !anyShopPastPlaced && hasActiveItems);
+        boolean canFileClaim = order.getStatus() == OrderStatus.DELIVERED
+                && OrderClaimService.withinClaimWindow(order);
         return OrderDetailResponse.builder()
                 .orderId(order.getId())
                 .orderNumber(order.getOrderNumber())
@@ -496,6 +522,8 @@ public class OrderService {
                 .items(items)
                 .invoicePdfUrl(orderInvoiceService.invoicePdfUrl(order))
                 .timeline(buildTimeline(order, assignments))
+                .canCancelOrder(canCancelOrder)
+                .canFileClaim(canFileClaim)
                 .build();
     }
 

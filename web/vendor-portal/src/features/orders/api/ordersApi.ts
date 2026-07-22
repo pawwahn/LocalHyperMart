@@ -33,6 +33,7 @@ export type SubOrderDto = {
   shopId: string;
   status: SubOrderStatus;
   subtotal: number;
+  placedAt?: string | null;
   readyForPickupAt?: string | null;
   items?: SubOrderItemDto[];
 };
@@ -80,6 +81,8 @@ export type SubOrderView = {
   orderNumber: string;
   status: SubOrderStatus;
   subtotalLabel: string;
+  placedAt?: string;
+  placedAtLabel: string;
   itemSummary: string;
   items: SubOrderItemView[];
 };
@@ -99,6 +102,29 @@ export type DashboardView = {
 function money(value: number | undefined | null): string {
   const n = Number(value ?? 0);
   return `₹${n.toFixed(2)}`;
+}
+
+/** Vendor-facing clock time for packing priority (local timezone). */
+export function formatPlacedAt(iso?: string | null): string {
+  if (!iso) return 'Time unavailable';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return 'Time unavailable';
+  const now = new Date();
+  const sameDay =
+    d.getFullYear() === now.getFullYear() &&
+    d.getMonth() === now.getMonth() &&
+    d.getDate() === now.getDate();
+  const time = d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  if (sameDay) return `Today ${time}`;
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  const isYesterday =
+    d.getFullYear() === yesterday.getFullYear() &&
+    d.getMonth() === yesterday.getMonth() &&
+    d.getDate() === yesterday.getDate();
+  if (isYesterday) return `Yesterday ${time}`;
+  const date = d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+  return `${date}, ${time}`;
 }
 
 function toItemView(item: SubOrderItemDto, subOrderStatus: SubOrderStatus): SubOrderItemView | null {
@@ -145,6 +171,8 @@ export function toSubOrderView(dto: SubOrderDto): SubOrderView {
     orderNumber: dto.orderNumber,
     status: dto.status,
     subtotalLabel: money(dto.subtotal),
+    placedAt: dto.placedAt ?? undefined,
+    placedAtLabel: formatPlacedAt(dto.placedAt),
     itemSummary,
     items,
   };
@@ -163,6 +191,8 @@ export function toDashboardView(dto: DashboardDto): DashboardView {
     orderNumber: r.orderNumber,
     status: r.status,
     subtotalLabel: money(r.subtotal),
+    placedAt: r.placedAt,
+    placedAtLabel: formatPlacedAt(r.placedAt),
     itemSummary: `${r.itemCount ?? 0} item(s)`,
     items: [] as SubOrderItemView[],
   }));
@@ -198,6 +228,18 @@ export async function fetchSubOrders(
     vendorId,
   });
   return (data.items ?? []).map(toSubOrderView);
+}
+
+export async function fetchSubOrder(
+  token: string,
+  vendorId: string,
+  subOrderId: string,
+): Promise<SubOrderView> {
+  const data = await apiRequest<SubOrderDto>(`/api/v1/orders/vendor/sub-orders/${subOrderId}`, {
+    token,
+    vendorId,
+  });
+  return toSubOrderView(data);
 }
 
 export async function markSubOrderReady(

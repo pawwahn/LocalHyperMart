@@ -31,4 +31,8 @@ public class OrderDetailResponse {
     private List<OrderItemDetailResponse> items;
     private String invoicePdfUrl;
     private List<OrderTimelineStepResponse> timeline;
+    /** True when buyer may cancel the whole order (before any shop marks ready). */
+    private boolean canCancelOrder;
+    /** True when buyer may file a post-delivery claim (delivered, within window). */
+    private boolean canFileClaim;
 }

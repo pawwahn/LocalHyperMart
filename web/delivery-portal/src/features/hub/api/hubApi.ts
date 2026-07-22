@@ -247,6 +247,54 @@ export async function fetchAdminOrderDetail(
   });
 }
 
+export type ClaimDto = {
+  claimId: string;
+  orderId: string;
+  orderNumber?: string | null;
+  orderItemId?: string | null;
+  itemName?: string | null;
+  shopName?: string | null;
+  quantity?: number | null;
+  unitCode?: string | null;
+  suggestedCreditAmount?: number | null;
+  buyerId: string;
+  townId: string;
+  claimType: string;
+  status: string;
+  reason: string;
+  resolution?: string | null;
+  resolvedAmount?: number | null;
+  resolutionNote?: string | null;
+  createdAt?: string;
+  resolvedAt?: string | null;
+};
+
+export async function fetchHubClaims(
+  token: string,
+  townId: string,
+  options?: { page?: number; size?: number; status?: string },
+): Promise<PageData<ClaimDto>> {
+  const page = options?.page ?? 0;
+  const size = options?.size ?? 20;
+  const statusQ = options?.status ? `&status=${encodeURIComponent(options.status)}` : '';
+  return apiRequest<PageData<ClaimDto>>(
+    `/api/v1/orders/admin/claims?townId=${townId}&page=${page}&size=${size}${statusQ}`,
+    { token },
+  );
+}
+
+export async function resolveHubClaim(
+  token: string,
+  townId: string,
+  claimId: string,
+  body: { resolution: 'WALLET_CREDIT' | 'NONE'; amount?: number; note?: string },
+): Promise<ClaimDto> {
+  return apiRequest<ClaimDto>(
+    `/api/v1/orders/admin/claims/${claimId}/resolve?townId=${townId}`,
+    { method: 'POST', token, body },
+  );
+}
+
 export async function assignPickup(
   token: string,
   vendorSubOrderId: string,

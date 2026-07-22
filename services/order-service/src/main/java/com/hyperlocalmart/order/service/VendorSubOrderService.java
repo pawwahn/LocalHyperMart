@@ -37,6 +37,7 @@ public class VendorSubOrderService {
     private final OrderStatusHistoryRepository orderStatusHistoryRepository;
     private final PaymentClient paymentClient;
     private final NotificationClient notificationClient;
+    private final OrderMoneyUnwindService orderMoneyUnwindService;
 
     @Transactional(readOnly = true)
     public PageResponse<VendorSubOrderResponse> listSubOrders(UUID vendorId, VendorSubOrderStatus status, int page, int size) {
@@ -92,6 +93,11 @@ public class VendorSubOrderService {
         return toResponse(subOrder);
     }
 
+    /**
+     * Reject this shop's bag only. Sibling shops keep packing / stay ready.
+     * Buyer gets wallet credit for this shop's active lines (or a full money unwind
+     * if this was the last remaining shop).
+     */
     @Transactional
     public VendorSubOrderResponse reject(UUID vendorId, UUID subOrderId, UUID actorUserId, RejectSubOrderRequest request) {
         VendorSubOrder subOrder = loadForVendorAction(vendorId, subOrderId);
@@ -100,29 +106,34 @@ public class VendorSubOrderService {
         }
 
         Order order = subOrder.getOrder();
-        if (order.getStatus() == OrderStatus.CANCELLED) {
-            throw new BusinessException(ErrorCode.CONFLICT, "Order already cancelled");
+        if (order.getStatus() == OrderStatus.CANCELLED || order.getStatus() == OrderStatus.DELIVERED) {
+            throw new BusinessException(ErrorCode.CONFLICT, "Order cannot be modified");
         }
 
-        OrderStatus priorStatus = order.getStatus();
+        List<OrderItem> toCancel = subOrder.getItems().stream()
+                .filter(i -> i.getStatus() == null || i.getStatus() == OrderItemStatus.ACTIVE)
+                .toList();
+        if (toCancel.isEmpty()) {
+            throw new BusinessException(ErrorCode.CONFLICT, "No active items left to reject");
+        }
+
+        BigDecimal shopCredit = BigDecimal.ZERO;
+        for (OrderItem item : toCancel) {
+            BigDecimal creditAmount = item.getLineTotal();
+            item.setStatus(OrderItemStatus.CANCELLED);
+            item.setCancelReason(request.getReason());
+            item.setCancelledAt(Instant.now());
+            item.setCancelledBy(actorUserId);
+            item.setStoreCreditAmount(creditAmount);
+            shopCredit = shopCredit.add(creditAmount);
+        }
+
         subOrder.setStatus(VendorSubOrderStatus.VENDOR_REJECTED);
         subOrder.setRejectReason(request.getReason());
 
-        for (VendorSubOrder sibling : order.getVendorSubOrders()) {
-            if (sibling.getStatus() == VendorSubOrderStatus.PLACED) {
-                sibling.setStatus(VendorSubOrderStatus.VENDOR_REJECTED);
-            }
-        }
-
-        order.setStatus(OrderStatus.CANCELLED);
-        order.setCancelReason(request.getReason());
-        order.setCancelledAt(Instant.now());
-        if (order.getPaymentStatus() == PaymentStatus.PAID && order.getPaymentMethod() == PaymentMethod.ONLINE) {
-            order.setPaymentStatus(PaymentStatus.REFUNDED);
-            paymentClient.initiateRefund(order.getId(), order.getBuyerId(), order.getTotalAmount(), request.getReason());
-        }
-
-        orderRepository.save(order);
+        vendorSubOrderRepository.saveAndFlush(subOrder);
+        orderRepository.saveAndFlush(order);
+        recalculateTotals(subOrder, order);
 
         orderStatusHistoryRepository.save(OrderStatusHistory.builder()
                 .orderId(order.getId())
@@ -131,24 +142,81 @@ public class VendorSubOrderService {
                 .toStatus(VendorSubOrderStatus.VENDOR_REJECTED.name())
                 .changedBy(actorUserId)
                 .changedByRole("VENDOR")
-                .note(request.getReason())
-                .build());
-        orderStatusHistoryRepository.save(OrderStatusHistory.builder()
-                .orderId(order.getId())
-                .fromStatus(priorStatus.name())
-                .toStatus(OrderStatus.CANCELLED.name())
-                .changedBy(actorUserId)
-                .changedByRole("VENDOR")
-                .note("Vendor rejected: " + request.getReason())
+                .note("Shop rejected: " + request.getReason())
                 .build());
 
-        notificationClient.notifyOrderCancelled(
-                order.getTownId(), order.getId(), order.getBuyerId(), order.getBuyerPhoneSnapshot(),
-                order.getOrderNumber(), request.getReason());
-        if (order.getPaymentMethod() == PaymentMethod.ONLINE && order.getPaymentStatus() == PaymentStatus.REFUNDED) {
-            notificationClient.notifyRefundInitiated(
+        BigDecimal remainingActive = orderItemRepository.sumActiveLineTotalsForOrder(order.getId());
+        boolean orderEmpty = remainingActive == null || remainingActive.compareTo(BigDecimal.ZERO) == 0;
+        if (orderEmpty) {
+            // These lines were never wallet-credited — clear markers so unwind does not
+            // debit the buyer for them. Only earlier shops' item credits get reversed.
+            for (OrderItem item : toCancel) {
+                item.setStoreCreditAmount(null);
+            }
+
+            OrderStatus prior = order.getStatus();
+            order.setStatus(OrderStatus.CANCELLED);
+            order.setCancelReason(request.getReason());
+            order.setCancelledAt(Instant.now());
+            orderStatusHistoryRepository.save(OrderStatusHistory.builder()
+                    .orderId(order.getId())
+                    .fromStatus(prior.name())
+                    .toStatus(OrderStatus.CANCELLED.name())
+                    .changedBy(actorUserId)
+                    .changedByRole("VENDOR")
+                    .note("Vendor rejected last shop: " + request.getReason())
+                    .build());
+
+            OrderMoneyUnwindService.UnwindResult unwind =
+                    orderMoneyUnwindService.unwindCancelledOrder(order, request.getReason());
+            orderRepository.save(order);
+            vendorSubOrderRepository.save(subOrder);
+
+            notificationClient.notifyOrderCancelled(
                     order.getTownId(), order.getId(), order.getBuyerId(), order.getBuyerPhoneSnapshot(),
-                    order.getOrderNumber(), order.getTotalAmount(), 5);
+                    order.getOrderNumber(), request.getReason());
+            if (unwind.gatewayRefunded()) {
+                notificationClient.notifyRefundInitiated(
+                        order.getTownId(), order.getId(), order.getBuyerId(), order.getBuyerPhoneSnapshot(),
+                        order.getOrderNumber(), unwind.gatewayRefundAmount(), 5);
+            }
+            return toResponse(subOrder);
+        }
+
+        orderRepository.save(order);
+        vendorSubOrderRepository.save(subOrder);
+
+        BigDecimal balance;
+        try {
+            balance = paymentClient.creditWallet(
+                    order.getBuyerId(),
+                    shopCredit,
+                    "ORDER_ITEM_CANCEL",
+                    UUID.randomUUID(),
+                    order.getId(),
+                    toCancel.get(0).getId(),
+                    "Shop rejected: " + request.getReason());
+        } catch (RuntimeException ex) {
+            log.error("Wallet credit failed while rejecting shop {}", subOrderId, ex);
+            throw new BusinessException(ErrorCode.INTERNAL_ERROR,
+                    "Could not credit buyer wallet. Try again in a moment.");
+        }
+
+        String shopLabel = toCancel.get(0).getShopNameSnapshot() != null
+                ? toCancel.get(0).getShopNameSnapshot()
+                : "a shop";
+        try {
+            notificationClient.notifyItemCancelledStoreCredit(
+                    order.getTownId(),
+                    order.getId(),
+                    order.getBuyerId(),
+                    order.getBuyerPhoneSnapshot(),
+                    order.getOrderNumber(),
+                    shopLabel + " items",
+                    shopCredit,
+                    balance);
+        } catch (RuntimeException ex) {
+            log.warn("Reject notification failed for sub-order {}: {}", subOrderId, ex.toString());
         }
 
         return toResponse(subOrder);
@@ -221,6 +289,25 @@ public class VendorSubOrderService {
                     .changedByRole("VENDOR")
                     .note("All items cancelled: " + request.getReason())
                     .build());
+
+            OrderMoneyUnwindService.UnwindResult unwind =
+                    orderMoneyUnwindService.unwindCancelledOrder(order, request.getReason(), itemId);
+            orderRepository.save(order);
+            vendorSubOrderRepository.save(subOrder);
+
+            notificationClient.notifyOrderCancelled(
+                    order.getTownId(),
+                    order.getId(),
+                    order.getBuyerId(),
+                    order.getBuyerPhoneSnapshot(),
+                    order.getOrderNumber(),
+                    request.getReason());
+            if (unwind.gatewayRefunded()) {
+                notificationClient.notifyRefundInitiated(
+                        order.getTownId(), order.getId(), order.getBuyerId(), order.getBuyerPhoneSnapshot(),
+                        order.getOrderNumber(), unwind.gatewayRefundAmount(), 5);
+            }
+            return toResponse(subOrder);
         }
 
         orderRepository.save(order);
@@ -232,7 +319,7 @@ public class VendorSubOrderService {
                     order.getBuyerId(),
                     creditAmount,
                     "ORDER_ITEM_CANCEL",
-                    item.getId(),
+                    UUID.randomUUID(),
                     order.getId(),
                     item.getId(),
                     "Item cancelled: " + item.getItemNameSnapshot());
@@ -350,7 +437,7 @@ public class VendorSubOrderService {
                     order.getBuyerId(),
                     creditAmount,
                     "ORDER_ITEM_RESTORE",
-                    item.getId(),
+                    UUID.randomUUID(),
                     order.getId(),
                     "Item restored: " + item.getItemNameSnapshot());
         } catch (RuntimeException ex) {
@@ -410,7 +497,14 @@ public class VendorSubOrderService {
         order.setItemsSubtotal(newItemsSubtotal);
         BigDecimal promo = order.getPromoDiscount() == null ? BigDecimal.ZERO : order.getPromoDiscount();
         BigDecimal payableItems = newItemsSubtotal.subtract(promo).max(BigDecimal.ZERO);
-        BigDecimal newTotal = payableItems.add(order.getDeliveryFee() == null ? BigDecimal.ZERO : order.getDeliveryFee());
+        boolean empty = newItemsSubtotal.compareTo(BigDecimal.ZERO) == 0;
+        BigDecimal delivery = empty
+                ? BigDecimal.ZERO
+                : (order.getDeliveryFee() == null ? BigDecimal.ZERO : order.getDeliveryFee());
+        if (empty) {
+            order.setDeliveryFee(BigDecimal.ZERO);
+        }
+        BigDecimal newTotal = payableItems.add(delivery);
         BigDecimal creditApplied = order.getStoreCreditApplied() == null ? BigDecimal.ZERO : order.getStoreCreditApplied();
         order.setTotalAmount(newTotal.subtract(creditApplied).max(BigDecimal.ZERO));
     }
@@ -433,6 +527,7 @@ public class VendorSubOrderService {
                 .shopId(subOrder.getShopId())
                 .status(subOrder.getStatus())
                 .subtotal(subOrder.getSubtotal())
+                .placedAt(subOrder.getOrder().getPlacedAt())
                 .readyForPickupAt(subOrder.getReadyForPickupAt())
                 .items(items)
                 .build();

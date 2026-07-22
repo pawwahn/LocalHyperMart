@@ -2,8 +2,14 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAuth } from '@/shared/auth/AuthContext';
 import { ApiError } from '@/shared/api/http';
 import {
+  cancelOrder,
+  cancelOrderItem,
+  createOrderClaim,
   downloadOrderInvoice,
+  fetchOrderClaims,
   fetchOrderDetail,
+  type ClaimDto,
+  type ClaimType,
   type OrderDetailDto,
   type OrderSummaryDto,
 } from '../api/shopApi';
@@ -70,10 +76,27 @@ export function useOrderDetail(orderId: string | undefined, preview?: OrderDetai
   const [invoiceBusy, setInvoiceBusy] = useState(false);
   const [invoiceError, setInvoiceError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [cancelBusy, setCancelBusy] = useState(false);
+  const [claims, setClaims] = useState<ClaimDto[]>([]);
+  const [claimBusy, setClaimBusy] = useState(false);
+
+  const reloadClaims = useCallback(async () => {
+    if (!session || !orderId) {
+      setClaims([]);
+      return;
+    }
+    try {
+      const data = await fetchOrderClaims(session.accessToken, orderId);
+      setClaims(data);
+    } catch {
+      /* claims are secondary — detail page still works */
+    }
+  }, [session, orderId]);
 
   const reload = useCallback(async () => {
     if (!session || !orderId) {
       setOrder(null);
+      setClaims([]);
       setLoading(false);
       setRefreshing(false);
       setError(!session ? 'Sign in to view this order.' : 'Order not found.');
@@ -102,6 +125,7 @@ export function useOrderDetail(orderId: string | undefined, preview?: OrderDetai
       }
       detailCache.set(key, data);
       setOrder(data);
+      void reloadClaims();
     } catch (err) {
       if (!hasSeed) setOrder(null);
       setError(err instanceof ApiError || err instanceof Error ? err.message : 'Failed to load order');
@@ -109,7 +133,7 @@ export function useOrderDetail(orderId: string | undefined, preview?: OrderDetai
       setLoading(false);
       setRefreshing(false);
     }
-  }, [session, orderId]);
+  }, [session, orderId, reloadClaims]);
 
   useEffect(() => {
     void reload();
@@ -136,14 +160,66 @@ export function useOrderDetail(orderId: string | undefined, preview?: OrderDetai
     }
   }
 
+  async function cancelWholeOrder(reason: string): Promise<OrderDetailDto> {
+    if (!session || !orderId) throw new Error('Not signed in');
+    setCancelBusy(true);
+    try {
+      const data = await cancelOrder(session.accessToken, orderId, reason);
+      detailCache.set(cacheKey(orderId), data);
+      setOrder(data);
+      return data;
+    } finally {
+      setCancelBusy(false);
+    }
+  }
+
+  async function cancelItem(itemId: string, reason: string): Promise<OrderDetailDto> {
+    if (!session || !orderId) throw new Error('Not signed in');
+    setCancelBusy(true);
+    try {
+      const data = await cancelOrderItem(session.accessToken, orderId, itemId, reason);
+      detailCache.set(cacheKey(orderId), data);
+      setOrder(data);
+      return data;
+    } finally {
+      setCancelBusy(false);
+    }
+  }
+
+  async function fileClaim(
+    claimType: ClaimType,
+    reason: string,
+    orderItemId: string,
+  ): Promise<ClaimDto> {
+    if (!session || !orderId) throw new Error('Not signed in');
+    setClaimBusy(true);
+    try {
+      const claim = await createOrderClaim(session.accessToken, orderId, {
+        claimType,
+        reason,
+        orderItemId,
+      });
+      await reloadClaims();
+      return claim;
+    } finally {
+      setClaimBusy(false);
+    }
+  }
+
   return {
     order,
+    claims,
     loading,
     refreshing,
     error,
     invoiceBusy,
     invoiceError,
+    cancelBusy,
+    claimBusy,
     reload,
     downloadInvoice,
+    cancelWholeOrder,
+    cancelItem,
+    fileClaim,
   };
 }

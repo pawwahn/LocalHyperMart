@@ -223,10 +223,10 @@ export function DashboardPage() {
 
       <ReasonDialog
         open={prompt?.kind === 'reject'}
-        title="Reject entire shop order?"
-        description="This cancels the whole multi-vendor order for the buyer, including items from other shops."
-        confirmLabel="Yes, reject all"
-        cancelLabel="Keep order"
+        title="Reject your items?"
+        description="Only your shop’s bag is cancelled. Other shops on this order keep going. The buyer gets store credit for your items."
+        confirmLabel="Yes, reject my items"
+        cancelLabel="Keep packing"
         defaultReason="Out of stock today"
         danger
         busy={dialogBusy}

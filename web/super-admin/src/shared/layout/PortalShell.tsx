@@ -1,8 +1,7 @@
 import type { CSSProperties, ReactNode } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { ThemePicker } from '@hlm-theme';
+import { HeaderIconButton, ThemePicker } from '@hlm-theme';
 import { useAuth } from '@/shared/auth/AuthContext';
-import { Button } from '@/shared/ui';
 
 type Props = {
   title: string;
@@ -43,13 +42,13 @@ export function PortalShell({ title, children, onRefresh }: Props) {
         <div style={styles.headerActions}>
           <ThemePicker />
           {onRefresh ? (
-            <Button variant="ghost" size="sm" onClick={onRefresh}>
-              Refresh
-            </Button>
+            <HeaderIconButton label="Refresh" onClick={onRefresh}>
+              ↻
+            </HeaderIconButton>
           ) : null}
-          <Button variant="secondary" size="sm" onClick={logout}>
-            Sign out
-          </Button>
+          <HeaderIconButton label="Sign out" onClick={logout}>
+            ⎋
+          </HeaderIconButton>
         </div>
       </header>
       <main style={styles.main}>{children}</main>
@@ -93,8 +92,11 @@ const styles: Record<string, CSSProperties> = {
     borderRadius: 'var(--radius-xl)',
     padding: '1rem 1.15rem',
     boxShadow: 'var(--shadow-card)',
+    position: 'relative',
+    zIndex: 30,
+    overflow: 'visible',
   },
-  brandBlock: { display: 'grid', gap: '0.2rem' },
+  brandBlock: { display: 'grid', gap: '0.2rem', flex: 1, minWidth: 0 },
   brand: {
     margin: 0,
     fontFamily: 'var(--font-display)',
@@ -128,6 +130,11 @@ const styles: Record<string, CSSProperties> = {
     borderRadius: 'var(--radius-full)',
     background: 'var(--accent-soft)',
   },
-  headerActions: { display: 'flex', gap: '0.5rem' },
+  headerActions: {
+    display: 'flex',
+    gap: '0.35rem',
+    alignItems: 'center',
+    flexShrink: 0,
+  },
   main: { display: 'grid', gap: '1.15rem' },
 };

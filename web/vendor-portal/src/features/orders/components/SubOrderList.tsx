@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { Button, Card } from '@/shared/ui';
 import { PAGE_SIZES, TablePager, pageWindow } from '@/shared/table';
 import type { SubOrderView } from '../api/ordersApi';
+import { useIsNarrow } from '@/shared/hooks/useIsNarrow';
 
 type Props = {
   orders: SubOrderView[];
@@ -20,6 +21,7 @@ export function SubOrderList({
   onCancelItem,
   onRestoreItem,
 }: Props) {
+  const narrow = useIsNarrow();
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(25);
@@ -53,7 +55,7 @@ export function SubOrderList({
 
   return (
     <div style={styles.wrap}>
-      <div style={styles.toolbar}>
+      <div style={{ ...styles.toolbar, ...(narrow ? styles.toolbarNarrow : null) }}>
         <input
           style={styles.search}
           value={query}
@@ -89,7 +91,14 @@ export function SubOrderList({
               return (
                 <Card key={order.id} elevated style={styles.row}>
                   <div style={styles.body}>
-                    <p style={styles.orderNo}>{order.subOrderNumber}</p>
+                    <div style={styles.titleRow}>
+                      <p style={{ ...styles.orderNo, ...(narrow ? styles.orderNoNarrow : null) }}>
+                        {order.subOrderNumber}
+                      </p>
+                      <p style={styles.placedAt} title={order.placedAt}>
+                        Placed {order.placedAtLabel}
+                      </p>
+                    </div>
                     <p style={styles.meta}>Parent {order.orderNumber}</p>
                     <p style={styles.meta}>
                       <span style={styles.badge}>{statusLabel(order.status)}</span> ·{' '}
@@ -144,12 +153,18 @@ export function SubOrderList({
                     )}
                   </div>
                   {canAct ? (
-                    <div style={styles.actions}>
-                      <Button size="sm" disabled={busy} onClick={() => onReady(order.id)}>
+                    <div style={{ ...styles.actions, ...(narrow ? styles.actionsNarrow : null) }}>
+                      <Button size="sm" fullWidth={narrow} disabled={busy} onClick={() => onReady(order.id)}>
                         {busy ? '…' : 'Mark ready'}
                       </Button>
-                      <Button variant="danger" size="sm" disabled={busy} onClick={() => onReject(order.id)}>
-                        Reject all
+                      <Button
+                        variant="danger"
+                        size="sm"
+                        fullWidth={narrow}
+                        disabled={busy}
+                        onClick={() => onReject(order.id)}
+                      >
+                        Reject my items
                       </Button>
                     </div>
                   ) : null}
@@ -183,11 +198,14 @@ function statusLabel(status: string): string {
 }
 
 const styles: Record<string, CSSProperties> = {
-  wrap: { display: 'grid', gap: '0.75rem' },
+  wrap: { display: 'grid', gap: '0.75rem', minWidth: 0 },
   toolbar: {
     display: 'grid',
     gridTemplateColumns: 'minmax(160px, 1fr) auto',
     gap: '0.45rem',
+  },
+  toolbarNarrow: {
+    gridTemplateColumns: '1fr',
   },
   search: {
     padding: '0.5rem 0.65rem',
@@ -196,6 +214,8 @@ const styles: Record<string, CSSProperties> = {
     background: 'var(--bg-elevated)',
     color: 'var(--text)',
     fontSize: '0.85rem',
+    width: '100%',
+    boxSizing: 'border-box',
   },
   select: {
     padding: '0.5rem 0.65rem',
@@ -204,17 +224,38 @@ const styles: Record<string, CSSProperties> = {
     background: 'var(--bg-elevated)',
     color: 'var(--text)',
     fontSize: '0.85rem',
+    width: '100%',
+    boxSizing: 'border-box',
   },
   list: { display: 'grid', gap: '0.75rem' },
   row: {
     display: 'flex',
     justifyContent: 'space-between',
-    gap: '1rem',
+    gap: '0.75rem',
     flexWrap: 'wrap',
     padding: '0.9rem 1rem',
   },
-  body: { display: 'grid', gap: '0.25rem', minWidth: 0, flex: 1 },
-  orderNo: { margin: 0, fontWeight: 800, fontFamily: 'var(--font-display)' },
+  body: { display: 'grid', gap: '0.25rem', minWidth: 0, flex: '1 1 14rem' },
+  titleRow: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'baseline',
+    gap: '0.5rem',
+    flexWrap: 'wrap',
+  },
+  orderNo: {
+    margin: 0,
+    fontWeight: 800,
+    fontFamily: 'var(--font-display)',
+    overflowWrap: 'anywhere',
+  },
+  orderNoNarrow: { fontSize: '0.95rem' },
+  placedAt: {
+    margin: 0,
+    fontWeight: 700,
+    fontSize: '0.82rem',
+    color: 'var(--text)',
+  },
   meta: { margin: 0, color: 'var(--text-muted)', fontSize: '0.82rem' },
   badge: {
     fontSize: '0.68rem',
@@ -233,6 +274,12 @@ const styles: Record<string, CSSProperties> = {
   },
   itemCancelled: { textDecoration: 'line-through', color: 'var(--text-muted)' },
   actions: { display: 'flex', gap: '0.4rem', alignItems: 'flex-start', flexWrap: 'wrap' },
+  actionsNarrow: {
+    width: '100%',
+    display: 'grid',
+    gridTemplateColumns: '1fr 1fr',
+    gap: '0.4rem',
+  },
   emptyCard: { textAlign: 'center', padding: '1.25rem' },
   emptyTitle: { margin: 0, fontWeight: 800, fontFamily: 'var(--font-display)' },
   empty: { margin: '0.35rem 0 0', color: 'var(--text-muted)', fontSize: '0.85rem' },

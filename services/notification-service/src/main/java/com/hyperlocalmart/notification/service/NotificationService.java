@@ -1,6 +1,7 @@
 package com.hyperlocalmart.notification.service;
 
 import com.hyperlocalmart.notification.dto.request.SendNotificationRequest;
+import com.hyperlocalmart.notification.dto.response.BuyerNotificationResponse;
 import com.hyperlocalmart.notification.dto.response.NotificationResponse;
 import com.hyperlocalmart.notification.entity.NotificationChannel;
 import com.hyperlocalmart.notification.entity.NotificationLog;
@@ -10,9 +11,11 @@ import com.hyperlocalmart.notification.entity.TemplateStatus;
 import com.hyperlocalmart.notification.repository.NotificationLogRepository;
 import com.hyperlocalmart.notification.repository.NotificationTemplateRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -37,6 +40,17 @@ public class NotificationService {
                         request.getEventCode(), channel, DEFAULT_LANGUAGE, TemplateStatus.ACTIVE)
                 .map(template -> sendWithTemplate(request, channel, template))
                 .orElseGet(() -> skipNoTemplate(request, channel));
+    }
+
+    @Transactional(readOnly = true)
+    public List<BuyerNotificationResponse> listForBuyer(UUID buyerId, int limit) {
+        int size = Math.min(Math.max(limit, 1), 100);
+        return notificationLogRepository
+                .findByRecipientUserIdAndStatusOrderByCreatedAtDesc(
+                        buyerId, NotificationLogStatus.SENT, PageRequest.of(0, size))
+                .stream()
+                .map(this::toBuyerResponse)
+                .toList();
     }
 
     private NotificationResponse sendWithTemplate(
@@ -85,6 +99,18 @@ public class NotificationService {
                 .logId(log.getId())
                 .status(log.getStatus())
                 .body(log.getBody())
+                .build();
+    }
+
+    private BuyerNotificationResponse toBuyerResponse(NotificationLog log) {
+        return BuyerNotificationResponse.builder()
+                .id(log.getId())
+                .orderId(log.getOrderId())
+                .eventCode(log.getEventCode())
+                .channel(log.getChannel())
+                .body(log.getBody())
+                .status(log.getStatus())
+                .createdAt(log.getCreatedAt())
                 .build();
     }
 }

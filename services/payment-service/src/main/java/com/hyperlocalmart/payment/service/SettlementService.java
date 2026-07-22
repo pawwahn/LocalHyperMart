@@ -12,6 +12,7 @@ import com.hyperlocalmart.payment.dto.response.VendorOrderPayoutResponse;
 import com.hyperlocalmart.payment.entity.*;
 import com.hyperlocalmart.payment.repository.SettlementLineItemRepository;
 import com.hyperlocalmart.payment.repository.SettlementRepository;
+import com.hyperlocalmart.payment.repository.VendorSettlementAdjustmentRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -32,6 +33,7 @@ public class SettlementService {
 
     private final SettlementRepository settlementRepository;
     private final SettlementLineItemRepository settlementLineItemRepository;
+    private final VendorSettlementAdjustmentRepository vendorSettlementAdjustmentRepository;
     private final OrderClient orderClient;
 
     @Transactional(readOnly = true)
@@ -95,7 +97,20 @@ public class SettlementService {
         if (commission.compareTo(BigDecimal.ZERO) < 0 || commission.compareTo(gross) > 0) {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Invalid commission amount");
         }
-        BigDecimal net = gross.subtract(commission);
+
+        List<VendorSettlementAdjustment> pendingAdjustments =
+                vendorSettlementAdjustmentRepository.findByVendorIdAndTownIdAndStatusOrderByCreatedAtAsc(
+                        request.getVendorId(), request.getTownId(), VendorSettlementAdjustmentStatus.PENDING);
+        BigDecimal claimChargebacks = pendingAdjustments.stream()
+                .map(VendorSettlementAdjustment::getAmount)
+                .filter(Objects::nonNull)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal net = gross.subtract(commission).subtract(claimChargebacks);
+        if (net.compareTo(BigDecimal.ZERO) < 0) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR,
+                    "Claim chargebacks (₹" + claimChargebacks.toPlainString()
+                            + ") exceed payout after commission. Include more orders or lower commission.");
+        }
 
         Settlement settlement = Settlement.builder()
                 .townId(request.getTownId())
@@ -130,12 +145,39 @@ public class SettlementService {
             settlement.getLineItems().add(line);
         }
 
+        for (VendorSettlementAdjustment adj : pendingAdjustments) {
+            SettlementLineItem line = SettlementLineItem.builder()
+                    .settlement(settlement)
+                    .orderId(adj.getOrderId())
+                    .subOrderId(adj.getSubOrderId())
+                    .orderNumber(null)
+                    .subOrderNumber(null)
+                    .lineType("ADJUSTMENT")
+                    .amount(adj.getAmount().negate())
+                    .description(adj.getReason() != null && !adj.getReason().isBlank()
+                            ? adj.getReason()
+                            : "Claim chargeback — buyer credited")
+                    .build();
+            line.setCreatedBy(actorId);
+            line.setUpdatedBy(actorId);
+            settlement.getLineItems().add(line);
+        }
+
         if (request.isMarkPaid()) {
             applyPaid(settlement, actorId, request.getPayoutMethod(), request.getTransactionReference(),
                     request.getTransactionNotes(), request.getPaidAt());
         }
 
-        return toResponse(settlementRepository.save(settlement));
+        Settlement saved = settlementRepository.save(settlement);
+        for (VendorSettlementAdjustment adj : pendingAdjustments) {
+            adj.setStatus(VendorSettlementAdjustmentStatus.APPLIED);
+            adj.setAppliedSettlementId(saved.getId());
+            adj.setUpdatedAt(java.time.Instant.now());
+        }
+        if (!pendingAdjustments.isEmpty()) {
+            vendorSettlementAdjustmentRepository.saveAll(pendingAdjustments);
+        }
+        return toResponse(saved);
     }
 
     @Transactional

@@ -13,10 +13,13 @@ export function formatBuyerPaymentLabel(input: {
   const delivered = status === 'DELIVERED';
 
   if (method === 'COD') {
+    if (status === 'CANCELLED') return 'Cancelled · COD';
     return delivered ? 'PAID(COD)' : 'COD';
   }
 
   if (method === 'ONLINE') {
+    if (status === 'CANCELLED' && pay === 'REFUNDED') return 'REFUNDED(Online)';
+    if (status === 'CANCELLED') return 'Cancelled';
     if (delivered || pay === 'PAID') return 'PAID(Online)';
     if (pay === 'FAILED') return 'FAILED(Online)';
     if (pay === 'REFUNDED') return 'REFUNDED(Online)';

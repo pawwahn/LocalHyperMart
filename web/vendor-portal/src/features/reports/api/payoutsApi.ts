@@ -66,6 +66,34 @@ export async function listMySettlements(
   return data.items ?? [];
 }
 
+export type VendorClaimAdjustment = {
+  id: string;
+  townId?: string | null;
+  vendorId: string;
+  shopId?: string | null;
+  claimId: string;
+  orderId: string;
+  orderNumber?: string | null;
+  orderItemId: string;
+  subOrderId: string;
+  amount: number;
+  reason?: string | null;
+  status: 'PENDING' | 'APPLIED' | string;
+  appliedSettlementId?: string | null;
+  createdAt?: string | null;
+};
+
+export async function listMyClaimAdjustments(
+  token: string,
+  vendorId: string,
+): Promise<VendorClaimAdjustment[]> {
+  const data = await apiRequest<{ items: VendorClaimAdjustment[] }>(
+    '/api/v1/payments/settlements/vendor/me/adjustments',
+    { token, vendorId },
+  );
+  return data.items ?? [];
+}
+
 export type SettlementMoneySummary = {
   paidNet: number;
   paidGross: number;

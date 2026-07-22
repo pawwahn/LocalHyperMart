@@ -9,10 +9,12 @@ import com.hyperlocalmart.payment.dto.request.VendorPayoutLookupRequest;
 import com.hyperlocalmart.payment.dto.response.SettlementCandidateView;
 import com.hyperlocalmart.payment.dto.response.SettlementResponse;
 import com.hyperlocalmart.payment.dto.response.VendorOrderPayoutResponse;
+import com.hyperlocalmart.payment.dto.response.VendorSettlementAdjustmentResponse;
 import com.hyperlocalmart.payment.entity.SettlementPayeeType;
 import com.hyperlocalmart.payment.entity.SettlementStatus;
 import com.hyperlocalmart.payment.security.AuthUserPrincipal;
 import com.hyperlocalmart.payment.service.SettlementService;
+import com.hyperlocalmart.payment.service.VendorSettlementAdjustmentService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -33,6 +35,7 @@ import java.util.UUID;
 public class SettlementController {
 
     private final SettlementService settlementService;
+    private final VendorSettlementAdjustmentService vendorSettlementAdjustmentService;
 
     @GetMapping("/candidates")
     public ResponseEntity<ApiResponse<SettlementCandidateView>> candidates(
@@ -119,6 +122,17 @@ public class SettlementController {
         requireVendor(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
                 settlementService.lookupVendorPayouts(vendorId, request.getSubOrderIds())));
+    }
+
+    /** Pending + applied claim chargebacks that reduce this vendor's payouts. */
+    @GetMapping("/vendor/me/adjustments")
+    public ResponseEntity<ApiResponse<Map<String, List<VendorSettlementAdjustmentResponse>>>> listMyAdjustments(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @RequestHeader("X-Vendor-Id") UUID vendorId,
+            HttpServletRequest httpRequest) {
+        requireVendor(principal);
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest, Map.of(
+                "items", vendorSettlementAdjustmentService.listForVendor(vendorId))));
     }
 
     private void requireSuperAdmin(AuthUserPrincipal principal) {
