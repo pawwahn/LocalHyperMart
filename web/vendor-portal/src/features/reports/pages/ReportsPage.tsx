@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useState, type CSSProperties } from 'react';
-import { PortalShell } from '@/shared/layout/PortalShell';
+import { usePortalChrome } from '@/shared/layout/PortalChromeContext';
 import { Banner, Button, Card } from '@/shared/ui';
 import {
   PAGE_SIZES,
@@ -12,7 +12,7 @@ import {
   type SortState,
 } from '@/shared/table';
 import { formatMoney, type SalesReportRow } from '../api/reportsApi';
-import { useVendorReports, type PayoutFilter, type ReportPreset } from '../hooks/useVendorReports';
+import { useVendorReports, isRejectedSalesStatus, type PayoutFilter, type ReportPreset } from '../hooks/useVendorReports';
 import type { OrderPayout } from '../api/payoutsApi';
 
 const PRESETS: Array<{ id: ReportPreset; label: string }> = [
@@ -35,10 +35,10 @@ const STATUS_FILTERS = [
   { id: 'PLACED', label: 'New' },
   { id: 'READY_FOR_PICKUP', label: 'Ready' },
   { id: 'DELIVERED', label: 'Delivered' },
-  { id: 'REJECTED', label: 'Rejected' },
+  { id: 'VENDOR_REJECTED', label: 'Rejected' },
 ] as const;
 
-export function ReportsPage() {
+export function ReportsPage({ active = true }: { active?: boolean }) {
   const {
     preset,
     applyPreset,
@@ -64,6 +64,7 @@ export function ReportsPage() {
     downloadPdf,
     setPresetCustom,
   } = useVendorReports();
+  usePortalChrome({ title: 'Reports', onRefresh: () => void reload() }, active);
   const [productTab, setProductTab] = useState<'top' | 'least'>('top');
   const [expandedIds, setExpandedIds] = useState<Record<string, boolean>>({});
   const [orderQuery, setOrderQuery] = useState('');
@@ -159,7 +160,7 @@ export function ReportsPage() {
   }
 
   return (
-    <PortalShell title="Reports">
+    <>
       {error ? <Banner tone="danger">{error}</Banner> : null}
 
       <Card elevated padding="sm" style={styles.filterCard}>
@@ -277,7 +278,11 @@ export function ReportsPage() {
               <Metric
                 label="Awaiting"
                 value={formatMoney(payoutSummary.unpaidAmount)}
-                hint={`${payoutSummary.unpaidOrders} unpaid`}
+                hint={
+                  payoutSummary.rejectedOrders > 0
+                    ? `${payoutSummary.unpaidOrders} unpaid · ${payoutSummary.rejectedOrders} rejected excluded`
+                    : `${payoutSummary.unpaidOrders} unpaid`
+                }
               />
               <Metric
                 label="Settled"
@@ -285,7 +290,16 @@ export function ReportsPage() {
                 hint={`${payoutSummary.paidOrders} paid`}
               />
               <Metric label="Fee" value={moneyClarity.feeLabel} hint="Commission" muted />
-              <Metric label="Net due" value={moneyClarity.netReceivableLabel} hint="Should receive" muted />
+              <Metric
+                label="Net due"
+                value={moneyClarity.netReceivableLabel}
+                hint={
+                  moneyClarity.pendingClaimDebitTotal > 0
+                    ? `After ${formatMoney(moneyClarity.pendingClaimDebitTotal)} claims`
+                    : 'Should receive'
+                }
+                muted
+              />
               <Metric
                 label="Net paid"
                 value={moneyClarity.netReceivedLabel}
@@ -468,7 +482,7 @@ export function ReportsPage() {
       ) : loading ? (
         <p style={styles.muted}>Loading report…</p>
       ) : null}
-    </PortalShell>
+    </>
   );
 }
 
@@ -506,6 +520,7 @@ function OrderRow({
 }) {
   const itemCount = row.items?.length ?? 0;
   const canExpand = itemCount > 0;
+  const rejected = isRejectedSalesStatus(row.status);
   return (
     <Fragment>
       <tr>
@@ -545,15 +560,21 @@ function OrderRow({
         <td style={styles.tdMuted}>{row.status}</td>
         <td style={styles.tdRight}>{formatMoney(row.subtotal)}</td>
         <td style={styles.td}>
-          <span style={payout?.paid ? styles.paid : styles.pending}>
-            {payout?.paid ? 'SETTLED' : 'AWAITING'}
-          </span>
+          {rejected ? (
+            <span style={styles.rejectedPayout}>NOT PAYABLE</span>
+          ) : (
+            <span style={payout?.paid ? styles.paid : styles.pending}>
+              {payout?.paid ? 'SETTLED' : 'AWAITING'}
+            </span>
+          )}
         </td>
         <td style={styles.tdMuted}>
-          {payout?.paidAt ? new Date(payout.paidAt).toLocaleString() : '—'}
+          {rejected ? '—' : payout?.paidAt ? new Date(payout.paidAt).toLocaleString() : '—'}
         </td>
         <td style={styles.td}>
-          {payout?.paid ? (
+          {rejected ? (
+            <span style={styles.sub}>Rejected — excluded from payout</span>
+          ) : payout?.paid ? (
             <>
               <div>{payout.payoutMethod ?? '—'}</div>
               <div style={styles.sub}>{payout.transactionReference || 'No txn ref'}</div>
@@ -937,6 +958,14 @@ const styles: Record<string, CSSProperties> = {
     fontSize: '0.68rem',
     color: '#92400e',
     background: 'var(--warning-soft)',
+    borderRadius: 'var(--radius-full)',
+    padding: '0.1rem 0.4rem',
+    fontWeight: 700,
+  },
+  rejectedPayout: {
+    fontSize: '0.68rem',
+    color: 'var(--text-muted)',
+    background: 'var(--bg-muted)',
     borderRadius: 'var(--radius-full)',
     padding: '0.1rem 0.4rem',
     fontWeight: 700,

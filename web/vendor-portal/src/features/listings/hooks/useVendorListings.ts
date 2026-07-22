@@ -16,19 +16,35 @@ import {
   type MasterItemView,
 } from '../api/listingsApi';
 
+type ListingsCache = {
+  vendorId: string;
+  listings: ListingView[];
+  categories: CategoryView[];
+  masterItems: MasterItemView[];
+  drafts: Record<string, DraftPricing>;
+  selected: Record<string, boolean>;
+};
+
+let listingsCache: ListingsCache | null = null;
+
+function cacheFor(vendorId: string): ListingsCache | null {
+  return listingsCache?.vendorId === vendorId ? listingsCache : null;
+}
+
 export function useVendorListings() {
   const { session } = useAuth();
-  const [listings, setListings] = useState<ListingView[]>([]);
-  const [categories, setCategories] = useState<CategoryView[]>([]);
-  const [masterItems, setMasterItems] = useState<MasterItemView[]>([]);
+  const cached = session ? cacheFor(session.vendorId) : null;
+  const [listings, setListings] = useState<ListingView[]>(cached?.listings ?? []);
+  const [categories, setCategories] = useState<CategoryView[]>(cached?.categories ?? []);
+  const [masterItems, setMasterItems] = useState<MasterItemView[]>(cached?.masterItems ?? []);
   const [categoryId, setCategoryId] = useState<string>('all');
   const [catalogQuery, setCatalogQuery] = useState('');
   const [catalogStatus, setCatalogStatus] = useState<'all' | 'not_listed' | 'live' | 'hidden'>('all');
   const [listingQuery, setListingQuery] = useState('');
   const [listingStatus, setListingStatus] = useState<'all' | 'live' | 'hidden'>('all');
-  const [selected, setSelected] = useState<Record<string, boolean>>({});
-  const [drafts, setDrafts] = useState<Record<string, DraftPricing>>({});
-  const [loading, setLoading] = useState(true);
+  const [selected, setSelected] = useState<Record<string, boolean>>(cached?.selected ?? {});
+  const [drafts, setDrafts] = useState<Record<string, DraftPricing>>(cached?.drafts ?? {});
+  const [loading, setLoading] = useState(!cached);
   const [saving, setSaving] = useState(false);
   const [actionId, setActionId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -37,7 +53,8 @@ export function useVendorListings() {
 
   const reload = useCallback(async () => {
     if (!session) return;
-    setLoading(true);
+    const soft = Boolean(cacheFor(session.vendorId));
+    if (!soft) setLoading(true);
     setError(null);
     try {
       // Master items + my listings are required. Categories are optional (derive from items if API fails).
@@ -59,8 +76,10 @@ export function useVendorListings() {
       setListings(list);
       setMasterItems(masters);
 
+      let nextCategories: CategoryView[];
       if (catsResult.status === 'fulfilled' && catsResult.value.length > 0) {
-        setCategories(catsResult.value);
+        nextCategories = catsResult.value;
+        setCategories(nextCategories);
       } else {
         const derived = new Map<string, CategoryView>();
         for (const item of masters) {
@@ -69,7 +88,8 @@ export function useVendorListings() {
             derived.set(key, { id: key, name: item.category || 'Other' });
           }
         }
-        setCategories([...derived.values()].sort((a, b) => a.name.localeCompare(b.name)));
+        nextCategories = [...derived.values()].sort((a, b) => a.name.localeCompare(b.name));
+        setCategories(nextCategories);
       }
 
       const nextDrafts: Record<string, DraftPricing> = {};
@@ -90,6 +110,14 @@ export function useVendorListings() {
       }
       setDrafts(nextDrafts);
       setSelected(nextSelected);
+      listingsCache = {
+        vendorId: session.vendorId,
+        listings: list,
+        categories: nextCategories,
+        masterItems: masters,
+        drafts: nextDrafts,
+        selected: nextSelected,
+      };
     } catch (err) {
       setError(err instanceof ApiError || err instanceof Error ? err.message : 'Failed to load catalog');
     } finally {

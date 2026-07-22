@@ -1,5 +1,5 @@
 import { useEffect, useState, type CSSProperties } from 'react';
-import { PortalShell } from '@/shared/layout/PortalShell';
+import { usePortalChrome } from '@/shared/layout/PortalChromeContext';
 import { Banner, Button, Card, TextField } from '@/shared/ui';
 import { useAuth } from '@/shared/auth/AuthContext';
 import { ApiError } from '@/shared/api/http';
@@ -85,8 +85,10 @@ export function SettingsPage() {
     }
   }
 
+  usePortalChrome({ title: 'Settings', onRefresh: () => void reload() });
+
   return (
-    <PortalShell title="Settings" onRefresh={() => void reload()}>
+    <>
       {shopError ? <Banner tone="danger">{shopError}</Banner> : null}
       {status ? <Banner tone={status.tone}>{status.text}</Banner> : null}
 
@@ -203,7 +205,7 @@ export function SettingsPage() {
           </Card>
         </div>
       </div>
-    </PortalShell>
+    </>
   );
 }
 

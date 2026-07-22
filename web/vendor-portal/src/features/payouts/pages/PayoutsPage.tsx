@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
-import { PortalShell } from '@/shared/layout/PortalShell';
+import { usePortalChrome } from '@/shared/layout/PortalChromeContext';
 import { Banner, Card } from '@/shared/ui';
 import { useAuth } from '@/shared/auth/AuthContext';
 import { ApiError } from '@/shared/api/http';
@@ -172,9 +172,10 @@ export function PayoutsPage() {
     setPage(0);
   }, [statusFilter, pageSize, sort]);
 
+  usePortalChrome({ title: 'Payouts', onRefresh: () => void reload() });
+
   return (
-    <PortalShell title="Payouts" onRefresh={() => void reload()}>
-      <div
+    <div
         style={{
           ...styles.pageStack,
           ['--metric-paid' as string]: 'var(--success, #15803d)',
@@ -340,7 +341,6 @@ export function PayoutsPage() {
           )}
         </Card>
       </div>
-    </PortalShell>
   );
 }
 

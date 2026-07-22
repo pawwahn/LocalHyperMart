@@ -10,10 +10,14 @@ import {
   type SalesReport,
   type SalesReportRow,
 } from '../api/reportsApi';
-import { lookupOrderPayouts, listMySettlements, summarizeSettlements, type OrderPayout } from '../api/payoutsApi';
+import { lookupOrderPayouts, listMyClaimAdjustments, listMySettlements, summarizeSettlements, type OrderPayout, type SettlementMoneySummary, type VendorClaimAdjustment } from '../api/payoutsApi';
 
 export type ReportPreset = 'today' | 'week' | 'month' | 'custom';
 export type PayoutFilter = 'all' | 'paid' | 'unpaid';
+
+export function isRejectedSalesStatus(status: string | null | undefined): boolean {
+  return status === 'VENDOR_REJECTED' || status === 'REJECTED';
+}
 
 function isoDate(d: Date): string {
   const pad = (n: number) => String(n).padStart(2, '0');
@@ -41,6 +45,24 @@ function rangeForPreset(preset: ReportPreset): { from: string; to: string } {
   return { from: isoDate(from), to };
 }
 
+type ReportsCache = {
+  vendorId: string;
+  from: string;
+  to: string;
+  report: SalesReport;
+  payoutsBySubOrder: Record<string, OrderPayout>;
+  settlementMoney: SettlementMoneySummary;
+  claimAdjustments: VendorClaimAdjustment[];
+};
+
+let reportsCache: ReportsCache | null = null;
+
+function reportsCacheFor(vendorId: string, from: string, to: string): ReportsCache | null {
+  return reportsCache?.vendorId === vendorId && reportsCache.from === from && reportsCache.to === to
+    ? reportsCache
+    : null;
+}
+
 export function useVendorReports() {
   const { session } = useAuth();
   const initial = rangeForPreset('week');
@@ -49,10 +71,18 @@ export function useVendorReports() {
   const [to, setTo] = useState(initial.to);
   const [includeItems, setIncludeItems] = useState(true);
   const [payoutFilter, setPayoutFilter] = useState<PayoutFilter>('all');
-  const [report, setReport] = useState<SalesReport | null>(null);
-  const [payoutsBySubOrder, setPayoutsBySubOrder] = useState<Record<string, OrderPayout>>({});
-  const [settlementMoney, setSettlementMoney] = useState(() => summarizeSettlements([]));
-  const [loading, setLoading] = useState(true);
+  const cached = session ? reportsCacheFor(session.vendorId, initial.from, initial.to) : null;
+  const [report, setReport] = useState<SalesReport | null>(cached?.report ?? null);
+  const [payoutsBySubOrder, setPayoutsBySubOrder] = useState<Record<string, OrderPayout>>(
+    cached?.payoutsBySubOrder ?? {},
+  );
+  const [settlementMoney, setSettlementMoney] = useState(
+    () => cached?.settlementMoney ?? summarizeSettlements([]),
+  );
+  const [claimAdjustments, setClaimAdjustments] = useState<VendorClaimAdjustment[]>(
+    cached?.claimAdjustments ?? [],
+  );
+  const [loading, setLoading] = useState(!cached);
   const [error, setError] = useState<string | null>(null);
 
   const applyPreset = useCallback((next: ReportPreset) => {
@@ -66,7 +96,8 @@ export function useVendorReports() {
 
   const reload = useCallback(async () => {
     if (!session) return;
-    setLoading(true);
+    const soft = Boolean(reportsCacheFor(session.vendorId, from, to));
+    if (!soft) setLoading(true);
     setError(null);
     try {
       const data = await fetchSalesReport(session.accessToken, session.vendorId, {
@@ -76,24 +107,46 @@ export function useVendorReports() {
         includeItems: true,
       });
       setReport(data);
+      setLoading(false);
+
+      let payouts: Record<string, OrderPayout> = {};
+      let settlementsSummary = summarizeSettlements([]);
+      let adjustments: VendorClaimAdjustment[] = [];
       try {
-        const [payouts, settlements] = await Promise.all([
+        const [nextPayouts, settlements, nextAdjustments] = await Promise.all([
           lookupOrderPayouts(
             session.accessToken,
             session.vendorId,
             (data.rows ?? []).map((r) => r.subOrderId),
           ),
           listMySettlements(session.accessToken, session.vendorId),
+          listMyClaimAdjustments(session.accessToken, session.vendorId).catch(
+            () => [] as VendorClaimAdjustment[],
+          ),
         ]);
+        payouts = nextPayouts;
+        settlementsSummary = summarizeSettlements(settlements);
+        adjustments = nextAdjustments;
         setPayoutsBySubOrder(payouts);
-        setSettlementMoney(summarizeSettlements(settlements));
+        setSettlementMoney(settlementsSummary);
+        setClaimAdjustments(adjustments);
       } catch {
         setPayoutsBySubOrder({});
         setSettlementMoney(summarizeSettlements([]));
+        setClaimAdjustments([]);
       }
+
+      reportsCache = {
+        vendorId: session.vendorId,
+        from,
+        to,
+        report: data,
+        payoutsBySubOrder: payouts,
+        settlementMoney: settlementsSummary,
+        claimAdjustments: adjustments,
+      };
     } catch (err) {
       setError(err instanceof ApiError || err instanceof Error ? err.message : 'Failed to load report');
-    } finally {
       setLoading(false);
     }
   }, [session, from, to]);
@@ -102,13 +155,28 @@ export function useVendorReports() {
     void reload();
   }, [reload]);
 
+  const pendingClaimDebitTotal = useMemo(
+    () =>
+      claimAdjustments
+        .filter((a) => a.status === 'PENDING')
+        .reduce((sum, a) => sum + Number(a.amount ?? 0), 0),
+    [claimAdjustments],
+  );
+
   const payoutSummary = useMemo(() => {
-    if (!report) return { paidOrders: 0, unpaidOrders: 0, paidAmount: 0, unpaidAmount: 0 };
+    if (!report) {
+      return { paidOrders: 0, unpaidOrders: 0, paidAmount: 0, unpaidAmount: 0, rejectedOrders: 0 };
+    }
     let paidOrders = 0;
     let unpaidOrders = 0;
+    let rejectedOrders = 0;
     let paidAmount = 0;
     let unpaidAmount = 0;
     for (const row of report.rows) {
+      if (isRejectedSalesStatus(row.status)) {
+        rejectedOrders += 1;
+        continue;
+      }
       const payout = payoutsBySubOrder[row.subOrderId];
       if (payout?.paid) {
         paidOrders += 1;
@@ -118,7 +186,7 @@ export function useVendorReports() {
         unpaidAmount += Number(row.subtotal ?? 0);
       }
     }
-    return { paidOrders, unpaidOrders, paidAmount, unpaidAmount };
+    return { paidOrders, unpaidOrders, paidAmount, unpaidAmount, rejectedOrders };
   }, [report, payoutsBySubOrder]);
 
   const moneyClarity = useMemo(() => {
@@ -126,28 +194,31 @@ export function useVendorReports() {
     const awaitingOrders = payoutSummary.unpaidAmount;
     const settledOrders = payoutSummary.paidAmount;
     const fee = settlementMoney.paidCommission + settlementMoney.awaitingSettlementCommission;
-    const netReceivable =
+    const baseReceivable =
       settlementMoney.awaitingSettlementNet > 0
         ? settlementMoney.awaitingSettlementNet
         : Math.max(0, awaitingOrders);
+    const netReceivable = Math.max(0, baseReceivable - pendingClaimDebitTotal);
     const netReceived = settlementMoney.paidNet;
     return {
       gross,
       awaitingOrders,
       settledOrders,
       fee,
+      pendingClaimDebitTotal,
       netReceivable,
       netReceived,
       feeLabel: formatMoney(fee),
       netReceivableLabel: formatMoney(netReceivable),
       netReceivedLabel: formatMoney(netReceived),
     };
-  }, [report, payoutSummary, settlementMoney]);
+  }, [report, payoutSummary, settlementMoney, pendingClaimDebitTotal]);
 
   const visibleRows = useMemo((): SalesReportRow[] => {
     if (!report) return [];
     if (payoutFilter === 'all') return report.rows;
     return report.rows.filter((row) => {
+      if (isRejectedSalesStatus(row.status)) return false;
       const paid = Boolean(payoutsBySubOrder[row.subOrderId]?.paid);
       return payoutFilter === 'paid' ? paid : !paid;
     });

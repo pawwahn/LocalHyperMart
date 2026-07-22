@@ -1,5 +1,5 @@
 import { useState, type CSSProperties } from 'react';
-import { PortalShell } from '@/shared/layout/PortalShell';
+import { usePortalChrome } from '@/shared/layout/PortalChromeContext';
 import { Banner } from '@/shared/ui';
 import { useVendorListings } from '../hooks/useVendorListings';
 import { CatalogPicker } from '../components/CatalogPicker';
@@ -7,7 +7,7 @@ import { PublishedListings } from '../components/PublishedListings';
 
 type ListingsTab = 'catalog' | 'mine';
 
-export function ListingsPage() {
+export function ListingsPage({ active = true }: { active?: boolean }) {
   const {
     listings,
     categories,
@@ -43,8 +43,16 @@ export function ListingsPage() {
   } = useVendorListings();
   const [tab, setTab] = useState<ListingsTab>('catalog');
 
+  usePortalChrome(
+    {
+      title: 'Listings',
+      onRefresh: () => void reload(),
+    },
+    active,
+  );
+
   return (
-    <PortalShell title="Listings" onRefresh={() => void reload()}>
+    <>
       {error ? <Banner tone="danger">{error}</Banner> : null}
       {notice ? <Banner tone="success">{notice}</Banner> : null}
 
@@ -117,7 +125,7 @@ export function ListingsPage() {
           )}
         </>
       )}
-    </PortalShell>
+    </>
   );
 }
 

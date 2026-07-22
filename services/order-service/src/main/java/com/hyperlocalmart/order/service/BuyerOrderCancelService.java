@@ -277,11 +277,9 @@ public class BuyerOrderCancelService {
     }
 
     private void recalculateTotals(VendorSubOrder subOrder, Order order) {
-        BigDecimal newSubtotal = orderItemRepository.sumActiveLineTotalsForSubOrder(subOrder.getId());
-        if (newSubtotal == null) {
-            newSubtotal = BigDecimal.ZERO;
-        }
+        BigDecimal newSubtotal = sumActiveFromItems(subOrder.getItems());
         subOrder.setSubtotal(newSubtotal);
+        orderRepository.saveAndFlush(order);
 
         BigDecimal newItemsSubtotal = orderItemRepository.sumActiveLineTotalsForOrder(order.getId());
         if (newItemsSubtotal == null) {
@@ -300,5 +298,18 @@ public class BuyerOrderCancelService {
         BigDecimal newTotal = payableItems.add(delivery);
         BigDecimal creditApplied = order.getStoreCreditApplied() == null ? BigDecimal.ZERO : order.getStoreCreditApplied();
         order.setTotalAmount(newTotal.subtract(creditApplied).max(BigDecimal.ZERO));
+    }
+
+    private static BigDecimal sumActiveFromItems(java.util.List<OrderItem> items) {
+        if (items == null || items.isEmpty()) {
+            return BigDecimal.ZERO;
+        }
+        BigDecimal sum = BigDecimal.ZERO;
+        for (OrderItem item : items) {
+            if (item.getStatus() == null || item.getStatus() == OrderItemStatus.ACTIVE) {
+                sum = sum.add(item.getLineTotal() == null ? BigDecimal.ZERO : item.getLineTotal());
+            }
+        }
+        return sum;
     }
 }

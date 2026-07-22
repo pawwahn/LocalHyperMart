@@ -16,29 +16,37 @@ export const PILOT_HUB_HELP = {
   hubHours: '10:00 AM – 5:00 PM',
 };
 
+let shopCache: { vendorId: string; shop: VendorShopStatus } | null = null;
+
 export function useVendorShop() {
   const { session, updateSession } = useAuth();
   const token = session?.accessToken;
   const vendorId = session?.vendorId;
+  const cached =
+    vendorId && shopCache?.vendorId === vendorId ? shopCache.shop : null;
 
-  const [shop, setShop] = useState<VendorShopStatus | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [shop, setShop] = useState<VendorShopStatus | null>(cached);
+  const [loading, setLoading] = useState(!cached);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const applyShop = useCallback(
     (data: VendorShopStatus) => {
       setShop(data);
+      if (vendorId) {
+        shopCache = { vendorId, shop: data };
+      }
       if (data.shopName) {
         updateSession({ shopName: data.shopName });
       }
     },
-    [updateSession],
+    [updateSession, vendorId],
   );
 
   const reload = useCallback(async () => {
     if (!token || !vendorId) return;
-    setLoading(true);
+    const soft = shopCache?.vendorId === vendorId;
+    if (!soft) setLoading(true);
     setError(null);
     try {
       const data = await fetchMyShop(token, vendorId);

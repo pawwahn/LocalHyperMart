@@ -484,11 +484,10 @@ public class VendorSubOrderService {
     }
 
     private void recalculateTotals(VendorSubOrder subOrder, Order order) {
-        BigDecimal newSubtotal = orderItemRepository.sumActiveLineTotalsForSubOrder(subOrder.getId());
-        if (newSubtotal == null) {
-            newSubtotal = BigDecimal.ZERO;
-        }
+        // In-memory for this bag — JPQL can miss cancel/reject status before flush.
+        BigDecimal newSubtotal = sumActiveFromItems(subOrder.getItems());
         subOrder.setSubtotal(newSubtotal);
+        vendorSubOrderRepository.saveAndFlush(subOrder);
 
         BigDecimal newItemsSubtotal = orderItemRepository.sumActiveLineTotalsForOrder(order.getId());
         if (newItemsSubtotal == null) {
@@ -507,6 +506,19 @@ public class VendorSubOrderService {
         BigDecimal newTotal = payableItems.add(delivery);
         BigDecimal creditApplied = order.getStoreCreditApplied() == null ? BigDecimal.ZERO : order.getStoreCreditApplied();
         order.setTotalAmount(newTotal.subtract(creditApplied).max(BigDecimal.ZERO));
+    }
+
+    private static BigDecimal sumActiveFromItems(List<OrderItem> items) {
+        if (items == null || items.isEmpty()) {
+            return BigDecimal.ZERO;
+        }
+        BigDecimal sum = BigDecimal.ZERO;
+        for (OrderItem item : items) {
+            if (item.getStatus() == null || item.getStatus() == OrderItemStatus.ACTIVE) {
+                sum = sum.add(item.getLineTotal() == null ? BigDecimal.ZERO : item.getLineTotal());
+            }
+        }
+        return sum;
     }
 
     private VendorSubOrder loadForVendorAction(UUID vendorId, UUID subOrderId) {

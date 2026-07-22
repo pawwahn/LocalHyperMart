@@ -84,8 +84,17 @@ public class VendorSalesReportService {
 
             BigDecimal subtotal = subOrder.getSubtotal() != null ? subOrder.getSubtotal() : BigDecimal.ZERO;
             boolean rejected = subOrder.getStatus() == VendorSubOrderStatus.VENDOR_REJECTED;
+            BigDecimal rejectedDisplay = BigDecimal.ZERO;
             if (rejected) {
-                rejectedAmount = rejectedAmount.add(subtotal);
+                // Prefer historical cancelled line totals (bag subtotal is often zeroed after reject).
+                for (OrderItem item : subOrder.getItems()) {
+                    rejectedDisplay = rejectedDisplay.add(
+                            item.getLineTotal() != null ? item.getLineTotal() : BigDecimal.ZERO);
+                }
+                if (rejectedDisplay.compareTo(BigDecimal.ZERO) == 0) {
+                    rejectedDisplay = subtotal;
+                }
+                rejectedAmount = rejectedAmount.add(rejectedDisplay);
             } else {
                 grossSales = grossSales.add(subtotal);
                 if (payStatus == PaymentStatus.PAID) {
@@ -141,7 +150,7 @@ public class VendorSalesReportService {
                     .status(subOrder.getStatus())
                     .paymentMethod(payMethod)
                     .paymentStatus(payStatus)
-                    .subtotal(subtotal)
+                    .subtotal(rejected ? rejectedDisplay : subtotal)
                     .itemCount(itemCount)
                     .items(items)
                     .build());

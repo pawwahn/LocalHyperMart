@@ -1,5 +1,5 @@
 import { useState, type CSSProperties } from 'react';
-import { PortalShell } from '@/shared/layout/PortalShell';
+import { usePortalChrome } from '@/shared/layout/PortalChromeContext';
 import { Banner } from '@/shared/ui';
 import { useVendorOrders } from '../hooks/useVendorOrders';
 import { useVendorShop } from '@/features/shop/hooks/useVendorShop';
@@ -29,7 +29,7 @@ type PromptState =
   | { kind: 'actionResult'; ok: boolean; title: string; message: string }
   | null;
 
-export function DashboardPage() {
+export function DashboardPage({ active = true }: { active?: boolean }) {
   const {
     dashboard,
     orders,
@@ -55,6 +55,19 @@ export function DashboardPage() {
   } = useVendorShop();
   const [prompt, setPrompt] = useState<PromptState>(null);
 
+  usePortalChrome(
+    {
+      title: 'Seller home',
+      onRefresh: () => void reload(),
+      shopPause: {
+        acceptingOrders,
+        busy: shopBusy,
+        onToggle: () => void setAcceptingOrders(!acceptingOrders),
+      },
+    },
+    active,
+  );
+
   const dialogBusy = Boolean(
     prompt &&
       (prompt.kind === 'reject'
@@ -66,15 +79,7 @@ export function DashboardPage() {
   );
 
   return (
-    <PortalShell
-      title="Seller home"
-      onRefresh={() => void reload()}
-      shopPause={{
-        acceptingOrders,
-        busy: shopBusy,
-        onToggle: () => void setAcceptingOrders(!acceptingOrders),
-      }}
-    >
+    <>
       {!acceptingOrders ? (
         <Banner tone="warning">
           Shop is paused — buyers cannot see your products. Resume when you are ready.
@@ -241,7 +246,7 @@ export function DashboardPage() {
           });
         }}
       />
-    </PortalShell>
+    </>
   );
 }
 

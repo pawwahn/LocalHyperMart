@@ -28,22 +28,49 @@ function isoDaysAgo(days: number): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
+type OrdersCache = {
+  vendorId: string;
+  statusFilter: string;
+  dashboard: DashboardView | null;
+  orders: SubOrderView[];
+  moneyWaiting: number;
+  moneyWaitingOrders: number;
+};
+
+let ordersCache: OrdersCache | null = null;
+
+function ordersCacheFor(vendorId: string, statusFilter: string): OrdersCache | null {
+  return ordersCache?.vendorId === vendorId && ordersCache.statusFilter === statusFilter
+    ? ordersCache
+    : null;
+}
+
 export function useVendorOrders() {
   const { session } = useAuth();
   const { alertVersion } = useOrderAlert();
-  const [dashboard, setDashboard] = useState<DashboardView | null>(null);
-  const [orders, setOrders] = useState<SubOrderView[]>([]);
   const [statusFilter, setStatusFilter] = useState('PLACED');
-  const [loading, setLoading] = useState(true);
+  const cached = session ? ordersCacheFor(session.vendorId, statusFilter) : null;
+  const anyVendorCache =
+    session && ordersCache?.vendorId === session.vendorId ? ordersCache : null;
+  const [dashboard, setDashboard] = useState<DashboardView | null>(
+    cached?.dashboard ?? anyVendorCache?.dashboard ?? null,
+  );
+  const [orders, setOrders] = useState<SubOrderView[]>(cached?.orders ?? []);
+  const [loading, setLoading] = useState(!cached);
   const [actionId, setActionId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [moneyWaiting, setMoneyWaiting] = useState(0);
-  const [moneyWaitingOrders, setMoneyWaitingOrders] = useState(0);
+  const [moneyWaiting, setMoneyWaiting] = useState(
+    cached?.moneyWaiting ?? anyVendorCache?.moneyWaiting ?? 0,
+  );
+  const [moneyWaitingOrders, setMoneyWaitingOrders] = useState(
+    cached?.moneyWaitingOrders ?? anyVendorCache?.moneyWaitingOrders ?? 0,
+  );
 
   const reload = useCallback(async () => {
     if (!session) return;
-    setLoading(true);
+    const soft = Boolean(ordersCacheFor(session.vendorId, statusFilter));
+    if (!soft) setLoading(true);
     setError(null);
     try {
       const [dash, list] = await Promise.all([
@@ -52,7 +79,10 @@ export function useVendorOrders() {
       ]);
       setDashboard(dash);
       setOrders(list);
+      setLoading(false);
 
+      let waiting = 0;
+      let waitingOrders = 0;
       try {
         const openSales = await fetchSalesReport(session.accessToken, session.vendorId, {
           from: isoDaysAgo(60),
@@ -64,8 +94,6 @@ export function useVendorOrders() {
           session.vendorId,
           (openSales.rows ?? []).map((r) => r.subOrderId),
         );
-        let waiting = 0;
-        let waitingOrders = 0;
         for (const row of openSales.rows ?? []) {
           if (row.status === 'VENDOR_REJECTED' || row.status === 'REJECTED') continue;
           if (!payouts[row.subOrderId]?.paid) {
@@ -73,15 +101,22 @@ export function useVendorOrders() {
             waitingOrders += 1;
           }
         }
-        setMoneyWaiting(waiting);
-        setMoneyWaitingOrders(waitingOrders);
       } catch {
-        setMoneyWaiting(0);
-        setMoneyWaitingOrders(0);
+        waiting = 0;
+        waitingOrders = 0;
       }
+      setMoneyWaiting(waiting);
+      setMoneyWaitingOrders(waitingOrders);
+      ordersCache = {
+        vendorId: session.vendorId,
+        statusFilter,
+        dashboard: dash,
+        orders: list,
+        moneyWaiting: waiting,
+        moneyWaitingOrders: waitingOrders,
+      };
     } catch (err) {
       setError(err instanceof ApiError || err instanceof Error ? err.message : 'Failed to load');
-    } finally {
       setLoading(false);
     }
   }, [session, statusFilter]);
