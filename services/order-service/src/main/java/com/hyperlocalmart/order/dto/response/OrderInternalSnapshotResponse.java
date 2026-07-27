@@ -16,6 +16,7 @@ public class OrderInternalSnapshotResponse {
     private UUID orderId;
     private UUID buyerId;
     private UUID townId;
+    private String orderNumber;
     private OrderStatus status;
     private PaymentStatus paymentStatus;
     private PaymentMethod paymentMethod;

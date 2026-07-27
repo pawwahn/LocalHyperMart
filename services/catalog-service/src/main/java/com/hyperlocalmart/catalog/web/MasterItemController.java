@@ -1,16 +1,25 @@
 package com.hyperlocalmart.catalog.web;
 
+import com.hyperlocalmart.catalog.dto.request.CreateMasterItemRequest;
 import com.hyperlocalmart.catalog.dto.response.MasterItemSummaryResponse;
+import com.hyperlocalmart.catalog.security.AuthUserPrincipal;
 import com.hyperlocalmart.catalog.service.VendorListingService;
 import com.hyperlocalmart.common.api.ApiResponse;
 import com.hyperlocalmart.common.api.PageResponse;
+import com.hyperlocalmart.common.exception.BusinessException;
+import com.hyperlocalmart.common.exception.ErrorCode;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -33,5 +42,21 @@ public class MasterItemController {
             HttpServletRequest httpRequest) {
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
                 vendorListingService.listMasterItems(categoryId, page, size)));
+    }
+
+    @PostMapping("/master-items")
+    public ResponseEntity<ApiResponse<MasterItemSummaryResponse>> createMasterItem(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @Valid @RequestBody CreateMasterItemRequest request,
+            HttpServletRequest httpRequest) {
+        requireSuperAdmin(principal);
+        MasterItemSummaryResponse created = vendorListingService.createMasterItem(request, principal.getUserId());
+        return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponses.ok(httpRequest, created));
+    }
+
+    private void requireSuperAdmin(AuthUserPrincipal principal) {
+        if (principal == null || !principal.getRoles().contains("SUPER_ADMIN")) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "Super admin role required");
+        }
     }
 }

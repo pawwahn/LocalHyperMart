@@ -13,7 +13,7 @@ public class GatewayRoutesConfig {
         return builder.routes()
                 .route("user-service", r -> r.path("/api/v1/auth/**", "/api/v1/users/**", "/api/v1/addresses/**")
                         .uri("http://localhost:8081"))
-                .route("town-service", r -> r.path("/api/v1/towns/**", "/api/v1/platform/**")
+                .route("town-service", r -> r.path("/api/v1/towns/**", "/api/v1/platform/**", "/api/v1/geo/**")
                         .uri("http://localhost:8082"))
                 .route("vendor-service", r -> r.path("/api/v1/vendors/**")
                         .uri("http://localhost:8083"))

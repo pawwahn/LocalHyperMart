@@ -30,4 +30,7 @@ public class RegisterRequest {
 
     @Email
     private String email;
+
+    /** Buyer must accept Terms & Privacy when invite.require-terms is enabled. */
+    private Boolean acceptedTerms;
 }

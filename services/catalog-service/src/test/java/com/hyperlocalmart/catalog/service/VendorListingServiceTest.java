@@ -8,6 +8,7 @@ import com.hyperlocalmart.catalog.entity.MasterItem;
 import com.hyperlocalmart.catalog.entity.Unit;
 import com.hyperlocalmart.catalog.repository.CategoryRepository;
 import com.hyperlocalmart.catalog.repository.MasterItemRepository;
+import com.hyperlocalmart.catalog.repository.UnitRepository;
 import com.hyperlocalmart.catalog.repository.VendorListingRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -29,6 +30,7 @@ class VendorListingServiceTest {
     @Mock private VendorListingRepository vendorListingRepository;
     @Mock private MasterItemRepository masterItemRepository;
     @Mock private CategoryRepository categoryRepository;
+    @Mock private UnitRepository unitRepository;
     @Mock private VendorShopClient vendorShopClient;
 
     @InjectMocks

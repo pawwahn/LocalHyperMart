@@ -25,6 +25,9 @@ public class Vendor extends BaseAuditEntity {
     @Column(name = "user_id", nullable = false)
     private UUID userId;
 
+    @Column(name = "registration_request_id")
+    private UUID registrationRequestId;
+
     @Column(name = "business_name", nullable = false)
     private String businessName;
 
@@ -34,7 +37,22 @@ public class Vendor extends BaseAuditEntity {
     @Column(nullable = false, length = 15)
     private String phone;
 
+    @Column(name = "gst_number_enc")
+    private String gstNumberEnc;
+
+    @Column(name = "bank_account_enc")
+    private String bankAccountEnc;
+
+    @Column(name = "ifsc_enc")
+    private String ifscEnc;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 30)
     private VendorStatus status;
+
+    @Column(name = "disabled_by")
+    private UUID disabledBy;
+
+    @Column(name = "disabled_reason")
+    private String disabledReason;
 }

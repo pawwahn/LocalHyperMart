@@ -1,6 +1,7 @@
 package com.hyperlocalmart.user.web;
 
 import com.hyperlocalmart.common.api.ApiResponse;
+import com.hyperlocalmart.user.dto.request.BindStaffContextRequest;
 import com.hyperlocalmart.user.dto.request.CreateStaffUserRequest;
 import com.hyperlocalmart.user.dto.request.UpdateUserStatusRequest;
 import com.hyperlocalmart.user.dto.response.StaffUserResponse;
@@ -27,6 +28,14 @@ public class UserInternalController {
             HttpServletRequest httpRequest) {
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponses.ok(httpRequest, userService.createStaffUser(request)));
+    }
+
+    @PatchMapping("/{userId}/context")
+    public ResponseEntity<ApiResponse<StaffUserResponse>> bindStaffContext(
+            @PathVariable UUID userId,
+            @Valid @RequestBody BindStaffContextRequest request,
+            HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest, userService.bindStaffContext(userId, request)));
     }
 
     @PatchMapping("/{userId}/status")

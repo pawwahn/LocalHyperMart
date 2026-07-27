@@ -12,6 +12,8 @@ export type VendorRegistrationVm = {
   rejectReason?: string | null;
   vendorId?: string | null;
   createdAt?: string | null;
+  /** Present only on approve — share with vendor once. */
+  temporaryPassword?: string | null;
 };
 
 export type VendorVm = {
@@ -22,6 +24,7 @@ export type VendorVm = {
   phone: string;
   status: string;
   shopName?: string | null;
+  disabledReason?: string | null;
 };
 
 type RegistrationDto = VendorRegistrationVm;
@@ -33,6 +36,7 @@ type VendorDto = {
   phone: string;
   status: string;
   shopName?: string | null;
+  disabledReason?: string | null;
 };
 
 export type CreateRegistrationInput = {
@@ -97,4 +101,17 @@ export async function listVendors(token: string, townId: string): Promise<Vendor
   );
   if ('items' in data) return data.items ?? [];
   return [];
+}
+
+export async function updateVendorStatus(
+  token: string,
+  vendorId: string,
+  status: 'ACTIVE' | 'DISABLED',
+  reason?: string,
+): Promise<VendorVm> {
+  return apiRequest<VendorVm>(`/api/v1/vendors/${vendorId}/status`, {
+    method: 'PATCH',
+    token,
+    body: reason ? { status, reason } : { status },
+  });
 }

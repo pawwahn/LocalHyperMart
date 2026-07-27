@@ -15,12 +15,17 @@ import {
   type WalletTransactionDto,
 } from '@/features/shop/api/shopApi';
 
+const PAGE_SIZE = 40;
+
 type WalletContextValue = {
   balance: number;
   transactions: WalletTransactionDto[];
+  hasMore: boolean;
   loading: boolean;
+  loadingMore: boolean;
   error: string | null;
   reload: () => Promise<void>;
+  loadMore: () => Promise<void>;
 };
 
 const WalletContext = createContext<WalletContextValue | null>(null);
@@ -30,20 +35,24 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const { session } = useAuth();
   const [balance, setBalance] = useState(0);
   const [transactions, setTransactions] = useState<WalletTransactionDto[]>([]);
+  const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(Boolean(session?.accessToken));
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const hasLoadedOnce = useRef(false);
+  const loadingMoreLock = useRef(false);
 
   const reload = useCallback(async () => {
     if (!session?.accessToken) {
       setBalance(0);
       setTransactions([]);
+      setHasMore(false);
       setLoading(false);
+      setLoadingMore(false);
       setError(null);
       hasLoadedOnce.current = false;
       return;
     }
-    // Soft refresh: keep last balance/activity visible while updating.
     if (!hasLoadedOnce.current) setLoading(true);
     setError(null);
     const token = session.accessToken;
@@ -58,10 +67,14 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     }
 
     try {
-      const txns = await fetchWalletTransactions(token);
-      setTransactions(txns);
+      const page = await fetchWalletTransactions(token, { limit: PAGE_SIZE, offset: 0 });
+      setTransactions(page.items ?? []);
+      setHasMore(Boolean(page.hasMore));
     } catch (err) {
-      if (!hasLoadedOnce.current) setTransactions([]);
+      if (!hasLoadedOnce.current) {
+        setTransactions([]);
+        setHasMore(false);
+      }
       errors.push(err instanceof Error ? err.message : 'Could not load activity');
     }
 
@@ -70,11 +83,33 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     setLoading(false);
   }, [session?.accessToken]);
 
+  const loadMore = useCallback(async () => {
+    if (!session?.accessToken || !hasMore || loadingMoreLock.current) return;
+    loadingMoreLock.current = true;
+    setLoadingMore(true);
+    try {
+      const page = await fetchWalletTransactions(session.accessToken, {
+        limit: PAGE_SIZE,
+        offset: transactions.length,
+      });
+      const next = page.items ?? [];
+      setTransactions((prev) => {
+        const seen = new Set(prev.map((t) => t.id));
+        return [...prev, ...next.filter((t) => !seen.has(t.id))];
+      });
+      setHasMore(Boolean(page.hasMore));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not load more activity');
+    } finally {
+      loadingMoreLock.current = false;
+      setLoadingMore(false);
+    }
+  }, [session?.accessToken, hasMore, transactions.length]);
+
   useEffect(() => {
     void reload();
   }, [reload]);
 
-  // Quiet background refresh when returning to the tab (no loading flash).
   useEffect(() => {
     if (!session?.accessToken) return;
     function onVisible() {
@@ -85,8 +120,8 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   }, [session?.accessToken, reload]);
 
   const value = useMemo(
-    () => ({ balance, transactions, loading, error, reload }),
-    [balance, transactions, loading, error, reload],
+    () => ({ balance, transactions, hasMore, loading, loadingMore, error, reload, loadMore }),
+    [balance, transactions, hasMore, loading, loadingMore, error, reload, loadMore],
   );
 
   return <WalletContext.Provider value={value}>{children}</WalletContext.Provider>;

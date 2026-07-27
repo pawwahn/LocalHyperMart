@@ -50,7 +50,8 @@ class PaymentServiceTest {
         request.setGateway(PaymentGateway.RAZORPAY);
 
         when(orderClient.getOrder(orderId, buyerId)).thenReturn(new OrderClient.OrderSnapshot(
-                orderId, buyerId, townId, "PAYMENT_PENDING", "PENDING", "ONLINE", new BigDecimal("538.00")
+                orderId, buyerId, townId, "NRPT/2026/00001", "PAYMENT_PENDING", "PENDING", "ONLINE",
+                new BigDecimal("538.00")
         ));
         when(paymentRepository.save(any())).thenAnswer(invocation -> {
             com.hyperlocalmart.payment.entity.Payment payment = invocation.getArgument(0);

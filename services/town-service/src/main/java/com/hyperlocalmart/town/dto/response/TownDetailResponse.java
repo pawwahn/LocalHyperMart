@@ -14,6 +14,8 @@ public class TownDetailResponse {
 
     private UUID id;
     private String name;
+    private String country;
+    private String countryCode;
     private String state;
     private String displayName;
     private String townCode;

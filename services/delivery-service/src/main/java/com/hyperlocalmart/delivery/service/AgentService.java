@@ -5,8 +5,10 @@ import com.hyperlocalmart.common.exception.ErrorCode;
 import com.hyperlocalmart.delivery.client.UserClient;
 import com.hyperlocalmart.delivery.dto.request.CreateAgentRequest;
 import com.hyperlocalmart.delivery.dto.request.UpdateAgentStatusRequest;
+import com.hyperlocalmart.delivery.dto.response.AgentMeResponse;
 import com.hyperlocalmart.delivery.dto.response.AgentResponse;
 import com.hyperlocalmart.delivery.dto.response.DeliveryEventResponse;
+import com.hyperlocalmart.delivery.dto.response.HubContactResponse;
 import com.hyperlocalmart.delivery.dto.response.HubAdminContextResponse;
 import com.hyperlocalmart.delivery.dto.response.OrderAssignmentResponse;
 import com.hyperlocalmart.delivery.entity.*;
@@ -39,6 +41,25 @@ public class AgentService {
     private final UserClient userClient;
 
     @Transactional(readOnly = true)
+    public AgentMeResponse getMyAgent(UUID userId) {
+        DeliveryAgent agent = deliveryAgentRepository.findByUserId(userId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Delivery agent not found"));
+        AgentHubLink link = agentHubLinkRepository.findFirstByAgentIdAndActiveTrue(agent.getId())
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Agent hub link not found"));
+        DeliveryHub hub = deliveryHubRepository.findById(link.getHubId())
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Hub not found"));
+        return AgentMeResponse.builder()
+                .agentId(agent.getId())
+                .userId(agent.getUserId())
+                .name(agent.getName())
+                .phone(agent.getPhone())
+                .status(agent.getStatus())
+                .hubId(hub.getId())
+                .townId(hub.getTownId())
+                .build();
+    }
+
+    @Transactional(readOnly = true)
     public HubAdminContextResponse getHubAdminContext(UUID userId) {
         HubAdmin hubAdmin = hubAdminRepository.findByUserIdAndStatus(userId, HUB_ADMIN_ACTIVE)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Hub admin not found"));
@@ -52,21 +73,55 @@ public class AgentService {
     }
 
     @Transactional(readOnly = true)
+    public List<HubContactResponse> listHubContactsForTown(UUID townId) {
+        List<HubAdmin> admins = hubAdminRepository.findActiveByTownId(townId, HUB_ADMIN_ACTIVE, HUB_ADMIN_ACTIVE);
+        if (admins.isEmpty()) {
+            return List.of();
+        }
+        List<HubContactResponse> contacts = new ArrayList<>();
+        for (HubAdmin admin : admins) {
+            DeliveryHub hub = deliveryHubRepository.findById(admin.getHubId()).orElse(null);
+            if (hub == null) {
+                continue;
+            }
+            contacts.add(HubContactResponse.builder()
+                    .userId(admin.getUserId())
+                    .hubId(hub.getId())
+                    .hubName(hub.getName())
+                    .phone(hub.getPhone())
+                    .build());
+        }
+        return contacts;
+    }
+
+    @Transactional(readOnly = true)
     public List<OrderAssignmentResponse> getAssignmentsForOrder(UUID orderId) {
         List<DeliveryAssignment> assignments =
                 deliveryAssignmentRepository.findByOrderIdOrderByAssignedAtDesc(orderId);
         Map<UUID, List<DeliveryEventResponse>> eventsByAssignment = loadEventResponses(
                 assignments.stream().map(DeliveryAssignment::getId).toList());
+        List<UUID> agentIds = assignments.stream()
+                .map(DeliveryAssignment::getAgentId)
+                .filter(id -> id != null)
+                .distinct()
+                .toList();
+        Map<UUID, DeliveryAgent> agentsById = agentIds.isEmpty()
+                ? Map.of()
+                : deliveryAgentRepository.findAllById(agentIds).stream()
+                        .collect(Collectors.toMap(DeliveryAgent::getId, a -> a, (a, b) -> a));
         return assignments.stream()
                 .map(a -> {
                     List<DeliveryEventResponse> events =
                             eventsByAssignment.getOrDefault(a.getId(), List.of());
+                    DeliveryAgent agent = agentsById.get(a.getAgentId());
                     return OrderAssignmentResponse.builder()
                             .assignmentId(a.getId())
                             .assignmentNumber(a.getAssignmentNumber())
                             .orderNumber(a.getOrderNumber())
                             .subOrderNumber(a.getSubOrderNumber())
                             .agentId(a.getAgentId())
+                            .agentName(agent == null ? null : agent.getName())
+                            .agentPhone(agent == null ? null : agent.getPhone())
                             .legType(a.getLegType().name())
                             .status(a.getStatus().name())
                             .assignedAt(a.getAssignedAt())

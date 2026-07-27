@@ -1,5 +1,5 @@
 import { apiRequest } from '@/shared/api/http';
-import { PILOT_TOWN_ID, type AuthSession } from '@/shared/auth/session';
+import type { AuthSession } from '@/shared/auth/session';
 import { loadTownPreference } from '@/shared/town/townPreference';
 
 type AuthApi = {
@@ -15,6 +15,7 @@ export async function registerBuyer(input: {
   password: string;
   firstName: string;
   lastName?: string;
+  acceptedTerms: boolean;
 }): Promise<void> {
   await apiRequest<unknown>('/api/v1/auth/register', {
     method: 'POST',
@@ -29,16 +30,18 @@ export async function loginBuyer(phone: string, password: string): Promise<AuthS
     timeoutMs: 12_000,
   });
 
-  const townId = loadTownPreference()?.townId || PILOT_TOWN_ID;
+  const townId = loadTownPreference()?.townId ?? '';
 
   // Town is applied on the client session. Do not block login on profile PATCH
   // (that call was leaving the Sign in button stuck on "Please wait…").
-  void apiRequest('/api/v1/users/me', {
-    method: 'PATCH',
-    token: data.accessToken,
-    body: { defaultTownId: townId },
-    timeoutMs: 8_000,
-  }).catch(() => undefined);
+  if (townId) {
+    void apiRequest('/api/v1/users/me', {
+      method: 'PATCH',
+      token: data.accessToken,
+      body: { defaultTownId: townId },
+      timeoutMs: 8_000,
+    }).catch(() => undefined);
+  }
 
   return {
     accessToken: data.accessToken,

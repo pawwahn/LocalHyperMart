@@ -66,6 +66,11 @@ public class TownController {
                 townService.updateStatus(townId, request, actorId)));
     }
 
+    @GetMapping("/api/v1/platform/settings/public")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> getPublicPlatformSettings(HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest, platformSettingsService.getPublicSettings()));
+    }
+
     @GetMapping("/api/v1/platform/settings")
     public ResponseEntity<ApiResponse<Map<String, Object>>> getPlatformSettings(HttpServletRequest httpRequest) {
         AdminAuth.requireSuperAdmin(httpRequest);

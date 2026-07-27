@@ -24,6 +24,7 @@ public final class AdminOrderResponses {
         UUID orderId;
         String orderNumber;
         UUID buyerId;
+        String buyerPhone;
         OrderStatus status;
         PaymentStatus paymentStatus;
         BigDecimal totalAmount;
@@ -66,6 +67,8 @@ public final class AdminOrderResponses {
         String orderNumber;
         String subOrderNumber;
         UUID agentId;
+        String agentName;
+        String agentPhone;
         String legType;
         String status;
         Instant assignedAt;
@@ -91,13 +94,22 @@ public final class AdminOrderResponses {
         String orderNumber;
         UUID townId;
         UUID buyerId;
+        String buyerPhone;
+        String recipientName;
+        String deliveryAddress;
         OrderStatus status;
         PaymentMethod paymentMethod;
         PaymentStatus paymentStatus;
+        BigDecimal itemsSubtotal;
+        BigDecimal deliveryFee;
+        BigDecimal storeCreditApplied;
+        BigDecimal promoDiscount;
+        String promoCode;
         BigDecimal totalAmount;
         Instant placedAt;
         Instant deliveredAt;
         Instant cancelledAt;
+        String cancelReason;
         List<AdminSubOrderResponse> subOrders;
         List<AdminAssignmentResponse> assignments;
     }

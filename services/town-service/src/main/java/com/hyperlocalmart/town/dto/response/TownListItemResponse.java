@@ -13,7 +13,10 @@ public class TownListItemResponse {
     private UUID id;
     private String displayName;
     private String townCode;
+    private String state;
     private String stateCode;
+    private String country;
+    private String countryCode;
     private TownStatus status;
     private boolean acceptingOrders;
 }

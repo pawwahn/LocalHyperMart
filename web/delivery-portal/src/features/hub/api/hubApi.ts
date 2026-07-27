@@ -182,6 +182,23 @@ export async function fetchMyHub(token: string): Promise<HubMeDto> {
   return apiRequest<HubMeDto>('/api/v1/delivery/hubs/me', { token });
 }
 
+export type HubPinStatusDto = {
+  configured: boolean;
+  defaultPinActive: boolean;
+};
+
+export async function fetchHubPinStatus(token: string): Promise<HubPinStatusDto> {
+  return apiRequest<HubPinStatusDto>('/api/v1/delivery/hubs/me/pin-status', { token });
+}
+
+export async function setHubPin(token: string, pin: string): Promise<void> {
+  await apiRequest<null>('/api/v1/delivery/hubs/me/pin', {
+    method: 'PUT',
+    token,
+    body: { pin },
+  });
+}
+
 export async function fetchHubDashboard(token: string, hubId: string): Promise<HubDashboardView> {
   const data = await apiRequest<HubDashboardDto>(`/api/v1/delivery/hubs/${hubId}/dashboard`, { token });
   return toHubDashboardView(data);

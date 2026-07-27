@@ -42,6 +42,22 @@ public class JwtAuthGatewayFilter implements GlobalFilter, Ordered {
         }
 
         if (PublicRouteMatcher.isPublic(request.getMethod(), path)) {
+            // Optional auth: still forward identity on public GETs so admins can use
+            // flags like includeDisabled=true without making the route private.
+            String authorization = request.getHeaders().getFirst(HttpHeaders.AUTHORIZATION);
+            if (authorization != null && authorization.startsWith("Bearer ")) {
+                try {
+                    Claims claims = jwtService.parseToken(authorization.substring(7));
+                    ServerHttpRequest mutated = request.mutate()
+                            .header("X-User-Id", claims.getSubject())
+                            .header("X-User-Phone", claims.get("phone", String.class))
+                            .header("X-User-Roles", stringifyRoles(claims.get("roles", List.class)))
+                            .build();
+                    return chain.filter(exchange.mutate().request(mutated).build());
+                } catch (Exception ignored) {
+                    // Invalid token on a public route → continue as anonymous.
+                }
+            }
             return chain.filter(exchange);
         }
 

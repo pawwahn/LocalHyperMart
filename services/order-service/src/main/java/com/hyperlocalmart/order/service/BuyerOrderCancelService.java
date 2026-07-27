@@ -155,11 +155,12 @@ public class BuyerOrderCancelService {
         }
 
         BigDecimal creditAmount = item.getLineTotal();
+        boolean issueStoreCredit = order.getPaymentMethod() != PaymentMethod.COD;
         item.setStatus(OrderItemStatus.CANCELLED);
         item.setCancelReason(request.getReason());
         item.setCancelledAt(Instant.now());
         item.setCancelledBy(buyerId);
-        item.setStoreCreditAmount(creditAmount);
+        item.setStoreCreditAmount(issueStoreCredit ? creditAmount : null);
 
         orderRepository.saveAndFlush(order);
         recalculateTotals(subOrder, order);
@@ -184,6 +185,7 @@ public class BuyerOrderCancelService {
         boolean orderEmpty = remainingActive == null || remainingActive.compareTo(BigDecimal.ZERO) == 0;
 
         if (orderEmpty) {
+            item.setStoreCreditAmount(null);
             OrderStatus prior = order.getStatus();
             order.setStatus(OrderStatus.CANCELLED);
             order.setCancelReason(request.getReason());
@@ -219,13 +221,29 @@ public class BuyerOrderCancelService {
 
         orderRepository.save(order);
 
+        if (!issueStoreCredit) {
+            try {
+                notificationClient.notifyItemRemovedCodReduced(
+                        order.getTownId(),
+                        order.getId(),
+                        order.getBuyerId(),
+                        order.getBuyerPhoneSnapshot(),
+                        order.getOrderNumber(),
+                        item.getItemNameSnapshot(),
+                        order.getTotalAmount() == null ? BigDecimal.ZERO : order.getTotalAmount());
+            } catch (RuntimeException ex) {
+                log.warn("Buyer COD cancel notification failed for item {}: {}", itemId, ex.toString());
+            }
+            return;
+        }
+
         BigDecimal balance;
         try {
             balance = paymentClient.creditWallet(
                     order.getBuyerId(),
                     creditAmount,
                     "ORDER_ITEM_CANCEL",
-                    UUID.randomUUID(),
+                    itemId,
                     order.getId(),
                     item.getId(),
                     "Buyer cancelled item: " + item.getItemNameSnapshot());

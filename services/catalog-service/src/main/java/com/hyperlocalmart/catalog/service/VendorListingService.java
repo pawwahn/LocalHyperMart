@@ -2,6 +2,7 @@ package com.hyperlocalmart.catalog.service;
 
 import com.hyperlocalmart.catalog.client.VendorShopClient;
 import com.hyperlocalmart.catalog.dto.request.BulkCreateVendorListingsRequest;
+import com.hyperlocalmart.catalog.dto.request.CreateMasterItemRequest;
 import com.hyperlocalmart.catalog.dto.request.CreateVendorListingRequest;
 import com.hyperlocalmart.catalog.dto.request.UpdateVendorListingRequest;
 import com.hyperlocalmart.catalog.dto.response.AdminListingResponse;
@@ -11,9 +12,11 @@ import com.hyperlocalmart.catalog.dto.response.VendorListingResponse;
 import com.hyperlocalmart.catalog.entity.CatalogItemStatus;
 import com.hyperlocalmart.catalog.entity.Category;
 import com.hyperlocalmart.catalog.entity.MasterItem;
+import com.hyperlocalmart.catalog.entity.Unit;
 import com.hyperlocalmart.catalog.entity.VendorListing;
 import com.hyperlocalmart.catalog.repository.CategoryRepository;
 import com.hyperlocalmart.catalog.repository.MasterItemRepository;
+import com.hyperlocalmart.catalog.repository.UnitRepository;
 import com.hyperlocalmart.catalog.repository.VendorListingRepository;
 import com.hyperlocalmart.common.api.PageResponse;
 import com.hyperlocalmart.common.exception.BusinessException;
@@ -39,6 +42,7 @@ public class VendorListingService {
     private final VendorListingRepository vendorListingRepository;
     private final MasterItemRepository masterItemRepository;
     private final CategoryRepository categoryRepository;
+    private final UnitRepository unitRepository;
     private final VendorShopClient vendorShopClient;
 
     @Transactional(readOnly = true)
@@ -139,6 +143,36 @@ public class VendorListingService {
                 .totalElements(items.getTotalElements())
                 .totalPages(items.getTotalPages())
                 .build();
+    }
+
+    @Transactional
+    public MasterItemSummaryResponse createMasterItem(CreateMasterItemRequest request, UUID actorUserId) {
+        Category category = categoryRepository.findById(request.getCategoryId())
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Category not found"));
+        if (category.getStatus() != CatalogItemStatus.ACTIVE) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Category is not active");
+        }
+        Unit unit = unitRepository.findById(request.getUnitId())
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Unit not found"));
+        if (unit.getStatus() != CatalogItemStatus.ACTIVE) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Unit is not active");
+        }
+
+        MasterItem item = MasterItem.builder()
+                .category(category)
+                .unit(unit)
+                .name(request.getName().trim())
+                .description(blankToNull(request.getDescription()))
+                .mrp(request.getMrp())
+                .status(CatalogItemStatus.ACTIVE)
+                .build();
+        item.setCreatedBy(actorUserId);
+        item.setUpdatedBy(actorUserId);
+        return toMasterSummary(masterItemRepository.save(item));
+    }
+
+    private String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value.trim();
     }
 
     @Transactional(readOnly = true)

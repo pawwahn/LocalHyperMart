@@ -7,11 +7,12 @@ import com.hyperlocalmart.common.exception.ErrorCode;
 import com.hyperlocalmart.delivery.dto.request.BuyerRejectedRequest;
 import com.hyperlocalmart.delivery.dto.request.DeliverRequest;
 import com.hyperlocalmart.delivery.dto.request.PickedFromVendorRequest;
+import com.hyperlocalmart.delivery.dto.response.AgentMeResponse;
 import com.hyperlocalmart.delivery.dto.response.AgentStatsResponse;
 import com.hyperlocalmart.delivery.dto.response.AssignmentResponse;
 import com.hyperlocalmart.delivery.dto.response.PickupManifestResponse;
-import com.hyperlocalmart.delivery.entity.AssignmentStatus;
 import com.hyperlocalmart.delivery.security.AuthUserPrincipal;
+import com.hyperlocalmart.delivery.service.AgentService;
 import com.hyperlocalmart.delivery.service.AgentStatsService;
 import com.hyperlocalmart.delivery.service.AssignmentService;
 import jakarta.servlet.http.HttpServletRequest;
@@ -29,6 +30,16 @@ public class AgentAssignmentController {
 
     private final AssignmentService assignmentService;
     private final AgentStatsService agentStatsService;
+    private final AgentService agentService;
+
+    @GetMapping("/api/v1/delivery/agents/me")
+    public ResponseEntity<ApiResponse<AgentMeResponse>> me(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            HttpServletRequest httpRequest) {
+        requireDeliveryAgent(principal);
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                agentService.getMyAgent(principal.getUserId())));
+    }
 
     @GetMapping("/api/v1/delivery/agents/me/stats")
     public ResponseEntity<ApiResponse<AgentStatsResponse>> myStats(

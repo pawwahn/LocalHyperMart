@@ -18,6 +18,7 @@ import com.hyperlocalmart.order.dto.response.*;
 import com.hyperlocalmart.order.entity.*;
 import com.hyperlocalmart.order.repository.OrderRepository;
 import com.hyperlocalmart.order.repository.OrderStatusHistoryRepository;
+import com.hyperlocalmart.order.repository.ProductRatingRepository;
 import com.hyperlocalmart.order.repository.VendorSubOrderRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -54,6 +55,7 @@ public class OrderService {
     private final CatalogClient catalogClient;
     private final OrderInvoiceService orderInvoiceService;
     private final DeliveryClient deliveryClient;
+    private final ProductRatingRepository productRatingRepository;
 
     @Transactional
     public CreateOrderResponse createOrder(UUID buyerId, String buyerPhone, String idempotencyKey, CreateOrderRequest request) {
@@ -94,6 +96,7 @@ public class OrderService {
                 .orderId(order.getId())
                 .buyerId(order.getBuyerId())
                 .townId(order.getTownId())
+                .orderNumber(order.getOrderNumber())
                 .status(order.getStatus())
                 .paymentStatus(order.getPaymentStatus())
                 .paymentMethod(order.getPaymentMethod())
@@ -474,6 +477,15 @@ public class OrderService {
                         && s.getStatus() != VendorSubOrderStatus.VENDOR_REJECTED);
         boolean hasActiveItems = false;
 
+        List<UUID> itemIds = order.getVendorSubOrders() == null ? List.of() : order.getVendorSubOrders().stream()
+                .flatMap(s -> s.getItems().stream())
+                .map(OrderItem::getId)
+                .toList();
+        Map<UUID, ProductRating> ratingsByItem = itemIds.isEmpty()
+                ? Map.of()
+                : productRatingRepository.findByOrderItemIdIn(itemIds).stream()
+                        .collect(Collectors.toMap(ProductRating::getOrderItemId, r -> r, (a, b) -> a));
+
         for (VendorSubOrder subOrder : order.getVendorSubOrders()) {
             boolean subCancellable = orderPlaced && subOrder.getStatus() == VendorSubOrderStatus.PLACED;
             for (OrderItem item : subOrder.getItems()) {
@@ -484,6 +496,10 @@ public class OrderService {
                 }
                 boolean claimable = order.getStatus() == OrderStatus.DELIVERED
                         && OrderClaimService.withinClaimWindow(order)
+                        && active;
+                ProductRating rating = ratingsByItem.get(item.getId());
+                boolean rateable = order.getStatus() == OrderStatus.DELIVERED
+                        && ProductRatingService.withinRatingWindow(order)
                         && active;
                 items.add(OrderItemDetailResponse.builder()
                         .orderItemId(item.getId())
@@ -498,6 +514,8 @@ public class OrderService {
                         .storeCreditAmount(item.getStoreCreditAmount())
                         .canCancel(subCancellable && active)
                         .canFileClaim(claimable)
+                        .canRate(rateable)
+                        .myRating(rating == null ? null : (int) rating.getStars())
                         .build());
             }
         }

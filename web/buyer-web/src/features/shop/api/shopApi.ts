@@ -14,6 +14,8 @@ export type CatalogItemDto = {
   effectivePrice?: number | null;
   specialOfferActive?: boolean;
   vendorNote?: string | null;
+  avgRating?: number | null;
+  ratingCount?: number | null;
 };
 
 export type CartDto = {
@@ -76,6 +78,8 @@ export type OrderItemDetailDto = {
   storeCreditAmount?: number;
   canCancel?: boolean;
   canFileClaim?: boolean;
+  canRate?: boolean;
+  myRating?: number | null;
 };
 
 export type OrderTimelineStepDto = {
@@ -143,6 +147,7 @@ export type WalletTransactionDto = {
   balanceAfter: number;
   referenceType?: string;
   orderId?: string | null;
+  orderNumber?: string | null;
   note?: string | null;
   createdAt?: string;
   title?: string;
@@ -150,6 +155,9 @@ export type WalletTransactionDto = {
 
 export type WalletTransactionListDto = {
   items: WalletTransactionDto[];
+  hasMore?: boolean;
+  offset?: number;
+  limit?: number;
 };
 
 export type CreateOrderDto = {
@@ -169,6 +177,8 @@ export type CatalogItemView = {
   discountPercent?: number | null;
   vendorNote?: string | null;
   specialOfferActive?: boolean;
+  avgRating: number;
+  ratingCount: number;
   price: number;
 };
 
@@ -216,6 +226,8 @@ export function toCatalogItem(dto: CatalogItemDto): CatalogItemView {
     discountPercent,
     vendorNote: dto.vendorNote?.trim() || null,
     specialOfferActive: Boolean(dto.specialOfferActive),
+    avgRating: Number(dto.avgRating ?? 0),
+    ratingCount: Number(dto.ratingCount ?? 0),
   };
 }
 
@@ -247,10 +259,13 @@ export function toCartView(dto: CartDto): CartView {
 }
 
 export async function fetchCatalog(townId: string, q?: string): Promise<CatalogItemView[]> {
-  const query = q?.trim()
-    ? `?townId=${townId}&q=${encodeURIComponent(q.trim())}`
-    : `?townId=${townId}`;
-  const data = await apiRequest<PageData<CatalogItemDto>>(`/api/v1/catalog/items${query}`);
+  const params = new URLSearchParams({
+    townId,
+    page: '0',
+    size: '100',
+  });
+  if (q?.trim()) params.set('q', q.trim());
+  const data = await apiRequest<PageData<CatalogItemDto>>(`/api/v1/catalog/items?${params}`);
   return (data.items ?? []).map(toCatalogItem);
 }
 
@@ -402,19 +417,33 @@ export async function createOrderClaim(
   });
 }
 
+export async function rateOrderItem(
+  token: string,
+  orderId: string,
+  orderItemId: string,
+  stars: number,
+): Promise<{ stars: number; orderItemId: string }> {
+  return apiRequest<{ stars: number; orderItemId: string }>(`/api/v1/orders/${orderId}/ratings`, {
+    method: 'POST',
+    token,
+    body: { orderItemId, stars },
+  });
+}
+
 export async function fetchWalletBalance(token: string): Promise<WalletBalanceDto> {
   return apiRequest<WalletBalanceDto>('/api/v1/payments/wallet/me', { token });
 }
 
 export async function fetchWalletTransactions(
   token: string,
-  limit = 100,
-): Promise<WalletTransactionDto[]> {
-  const data = await apiRequest<WalletTransactionListDto>(
-    `/api/v1/payments/wallet/me/transactions?limit=${limit}`,
+  opts: { limit?: number; offset?: number } = {},
+): Promise<WalletTransactionListDto> {
+  const limit = opts.limit ?? 40;
+  const offset = opts.offset ?? 0;
+  return apiRequest<WalletTransactionListDto>(
+    `/api/v1/payments/wallet/me/transactions?limit=${limit}&offset=${offset}`,
     { token },
   );
-  return data.items ?? [];
 }
 
 /** Downloads invoice PDF with auth; returns filename for local save. */

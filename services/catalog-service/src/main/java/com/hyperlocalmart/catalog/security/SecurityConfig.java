@@ -28,6 +28,7 @@ public class SecurityConfig {
                         .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/catalog/items").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/catalog/master-items").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/catalog/master-items").authenticated()
                         .requestMatchers(HttpMethod.GET, "/api/v1/catalog/categories").permitAll()
                         .requestMatchers("/api/v1/catalog/admin/**").authenticated()
                         .requestMatchers("/api/v1/catalog/vendors/**").authenticated()

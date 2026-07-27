@@ -11,6 +11,8 @@ import { StoreListingsPage } from '@/features/store-listings/pages/StoreListings
 import { SettlementsPage } from '@/features/settlements/pages/SettlementsPage';
 import { AgentsPage } from '@/features/agents/pages/AgentsPage';
 import { SettingsPage } from '@/features/settings/pages/SettingsPage';
+import { OrdersPage } from '@/features/orders/pages/OrdersPage';
+import { OrderDetailPage } from '@/features/orders/pages/OrderDetailPage';
 
 export function AppRouter() {
   return (
@@ -22,6 +24,8 @@ export function AppRouter() {
             <Route element={<RequireAuth />}>
               <Route path="/dashboard" element={<DashboardPage />} />
               <Route path="/towns" element={<TownsPage />} />
+              <Route path="/orders" element={<OrdersPage />} />
+              <Route path="/orders/:orderId" element={<OrderDetailPage />} />
               <Route path="/vendors" element={<VendorsPage />} />
               <Route path="/catalog" element={<CatalogPage />} />
               <Route path="/store-listings" element={<StoreListingsPage />} />

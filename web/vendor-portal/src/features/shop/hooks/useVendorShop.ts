@@ -9,13 +9,6 @@ import {
   type VendorShopStatus,
 } from '../api/shopApi';
 
-/** Pilot fallback if shop API is unavailable. */
-export const PILOT_HUB_HELP = {
-  hubName: 'Narsaraopet Hub',
-  hubPhone: '9876500100',
-  hubHours: '10:00 AM – 5:00 PM',
-};
-
 let shopCache: { vendorId: string; shop: VendorShopStatus } | null = null;
 
 export function useVendorShop() {
@@ -96,9 +89,9 @@ export function useVendorShop() {
   }
 
   const hub = {
-    hubName: shop?.hubName || PILOT_HUB_HELP.hubName,
-    hubPhone: shop?.hubPhone || PILOT_HUB_HELP.hubPhone,
-    hubHours: shop?.hubHours || PILOT_HUB_HELP.hubHours,
+    hubName: shop?.hubName ?? '',
+    hubPhone: shop?.hubPhone ?? '',
+    hubHours: shop?.hubHours ?? '',
   };
 
   return {

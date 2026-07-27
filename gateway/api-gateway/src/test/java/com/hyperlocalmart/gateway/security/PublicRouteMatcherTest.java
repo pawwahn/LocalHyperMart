@@ -18,8 +18,23 @@ class PublicRouteMatcherTest {
     }
 
     @Test
+    void platformPublicSettings_isPublic() {
+        assertThat(PublicRouteMatcher.isPublic(HttpMethod.GET, "/api/v1/platform/settings/public")).isTrue();
+    }
+
+    @Test
+    void platformAdminSettings_requiresAuth() {
+        assertThat(PublicRouteMatcher.isPublic(HttpMethod.GET, "/api/v1/platform/settings")).isFalse();
+    }
+
+    @Test
     void catalogBrowse_isPublic() {
         assertThat(PublicRouteMatcher.isPublic(HttpMethod.GET, "/api/v1/catalog/items")).isTrue();
+    }
+
+    @Test
+    void geoCountries_isPublic() {
+        assertThat(PublicRouteMatcher.isPublic(HttpMethod.GET, "/api/v1/geo/countries")).isTrue();
     }
 
     @Test

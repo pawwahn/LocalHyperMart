@@ -3,7 +3,7 @@ import { useTown } from '@/shared/town/TownContext';
 import { Button } from '@/shared/ui';
 
 export function TownPickerSheet() {
-  const { pickerOpen, closePicker, towns, townId, selectTown, loading, error, reloadTowns } =
+  const { pickerOpen, closePicker, towns, townId, hasTown, selectTown, loading, error, reloadTowns } =
     useTown();
 
   if (!pickerOpen) return null;
@@ -21,7 +21,11 @@ export function TownPickerSheet() {
         <h2 id="town-picker-title" style={styles.title}>
           Choose your town
         </h2>
-        <p style={styles.sub}>We show shops and delivery for one town at a time.</p>
+        <p style={styles.sub}>
+          {hasTown
+            ? 'We show shops and delivery for one town at a time.'
+            : 'Select a town to browse shops. Required before cart or checkout.'}
+        </p>
 
         {error ? (
           <div style={styles.errorBox}>
@@ -66,9 +70,11 @@ export function TownPickerSheet() {
           <p style={styles.muted}>No towns are open for orders yet.</p>
         ) : null}
 
-        <Button variant="ghost" fullWidth onClick={closePicker}>
-          Close
-        </Button>
+        {hasTown ? (
+          <Button variant="ghost" fullWidth onClick={closePicker}>
+            Close
+          </Button>
+        ) : null}
       </div>
     </div>
   );

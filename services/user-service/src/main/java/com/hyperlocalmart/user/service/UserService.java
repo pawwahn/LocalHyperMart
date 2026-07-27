@@ -2,6 +2,7 @@ package com.hyperlocalmart.user.service;
 
 import com.hyperlocalmart.common.exception.BusinessException;
 import com.hyperlocalmart.common.exception.ErrorCode;
+import com.hyperlocalmart.user.dto.request.BindStaffContextRequest;
 import com.hyperlocalmart.user.dto.request.CreateStaffUserRequest;
 import com.hyperlocalmart.user.dto.request.UpdateProfileRequest;
 import com.hyperlocalmart.user.dto.request.UpdateUserStatusRequest;
@@ -61,7 +62,11 @@ public class UserService {
                 .status(UserStatus.ACTIVE)
                 .build();
 
-        UserRole userRole = UserRole.builder().user(user).role(role).build();
+        UserRole userRole = UserRole.builder()
+                .user(user)
+                .role(role)
+                .townId(request.getTownId())
+                .build();
         user.getUserRoles().add(userRole);
         userRepository.save(user);
 
@@ -69,6 +74,28 @@ public class UserService {
                 .userId(user.getId())
                 .phone(user.getPhone())
                 .role(role.getName().name())
+                .status(user.getStatus().name())
+                .build();
+    }
+
+    @Transactional
+    public StaffUserResponse bindStaffContext(UUID userId, BindStaffContextRequest request) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "User not found"));
+
+        UserRole vendorRole = user.getUserRoles().stream()
+                .filter(ur -> ur.getRole().getName() == RoleName.VENDOR)
+                .findFirst()
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Vendor role not found for user"));
+
+        vendorRole.setTownId(request.getTownId());
+        vendorRole.setVendorId(request.getVendorId());
+        userRepository.save(user);
+
+        return StaffUserResponse.builder()
+                .userId(user.getId())
+                .phone(user.getPhone())
+                .role(RoleName.VENDOR.name())
                 .status(user.getStatus().name())
                 .build();
     }

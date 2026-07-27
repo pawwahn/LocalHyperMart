@@ -136,6 +136,8 @@ export function ShopPage() {
                 discountPercent={item.discountPercent}
                 vendorNote={item.vendorNote}
                 specialOfferActive={item.specialOfferActive}
+                avgRating={item.avgRating}
+                ratingCount={item.ratingCount}
                 quantity={quantityFor(item.listingId)}
                 busy={busyKey === item.listingId}
                 onIncrease={() => void doIncrease(item.listingId)}

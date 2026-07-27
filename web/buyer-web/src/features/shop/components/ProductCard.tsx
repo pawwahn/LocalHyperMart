@@ -11,6 +11,8 @@ type Props = {
   discountPercent?: number | null;
   vendorNote?: string | null;
   specialOfferActive?: boolean;
+  avgRating?: number;
+  ratingCount?: number;
   quantity: number;
   busy?: boolean;
   onIncrease: () => void;
@@ -27,6 +29,8 @@ export function ProductCard({
   discountPercent,
   vendorNote,
   specialOfferActive,
+  avgRating = 0,
+  ratingCount = 0,
   quantity,
   busy,
   onIncrease,
@@ -34,6 +38,7 @@ export function ProductCard({
 }: Props) {
   const visual = productVisual(name);
   const badge = specialOfferActive ? 'SALE' : discountPercent && discountPercent > 0 ? `${discountPercent}% OFF` : null;
+  const showRating = ratingCount > 0 && avgRating > 0;
 
   return (
     <article style={styles.card}>
@@ -58,6 +63,12 @@ export function ProductCard({
         <p style={styles.shop}>{shopName}</p>
         <h3 style={styles.name}>{name}</h3>
         <p style={styles.unit}>{unit}</p>
+        {showRating ? (
+          <div style={styles.ratingRow}>
+            <span style={styles.ratingChip}>★ {avgRating.toFixed(1)}</span>
+            <span style={styles.ratingMeta}>{ratingCount} rating{ratingCount === 1 ? '' : 's'}</span>
+          </div>
+        ) : null}
         {vendorNote ? <p style={styles.note}>{vendorNote}</p> : null}
         <div style={styles.priceRow}>
           <span style={styles.price}>{priceLabel}</span>
@@ -157,6 +168,28 @@ const styles: Record<string, CSSProperties> = {
     color: 'var(--text-muted)',
     overflow: 'hidden',
     textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  },
+  ratingRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.3rem',
+    minWidth: 0,
+    marginTop: '0.1rem',
+  },
+  ratingChip: {
+    fontSize: '0.62rem',
+    fontWeight: 800,
+    color: '#92400E',
+    background: '#FEF3C7',
+    borderRadius: 4,
+    padding: '0.08rem 0.28rem',
+    whiteSpace: 'nowrap',
+  },
+  ratingMeta: {
+    fontSize: '0.58rem',
+    color: 'var(--text-muted)',
+    fontWeight: 700,
     whiteSpace: 'nowrap',
   },
   note: {

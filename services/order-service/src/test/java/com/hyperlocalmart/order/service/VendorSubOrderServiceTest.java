@@ -39,6 +39,7 @@ class VendorSubOrderServiceTest {
     @Mock private OrderStatusHistoryRepository orderStatusHistoryRepository;
     @Mock private PaymentClient paymentClient;
     @Mock private NotificationClient notificationClient;
+    @Mock private com.hyperlocalmart.order.client.DeliveryClient deliveryClient;
     @Mock private OrderMoneyUnwindService orderMoneyUnwindService;
 
     @InjectMocks
@@ -89,6 +90,7 @@ class VendorSubOrderServiceTest {
         when(vendorSubOrderRepository.saveAndFlush(subOrder)).thenReturn(subOrder);
         when(orderItemRepository.sumActiveLineTotalsForSubOrder(subOrderId)).thenReturn(BigDecimal.ZERO);
         when(orderItemRepository.sumActiveLineTotalsForOrder(order.getId())).thenReturn(BigDecimal.ZERO);
+        when(deliveryClient.listHubContactsForTown(order.getTownId())).thenReturn(List.of());
         when(orderMoneyUnwindService.unwindCancelledOrder(eq(order), eq("Out of stock today")))
                 .thenAnswer(invocation -> {
                     Order o = invocation.getArgument(0);
@@ -127,8 +129,8 @@ class VendorSubOrderServiceTest {
                 .buyerId(buyerId)
                 .buyerPhoneSnapshot("9876500111")
                 .status(OrderStatus.PLACED)
-                .paymentMethod(PaymentMethod.COD)
-                .paymentStatus(PaymentStatus.PENDING)
+                .paymentMethod(PaymentMethod.ONLINE)
+                .paymentStatus(PaymentStatus.PAID)
                 .itemsSubtotal(new BigDecimal("800.00"))
                 .deliveryFee(new BigDecimal("38.00"))
                 .storeCreditApplied(BigDecimal.ZERO)
@@ -188,11 +190,11 @@ class VendorSubOrderServiceTest {
         when(orderRepository.saveAndFlush(order)).thenReturn(order);
         when(vendorSubOrderRepository.save(subOrder)).thenReturn(subOrder);
         when(vendorSubOrderRepository.saveAndFlush(subOrder)).thenReturn(subOrder);
-        when(orderItemRepository.sumActiveLineTotalsForSubOrder(subOrderId)).thenReturn(BigDecimal.ZERO);
         when(orderItemRepository.sumActiveLineTotalsForOrder(order.getId()))
                 .thenReturn(new BigDecimal("500.00"));
+        when(deliveryClient.listHubContactsForTown(order.getTownId())).thenReturn(List.of());
         when(paymentClient.creditWallet(eq(buyerId), eq(new BigDecimal("300.00")), eq("ORDER_ITEM_CANCEL"),
-                any(), eq(order.getId()), eq(itemId), any()))
+                eq(subOrderId), eq(order.getId()), eq(itemId), any()))
                 .thenReturn(new BigDecimal("300.00"));
 
         VendorSubOrderResponse response = vendorSubOrderService.reject(vendorId, subOrderId, actorId, request);
@@ -206,6 +208,105 @@ class VendorSubOrderServiceTest {
         verify(notificationClient).notifyItemCancelledStoreCredit(
                 eq(order.getTownId()), eq(order.getId()), eq(buyerId), eq("9876500111"),
                 eq("NRPT-00011"), eq("Ravi Kirana items"), eq(new BigDecimal("300.00")), eq(new BigDecimal("300.00")));
+    }
+
+    @Test
+    void reject_codSibling_reducesCashDueWithoutWalletCredit() {
+        UUID vendorId = UUID.randomUUID();
+        UUID siblingVendorId = UUID.randomUUID();
+        UUID subOrderId = UUID.randomUUID();
+        UUID actorId = UUID.randomUUID();
+        UUID buyerId = UUID.randomUUID();
+        UUID itemId = UUID.randomUUID();
+        UUID townId = UUID.randomUUID();
+        UUID hubUserId = UUID.randomUUID();
+
+        Order order = Order.builder()
+                .id(UUID.randomUUID())
+                .orderNumber("NRPT-00012")
+                .townId(townId)
+                .buyerId(buyerId)
+                .buyerPhoneSnapshot("9876500112")
+                .status(OrderStatus.PLACED)
+                .paymentMethod(PaymentMethod.COD)
+                .paymentStatus(PaymentStatus.PAID)
+                .itemsSubtotal(new BigDecimal("800.00"))
+                .deliveryFee(new BigDecimal("38.00"))
+                .storeCreditApplied(BigDecimal.ZERO)
+                .totalAmount(new BigDecimal("838.00"))
+                .deliveryAddressSnapshot(java.util.Map.of("line1", "MG Road"))
+                .vendorSubOrders(new ArrayList<>())
+                .build();
+
+        OrderItem rejectItem = OrderItem.builder()
+                .id(itemId)
+                .itemNameSnapshot("Tomato")
+                .shopNameSnapshot("Ravi Kirana")
+                .quantity(2)
+                .lineTotal(new BigDecimal("300.00"))
+                .status(OrderItemStatus.ACTIVE)
+                .build();
+
+        VendorSubOrder subOrder = VendorSubOrder.builder()
+                .id(subOrderId)
+                .order(order)
+                .vendorId(vendorId)
+                .shopId(UUID.randomUUID())
+                .subOrderNumber("NRPT-00012-2/2")
+                .status(VendorSubOrderStatus.PLACED)
+                .subtotal(new BigDecimal("300.00"))
+                .items(new ArrayList<>(List.of(rejectItem)))
+                .build();
+        rejectItem.setVendorSubOrder(subOrder);
+
+        VendorSubOrder sibling = VendorSubOrder.builder()
+                .id(UUID.randomUUID())
+                .order(order)
+                .vendorId(siblingVendorId)
+                .shopId(UUID.randomUUID())
+                .subOrderNumber("NRPT-00012-1/2")
+                .status(VendorSubOrderStatus.READY_FOR_PICKUP)
+                .subtotal(new BigDecimal("500.00"))
+                .items(new ArrayList<>(List.of(OrderItem.builder()
+                        .id(UUID.randomUUID())
+                        .itemNameSnapshot("Onion")
+                        .shopNameSnapshot("Fresh Mart")
+                        .quantity(1)
+                        .lineTotal(new BigDecimal("500.00"))
+                        .status(OrderItemStatus.ACTIVE)
+                        .build())))
+                .build();
+
+        order.getVendorSubOrders().add(sibling);
+        order.getVendorSubOrders().add(subOrder);
+
+        RejectSubOrderRequest request = new RejectSubOrderRequest();
+        request.setReason("Can't fulfill today");
+
+        when(vendorSubOrderRepository.findDetailedByIdAndVendorId(subOrderId, vendorId))
+                .thenReturn(Optional.of(subOrder));
+        when(orderRepository.save(order)).thenReturn(order);
+        when(orderRepository.saveAndFlush(order)).thenReturn(order);
+        when(vendorSubOrderRepository.save(subOrder)).thenReturn(subOrder);
+        when(vendorSubOrderRepository.saveAndFlush(subOrder)).thenReturn(subOrder);
+        when(orderItemRepository.sumActiveLineTotalsForOrder(order.getId()))
+                .thenReturn(new BigDecimal("500.00"));
+        when(deliveryClient.listHubContactsForTown(townId)).thenReturn(List.of(
+                new com.hyperlocalmart.order.client.DeliveryClient.HubContact(
+                        hubUserId, UUID.randomUUID(), "Narsaraopet Hub", "9876500100")));
+
+        VendorSubOrderResponse response = vendorSubOrderService.reject(vendorId, subOrderId, actorId, request);
+
+        assertThat(response.getStatus()).isEqualTo(VendorSubOrderStatus.VENDOR_REJECTED);
+        assertThat(rejectItem.getStoreCreditAmount()).isNull();
+        verify(paymentClient, never()).creditWallet(any(), any(), any(), any(), any(), any(), any());
+        verify(notificationClient).notifyItemRemovedCodReduced(
+                eq(townId), eq(order.getId()), eq(buyerId), eq("9876500112"),
+                eq("NRPT-00012"), eq("Ravi Kirana items"), any());
+        verify(notificationClient).notifyVendorShopRejected(
+                eq(townId), eq(hubUserId), eq("9876500100"), eq(order.getId()),
+                eq("NRPT-00012"), eq("Ravi Kirana"), eq(new BigDecimal("300.00")),
+                eq("Can't fulfill today"), eq("9876500112"));
     }
 
     @Test
@@ -224,7 +325,7 @@ class VendorSubOrderServiceTest {
                 .buyerId(buyerId)
                 .buyerPhoneSnapshot("9876500999")
                 .status(OrderStatus.PLACED)
-                .paymentMethod(PaymentMethod.COD)
+                .paymentMethod(PaymentMethod.ONLINE)
                 .paymentStatus(PaymentStatus.PAID)
                 .itemsSubtotal(new BigDecimal("800.00"))
                 .deliveryFee(new BigDecimal("38.00"))
@@ -317,7 +418,7 @@ class VendorSubOrderServiceTest {
                 eq(buyerId),
                 eq(new BigDecimal("300.00")),
                 eq("ORDER_ITEM_CANCEL"),
-                any(UUID.class),
+                eq(itemId),
                 eq(order.getId()),
                 eq(itemId),
                 any());

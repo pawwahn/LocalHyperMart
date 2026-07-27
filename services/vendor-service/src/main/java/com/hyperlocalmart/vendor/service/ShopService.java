@@ -2,12 +2,14 @@ package com.hyperlocalmart.vendor.service;
 
 import com.hyperlocalmart.common.exception.BusinessException;
 import com.hyperlocalmart.common.exception.ErrorCode;
+import com.hyperlocalmart.vendor.client.DeliveryClient;
 import com.hyperlocalmart.vendor.dto.request.UpdateShopProfileRequest;
 import com.hyperlocalmart.vendor.dto.response.ShopSummaryResponse;
 import com.hyperlocalmart.vendor.dto.response.VendorShopContextResponse;
 import com.hyperlocalmart.vendor.dto.response.VendorShopStatusResponse;
 import com.hyperlocalmart.vendor.entity.Shop;
 import com.hyperlocalmart.vendor.entity.ShopStatus;
+import com.hyperlocalmart.vendor.entity.VendorStatus;
 import com.hyperlocalmart.vendor.repository.ShopRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -21,12 +23,13 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class ShopService {
 
-    /** Pilot hub contact (Narsaraopet) — shown in vendor portal Help until multi-hub API exists. */
-    private static final String PILOT_HUB_NAME = "Narsaraopet Hub";
-    private static final String PILOT_HUB_PHONE = "9876500100";
-    private static final String PILOT_HUB_HOURS = "10:00 AM – 5:00 PM";
+    /** Fallback only when delivery-service hub contacts are unavailable. */
+    private static final String FALLBACK_HUB_NAME = "Town Hub";
+    private static final String FALLBACK_HUB_PHONE = "9876500100";
+    private static final String HUB_HOURS = "10:00 AM – 5:00 PM";
 
     private final ShopRepository shopRepository;
+    private final DeliveryClient deliveryClient;
 
     @Transactional(readOnly = true)
     public List<ShopSummaryResponse> getShopsByIds(Collection<UUID> shopIds) {
@@ -59,6 +62,9 @@ public class ShopService {
     @Transactional
     public VendorShopStatusResponse setAcceptingOrders(UUID vendorId, boolean acceptingOrders) {
         Shop shop = requireShopForVendor(vendorId);
+        if (acceptingOrders && shop.getVendor().getStatus() == VendorStatus.DISABLED) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "Vendor is disabled — cannot accept orders");
+        }
         shop.setAcceptingOrders(acceptingOrders);
         return toStatus(shopRepository.save(shop));
     }
@@ -66,6 +72,9 @@ public class ShopService {
     @Transactional
     public VendorShopStatusResponse updateShopProfile(UUID vendorId, UpdateShopProfileRequest request) {
         Shop shop = requireShopForVendor(vendorId);
+        if (shop.getVendor().getStatus() == VendorStatus.DISABLED) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "Vendor is disabled");
+        }
         if (request.getShopName() != null && !request.getShopName().isBlank()) {
             shop.setShopName(request.getShopName().trim());
         }
@@ -93,6 +102,19 @@ public class ShopService {
     }
 
     private VendorShopStatusResponse toStatus(Shop shop) {
+        String hubName = FALLBACK_HUB_NAME;
+        String hubPhone = FALLBACK_HUB_PHONE;
+        List<DeliveryClient.HubContact> contacts =
+                deliveryClient.listHubContactsForTown(shop.getVendor().getTownId());
+        if (!contacts.isEmpty()) {
+            DeliveryClient.HubContact primary = contacts.getFirst();
+            if (primary.hubName() != null && !primary.hubName().isBlank()) {
+                hubName = primary.hubName();
+            }
+            if (primary.phone() != null && !primary.phone().isBlank()) {
+                hubPhone = primary.phone();
+            }
+        }
         return VendorShopStatusResponse.builder()
                 .vendorId(shop.getVendor().getId())
                 .townId(shop.getVendor().getTownId())
@@ -102,9 +124,9 @@ public class ShopService {
                 .pincode(shop.getPincode())
                 .phone(shop.getVendor().getPhone())
                 .acceptingOrders(shop.isAcceptingOrders())
-                .hubName(PILOT_HUB_NAME)
-                .hubPhone(PILOT_HUB_PHONE)
-                .hubHours(PILOT_HUB_HOURS)
+                .hubName(hubName)
+                .hubPhone(hubPhone)
+                .hubHours(HUB_HOURS)
                 .build();
     }
 

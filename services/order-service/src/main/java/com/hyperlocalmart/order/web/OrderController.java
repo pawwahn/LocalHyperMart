@@ -6,16 +6,19 @@ import com.hyperlocalmart.order.dto.request.CancelOrderItemRequest;
 import com.hyperlocalmart.order.dto.request.CancelOrderRequest;
 import com.hyperlocalmart.order.dto.request.CreateClaimRequest;
 import com.hyperlocalmart.order.dto.request.CreateOrderRequest;
+import com.hyperlocalmart.order.dto.request.RateOrderItemRequest;
 import com.hyperlocalmart.order.dto.response.ClaimResponse;
 import com.hyperlocalmart.order.dto.response.CreateOrderResponse;
 import com.hyperlocalmart.order.dto.response.OrderDetailResponse;
 import com.hyperlocalmart.order.dto.response.OrderSummaryResponse;
+import com.hyperlocalmart.order.dto.response.ProductRatingResponse;
 import com.hyperlocalmart.order.dto.response.ReorderResponse;
 import com.hyperlocalmart.order.security.AuthUserPrincipal;
 import com.hyperlocalmart.order.service.BuyerOrderCancelService;
 import com.hyperlocalmart.order.service.OrderClaimService;
 import com.hyperlocalmart.order.service.OrderInvoiceService;
 import com.hyperlocalmart.order.service.OrderService;
+import com.hyperlocalmart.order.service.ProductRatingService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -38,6 +41,7 @@ public class OrderController {
     private final OrderInvoiceService orderInvoiceService;
     private final BuyerOrderCancelService buyerOrderCancelService;
     private final OrderClaimService orderClaimService;
+    private final ProductRatingService productRatingService;
 
     @PostMapping
     public ResponseEntity<ApiResponse<CreateOrderResponse>> createOrder(
@@ -118,6 +122,16 @@ public class OrderController {
             HttpServletRequest httpRequest) {
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
                 orderClaimService.listBuyerClaims(principal.getUserId(), orderId)));
+    }
+
+    @PostMapping("/{orderId}/ratings")
+    public ResponseEntity<ApiResponse<ProductRatingResponse>> rateItem(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @PathVariable UUID orderId,
+            @Valid @RequestBody RateOrderItemRequest request,
+            HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                productRatingService.rateItem(principal.getUserId(), orderId, request)));
     }
 
     @GetMapping("/{orderId}/invoice")

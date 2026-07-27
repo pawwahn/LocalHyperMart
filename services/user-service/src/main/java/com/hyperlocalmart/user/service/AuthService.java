@@ -2,6 +2,7 @@ package com.hyperlocalmart.user.service;
 
 import com.hyperlocalmart.common.exception.BusinessException;
 import com.hyperlocalmart.common.exception.ErrorCode;
+import com.hyperlocalmart.user.config.InviteProperties;
 import com.hyperlocalmart.user.config.LoginProperties;
 import com.hyperlocalmart.user.config.OtpProperties;
 import com.hyperlocalmart.user.dto.request.*;
@@ -38,9 +39,17 @@ public class AuthService {
     private final JwtService jwtService;
     private final LoginProperties loginProperties;
     private final OtpProperties otpProperties;
+    private final InviteProperties inviteProperties;
 
     @Transactional
     public RegisterResponse register(RegisterRequest request) {
+        if (inviteProperties.isRequireTerms() && !Boolean.TRUE.equals(request.getAcceptedTerms())) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Accept Terms to register");
+        }
+        if (!inviteProperties.isPhoneAllowed(request.getPhone())) {
+            throw new BusinessException(ErrorCode.CONFLICT,
+                    "Invite-only soft launch. This number is not on the invite list.");
+        }
         if (userRepository.existsByPhone(request.getPhone())) {
             throw new BusinessException(ErrorCode.CONFLICT, "Phone number already registered");
         }

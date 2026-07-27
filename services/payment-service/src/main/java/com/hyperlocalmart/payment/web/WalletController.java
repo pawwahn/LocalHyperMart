@@ -32,8 +32,9 @@ public class WalletController {
     public ResponseEntity<ApiResponse<WalletTransactionListResponse>> myTransactions(
             @AuthenticationPrincipal AuthUserPrincipal principal,
             @RequestParam(defaultValue = "40") int limit,
+            @RequestParam(defaultValue = "0") int offset,
             HttpServletRequest httpRequest) {
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
-                walletService.listTransactions(principal.getUserId(), limit)));
+                walletService.listTransactions(principal.getUserId(), limit, offset)));
     }
 }

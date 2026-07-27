@@ -1,4 +1,4 @@
-import type { CSSProperties } from 'react';
+import { useMemo, useState, type CSSProperties } from 'react';
 
 export type TimelineStep = {
   code: string;
@@ -22,74 +22,156 @@ function formatWhen(iso?: string | null): string {
   }
 }
 
+function isTerminalStatus(status?: string | null): boolean {
+  const s = (status || '').toUpperCase();
+  return s.includes('DELIVER') || s.includes('CANCEL') || s.includes('FAIL');
+}
+
+function summaryFromSteps(steps: TimelineStep[], fallbackStatus?: string | null): string {
+  const current = steps.find((s) => (s.state || '').toUpperCase() === 'CURRENT');
+  if (current) {
+    const when = formatWhen(current.at);
+    return when ? `${current.label} · ${when}` : current.label;
+  }
+  const done = [...steps].reverse().find((s) => (s.state || '').toUpperCase() === 'DONE');
+  if (done) {
+    const when = formatWhen(done.at);
+    return when ? `${done.label} · ${when}` : done.label;
+  }
+  return fallbackStatus?.trim() || 'Order progress';
+}
+
 type Props = {
   steps: TimelineStep[];
+  /** Raw order status — used to decide default collapsed vs expanded. */
+  orderStatus?: string | null;
+  displayStatus?: string | null;
 };
 
-export function OrderStatusTimeline({ steps }: Props) {
+export function OrderStatusTimeline({ steps, orderStatus, displayStatus }: Props) {
+  const terminal = isTerminalStatus(orderStatus) || isTerminalStatus(displayStatus);
+  const [expanded, setExpanded] = useState(!terminal);
+
+  const summary = useMemo(
+    () => summaryFromSteps(steps, displayStatus || orderStatus),
+    [steps, displayStatus, orderStatus],
+  );
+
   if (!steps.length) return null;
 
   return (
     <section style={styles.section} aria-label="Order progress">
-      <h2 style={styles.h2}>Order progress</h2>
-      <ol style={styles.list}>
-        {steps.map((step, index) => {
-          const state = (step.state || 'UPCOMING').toUpperCase();
-          const done = state === 'DONE';
-          const current = state === 'CURRENT';
-          const skipped = state === 'SKIPPED';
-          const isLast = index === steps.length - 1;
-          return (
-            <li key={step.code} style={styles.item}>
-              <div style={styles.rail}>
-                <span
-                  style={{
-                    ...styles.dot,
-                    ...(done ? styles.dotDone : null),
-                    ...(current ? styles.dotCurrent : null),
-                    ...(skipped ? styles.dotSkipped : null),
-                  }}
-                  aria-hidden
-                />
-                {!isLast ? (
+      <button
+        type="button"
+        style={styles.toggle}
+        aria-expanded={expanded}
+        onClick={() => setExpanded((v) => !v)}
+      >
+        <div style={styles.toggleText}>
+          <span style={styles.h2}>Order progress</span>
+          {!expanded ? <span style={styles.summary}>{summary}</span> : null}
+        </div>
+        <span style={styles.chevron} aria-hidden>
+          {expanded ? '▴' : '▾'}
+        </span>
+      </button>
+
+      {expanded ? (
+        <ol style={styles.list}>
+          {steps.map((step, index) => {
+            const state = (step.state || 'UPCOMING').toUpperCase();
+            const done = state === 'DONE';
+            const current = state === 'CURRENT';
+            const skipped = state === 'SKIPPED';
+            const isLast = index === steps.length - 1;
+            return (
+              <li key={step.code} style={styles.item}>
+                <div style={styles.rail}>
                   <span
                     style={{
-                      ...styles.line,
-                      ...(done ? styles.lineDone : null),
+                      ...styles.dot,
+                      ...(done ? styles.dotDone : null),
+                      ...(current ? styles.dotCurrent : null),
+                      ...(skipped ? styles.dotSkipped : null),
                     }}
                     aria-hidden
                   />
-                ) : null}
-              </div>
-              <div style={styles.body}>
-                <p
-                  style={{
-                    ...styles.label,
-                    ...(current ? styles.labelCurrent : null),
-                    ...(skipped ? styles.labelMuted : null),
-                    ...(!done && !current ? styles.labelMuted : null),
-                  }}
-                >
-                  {step.label}
-                </p>
-                {step.at ? <p style={styles.meta}>{formatWhen(step.at)}</p> : null}
-                {step.note ? <p style={styles.note}>{step.note}</p> : null}
-              </div>
-            </li>
-          );
-        })}
-      </ol>
+                  {!isLast ? (
+                    <span
+                      style={{
+                        ...styles.line,
+                        ...(done ? styles.lineDone : null),
+                      }}
+                      aria-hidden
+                    />
+                  ) : null}
+                </div>
+                <div style={styles.body}>
+                  <p
+                    style={{
+                      ...styles.label,
+                      ...(current ? styles.labelCurrent : null),
+                      ...(skipped ? styles.labelMuted : null),
+                      ...(!done && !current ? styles.labelMuted : null),
+                    }}
+                  >
+                    {step.label}
+                  </p>
+                  {step.at ? <p style={styles.meta}>{formatWhen(step.at)}</p> : null}
+                  {step.note ? <p style={styles.note}>{step.note}</p> : null}
+                </div>
+              </li>
+            );
+          })}
+        </ol>
+      ) : null}
     </section>
   );
 }
 
 const styles: Record<string, CSSProperties> = {
-  section: { display: 'grid', gap: '0.55rem' },
+  section: { display: 'grid', gap: '0.45rem' },
+  toggle: {
+    appearance: 'none',
+    border: '1px solid var(--border)',
+    borderRadius: 'var(--radius-lg)',
+    background: 'var(--bg-elevated)',
+    padding: '0.7rem 0.85rem',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: '0.75rem',
+    cursor: 'pointer',
+    textAlign: 'left',
+    width: '100%',
+    boxSizing: 'border-box',
+  },
+  toggleText: {
+    display: 'grid',
+    gap: '0.15rem',
+    minWidth: 0,
+    flex: 1,
+  },
   h2: {
     margin: 0,
     fontFamily: 'var(--font-display)',
     fontSize: '1.05rem',
     fontWeight: 800,
+    color: 'var(--text)',
+  },
+  summary: {
+    color: 'var(--text-muted)',
+    fontSize: '0.84rem',
+    fontWeight: 600,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  },
+  chevron: {
+    color: 'var(--text-muted)',
+    fontSize: '0.95rem',
+    flexShrink: 0,
+    lineHeight: 1,
   },
   list: {
     listStyle: 'none',

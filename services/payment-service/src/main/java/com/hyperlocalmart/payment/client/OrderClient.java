@@ -99,10 +99,45 @@ public class OrderClient {
         return response.getData();
     }
 
+    public CodDeliveredOrders getCodDelivered(UUID townId, UUID agentId, LocalDate date) {
+        RestClient client = restClientBuilder.baseUrl(orderServiceProperties.getBaseUrl()).build();
+        ApiResponse<CodDeliveredOrders> response = client.get()
+                .uri(uriBuilder -> {
+                    var b = uriBuilder
+                            .path("/api/v1/internal/orders/cod-delivered")
+                            .queryParam("townId", townId)
+                            .queryParam("date", date);
+                    if (agentId != null) {
+                        b.queryParam("agentId", agentId);
+                    }
+                    return b.build();
+                })
+                .retrieve()
+                .body(new ParameterizedTypeReference<ApiResponse<CodDeliveredOrders>>() {});
+        if (response == null || response.getData() == null) {
+            throw new IllegalStateException("COD delivered orders unavailable");
+        }
+        return response.getData();
+    }
+
+    public List<CodDeliveredItem> resolveCodDelivered(Collection<UUID> orderIds) {
+        RestClient client = restClientBuilder.baseUrl(orderServiceProperties.getBaseUrl()).build();
+        ApiResponse<List<CodDeliveredItem>> response = client.post()
+                .uri("/api/v1/internal/orders/cod-delivered/resolve")
+                .body(List.copyOf(orderIds))
+                .retrieve()
+                .body(new ParameterizedTypeReference<ApiResponse<List<CodDeliveredItem>>>() {});
+        if (response == null || response.getData() == null) {
+            return List.of();
+        }
+        return response.getData();
+    }
+
     public record OrderSnapshot(
             UUID orderId,
             UUID buyerId,
             UUID townId,
+            String orderNumber,
             String status,
             String paymentStatus,
             String paymentMethod,
@@ -128,6 +163,23 @@ public class OrderClient {
             String status,
             String paymentStatus,
             BigDecimal subtotal
+    ) {
+    }
+
+    public record CodDeliveredOrders(
+            UUID townId,
+            UUID agentId,
+            String date,
+            boolean agentFilterApplied,
+            List<CodDeliveredItem> items
+    ) {
+    }
+
+    public record CodDeliveredItem(
+            UUID orderId,
+            String orderNumber,
+            BigDecimal totalAmount,
+            Instant deliveredAt
     ) {
     }
 }

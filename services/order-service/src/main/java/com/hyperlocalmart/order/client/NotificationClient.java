@@ -113,6 +113,27 @@ public class NotificationClient {
         send("CLAIM_REJECTED", townId, orderId, buyerId, buyerPhone, params);
     }
 
+    public void notifyItemRemovedCodReduced(UUID townId, UUID orderId, UUID buyerId, String buyerPhone,
+                                            String orderNumber, String itemName, BigDecimal newTotal) {
+        Map<String, String> params = new HashMap<>();
+        params.put("orderNumber", orderNumber);
+        params.put("itemName", itemName == null || itemName.isBlank() ? "items" : itemName);
+        params.put("newTotal", newTotal == null ? "0" : newTotal.toPlainString());
+        send("ITEM_REMOVED_COD_REDUCED", townId, orderId, buyerId, buyerPhone, params);
+    }
+
+    public void notifyVendorShopRejected(UUID townId, UUID recipientUserId, String recipientPhone,
+                                         UUID orderId, String orderNumber, String shopName,
+                                         BigDecimal amount, String reason, String buyerPhone) {
+        Map<String, String> params = new HashMap<>();
+        params.put("orderNumber", orderNumber);
+        params.put("shopName", shopName == null || shopName.isBlank() ? "a shop" : shopName);
+        params.put("amount", amount == null ? "0" : amount.toPlainString());
+        params.put("reason", reason == null || reason.isBlank() ? "Rejected" : reason);
+        params.put("buyerPhone", buyerPhone == null ? "" : buyerPhone);
+        send("VENDOR_SHOP_REJECTED", townId, orderId, recipientUserId, recipientPhone, params);
+    }
+
     private void send(String eventCode, UUID townId, UUID orderId, UUID recipientUserId,
                       String recipientPhone, Map<String, String> params) {
         for (String channel : CHANNELS) {

@@ -8,6 +8,7 @@ import {
   downloadOrderInvoice,
   fetchOrderClaims,
   fetchOrderDetail,
+  rateOrderItem,
   type ClaimDto,
   type ClaimType,
   type OrderDetailDto,
@@ -79,6 +80,7 @@ export function useOrderDetail(orderId: string | undefined, preview?: OrderDetai
   const [cancelBusy, setCancelBusy] = useState(false);
   const [claims, setClaims] = useState<ClaimDto[]>([]);
   const [claimBusy, setClaimBusy] = useState(false);
+  const [ratingBusyId, setRatingBusyId] = useState<string | null>(null);
 
   const reloadClaims = useCallback(async () => {
     if (!session || !orderId) {
@@ -206,6 +208,20 @@ export function useOrderDetail(orderId: string | undefined, preview?: OrderDetai
     }
   }
 
+  async function submitRating(orderItemId: string, stars: number): Promise<void> {
+    if (!session || !orderId) throw new Error('Not signed in');
+    setRatingBusyId(orderItemId);
+    try {
+      await rateOrderItem(session.accessToken, orderId, orderItemId, stars);
+      const data = await fetchOrderDetail(session.accessToken, orderId);
+      detailCache.set(cacheKey(orderId), data);
+      setOrder(data);
+      window.dispatchEvent(new Event('hlm:catalog-invalidate'));
+    } finally {
+      setRatingBusyId(null);
+    }
+  }
+
   return {
     order,
     claims,
@@ -216,10 +232,12 @@ export function useOrderDetail(orderId: string | undefined, preview?: OrderDetai
     invoiceError,
     cancelBusy,
     claimBusy,
+    ratingBusyId,
     reload,
     downloadInvoice,
     cancelWholeOrder,
     cancelItem,
     fileClaim,
+    submitRating,
   };
 }

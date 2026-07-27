@@ -13,5 +13,9 @@ public interface TownRepository extends JpaRepository<Town, UUID> {
 
     List<Town> findAllByOrderByDisplayNameAsc();
 
-    boolean existsByTownCodeIgnoreCase(String townCode);
+    boolean existsByTownCodeIgnoreCaseAndStateCodeIgnoreCaseAndCountryCodeIgnoreCase(
+            String townCode, String stateCode, String countryCode);
+
+    boolean existsByNameIgnoreCaseAndStateIgnoreCaseAndCountryCodeIgnoreCase(
+            String name, String state, String countryCode);
 }

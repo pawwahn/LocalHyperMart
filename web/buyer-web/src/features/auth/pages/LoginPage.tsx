@@ -8,6 +8,7 @@ import { TownPickerSheet } from '@/features/towns/components/TownPickerSheet';
 export function LoginPage() {
   const f = useAuthForms();
   const { townLabel, openPicker, towns, loading: townsLoading } = useTown();
+  const settings = f.publicSettings;
 
   return (
     <div style={styles.shell}>
@@ -53,9 +54,59 @@ export function LoginPage() {
             }}
           />
 
+          {f.mode === 'register' ? (
+            <label style={styles.check}>
+              <input
+                type="checkbox"
+                checked={f.acceptedTerms}
+                onChange={(e) => f.setAcceptedTerms(e.target.checked)}
+              />
+              <span>
+                I agree to{' '}
+                {settings?.termsUrl ? (
+                  <a href={settings.termsUrl} target="_blank" rel="noreferrer" style={styles.inlineLink}>
+                    Terms
+                  </a>
+                ) : (
+                  'Terms'
+                )}
+                ,{' '}
+                {settings?.privacyUrl ? (
+                  <a href={settings.privacyUrl} target="_blank" rel="noreferrer" style={styles.inlineLink}>
+                    Privacy
+                  </a>
+                ) : (
+                  'Privacy'
+                )}
+                {' & '}
+                {settings?.refundUrl ? (
+                  <a href={settings.refundUrl} target="_blank" rel="noreferrer" style={styles.inlineLink}>
+                    Refund policy
+                  </a>
+                ) : (
+                  'Refund policy'
+                )}
+              </span>
+            </label>
+          ) : null}
+
+          {settings?.supportPhone ? (
+            <p style={styles.supportLine}>
+              Need help? Call{' '}
+              <a href={`tel:${settings.supportPhone}`} style={styles.inlineLink}>
+                {settings.supportPhone}
+              </a>
+            </p>
+          ) : null}
+
           {f.error ? <Banner tone="danger">{f.error}</Banner> : null}
 
-          <Button size="lg" fullWidth disabled={f.submitting} onClick={() => void f.submit()}>
+          <Button
+            size="lg"
+            fullWidth
+            disabled={f.submitting || (f.mode === 'register' && !f.acceptedTerms)}
+            onClick={() => void f.submit()}
+          >
             {f.submitting ? 'Please wait…' : f.mode === 'login' ? 'Sign in' : 'Register & shop'}
           </Button>
 
@@ -70,6 +121,29 @@ export function LoginPage() {
           <Link to="/shop" style={styles.browse}>
             Continue browsing as guest →
           </Link>
+
+          {(settings?.termsUrl || settings?.privacyUrl || settings?.refundUrl || settings?.grievanceOfficer) ? (
+            <div style={styles.legalRow}>
+              {settings.termsUrl ? (
+                <a href={settings.termsUrl} target="_blank" rel="noreferrer" style={styles.legalLink}>
+                  Terms
+                </a>
+              ) : null}
+              {settings.privacyUrl ? (
+                <a href={settings.privacyUrl} target="_blank" rel="noreferrer" style={styles.legalLink}>
+                  Privacy
+                </a>
+              ) : null}
+              {settings.refundUrl ? (
+                <a href={settings.refundUrl} target="_blank" rel="noreferrer" style={styles.legalLink}>
+                  Refund
+                </a>
+              ) : null}
+              {settings.grievanceOfficer ? (
+                <span style={styles.legalMuted}>Grievance: {settings.grievanceOfficer}</span>
+              ) : null}
+            </div>
+          ) : null}
 
           <p style={styles.hint}>
             Register once if needed. New password needs upper + lower + digit + special (e.g.{' '}
@@ -148,6 +222,21 @@ const styles: Record<string, CSSProperties> = {
   townSelectValue: { fontWeight: 800, color: 'var(--text)', fontSize: '1rem' },
   townSelectHint: { fontSize: '0.78rem', color: 'var(--accent)', fontWeight: 700 },
   row: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' },
+  check: {
+    display: 'flex',
+    gap: '0.5rem',
+    alignItems: 'flex-start',
+    fontWeight: 600,
+    color: 'var(--text-muted)',
+    fontSize: '0.9rem',
+  },
+  inlineLink: { color: 'var(--accent)', fontWeight: 700 },
+  supportLine: {
+    margin: 0,
+    fontSize: '0.88rem',
+    fontWeight: 600,
+    color: 'var(--text-muted)',
+  },
   linkBtn: {
     border: 'none',
     background: 'transparent',
@@ -162,6 +251,22 @@ const styles: Record<string, CSSProperties> = {
     textDecoration: 'none',
     fontWeight: 700,
     fontSize: '0.92rem',
+  },
+  legalRow: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: '0.75rem',
+    fontSize: '0.82rem',
+  },
+  legalLink: {
+    color: 'var(--text-muted)',
+    fontWeight: 600,
+    textDecoration: 'underline',
+  },
+  legalMuted: {
+    color: 'var(--text-muted)',
+    fontWeight: 600,
+    fontSize: '0.82rem',
   },
   hint: { margin: 0, color: 'var(--text-muted)', fontSize: '0.8rem' },
 };

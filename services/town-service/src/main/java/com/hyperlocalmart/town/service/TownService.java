@@ -4,6 +4,8 @@ import com.hyperlocalmart.common.exception.BusinessException;
 import com.hyperlocalmart.common.exception.ErrorCode;
 import com.hyperlocalmart.town.dto.request.CreateTownRequest;
 import com.hyperlocalmart.town.dto.request.UpdateTownStatusRequest;
+import com.hyperlocalmart.town.dto.response.GeoCountryResponse;
+import com.hyperlocalmart.town.dto.response.GeoStateResponse;
 import com.hyperlocalmart.town.dto.response.TownDetailResponse;
 import com.hyperlocalmart.town.dto.response.TownListItemResponse;
 import com.hyperlocalmart.town.dto.response.TownListResponse;
@@ -26,6 +28,7 @@ public class TownService {
 
     private final TownRepository townRepository;
     private final TownPincodeRepository townPincodeRepository;
+    private final GeoCatalogService geoCatalogService;
 
     @Transactional(readOnly = true)
     public TownListResponse listTowns(TownStatus status, boolean includeDisabled) {
@@ -52,16 +55,32 @@ public class TownService {
 
     @Transactional
     public TownDetailResponse createTown(CreateTownRequest request, UUID actorId) {
-        String code = request.getTownCode().trim().toUpperCase();
-        if (townRepository.existsByTownCodeIgnoreCase(code)) {
-            throw new BusinessException(ErrorCode.CONFLICT, "Town code already exists");
+        GeoCountryResponse country = geoCatalogService.requireCountry(request.getCountryCode());
+        GeoStateResponse region = geoCatalogService.requireState(country.getCode(), request.getStateCode());
+
+        String townCode = request.getTownCode().trim().toUpperCase();
+        String name = request.getName().trim();
+        String state = region.getName();
+        String stateCode = region.getCode().toUpperCase();
+        String countryCode = country.getCode().toUpperCase();
+
+        if (townRepository.existsByTownCodeIgnoreCaseAndStateCodeIgnoreCaseAndCountryCodeIgnoreCase(
+                townCode, stateCode, countryCode)) {
+            throw new BusinessException(ErrorCode.CONFLICT, "Town code already exists for this state/country");
         }
+        if (townRepository.existsByNameIgnoreCaseAndStateIgnoreCaseAndCountryCodeIgnoreCase(
+                name, state, countryCode)) {
+            throw new BusinessException(ErrorCode.CONFLICT, "A town with this name already exists in this state/country");
+        }
+
         Town town = Town.builder()
-                .name(request.getName().trim())
-                .state(request.getState().trim())
-                .townCode(code)
-                .stateCode(request.getStateCode().trim().toUpperCase())
-                .displayName(request.getName().trim() + ", " + request.getState().trim())
+                .name(name)
+                .country(country.getName())
+                .countryCode(countryCode)
+                .state(state)
+                .townCode(townCode)
+                .stateCode(stateCode)
+                .displayName(name + ", " + state)
                 .coverageRadiusKm(request.getCoverageRadiusKm())
                 .status(TownStatus.ENABLED)
                 .build();
@@ -116,7 +135,10 @@ public class TownService {
                 .id(town.getId())
                 .displayName(town.getDisplayName())
                 .townCode(town.getTownCode())
+                .state(town.getState())
                 .stateCode(town.getStateCode())
+                .country(town.getCountry())
+                .countryCode(town.getCountryCode())
                 .status(town.getStatus())
                 .acceptingOrders(town.isAcceptingOrders())
                 .build();
@@ -126,6 +148,8 @@ public class TownService {
         return TownDetailResponse.builder()
                 .id(town.getId())
                 .name(town.getName())
+                .country(town.getCountry())
+                .countryCode(town.getCountryCode())
                 .state(town.getState())
                 .displayName(town.getDisplayName())
                 .townCode(town.getTownCode())

@@ -7,6 +7,7 @@ export type PlatformSettingsVm = {
   privacyUrl: string;
   refundUrl: string;
   grievanceOfficer: string;
+  supportPhone: string;
 };
 
 type SettingsDto = Record<string, unknown>;
@@ -27,6 +28,7 @@ function mapSettings(data: SettingsDto): PlatformSettingsVm {
     privacyUrl: asString(data.privacyUrl),
     refundUrl: asString(data.refundUrl),
     grievanceOfficer: asString(data.grievanceOfficer),
+    supportPhone: asString(data.supportPhone),
   };
 }
 

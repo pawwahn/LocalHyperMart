@@ -58,6 +58,14 @@ public class VendorListing extends BaseAuditEntity {
     @Column(nullable = false)
     private boolean active;
 
+    @Column(name = "avg_rating", nullable = false, precision = 3, scale = 2)
+    @Builder.Default
+    private BigDecimal avgRating = BigDecimal.ZERO;
+
+    @Column(name = "rating_count", nullable = false)
+    @Builder.Default
+    private int ratingCount = 0;
+
     @Column(name = "price_updated_at")
     private Instant priceUpdatedAt;
 }

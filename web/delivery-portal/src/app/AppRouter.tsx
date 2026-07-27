@@ -5,6 +5,7 @@ import { RequireAuth } from '@/shared/routing/RequireAuth';
 import { LoginPage } from '@/features/auth/pages/LoginPage';
 import { HubDashboardPage } from '@/features/hub/pages/HubDashboardPage';
 import { HubAgentsPage } from '@/features/hub/pages/HubAgentsPage';
+import { HubCodPage } from '@/features/hub/pages/HubCodPage';
 import { HubClaimsPage } from '@/features/hub/pages/HubClaimsPage';
 import { HubReportsPage } from '@/features/hub/pages/HubReportsPage';
 import { AgentHomePage } from '@/features/agent/pages/AgentHomePage';
@@ -28,6 +29,7 @@ export function AppRouter() {
             <Route element={<RequireAuth role="HUB_ADMIN" />}>
               <Route path="/hub" element={<HubDashboardPage />} />
               <Route path="/hub/boys" element={<HubAgentsPage />} />
+              <Route path="/hub/cod" element={<HubCodPage />} />
               <Route path="/hub/claims" element={<HubClaimsPage />} />
               <Route path="/hub/reports" element={<HubReportsPage />} />
             </Route>

@@ -16,6 +16,8 @@ public class OrderAssignmentResponse {
     String orderNumber;
     String subOrderNumber;
     UUID agentId;
+    String agentName;
+    String agentPhone;
     String legType;
     String status;
     Instant assignedAt;

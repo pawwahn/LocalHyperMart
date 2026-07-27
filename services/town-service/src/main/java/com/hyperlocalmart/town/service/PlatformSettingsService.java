@@ -20,9 +20,22 @@ public class PlatformSettingsService {
 
     @Transactional(readOnly = true)
     public Map<String, Object> getSettings() {
-        return platformSettingRepository.findBySettingKey(KEY_PLATFORM)
-                .map(row -> new LinkedHashMap<>(row.getSettingValue()))
-                .orElseGet(this::defaults);
+        Map<String, Object> merged = defaults();
+        platformSettingRepository.findBySettingKey(KEY_PLATFORM)
+                .ifPresent(row -> merged.putAll(row.getSettingValue()));
+        return merged;
+    }
+
+    @Transactional(readOnly = true)
+    public Map<String, Object> getPublicSettings() {
+        Map<String, Object> all = getSettings();
+        Map<String, Object> pub = new LinkedHashMap<>();
+        pub.put("termsUrl", all.getOrDefault("termsUrl", ""));
+        pub.put("privacyUrl", all.getOrDefault("privacyUrl", ""));
+        pub.put("refundUrl", all.getOrDefault("refundUrl", ""));
+        pub.put("grievanceOfficer", all.getOrDefault("grievanceOfficer", ""));
+        pub.put("supportPhone", all.getOrDefault("supportPhone", ""));
+        return pub;
     }
 
     @Transactional
@@ -50,6 +63,7 @@ public class PlatformSettingsService {
         map.put("privacyUrl", "");
         map.put("refundUrl", "");
         map.put("grievanceOfficer", "");
+        map.put("supportPhone", "9876500100");
         return map;
     }
 }

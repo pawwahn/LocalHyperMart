@@ -2,6 +2,7 @@ package com.hyperlocalmart.user.service;
 
 import com.hyperlocalmart.common.exception.BusinessException;
 import com.hyperlocalmart.common.exception.ErrorCode;
+import com.hyperlocalmart.user.config.InviteProperties;
 import com.hyperlocalmart.user.config.LoginProperties;
 import com.hyperlocalmart.user.config.OtpProperties;
 import com.hyperlocalmart.user.dto.request.LoginRequest;
@@ -48,6 +49,7 @@ class AuthServiceTest {
 
     private LoginProperties loginProperties;
     private OtpProperties otpProperties;
+    private InviteProperties inviteProperties;
 
     private AuthService authService;
 
@@ -57,6 +59,9 @@ class AuthServiceTest {
         loginProperties.setMaxFailedAttempts(5);
         loginProperties.setLockDurationMinutes(30);
         otpProperties = new OtpProperties();
+        inviteProperties = new InviteProperties();
+        inviteProperties.setRequireTerms(false);
+        inviteProperties.setBuyerPhones("");
         authService = new AuthService(
                 userRepository,
                 roleRepository,
@@ -65,7 +70,8 @@ class AuthServiceTest {
                 passwordEncoder,
                 jwtService,
                 loginProperties,
-                otpProperties
+                otpProperties,
+                inviteProperties
         );
     }
 
@@ -76,6 +82,7 @@ class AuthServiceTest {
         request.setPassword("Password@1");
         request.setFirstName("Ravi");
         request.setLastName("Kumar");
+        request.setAcceptedTerms(true);
 
         when(userRepository.existsByPhone(request.getPhone())).thenReturn(false);
         when(roleRepository.findByName(RoleName.BUYER)).thenReturn(Optional.of(Role.builder().name(RoleName.BUYER).build()));

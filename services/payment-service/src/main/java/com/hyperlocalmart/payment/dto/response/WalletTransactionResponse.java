@@ -16,6 +16,7 @@ public class WalletTransactionResponse {
     String referenceType;
     UUID referenceId;
     UUID orderId;
+    String orderNumber;
     UUID orderItemId;
     String note;
     /** ISO-8601 timestamp string for simple JSON clients. */

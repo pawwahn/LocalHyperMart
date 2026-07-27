@@ -26,4 +26,8 @@ public class OrderItemDetailResponse {
     private boolean canCancel;
     /** True when buyer may file a claim on this delivered line. */
     private boolean canFileClaim;
+    /** True when buyer may rate this delivered line. */
+    private boolean canRate;
+    /** Buyer's existing rating for this line, if any (1–5). */
+    private Integer myRating;
 }

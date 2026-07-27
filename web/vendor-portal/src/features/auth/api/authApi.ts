@@ -9,13 +9,26 @@ type LoginApiResponse = {
   roles: string[];
 };
 
-/** Pilot vendor map — phone → vendor UUID used in X-Vendor-Id header */
+type VendorMeResponse = {
+  vendorId: string;
+  townId?: string;
+  businessName?: string | null;
+  phone?: string | null;
+  shopName?: string | null;
+  shopId?: string | null;
+  status?: string | null;
+};
+
+/**
+ * @deprecated Seed IDs only — login resolves vendor from /vendors/me now.
+ * Kept for docs/tests that reference pilot phones.
+ */
 export const PILOT_VENDOR_BY_PHONE: Record<string, string> = {
   '9876500001': 'b1111111-1111-4111-8111-111111111111',
   '9876500002': 'b2222222-2222-4222-8222-222222222222',
 };
 
-/** Fallback display names until shop API loads. Prefer live shopName from /vendors/me/shop. */
+/** @deprecated Prefer live shopName from /vendors/me. Kept for docs/tests. */
 export const PILOT_SHOP_NAME_BY_PHONE: Record<string, string> = {
   '9876500001': 'Ravi Kirana',
   '9876500002': 'Siva General Store',
@@ -29,12 +42,17 @@ export async function login(phone: string, password: string): Promise<AuthSessio
 
   const roles = data.roles ?? [];
   if (!roles.includes('VENDOR')) {
-    throw new Error('This portal is for vendors. Use a vendor pilot account.');
+    throw new Error('This portal is for vendors. Use a vendor account.');
   }
 
-  const vendorId = PILOT_VENDOR_BY_PHONE[phone];
+  const me = await apiRequest<VendorMeResponse>('/api/v1/vendors/me', {
+    token: data.accessToken,
+  });
+  const vendorId = me.vendorId;
+  const shopName = me.shopName ?? me.businessName ?? undefined;
+
   if (!vendorId) {
-    throw new Error('No vendor shop mapped for this phone. Pilot vendors: 9876500001 or 9876500002.');
+    throw new Error('No vendor shop linked to this login. Ask hub/admin to approve your registration.');
   }
 
   return {
@@ -45,7 +63,7 @@ export async function login(phone: string, password: string): Promise<AuthSessio
     roles,
     vendorId,
     phone,
-    shopName: PILOT_SHOP_NAME_BY_PHONE[phone] ?? 'Your shop',
+    shopName: shopName ?? 'Your shop',
   };
 }
 

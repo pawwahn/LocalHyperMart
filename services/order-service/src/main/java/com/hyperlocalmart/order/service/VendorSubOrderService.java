@@ -3,6 +3,7 @@ package com.hyperlocalmart.order.service;
 import com.hyperlocalmart.common.api.PageResponse;
 import com.hyperlocalmart.common.exception.BusinessException;
 import com.hyperlocalmart.common.exception.ErrorCode;
+import com.hyperlocalmart.order.client.DeliveryClient;
 import com.hyperlocalmart.order.client.NotificationClient;
 import com.hyperlocalmart.order.client.PaymentClient;
 import com.hyperlocalmart.order.dto.request.CancelOrderItemRequest;
@@ -37,6 +38,7 @@ public class VendorSubOrderService {
     private final OrderStatusHistoryRepository orderStatusHistoryRepository;
     private final PaymentClient paymentClient;
     private final NotificationClient notificationClient;
+    private final DeliveryClient deliveryClient;
     private final OrderMoneyUnwindService orderMoneyUnwindService;
 
     @Transactional(readOnly = true)
@@ -118,13 +120,15 @@ public class VendorSubOrderService {
         }
 
         BigDecimal shopCredit = BigDecimal.ZERO;
+        boolean issueStoreCredit = shouldIssueStoreCredit(order);
         for (OrderItem item : toCancel) {
             BigDecimal creditAmount = item.getLineTotal();
             item.setStatus(OrderItemStatus.CANCELLED);
             item.setCancelReason(request.getReason());
             item.setCancelledAt(Instant.now());
             item.setCancelledBy(actorUserId);
-            item.setStoreCreditAmount(creditAmount);
+            // COD: cash due shrinks with totals — do not also wallet-credit (double benefit).
+            item.setStoreCreditAmount(issueStoreCredit ? creditAmount : null);
             shopCredit = shopCredit.add(creditAmount);
         }
 
@@ -144,6 +148,11 @@ public class VendorSubOrderService {
                 .changedByRole("VENDOR")
                 .note("Shop rejected: " + request.getReason())
                 .build());
+
+        String shopLabel = toCancel.get(0).getShopNameSnapshot() != null
+                ? toCancel.get(0).getShopNameSnapshot()
+                : "a shop";
+        notifyHubVendorRejected(order, shopLabel, shopCredit, request.getReason());
 
         BigDecimal remainingActive = orderItemRepository.sumActiveLineTotalsForOrder(order.getId());
         boolean orderEmpty = remainingActive == null || remainingActive.compareTo(BigDecimal.ZERO) == 0;
@@ -186,37 +195,49 @@ public class VendorSubOrderService {
         orderRepository.save(order);
         vendorSubOrderRepository.save(subOrder);
 
-        BigDecimal balance;
-        try {
-            balance = paymentClient.creditWallet(
-                    order.getBuyerId(),
-                    shopCredit,
-                    "ORDER_ITEM_CANCEL",
-                    UUID.randomUUID(),
-                    order.getId(),
-                    toCancel.get(0).getId(),
-                    "Shop rejected: " + request.getReason());
-        } catch (RuntimeException ex) {
-            log.error("Wallet credit failed while rejecting shop {}", subOrderId, ex);
-            throw new BusinessException(ErrorCode.INTERNAL_ERROR,
-                    "Could not credit buyer wallet. Try again in a moment.");
-        }
+        if (issueStoreCredit) {
+            BigDecimal balance;
+            try {
+                balance = paymentClient.creditWallet(
+                        order.getBuyerId(),
+                        shopCredit,
+                        "ORDER_ITEM_CANCEL",
+                        subOrderId,
+                        order.getId(),
+                        toCancel.get(0).getId(),
+                        "Shop rejected: " + request.getReason());
+            } catch (RuntimeException ex) {
+                log.error("Wallet credit failed while rejecting shop {}", subOrderId, ex);
+                throw new BusinessException(ErrorCode.INTERNAL_ERROR,
+                        "Could not credit buyer wallet. Try again in a moment.");
+            }
 
-        String shopLabel = toCancel.get(0).getShopNameSnapshot() != null
-                ? toCancel.get(0).getShopNameSnapshot()
-                : "a shop";
-        try {
-            notificationClient.notifyItemCancelledStoreCredit(
-                    order.getTownId(),
-                    order.getId(),
-                    order.getBuyerId(),
-                    order.getBuyerPhoneSnapshot(),
-                    order.getOrderNumber(),
-                    shopLabel + " items",
-                    shopCredit,
-                    balance);
-        } catch (RuntimeException ex) {
-            log.warn("Reject notification failed for sub-order {}: {}", subOrderId, ex.toString());
+            try {
+                notificationClient.notifyItemCancelledStoreCredit(
+                        order.getTownId(),
+                        order.getId(),
+                        order.getBuyerId(),
+                        order.getBuyerPhoneSnapshot(),
+                        order.getOrderNumber(),
+                        shopLabel + " items",
+                        shopCredit,
+                        balance);
+            } catch (RuntimeException ex) {
+                log.warn("Reject notification failed for sub-order {}: {}", subOrderId, ex.toString());
+            }
+        } else {
+            try {
+                notificationClient.notifyItemRemovedCodReduced(
+                        order.getTownId(),
+                        order.getId(),
+                        order.getBuyerId(),
+                        order.getBuyerPhoneSnapshot(),
+                        order.getOrderNumber(),
+                        shopLabel + " items",
+                        order.getTotalAmount() == null ? BigDecimal.ZERO : order.getTotalAmount());
+            } catch (RuntimeException ex) {
+                log.warn("COD reject notification failed for sub-order {}: {}", subOrderId, ex.toString());
+            }
         }
 
         return toResponse(subOrder);
@@ -247,11 +268,12 @@ public class VendorSubOrderService {
         }
 
         BigDecimal creditAmount = item.getLineTotal();
+        boolean issueStoreCredit = shouldIssueStoreCredit(order);
         item.setStatus(OrderItemStatus.CANCELLED);
         item.setCancelReason(request.getReason());
         item.setCancelledAt(Instant.now());
         item.setCancelledBy(actorUserId);
-        item.setStoreCreditAmount(creditAmount);
+        item.setStoreCreditAmount(issueStoreCredit ? creditAmount : null);
 
         // Persist cancelled state before query-based totals (avoids lazy sibling collection issues).
         vendorSubOrderRepository.saveAndFlush(subOrder);
@@ -272,11 +294,14 @@ public class VendorSubOrderService {
                     .changedByRole("VENDOR")
                     .note("All items cancelled: " + request.getReason())
                     .build());
+            String shopLabel = item.getShopNameSnapshot() != null ? item.getShopNameSnapshot() : "a shop";
+            notifyHubVendorRejected(order, shopLabel, creditAmount, request.getReason());
         }
 
         BigDecimal remainingActive = orderItemRepository.sumActiveLineTotalsForOrder(order.getId());
         boolean orderEmpty = remainingActive == null || remainingActive.compareTo(BigDecimal.ZERO) == 0;
         if (orderEmpty) {
+            item.setStoreCreditAmount(null);
             OrderStatus prior = order.getStatus();
             order.setStatus(OrderStatus.CANCELLED);
             order.setCancelReason(request.getReason());
@@ -313,34 +338,49 @@ public class VendorSubOrderService {
         orderRepository.save(order);
         vendorSubOrderRepository.save(subOrder);
 
-        BigDecimal balance;
-        try {
-            balance = paymentClient.creditWallet(
-                    order.getBuyerId(),
-                    creditAmount,
-                    "ORDER_ITEM_CANCEL",
-                    UUID.randomUUID(),
-                    order.getId(),
-                    item.getId(),
-                    "Item cancelled: " + item.getItemNameSnapshot());
-        } catch (RuntimeException ex) {
-            log.error("Wallet credit failed while cancelling item {}", itemId, ex);
-            throw new BusinessException(ErrorCode.INTERNAL_ERROR,
-                    "Could not credit buyer wallet. Try again in a moment.");
-        }
+        if (issueStoreCredit) {
+            BigDecimal balance;
+            try {
+                balance = paymentClient.creditWallet(
+                        order.getBuyerId(),
+                        creditAmount,
+                        "ORDER_ITEM_CANCEL",
+                        itemId,
+                        order.getId(),
+                        item.getId(),
+                        "Item cancelled: " + item.getItemNameSnapshot());
+            } catch (RuntimeException ex) {
+                log.error("Wallet credit failed while cancelling item {}", itemId, ex);
+                throw new BusinessException(ErrorCode.INTERNAL_ERROR,
+                        "Could not credit buyer wallet. Try again in a moment.");
+            }
 
-        try {
-            notificationClient.notifyItemCancelledStoreCredit(
-                    order.getTownId(),
-                    order.getId(),
-                    order.getBuyerId(),
-                    order.getBuyerPhoneSnapshot(),
-                    order.getOrderNumber(),
-                    item.getItemNameSnapshot(),
-                    creditAmount,
-                    balance);
-        } catch (RuntimeException ex) {
-            log.warn("Cancel notification failed for item {}: {}", itemId, ex.toString());
+            try {
+                notificationClient.notifyItemCancelledStoreCredit(
+                        order.getTownId(),
+                        order.getId(),
+                        order.getBuyerId(),
+                        order.getBuyerPhoneSnapshot(),
+                        order.getOrderNumber(),
+                        item.getItemNameSnapshot(),
+                        creditAmount,
+                        balance);
+            } catch (RuntimeException ex) {
+                log.warn("Cancel notification failed for item {}: {}", itemId, ex.toString());
+            }
+        } else {
+            try {
+                notificationClient.notifyItemRemovedCodReduced(
+                        order.getTownId(),
+                        order.getId(),
+                        order.getBuyerId(),
+                        order.getBuyerPhoneSnapshot(),
+                        order.getOrderNumber(),
+                        item.getItemNameSnapshot(),
+                        order.getTotalAmount() == null ? BigDecimal.ZERO : order.getTotalAmount());
+            } catch (RuntimeException ex) {
+                log.warn("COD cancel notification failed for item {}: {}", itemId, ex.toString());
+            }
         }
 
         return toResponse(subOrder);
@@ -519,6 +559,34 @@ public class VendorSubOrderService {
             }
         }
         return sum;
+    }
+
+    private void notifyHubVendorRejected(Order order, String shopName, BigDecimal amount, String reason) {
+        try {
+            List<DeliveryClient.HubContact> contacts = deliveryClient.listHubContactsForTown(order.getTownId());
+            for (DeliveryClient.HubContact contact : contacts) {
+                notificationClient.notifyVendorShopRejected(
+                        order.getTownId(),
+                        contact.userId(),
+                        contact.phone(),
+                        order.getId(),
+                        order.getOrderNumber(),
+                        shopName,
+                        amount,
+                        reason,
+                        order.getBuyerPhoneSnapshot());
+            }
+        } catch (RuntimeException ex) {
+            log.warn("Hub reject notify failed for order {}: {}", order.getId(), ex.toString());
+        }
+    }
+
+    /**
+     * COD cash-due shrinks with order totals — wallet credit would double-benefit the buyer.
+     * ONLINE (already captured) needs store credit / refund path instead.
+     */
+    private static boolean shouldIssueStoreCredit(Order order) {
+        return order.getPaymentMethod() != PaymentMethod.COD;
     }
 
     private VendorSubOrder loadForVendorAction(UUID vendorId, UUID subOrderId) {

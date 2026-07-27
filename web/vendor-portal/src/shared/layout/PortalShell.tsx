@@ -2,8 +2,7 @@ import type { CSSProperties, ReactNode } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { HeaderIconButton, ThemePicker } from '@hlm-theme';
 import { useAuth } from '@/shared/auth/AuthContext';
-import { PILOT_SHOP_NAME_BY_PHONE } from '@/features/auth/api/authApi';
-import { PILOT_HUB_HELP } from '@/features/shop/hooks/useVendorShop';
+import { useVendorShop } from '@/features/shop/hooks/useVendorShop';
 import { useOrderAlert } from '@/features/orders/OrderAlertContext';
 import { Banner } from '@/shared/ui';
 import { useIsNarrow } from '@/shared/hooks/useIsNarrow';
@@ -24,14 +23,12 @@ type Props = {
 
 export function PortalShell({ title, children, onRefresh, shopPause }: Props) {
   const { session, logout } = useAuth();
+  const { hub } = useVendorShop();
   const location = useLocation();
   const navigate = useNavigate();
   const { alertMessage, pendingCount, clearAlert } = useOrderAlert();
   const narrow = useIsNarrow();
-  const shopName =
-    session?.shopName ??
-    (session?.phone ? PILOT_SHOP_NAME_BY_PHONE[session.phone] : undefined) ??
-    'Vendor shop';
+  const shopName = session?.shopName ?? 'Vendor shop';
 
   return (
     <div style={styles.page}>
@@ -116,13 +113,15 @@ export function PortalShell({ title, children, onRefresh, shopPause }: Props) {
       ) : null}
 
       <main style={styles.main}>{children}</main>
-      <footer style={styles.footer}>
-        Need help with pickup or payout? Call hub {PILOT_HUB_HELP.hubName}:{' '}
-        <a href={`tel:${PILOT_HUB_HELP.hubPhone}`} style={styles.footerLink}>
-          {PILOT_HUB_HELP.hubPhone}
-        </a>{' '}
-        ({PILOT_HUB_HELP.hubHours})
-      </footer>
+      {hub.hubPhone ? (
+        <footer style={styles.footer}>
+          Need help with pickup or payout? Call hub {hub.hubName || 'hub'}:{' '}
+          <a href={`tel:${hub.hubPhone}`} style={styles.footerLink}>
+            {hub.hubPhone}
+          </a>
+          {hub.hubHours ? ` (${hub.hubHours})` : null}
+        </footer>
+      ) : null}
     </div>
   );
 }

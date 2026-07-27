@@ -153,7 +153,7 @@ export function useVendorOrders() {
     setError(null);
     try {
       await rejectSubOrder(session.accessToken, session.vendorId, id, reason);
-      setNotice('Your items rejected. Buyer credited (or refunded if this was the last shop).');
+      setNotice('Shop rejected. Buyer order updated (wallet credit or COD total reduced).');
       await reload();
       return true;
     } catch (err) {

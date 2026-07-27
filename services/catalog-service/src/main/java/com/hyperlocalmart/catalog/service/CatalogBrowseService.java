@@ -74,6 +74,8 @@ public class CatalogBrowseService {
                 .specialOfferActive(specialActive)
                 .vendorNote(listing.getVendorNote())
                 .imageUrl(null)
+                .avgRating(listing.getAvgRating() == null ? BigDecimal.ZERO : listing.getAvgRating())
+                .ratingCount(Math.max(0, listing.getRatingCount()))
                 .build();
     }
 }

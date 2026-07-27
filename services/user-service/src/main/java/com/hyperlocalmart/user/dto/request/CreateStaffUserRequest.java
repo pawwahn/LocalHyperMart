@@ -7,6 +7,8 @@ import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
 
+import java.util.UUID;
+
 @Data
 public class CreateStaffUserRequest {
 
@@ -27,4 +29,6 @@ public class CreateStaffUserRequest {
 
     @NotNull
     private RoleName role;
+
+    private UUID townId;
 }

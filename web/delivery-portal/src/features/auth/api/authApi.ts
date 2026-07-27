@@ -9,7 +9,24 @@ type LoginApiResponse = {
   roles: string[];
 };
 
-/** Pilot seed mapping */
+type HubMeDto = {
+  hubId: string;
+  townId: string;
+  hubName?: string;
+};
+
+type AgentMeDto = {
+  agentId: string;
+  townId: string;
+  hubId?: string;
+  name?: string;
+  phone?: string;
+};
+
+/**
+ * @deprecated Seed IDs only — login resolves hub/agent from API now.
+ * Kept for docs/tests that reference pilot phones.
+ */
 export const PILOT = {
   hubAdminPhone: '9876500100',
   agentPhone: '9876500200',
@@ -44,11 +61,18 @@ export async function login(phone: string, password: string): Promise<AuthSessio
   };
 
   if (portalRole === 'HUB_ADMIN') {
-    session.hubId = PILOT.hubId;
-    session.townId = PILOT.townId;
+    const me = await apiRequest<HubMeDto>('/api/v1/delivery/hubs/me', {
+      token: data.accessToken,
+    });
+    session.hubId = me.hubId;
+    session.townId = me.townId;
   } else {
-    session.agentId = PILOT.agentId;
-    session.townId = PILOT.townId;
+    const me = await apiRequest<AgentMeDto>('/api/v1/delivery/agents/me', {
+      token: data.accessToken,
+    });
+    session.agentId = me.agentId;
+    session.townId = me.townId;
+    if (me.hubId) session.hubId = me.hubId;
   }
 
   return session;

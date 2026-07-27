@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuth } from '@/shared/auth/AuthContext';
 import { ApiError } from '@/shared/api/http';
-import { PILOT } from '@/features/auth/api/authApi';
 import {
   assignLastMile,
   assignPickup,
@@ -79,8 +78,8 @@ export function useHubWorkspace() {
   const [notice, setNotice] = useState<string | null>(null);
   const [lastAgentId, setLastAgentId] = useState<string | null>(() => readLastAgentId());
 
-  const hubId = session?.hubId ?? PILOT.hubId;
-  const townId = session?.townId ?? PILOT.townId;
+  const hubId = session?.hubId;
+  const townId = session?.townId;
 
   const agentNameById = useMemo(() => {
     const map = new Map<string, string>();

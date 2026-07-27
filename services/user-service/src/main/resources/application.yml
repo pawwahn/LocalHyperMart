@@ -35,6 +35,10 @@ hyperlocalmart:
       expiration-minutes: 5
       max-requests-per-hour: 5
       max-verify-attempts: 5
+  invite:
+    # Comma-separated. Empty = allow all (dev). Non-empty = only listed phones can register.
+    buyer-phones: ${BUYER_INVITE_PHONES:}
+    require-terms: true
 
 management:
   endpoints:

@@ -14,6 +14,7 @@ const EMPTY: PlatformSettingsVm = {
   privacyUrl: '',
   refundUrl: '',
   grievanceOfficer: '',
+  supportPhone: '',
 };
 
 export function SettingsPage() {
@@ -121,6 +122,11 @@ export function SettingsPage() {
             label="Grievance officer"
             value={settings.grievanceOfficer}
             onChange={(e) => setSettings((s) => ({ ...s, grievanceOfficer: e.target.value }))}
+          />
+          <TextField
+            label="Support phone"
+            value={settings.supportPhone}
+            onChange={(e) => setSettings((s) => ({ ...s, supportPhone: e.target.value }))}
           />
         </div>
         <label style={styles.check}>

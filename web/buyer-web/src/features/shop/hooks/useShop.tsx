@@ -10,7 +10,6 @@ import {
 } from 'react';
 import { useAuth } from '@/shared/auth/AuthContext';
 import { useTown } from '@/shared/town/TownContext';
-import { PILOT_TOWN_ID } from '@/shared/auth/session';
 import { ApiError } from '@/shared/api/http';
 import {
   addToCart,
@@ -38,8 +37,7 @@ const ShopContext = createContext<ShopContextValue | null>(null);
 
 function useShopState() {
   const { session } = useAuth();
-  const { townId: selectedTownId } = useTown();
-  const townId = selectedTownId || PILOT_TOWN_ID;
+  const { townId, hasTown, openPicker } = useTown();
   const [items, setItems] = useState<CatalogItemView[]>([]);
   const [cart, setCart] = useState<CartView | null>(null);
   const [addresses, setAddresses] = useState<AddressDto[]>([]);
@@ -67,7 +65,17 @@ function useShopState() {
     if (!hasLoadedOnce.current) setLoading(true);
     setError(null);
 
-    const activeTownId = townId || PILOT_TOWN_ID;
+    if (!hasTown || !townId) {
+      setItems([]);
+      setCart(null);
+      setAddresses([]);
+      setOrders([]);
+      setStoreCreditBalance(0);
+      hasLoadedOnce.current = true;
+      setLoading(false);
+      return;
+    }
+
     const errors: string[] = [];
 
     const noteFailure = (err: unknown, fallback: string) => {
@@ -79,7 +87,7 @@ function useShopState() {
 
     try {
       // Catalog must not block cart/orders (Orders page was stuck when catalog hung).
-      const catalogTask = fetchCatalog(activeTownId, query || undefined)
+      const catalogTask = fetchCatalog(townId, query || undefined)
         .then((catalog) => {
           setItems(catalog);
         })
@@ -97,7 +105,7 @@ function useShopState() {
         return;
       }
 
-      const cartTask = fetchCart(session.accessToken, activeTownId)
+      const cartTask = fetchCart(session.accessToken, townId)
         .then((next) => {
           setCart(next);
         })
@@ -114,7 +122,7 @@ function useShopState() {
         })
         .catch((err) => noteFailure(err, 'Addresses failed'));
 
-      const ordersTask = listMyOrders(session.accessToken, activeTownId)
+      const ordersTask = listMyOrders(session.accessToken, townId)
         .then((next) => {
           setOrders(next);
         })
@@ -150,15 +158,28 @@ function useShopState() {
       hasLoadedOnce.current = true;
       setLoading(false);
     }
-  }, [session, townId, query]);
+  }, [session, townId, hasTown, query]);
 
   useEffect(() => {
     void reload();
   }, [reload]);
 
+  useEffect(() => {
+    function onInvalidate() {
+      void reload();
+    }
+    window.addEventListener('hlm:catalog-invalidate', onInvalidate);
+    return () => window.removeEventListener('hlm:catalog-invalidate', onInvalidate);
+  }, [reload]);
+
   async function withCartBusy<T>(key: string, fn: () => Promise<T>): Promise<T | undefined> {
     if (!session) {
       setError('Sign in to update your cart.');
+      return undefined;
+    }
+    if (!hasTown || !townId) {
+      setError('Choose your town first');
+      openPicker();
       return undefined;
     }
     setBusy(true);
@@ -226,6 +247,10 @@ function useShopState() {
     if (!session) {
       return { ok: false, message: 'Sign in to apply a coupon.' };
     }
+    if (!hasTown || !townId) {
+      openPicker();
+      return { ok: false, message: 'Choose your town first' };
+    }
     if (!trimmed) {
       return { ok: false, message: 'Enter a coupon code' };
     }
@@ -265,6 +290,11 @@ function useShopState() {
     pincode: string;
   }) {
     if (!session) return;
+    if (!hasTown || !townId) {
+      setError('Choose your town first');
+      openPicker();
+      return false;
+    }
     setBusy(true);
     setError(null);
     setNotice(null);
@@ -297,12 +327,17 @@ function useShopState() {
       setError('Cart is empty');
       return;
     }
+    if (!hasTown || !townId) {
+      setError('Choose your town first');
+      openPicker();
+      return;
+    }
     if (!selectedAddressId) {
       setError('Add / select a delivery address first');
       return;
     }
     if (!cart.minOrderMet) {
-      setError(`Add more items — minimum order is ${cart.minOrderLabel} (pilot town rule).`);
+      setError(`Add more items — minimum order is ${cart.minOrderLabel}.`);
       return;
     }
     setBusy(true);

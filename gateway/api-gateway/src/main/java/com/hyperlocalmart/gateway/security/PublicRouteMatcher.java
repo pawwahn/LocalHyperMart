@@ -22,6 +22,12 @@ public final class PublicRouteMatcher {
         if (method == HttpMethod.GET && (path.equals("/api/v1/towns") || path.equals("/api/v1/towns/"))) {
             return true;
         }
+        if (method == HttpMethod.GET && path.equals("/api/v1/platform/settings/public")) {
+            return true;
+        }
+        if (method == HttpMethod.GET && path.equals("/api/v1/geo/countries")) {
+            return true;
+        }
         if (method == HttpMethod.GET && path.equals("/api/v1/catalog/items")) {
             return true;
         }

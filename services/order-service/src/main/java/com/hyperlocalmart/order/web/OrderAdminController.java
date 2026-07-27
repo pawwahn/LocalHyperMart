@@ -35,13 +35,14 @@ public class OrderAdminController {
             @AuthenticationPrincipal AuthUserPrincipal principal,
             @RequestParam UUID townId,
             @RequestParam(required = false) OrderStatus status,
+            @RequestParam(required = false) String q,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
             HttpServletRequest httpRequest) {
         requireHubOrSuperAdmin(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
                 orderAdminService.listAdminOrders(
-                        principal.getUserId(), principal.getRoles(), townId, status, page, size)));
+                        principal.getUserId(), principal.getRoles(), townId, status, q, page, size)));
     }
 
     @GetMapping("/claims")

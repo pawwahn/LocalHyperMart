@@ -50,7 +50,27 @@ public class DeliveryClient {
         }
     }
 
+    public List<HubContact> listHubContactsForTown(UUID townId) {
+        try {
+            RestClient client = restClientBuilder.baseUrl(deliveryServiceProperties.getBaseUrl()).build();
+            ApiResponse<List<HubContact>> response = client.get()
+                    .uri("/api/v1/internal/towns/{townId}/hub-contacts", townId)
+                    .retrieve()
+                    .body(new ParameterizedTypeReference<ApiResponse<List<HubContact>>>() {});
+            if (response == null || response.getData() == null) {
+                return List.of();
+            }
+            return response.getData();
+        } catch (Exception ex) {
+            log.warn("Failed to fetch hub contacts for town {}: {}", townId, ex.getMessage());
+            return List.of();
+        }
+    }
+
     public record HubAdminContext(UUID userId, UUID hubId, UUID townId) {
+    }
+
+    public record HubContact(UUID userId, UUID hubId, String hubName, String phone) {
     }
 
     public record OrderAssignment(
@@ -59,6 +79,8 @@ public class DeliveryClient {
             String orderNumber,
             String subOrderNumber,
             UUID agentId,
+            String agentName,
+            String agentPhone,
             String legType,
             String status,
             Instant assignedAt,

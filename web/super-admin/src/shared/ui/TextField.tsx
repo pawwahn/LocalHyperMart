@@ -13,8 +13,20 @@ export function TextField({ label, style, id, ...rest }: Props) {
 }
 
 const styles: Record<string, CSSProperties> = {
-  label: { display: 'grid', gap: '0.35rem', fontSize: '0.88rem', color: 'var(--text-muted)', fontWeight: 600 },
+  label: {
+    display: 'grid',
+    gap: '0.35rem',
+    fontSize: '0.88rem',
+    color: 'var(--text-muted)',
+    fontWeight: 600,
+    minWidth: 0,
+    maxWidth: '100%',
+  },
   input: {
+    width: '100%',
+    maxWidth: '100%',
+    minWidth: 0,
+    boxSizing: 'border-box',
     padding: '0.75rem 0.95rem',
     borderRadius: 'var(--radius-md)',
     border: '1px solid var(--border)',

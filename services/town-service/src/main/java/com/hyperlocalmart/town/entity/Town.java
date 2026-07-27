@@ -26,6 +26,12 @@ public class Town extends BaseAuditEntity {
     private String name;
 
     @Column(nullable = false, length = 100)
+    private String country;
+
+    @Column(name = "country_code", nullable = false, length = 2)
+    private String countryCode;
+
+    @Column(nullable = false, length = 100)
     private String state;
 
     @Column(name = "town_code", nullable = false, length = 10)

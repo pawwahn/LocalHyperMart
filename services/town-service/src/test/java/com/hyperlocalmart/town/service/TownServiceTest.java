@@ -28,6 +28,7 @@ class TownServiceTest {
 
     @Mock private TownRepository townRepository;
     @Mock private TownPincodeRepository townPincodeRepository;
+    @Mock private GeoCatalogService geoCatalogService;
 
     @InjectMocks
     private TownService townService;
@@ -37,11 +38,12 @@ class TownServiceTest {
         Town town = pilotTown();
         when(townRepository.findByStatusOrderByDisplayNameAsc(TownStatus.ENABLED)).thenReturn(List.of(town));
 
-        TownListResponse response = townService.listTowns(TownStatus.ENABLED);
+        TownListResponse response = townService.listTowns(TownStatus.ENABLED, false);
 
         assertThat(response.getItems()).hasSize(1);
         assertThat(response.getItems().getFirst().getDisplayName()).isEqualTo("Narsaraopet (Andhra Pradesh)");
         assertThat(response.getItems().getFirst().isAcceptingOrders()).isTrue();
+        assertThat(response.getItems().getFirst().getCountryCode()).isEqualTo("IN");
     }
 
     @Test
@@ -57,6 +59,7 @@ class TownServiceTest {
         TownDetailResponse response = townService.getTown(townId);
 
         assertThat(response.getTownCode()).isEqualTo("NRPT");
+        assertThat(response.getCountryCode()).isEqualTo("IN");
         assertThat(response.getPincodes()).containsExactly("522601", "522603");
     }
 
@@ -73,6 +76,8 @@ class TownServiceTest {
         return Town.builder()
                 .id(UUID.fromString("a1111111-1111-4111-8111-111111111111"))
                 .name("Narsaraopet")
+                .country("India")
+                .countryCode("IN")
                 .state("Andhra Pradesh")
                 .townCode("NRPT")
                 .stateCode("AP")

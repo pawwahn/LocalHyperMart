@@ -1,6 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { loginBuyer, registerBuyer } from '../api/authApi';
+import {
+  getPublicPlatformSettings,
+  type PublicPlatformSettingsVm,
+} from '../api/platformSettingsApi';
 import { useAuth } from '@/shared/auth/AuthContext';
 import { ApiError } from '@/shared/api/http';
 
@@ -12,15 +16,33 @@ export function useAuthForms() {
   const [password, setPassword] = useState('Buyer@123');
   const [firstName, setFirstName] = useState('Test');
   const [lastName, setLastName] = useState('Buyer');
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
+  const [publicSettings, setPublicSettings] = useState<PublicPlatformSettingsVm | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    void getPublicPlatformSettings()
+      .then(setPublicSettings)
+      .catch(() => setPublicSettings(null));
+  }, []);
 
   async function submit() {
     setError(null);
     setSubmitting(true);
     try {
       if (mode === 'register') {
-        await registerBuyer({ phone: phone.trim(), password, firstName, lastName });
+        if (!acceptedTerms) {
+          setError('Accept Terms, Privacy, and Refund policy to register');
+          return;
+        }
+        await registerBuyer({
+          phone: phone.trim(),
+          password,
+          firstName,
+          lastName,
+          acceptedTerms: true,
+        });
       }
       const session = await loginBuyer(phone.trim(), password);
       setSession(session);
@@ -43,6 +65,9 @@ export function useAuthForms() {
     setFirstName,
     lastName,
     setLastName,
+    acceptedTerms,
+    setAcceptedTerms,
+    publicSettings,
     error,
     submitting,
     submit,

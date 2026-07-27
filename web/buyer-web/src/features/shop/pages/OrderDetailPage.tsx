@@ -9,6 +9,7 @@ import { OrderStatusTimeline } from '../components/OrderStatusTimeline';
 import { ReasonDialog } from '../components/ReasonDialog';
 import { ClaimDialog } from '../components/ClaimDialog';
 import { ConfirmDialog } from '../components/ConfirmDialog';
+import { StarRating } from '../components/StarRating';
 import type { ClaimType, OrderDetailDto } from '../api/shopApi';
 
 function statusTone(status: string): 'neutral' | 'success' | 'warning' | 'danger' | 'brand' {
@@ -89,15 +90,18 @@ export function OrderDetailPage() {
     invoiceError,
     cancelBusy,
     claimBusy,
+    ratingBusyId,
     reload,
     downloadInvoice,
     cancelWholeOrder,
     cancelItem,
     fileClaim,
+    submitRating,
   } = useOrderDetail(orderId, preview);
 
   const [cancelTarget, setCancelTarget] = useState<CancelTarget>(null);
   const [claimOpen, setClaimOpen] = useState(false);
+  const [draftRatings, setDraftRatings] = useState<Record<string, number>>({});
   const [claimPresetItemId, setClaimPresetItemId] = useState<string | null>(null);
   const [resultDialog, setResultDialog] = useState<{ title: string; description: string } | null>(
     null,
@@ -271,7 +275,11 @@ export function OrderDetailPage() {
           </Card>
 
           {order.timeline && order.timeline.length > 0 ? (
-            <OrderStatusTimeline steps={order.timeline} />
+            <OrderStatusTimeline
+              steps={order.timeline}
+              orderStatus={order.status}
+              displayStatus={order.displayStatus}
+            />
           ) : null}
 
           <section style={styles.section}>
@@ -338,6 +346,53 @@ export function OrderDetailPage() {
                           >
                             Report issue
                           </Button>
+                        ) : null}
+                        {item.orderItemId && item.myRating ? (
+                          <div style={styles.rateBox}>
+                            <p style={styles.rateLabel}>Your rating</p>
+                            <StarRating
+                              value={item.myRating}
+                              readOnly
+                              size="md"
+                              label={`You rated ${item.name} ${item.myRating} stars`}
+                            />
+                          </div>
+                        ) : null}
+                        {item.canRate && item.orderItemId && !item.myRating ? (
+                          <div style={styles.rateBox}>
+                            <p style={styles.rateLabel}>Rate this product</p>
+                            <StarRating
+                              value={draftRatings[item.orderItemId] ?? 5}
+                              onChange={(stars) =>
+                                setDraftRatings((prev) => ({ ...prev, [item.orderItemId!]: stars }))
+                              }
+                              size="md"
+                              label={`Rate ${item.name}`}
+                            />
+                            <Button
+                              size="sm"
+                              disabled={ratingBusyId === item.orderItemId}
+                              onClick={() => {
+                                const stars = draftRatings[item.orderItemId!] ?? 5;
+                                void submitRating(item.orderItemId!, stars)
+                                  .then(() =>
+                                    setResultDialog({
+                                      title: 'Thanks for rating',
+                                      description: `You rated ${item.name} ${stars}★.`,
+                                    }),
+                                  )
+                                  .catch((err) =>
+                                    setResultDialog({
+                                      title: 'Could not save rating',
+                                      description:
+                                        err instanceof Error ? err.message : 'Please try again.',
+                                    }),
+                                  );
+                              }}
+                            >
+                              {ratingBusyId === item.orderItemId ? 'Saving…' : 'Submit rating'}
+                            </Button>
+                          </div>
                         ) : null}
                       </div>
                       <strong style={styles.lineTotal}>{money(item.lineTotal)}</strong>
@@ -508,6 +563,20 @@ const styles: Record<string, CSSProperties> = {
   itemName: { margin: 0, fontWeight: 700 },
   cancelled: { textDecoration: 'line-through', color: 'var(--text-muted)' },
   creditNote: { margin: 0, fontSize: '0.8rem', color: 'var(--text-muted)', lineHeight: 1.4 },
+  rateBox: {
+    display: 'grid',
+    gap: '0.35rem',
+    marginTop: '0.45rem',
+    paddingTop: '0.45rem',
+    borderTop: '1px dashed var(--border)',
+    justifyItems: 'start',
+  },
+  rateLabel: {
+    margin: 0,
+    fontSize: '0.78rem',
+    fontWeight: 700,
+    color: 'var(--text-muted)',
+  },
   walletLink: { color: 'var(--accent)', fontWeight: 700, textDecoration: 'none' },
   lineTotal: { fontWeight: 800, whiteSpace: 'nowrap' },
   totals: { padding: '0.9rem 1rem', display: 'grid', gap: '0.4rem' },

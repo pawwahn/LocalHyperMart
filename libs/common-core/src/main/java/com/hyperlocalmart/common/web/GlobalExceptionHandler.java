@@ -5,6 +5,7 @@ import com.hyperlocalmart.common.api.FieldErrorDetail;
 import com.hyperlocalmart.common.exception.BusinessException;
 import com.hyperlocalmart.common.exception.ErrorCode;
 import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.FieldError;
@@ -29,14 +30,36 @@ public class GlobalExceptionHandler {
         List<FieldErrorDetail> errors = ex.getBindingResult().getFieldErrors().stream()
                 .map(this::toFieldError)
                 .toList();
+        String message = errors.isEmpty()
+                ? ErrorCode.VALIDATION_ERROR.getDefaultMessage()
+                : errors.getFirst().getMessage();
         ApiResponse<List<FieldErrorDetail>> body = ApiResponse.<List<FieldErrorDetail>>builder()
                 .success(false)
-                .message(ErrorCode.VALIDATION_ERROR.getDefaultMessage())
+                .message(message)
                 .data(errors)
                 .timestamp(Instant.now())
                 .correlationId(CorrelationIdFilter.getCorrelationId(request))
                 .build();
         return ResponseEntity.badRequest().body(body);
+    }
+
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public ResponseEntity<ApiResponse<Void>> handleDataIntegrity(
+            DataIntegrityViolationException ex, HttpServletRequest request) {
+        String raw = ex.getMostSpecificCause() != null ? ex.getMostSpecificCause().getMessage() : ex.getMessage();
+        String message = "Could not save — check for duplicates or values that are too long";
+        if (raw != null) {
+            String lower = raw.toLowerCase();
+            if (lower.contains("towns_name_state_key") || lower.contains("(name, state)")) {
+                message = "A town with this name already exists in this state";
+            } else if (lower.contains("towns_town_code_state_code_key") || lower.contains("(town_code, state_code)")) {
+                message = "Town code already exists for this state";
+            } else if (lower.contains("value too long") || lower.contains("22001")) {
+                message = "A value is too long (town code and state code max 10 characters)";
+            }
+        }
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(errorBody(ErrorCode.CONFLICT.name(), message, request, null));
     }
 
     @ExceptionHandler(Exception.class)

@@ -24,4 +24,6 @@ public class CatalogItemResponse {
     private boolean specialOfferActive;
     private String vendorNote;
     private String imageUrl;
+    private BigDecimal avgRating;
+    private int ratingCount;
 }

@@ -3,13 +3,17 @@ package com.hyperlocalmart.delivery.web;
 import com.hyperlocalmart.common.api.ApiResponse;
 import com.hyperlocalmart.common.exception.BusinessException;
 import com.hyperlocalmart.common.exception.ErrorCode;
+import com.hyperlocalmart.delivery.dto.request.SetHubPinRequest;
 import com.hyperlocalmart.delivery.dto.response.HubDashboardResponse;
 import com.hyperlocalmart.delivery.dto.response.HubMeResponse;
+import com.hyperlocalmart.delivery.dto.response.HubPinStatusResponse;
 import com.hyperlocalmart.delivery.dto.response.HubReportResponse;
 import com.hyperlocalmart.delivery.security.AuthUserPrincipal;
 import com.hyperlocalmart.delivery.service.HubDashboardService;
+import com.hyperlocalmart.delivery.service.HubPinService;
 import com.hyperlocalmart.delivery.service.HubReportService;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
@@ -26,6 +30,7 @@ public class HubController {
 
     private final HubDashboardService hubDashboardService;
     private final HubReportService hubReportService;
+    private final HubPinService hubPinService;
 
     @GetMapping("/me")
     public ResponseEntity<ApiResponse<HubMeResponse>> getMyHub(
@@ -34,6 +39,28 @@ public class HubController {
         requireHubAdmin(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
                 hubDashboardService.getMyHub(principal.getUserId())));
+    }
+
+    @GetMapping("/me/pin-status")
+    public ResponseEntity<ApiResponse<HubPinStatusResponse>> getPinStatus(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            HttpServletRequest httpRequest) {
+        requireHubAdmin(principal);
+        boolean configured = hubPinService.pinConfigured(principal.getUserId());
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest, HubPinStatusResponse.builder()
+                .configured(configured)
+                .defaultPinActive(!configured)
+                .build()));
+    }
+
+    @PutMapping("/me/pin")
+    public ResponseEntity<ApiResponse<Void>> setPin(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @Valid @RequestBody SetHubPinRequest request,
+            HttpServletRequest httpRequest) {
+        requireHubAdmin(principal);
+        hubPinService.setPin(principal.getUserId(), request.getPin());
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest, null));
     }
 
     @GetMapping("/{hubId}/dashboard")

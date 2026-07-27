@@ -10,7 +10,6 @@ import {
 import { listEnabledTowns, type TownVm } from '@/features/towns/api/townsApi';
 import { apiRequest } from '@/shared/api/http';
 import { useAuth } from '@/shared/auth/AuthContext';
-import { PILOT_TOWN_ID } from '@/shared/auth/session';
 import {
   loadTownPreference,
   saveTownPreference,
@@ -19,8 +18,10 @@ import {
 
 type TownContextValue = {
   towns: TownVm[];
+  /** Empty until the buyer selects a town. */
   townId: string;
   townLabel: string;
+  hasTown: boolean;
   loading: boolean;
   error: string | null;
   pickerOpen: boolean;
@@ -51,7 +52,6 @@ export function TownProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
-  const [askedOnce, setAskedOnce] = useState(false);
 
   const reloadTowns = useCallback(async () => {
     setLoading(true);
@@ -85,17 +85,17 @@ export function TownProvider({ children }: { children: ReactNode }) {
     setPref(next);
   }, [session?.townId, towns, pref?.townId, pref?.displayName, pref?.stateCode]);
 
-  // Prompt once when the buyer has never saved a town preference.
+  // Prompt until the buyer has a town (Gate A: no silent pilot-town fallback).
   useEffect(() => {
-    if (askedOnce || loading) return;
-    if (pref?.townId) return;
+    if (loading) return;
+    if (pref?.townId || session?.townId) return;
     if (towns.length === 0) return;
     setPickerOpen(true);
-    setAskedOnce(true);
-  }, [askedOnce, loading, pref?.townId, towns.length]);
+  }, [loading, pref?.townId, session?.townId, towns.length]);
 
-  const townId = session?.townId || pref?.townId || PILOT_TOWN_ID;
-  const townLabel = labelFor(pref, towns, townId);
+  const townId = session?.townId || pref?.townId || '';
+  const hasTown = Boolean(townId);
+  const townLabel = hasTown ? labelFor(pref, towns, townId) : 'Choose your town';
 
   const selectTown = useCallback(
     (town: TownVm) => {
@@ -127,15 +127,20 @@ export function TownProvider({ children }: { children: ReactNode }) {
       towns,
       townId,
       townLabel,
+      hasTown,
       loading,
       error,
       pickerOpen,
       openPicker: () => setPickerOpen(true),
-      closePicker: () => setPickerOpen(false),
+      closePicker: () => {
+        // Keep picker open until a town is chosen.
+        if (!session?.townId && !pref?.townId) return;
+        setPickerOpen(false);
+      },
       selectTown,
       reloadTowns,
     }),
-    [towns, townId, townLabel, loading, error, pickerOpen, selectTown, reloadTowns],
+    [towns, townId, townLabel, hasTown, loading, error, pickerOpen, selectTown, reloadTowns, session?.townId, pref?.townId],
   );
 
   return <TownContext.Provider value={value}>{children}</TownContext.Provider>;

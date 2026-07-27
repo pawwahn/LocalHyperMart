@@ -50,7 +50,7 @@ class OrderAdminServiceTest {
                 .thenReturn(new PageImpl<>(List.of(order)));
 
         var result = orderAdminService.listAdminOrders(
-                hubAdminUserId, List.of("HUB_ADMIN"), townId, null, 0, 20);
+                hubAdminUserId, List.of("HUB_ADMIN"), townId, null, null, 0, 20);
 
         assertThat(result.getItems()).hasSize(1);
         assertThat(result.getItems().getFirst().getOrderNumber()).isEqualTo("NRPT-00001");
