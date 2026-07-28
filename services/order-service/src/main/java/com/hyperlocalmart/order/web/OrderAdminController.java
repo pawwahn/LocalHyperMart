@@ -33,7 +33,8 @@ public class OrderAdminController {
     @GetMapping
     public ResponseEntity<ApiResponse<PageResponse<AdminOrderSummaryResponse>>> listOrders(
             @AuthenticationPrincipal AuthUserPrincipal principal,
-            @RequestParam UUID townId,
+            @RequestParam(required = false) UUID townId,
+            @RequestParam(required = false) UUID buyerId,
             @RequestParam(required = false) OrderStatus status,
             @RequestParam(required = false) String q,
             @RequestParam(defaultValue = "0") int page,
@@ -42,7 +43,7 @@ public class OrderAdminController {
         requireHubOrSuperAdmin(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
                 orderAdminService.listAdminOrders(
-                        principal.getUserId(), principal.getRoles(), townId, status, q, page, size)));
+                        principal.getUserId(), principal.getRoles(), townId, buyerId, status, q, page, size)));
     }
 
     @GetMapping("/claims")

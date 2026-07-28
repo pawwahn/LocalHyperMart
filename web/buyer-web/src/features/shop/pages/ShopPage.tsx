@@ -3,13 +3,15 @@ import { useMemo, useState } from 'react';
 import { AdSlot } from '@/features/ads/components/AdSlot';
 import { PortalShell } from '@/shared/layout/PortalShell';
 import { Banner, EmptyState, LoadingBlock } from '@/shared/ui';
+import type { CatalogItemView } from '../api/shopApi';
 import { ProductCard } from '../components/ProductCard';
+import { ProductQuickView } from '../components/ProductQuickView';
 import { AISLES, matchesAisle } from '../lib/aisles';
 import { useBrowserVoiceSearch } from '../hooks/useBrowserVoiceSearch';
 import { useShop } from '../hooks/useShop';
 
-/** Insert a sponsored mid-grid ad after this many product cards (1 full row at 3-up). */
-const MID_GRID_AFTER = 3;
+/** Insert a sponsored mid-grid ad after this many product cards (1 full row at 4-up). */
+const MID_GRID_AFTER = 4;
 
 export function ShopPage() {
   const {
@@ -27,6 +29,7 @@ export function ShopPage() {
     doDecrease,
   } = useShop();
   const [aisleId, setAisleId] = useState('all');
+  const [quickView, setQuickView] = useState<CatalogItemView | null>(null);
   const { listening, supported, error: voiceError, toggle: toggleVoice } = useBrowserVoiceSearch(
     (transcript) => setQuery(transcript),
   );
@@ -36,12 +39,17 @@ export function ShopPage() {
     [items, aisleId],
   );
 
+  const quickViewLive = useMemo(() => {
+    if (!quickView) return null;
+    return items.find((i) => i.listingId === quickView.listingId) ?? quickView;
+  }, [items, quickView]);
+
   return (
     <PortalShell
       hideTitle
       cartCount={cart?.itemCount ?? 0}
       cartTotalLabel={cart?.payableLabel}
-      onRefresh={() => void reload()}
+      onRefresh={() => reload()}
     >
       <div style={styles.searchShell}>
         <span style={styles.searchIcon} aria-hidden>
@@ -138,8 +146,11 @@ export function ShopPage() {
                 specialOfferActive={item.specialOfferActive}
                 avgRating={item.avgRating}
                 ratingCount={item.ratingCount}
+                imageUrl={item.imageUrl}
+                imageCount={item.imageUrls.length}
                 quantity={quantityFor(item.listingId)}
                 busy={busyKey === item.listingId}
+                onOpen={() => setQuickView(item)}
                 onIncrease={() => void doIncrease(item.listingId)}
                 onDecrease={() => void doDecrease(item.listingId)}
               />
@@ -149,6 +160,17 @@ export function ShopPage() {
           })}
         </div>
       )}
+
+      {quickViewLive ? (
+        <ProductQuickView
+          product={quickViewLive}
+          quantity={quantityFor(quickViewLive.listingId)}
+          busy={busyKey === quickViewLive.listingId}
+          onClose={() => setQuickView(null)}
+          onIncrease={() => void doIncrease(quickViewLive.listingId)}
+          onDecrease={() => void doDecrease(quickViewLive.listingId)}
+        />
+      ) : null}
     </PortalShell>
   );
 }
@@ -198,17 +220,21 @@ const styles: Record<string, CSSProperties> = {
   },
   aisles: {
     display: 'flex',
-    gap: '0.55rem',
+    gap: '0.45rem',
     overflowX: 'auto',
+    overflowY: 'hidden',
     paddingBottom: '0.15rem',
-    margin: '0 -0.15rem',
+    width: '100%',
+    maxWidth: '100%',
+    minWidth: 0,
+    WebkitOverflowScrolling: 'touch',
   },
   aisle: {
     flex: '0 0 auto',
     display: 'grid',
     justifyItems: 'center',
-    gap: '0.3rem',
-    minWidth: 72,
+    gap: '0.25rem',
+    minWidth: 64,
     border: 'none',
     background: 'transparent',
     color: 'var(--text-muted)',
@@ -221,8 +247,8 @@ const styles: Record<string, CSSProperties> = {
     flex: '0 0 auto',
     display: 'grid',
     justifyItems: 'center',
-    gap: '0.3rem',
-    minWidth: 72,
+    gap: '0.25rem',
+    minWidth: 64,
     border: 'none',
     background: 'transparent',
     color: 'var(--accent)',
@@ -233,14 +259,14 @@ const styles: Record<string, CSSProperties> = {
     boxShadow: 'inset 0 -2px 0 var(--accent)',
   },
   aisleEmoji: {
-    width: 52,
-    height: 52,
-    borderRadius: 14,
+    width: 48,
+    height: 48,
+    borderRadius: 12,
     background: 'var(--bg-elevated)',
     border: '1px solid var(--border)',
     display: 'grid',
     placeItems: 'center',
-    fontSize: '1.45rem',
+    fontSize: '1.3rem',
     boxShadow: 'var(--shadow-card)',
   },
   sectionHead: {
@@ -258,7 +284,9 @@ const styles: Record<string, CSSProperties> = {
   count: { margin: 0, color: 'var(--text-muted)', fontSize: '0.8rem', fontWeight: 600 },
   grid: {
     display: 'grid',
-    gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
-    gap: '0.55rem',
+    gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
+    gap: '0.4rem',
+    width: '100%',
+    minWidth: 0,
   },
 };

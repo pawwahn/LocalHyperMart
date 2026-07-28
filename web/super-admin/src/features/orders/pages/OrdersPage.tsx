@@ -110,7 +110,8 @@ export function OrdersPage() {
     setLoading(true);
     setError(null);
     try {
-      const data = await listAdminOrders(token, townId, {
+      const data = await listAdminOrders(token, {
+        townId,
         status: status || undefined,
         q: qParam || undefined,
         page,

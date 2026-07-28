@@ -40,19 +40,42 @@ public class OrderAdminService {
             UUID actorUserId,
             List<String> roles,
             UUID townId,
+            UUID buyerId,
             OrderStatus status,
             String q,
             int page,
             int size) {
-        validateTownAccess(actorUserId, roles, townId);
+        if (buyerId != null) {
+            if (!roles.contains("SUPER_ADMIN")) {
+                if (townId == null) {
+                    throw new BusinessException(ErrorCode.VALIDATION_ERROR, "townId is required");
+                }
+                validateTownAccess(actorUserId, roles, townId);
+            } else if (townId != null) {
+                validateTownAccess(actorUserId, roles, townId);
+            }
+        } else {
+            if (townId == null) {
+                throw new BusinessException(ErrorCode.VALIDATION_ERROR, "townId is required");
+            }
+            validateTownAccess(actorUserId, roles, townId);
+        }
 
-        PageRequest pageable = PageRequest.of(page, size);
+        PageRequest pageable = PageRequest.of(page, Math.min(Math.max(size, 1), 50));
         String query = q == null ? null : q.trim();
-        Page<Order> orders = (query == null || query.isEmpty()) && status == null
-                ? orderRepository.findByTownIdOrderByCreatedAtDesc(townId, pageable)
-                : (query == null || query.isEmpty())
-                        ? orderRepository.findByTownIdAndStatusOrderByCreatedAtDesc(townId, status, pageable)
-                        : orderRepository.searchAdminByTown(townId, status, query, pageable);
+        Page<Order> orders;
+        if (buyerId != null) {
+            // Customer console: full buyer history (optional town scope). Status/q ignored here.
+            orders = townId == null
+                    ? orderRepository.findByBuyerIdOrderByCreatedAtDesc(buyerId, pageable)
+                    : orderRepository.findByBuyerIdAndTownIdOrderByCreatedAtDesc(buyerId, townId, pageable);
+        } else if ((query == null || query.isEmpty()) && status == null) {
+            orders = orderRepository.findByTownIdOrderByCreatedAtDesc(townId, pageable);
+        } else if (query == null || query.isEmpty()) {
+            orders = orderRepository.findByTownIdAndStatusOrderByCreatedAtDesc(townId, status, pageable);
+        } else {
+            orders = orderRepository.searchAdminByTown(townId, status, query, pageable);
+        }
 
         List<AdminOrderSummaryResponse> items = orders.getContent().stream()
                 .map(this::toSummary)
@@ -173,6 +196,7 @@ public class OrderAdminService {
         return AdminOrderSummaryResponse.builder()
                 .orderId(order.getId())
                 .orderNumber(order.getOrderNumber())
+                .townId(order.getTownId())
                 .buyerId(order.getBuyerId())
                 .buyerPhone(order.getBuyerPhoneSnapshot())
                 .status(order.getStatus())

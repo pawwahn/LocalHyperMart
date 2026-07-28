@@ -34,6 +34,9 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
     Page<Order> findByBuyerIdAndTownIdOrderByCreatedAtDesc(UUID buyerId, UUID townId, Pageable pageable);
 
     @EntityGraph(attributePaths = {"vendorSubOrders"})
+    Page<Order> findByBuyerIdOrderByCreatedAtDesc(UUID buyerId, Pageable pageable);
+
+    @EntityGraph(attributePaths = {"vendorSubOrders"})
     Page<Order> findByTownIdOrderByCreatedAtDesc(UUID townId, Pageable pageable);
 
     @EntityGraph(attributePaths = {"vendorSubOrders"})

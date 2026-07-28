@@ -1,0 +1,26 @@
+---
+description: UI quality bar — polished, responsive, q-commerce grade (Blinkit/Zepto/Instamart)
+alwaysApply: true
+---
+
+# UI quality bar
+
+Always ship **best-effort UI** without waiting for the user to complain. Benchmark against **Blinkit / Zepto / Instamart / Zomato** ops and consumer patterns: clear hierarchy, dense-but-breathable lists, strong primary actions, readable tables on mobile.
+
+## Defaults for data screens
+
+- Prefer **tables** for multi-field records (orders, wallet, claims, addresses) with sticky header and horizontal scroll on small screens.
+- Prefer **tabs** when a page has multiple heavy datasets (do not stack unbounded sections).
+- Always **paginate** (Prev/Next or numbered) — see `scale-list-ux.mdc`.
+- Short human labels; status pills; money right-aligned; tap-to-call phones.
+- Responsive: one column on narrow viewports; toolbars wrap cleanly; touch-friendly hit targets.
+
+## Visual
+
+- One clear hero (name + key metric). Avoid empty tall cards and sparse two-column imbalance.
+- Consistent spacing, borders, muted meta text; no cluttered badges or competing accents.
+- Loading / empty / error states that are calm and specific.
+
+## Process
+
+If a screen looks “admin prototype”, refine it in the same pass. Do not leave “we’ll polish later” for list/detail UIs.

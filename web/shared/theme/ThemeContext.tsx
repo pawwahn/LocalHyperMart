@@ -62,10 +62,11 @@ export function ThemeProvider({
 
   const commit = useCallback(
     (next: ThemePreference) => {
-      if (!personalized) return;
       setPreferenceState(next);
-      saveThemePreference(storageKey, next);
       applyTheme(next);
+      if (personalized) {
+        saveThemePreference(storageKey, next);
+      }
     },
     [storageKey, personalized],
   );

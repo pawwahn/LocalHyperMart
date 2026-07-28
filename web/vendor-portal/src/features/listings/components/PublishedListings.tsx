@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { Button, Card } from '@/shared/ui';
-import type { DraftPricing, ListingView } from '../api/listingsApi';
+import type { DraftPricing, ListingView, UploadedMedia } from '../api/listingsApi';
 import { TableScrollShell } from './TableScrollShell';
 import { SortableTh } from './SortableTh';
 import { TablePager } from './TablePager';
@@ -27,6 +27,8 @@ type Props = {
   actionId: string | null;
   onToggle: (listing: ListingView) => void;
   onSavePricing: (listing: ListingView, draft: DraftPricing) => Promise<boolean>;
+  onUploadPhoto: (file: File) => Promise<UploadedMedia>;
+  onSavePhotos: (listing: ListingView, images: UploadedMedia[]) => Promise<boolean>;
 };
 
 const STATUS_FILTERS: Array<{ id: ListingStatusFilter; label: string }> = [
@@ -51,14 +53,23 @@ export function PublishedListings({
   actionId,
   onToggle,
   onSavePricing,
+  onUploadPhoto,
+  onSavePhotos,
 }: Props) {
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(25);
   const [sort, setSort] = useState<SortState<ListingSortKey>>({ key: 'name', dir: 'asc' });
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState<DraftPricing | null>(null);
+  const [imageListingId, setImageListingId] = useState<string | null>(null);
+  const [imageBusy, setImageBusy] = useState(false);
+  const [imageError, setImageError] = useState<string | null>(null);
+  const [pendingSlot, setPendingSlot] = useState<number | null>(null);
   const liveCount = listings.filter((l) => l.active).length;
   const hiddenCount = listings.length - liveCount;
+  const imageListing = imageListingId
+    ? listings.find((l) => l.id === imageListingId) ?? null
+    : null;
 
   function startEdit(listing: ListingView) {
     setEditingId(listing.id);
@@ -81,9 +92,87 @@ export function PublishedListings({
     if (ok) cancelEdit();
   }
 
+  function mediaFromUrl(url: string): UploadedMedia | null {
+    const mediaId = url.split('/').filter(Boolean).at(-2) ?? '';
+    if (!mediaId || mediaId === 'content') return null;
+    return { mediaId, url };
+  }
+
+  /** Filled photos in order (custom listing images, else catalog). */
+  function filledPhotos(listing: ListingView): UploadedMedia[] {
+    const urls = listing.customImages
+      ? listing.listingImageUrls ?? []
+      : listing.masterImageUrls ?? listing.imageUrls ?? [];
+    return urls
+      .map((url) => mediaFromUrl(url))
+      .filter((m): m is UploadedMedia => Boolean(m?.mediaId && m.url))
+      .slice(0, 3);
+  }
+
+  async function replaceSlot(slotIndex: number, file: File | undefined) {
+    if (!imageListing || !file) return;
+    setImageBusy(true);
+    setImageError(null);
+    try {
+      const base = filledPhotos(imageListing);
+      const uploaded = await onUploadPhoto(file);
+      if (!uploaded.mediaId || !uploaded.url) {
+        throw new Error('Upload did not return a media URL');
+      }
+      if (slotIndex < base.length) {
+        base[slotIndex] = uploaded;
+      } else if (slotIndex === base.length && base.length < 3) {
+        base.push(uploaded);
+      } else {
+        throw new Error('Fill earlier photo slots first');
+      }
+      const ok = await onSavePhotos(imageListing, base);
+      if (!ok) setImageError('Could not save photo for this listing');
+    } catch (err) {
+      setImageError(err instanceof Error ? err.message : 'Could not replace photo');
+    } finally {
+      setImageBusy(false);
+      setPendingSlot(null);
+    }
+  }
+
+  async function removeSlot(slotIndex: number) {
+    if (!imageListing?.customImages) return;
+    setImageBusy(true);
+    setImageError(null);
+    try {
+      const next = filledPhotos(imageListing).filter((_, i) => i !== slotIndex);
+      const ok = await onSavePhotos(imageListing, next);
+      if (!ok) setImageError('Could not remove photo');
+    } catch (err) {
+      setImageError(err instanceof Error ? err.message : 'Could not remove photo');
+    } finally {
+      setImageBusy(false);
+    }
+  }
+
+  async function onClearImages() {
+    if (!imageListing) return;
+    setImageBusy(true);
+    setImageError(null);
+    try {
+      const ok = await onSavePhotos(imageListing, []);
+      if (!ok) setImageError('Could not restore catalog photos');
+    } catch (err) {
+      setImageError(err instanceof Error ? err.message : 'Could not restore catalog photos');
+    } finally {
+      setImageBusy(false);
+    }
+  }
+
   useEffect(() => {
     setPage(0);
   }, [query, statusFilter, pageSize, sort]);
+
+  useEffect(() => {
+    setImageError(null);
+    setPendingSlot(null);
+  }, [imageListingId]);
 
   const sortedListings = useMemo(() => {
     const rows = [...filteredListings];
@@ -196,6 +285,7 @@ export function PublishedListings({
           <table style={styles.table}>
             <thead>
               <tr>
+                <th style={styles.thPhoto}>Photo</th>
                 <SortableTh
                   label="Product"
                   column="name"
@@ -235,6 +325,22 @@ export function PublishedListings({
                 };
                 return (
                   <tr key={listing.id} style={styles.tr}>
+                    <td style={{ ...styles.tdPhoto, ...cellBg }}>
+                      <button
+                        type="button"
+                        style={styles.thumbBtn}
+                        onClick={() => setImageListingId(listing.id)}
+                        aria-label={`Manage photos for ${listing.name}`}
+                        title={listing.customImages ? 'Custom photos' : 'Catalog photos (click to replace)'}
+                      >
+                        {listing.imageUrls?.[0] ? (
+                          <img src={listing.imageUrls[0]} alt="" style={styles.thumb} />
+                        ) : (
+                          <span style={styles.thumbEmpty}>📦</span>
+                        )}
+                        {listing.customImages ? <span style={styles.customDot} /> : null}
+                      </button>
+                    </td>
                     <td style={{ ...styles.tdProduct, ...cellBg }} title={listing.name}>
                       <strong style={styles.name}>{listing.name}</strong>
                     </td>
@@ -321,6 +427,132 @@ export function PublishedListings({
           totalPages={totalPages}
           onPageChange={setPage}
         />
+      ) : null}
+
+      {imageListing ? (
+        <div
+          style={styles.modalBackdrop}
+          role="presentation"
+          onClick={() => setImageListingId(null)}
+        >
+          <div
+            style={styles.modal}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="listing-images-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={styles.modalHead}>
+              <div>
+                <h3 id="listing-images-title" style={styles.modalTitle}>
+                  Photos · {imageListing.name}
+                </h3>
+                <p style={styles.modalMeta}>
+                  {imageListing.customImages
+                    ? 'Your custom photos for this listing only. Change or remove each slot separately.'
+                    : 'Showing catalog photos. Change any slot to start using your own photos for this shop only.'}
+                </p>
+              </div>
+              <button
+                type="button"
+                style={styles.modalClose}
+                aria-label="Close"
+                onClick={() => setImageListingId(null)}
+              >
+                ✕
+              </button>
+            </div>
+
+            {imageError ? <p style={styles.imageError}>{imageError}</p> : null}
+
+            <div style={styles.slotsRow}>
+              {[0, 1, 2].map((index) => {
+                const filled = filledPhotos(imageListing);
+                const slot = filled[index] ?? null;
+                const canAdd = !slot && index === filled.length;
+                const canChange = Boolean(slot);
+                const lockedEmpty = !slot && !canAdd;
+                return (
+                  <div key={`slot-${index}`} style={styles.slot}>
+                    <div style={styles.slotLabel}>Photo {index + 1}</div>
+                    <div
+                      style={{
+                        ...styles.slotFrame,
+                        opacity: lockedEmpty ? 0.45 : 1,
+                      }}
+                    >
+                      {slot ? (
+                        <img src={slot.url} alt="" style={styles.thumbLarge} />
+                      ) : (
+                        <span style={styles.slotEmpty}>{lockedEmpty ? '—' : 'Empty'}</span>
+                      )}
+                      {!imageListing.customImages && slot ? (
+                        <span style={styles.slotBadge}>Catalog</span>
+                      ) : null}
+                      {imageListing.customImages && slot ? (
+                        <span style={styles.slotBadgeCustom}>Yours</span>
+                      ) : null}
+                    </div>
+                    <div style={styles.slotActions}>
+                      {canChange || canAdd ? (
+                        <label
+                          style={{
+                            ...styles.slotBtn,
+                            opacity: imageBusy ? 0.6 : 1,
+                          }}
+                        >
+                          {imageBusy && pendingSlot === index
+                            ? '…'
+                            : canChange
+                              ? 'Change this'
+                              : 'Add photo'}
+                          <input
+                            type="file"
+                            accept="image/jpeg,image/png,image/webp,image/gif"
+                            hidden
+                            disabled={imageBusy}
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              e.target.value = '';
+                              setPendingSlot(index);
+                              void replaceSlot(index, file);
+                            }}
+                          />
+                        </label>
+                      ) : (
+                        <span style={styles.slotHint}>Add photo {filled.length + 1} first</span>
+                      )}
+                      {imageListing.customImages && slot ? (
+                        <button
+                          type="button"
+                          style={styles.slotBtnGhost}
+                          disabled={imageBusy}
+                          onClick={() => void removeSlot(index)}
+                        >
+                          Remove
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div style={styles.imageActions}>
+              <Button
+                type="button"
+                variant="ghost"
+                disabled={imageBusy || !imageListing.customImages}
+                onClick={() => void onClearImages()}
+              >
+                Use catalog photos
+              </Button>
+              <Button type="button" variant="secondary" onClick={() => setImageListingId(null)}>
+                Done
+              </Button>
+            </div>
+          </div>
+        </div>
       ) : null}
     </Card>
   );
@@ -507,4 +739,182 @@ const styles: Record<string, CSSProperties> = {
     fontWeight: 700,
   },
   empty: { margin: '0.35rem 0 0', color: 'var(--text-muted)' },
+  thPhoto: {
+    position: 'sticky',
+    top: 0,
+    zIndex: 2,
+    background: 'var(--bg-elevated)',
+    textAlign: 'left',
+    padding: '0.45rem 0.5rem',
+    borderBottom: '1px solid var(--border)',
+    width: 56,
+  },
+  tdPhoto: {
+    padding: '0.35rem 0.5rem',
+    borderBottom: '1px solid var(--border)',
+    verticalAlign: 'middle',
+    width: 56,
+  },
+  thumbBtn: {
+    position: 'relative',
+    width: 40,
+    height: 40,
+    borderRadius: 8,
+    border: '1px solid var(--border)',
+    padding: 0,
+    overflow: 'hidden',
+    cursor: 'pointer',
+    background: 'var(--bg)',
+  },
+  thumb: { width: '100%', height: '100%', objectFit: 'cover', display: 'block' },
+  thumbEmpty: { display: 'grid', placeItems: 'center', height: '100%', fontSize: '1rem' },
+  customDot: {
+    position: 'absolute',
+    top: 3,
+    right: 3,
+    width: 8,
+    height: 8,
+    borderRadius: 999,
+    background: 'var(--accent)',
+    border: '1px solid #fff',
+  },
+  modalBackdrop: {
+    position: 'fixed',
+    inset: 0,
+    background: 'rgba(15, 23, 42, 0.45)',
+    zIndex: 90,
+    display: 'grid',
+    placeItems: 'center',
+    padding: '1rem',
+  },
+  modal: {
+    width: 'min(440px, 100%)',
+    background: 'var(--bg-elevated)',
+    borderRadius: 14,
+    padding: '1rem',
+    display: 'grid',
+    gap: '0.85rem',
+    boxShadow: 'var(--shadow-elevated)',
+  },
+  modalHead: { display: 'flex', justifyContent: 'space-between', gap: '0.75rem' },
+  modalTitle: { margin: 0, fontFamily: 'var(--font-display)', fontSize: '1.05rem', fontWeight: 800 },
+  modalMeta: { margin: '0.25rem 0 0', color: 'var(--text-muted)', fontSize: '0.82rem' },
+  modalClose: {
+    width: 32,
+    height: 32,
+    borderRadius: 999,
+    border: '1px solid var(--border)',
+    background: 'var(--bg)',
+    cursor: 'pointer',
+  },
+  thumbsRow: { display: 'flex', flexWrap: 'wrap', gap: '0.55rem' },
+  slotsRow: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+    gap: '0.65rem',
+  },
+  slot: { display: 'grid', gap: '0.35rem', justifyItems: 'stretch' },
+  slotLabel: {
+    fontSize: '0.72rem',
+    fontWeight: 700,
+    color: 'var(--text-muted)',
+    letterSpacing: '0.02em',
+    textTransform: 'uppercase' as const,
+  },
+  slotFrame: {
+    position: 'relative',
+    width: '100%',
+    aspectRatio: '1 / 1',
+    borderRadius: 10,
+    border: '1px solid var(--border)',
+    overflow: 'hidden',
+    background: 'var(--bg)',
+  },
+  slotEmpty: {
+    display: 'grid',
+    placeItems: 'center',
+    height: '100%',
+    color: 'var(--text-muted)',
+    fontSize: '0.8rem',
+    fontWeight: 600,
+  },
+  slotBadge: {
+    position: 'absolute',
+    left: 6,
+    bottom: 6,
+    fontSize: '0.65rem',
+    fontWeight: 700,
+    padding: '0.12rem 0.35rem',
+    borderRadius: 999,
+    background: 'rgba(15, 23, 42, 0.72)',
+    color: '#fff',
+  },
+  slotBadgeCustom: {
+    position: 'absolute',
+    left: 6,
+    bottom: 6,
+    fontSize: '0.65rem',
+    fontWeight: 700,
+    padding: '0.12rem 0.35rem',
+    borderRadius: 999,
+    background: 'var(--accent)',
+    color: '#fff',
+  },
+  slotActions: { display: 'grid', gap: '0.25rem' },
+  slotBtn: {
+    display: 'grid',
+    placeItems: 'center',
+    padding: '0.4rem 0.35rem',
+    borderRadius: 8,
+    border: '1px solid var(--border)',
+    background: 'var(--bg)',
+    color: 'var(--accent)',
+    fontWeight: 700,
+    fontSize: '0.78rem',
+    cursor: 'pointer',
+  },
+  slotBtnGhost: {
+    padding: '0.35rem 0.35rem',
+    borderRadius: 8,
+    border: '1px solid transparent',
+    background: 'transparent',
+    color: 'var(--text-muted)',
+    fontWeight: 600,
+    fontSize: '0.75rem',
+    cursor: 'pointer',
+  },
+  slotHint: {
+    fontSize: '0.7rem',
+    color: 'var(--text-muted)',
+    textAlign: 'center' as const,
+    lineHeight: 1.3,
+  },
+  imageError: {
+    margin: 0,
+    padding: '0.55rem 0.7rem',
+    borderRadius: 8,
+    background: 'var(--danger-soft, #fef2f2)',
+    color: 'var(--danger, #b91c1c)',
+    fontSize: '0.82rem',
+  },
+  thumbLarge: {
+    width: '100%',
+    height: '100%',
+    objectFit: 'cover',
+    display: 'block',
+  },
+  uploadTile: {
+    width: 96,
+    height: 96,
+    borderRadius: 10,
+    border: '1px dashed var(--border)',
+    display: 'grid',
+    placeItems: 'center',
+    cursor: 'pointer',
+    fontWeight: 700,
+    color: 'var(--accent)',
+    fontSize: '0.85rem',
+    background: 'var(--bg)',
+  },
+  imageActions: { display: 'flex', justifyContent: 'space-between', gap: '0.5rem' },
 };

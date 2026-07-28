@@ -5,7 +5,7 @@ type Props = {
   disabled?: boolean;
   onIncrease: () => void;
   onDecrease: () => void;
-  /** xs = 3-up product grid; sm/md for cart etc. */
+  /** xs = 4-up product grid; sm/md for cart etc. */
   size?: 'xs' | 'sm' | 'md';
 };
 
@@ -61,15 +61,15 @@ export function QuantityStepper({
 
 const styles: Record<string, CSSProperties> = {
   addXs: {
-    minWidth: 48,
-    padding: '0.28rem 0.4rem',
+    minWidth: 40,
+    padding: '0.22rem 0.28rem',
     border: '1.5px solid var(--accent)',
-    borderRadius: 6,
+    borderRadius: 5,
     background: 'var(--bg-elevated)',
     color: 'var(--accent)',
     fontWeight: 800,
-    fontSize: '0.65rem',
-    letterSpacing: '0.04em',
+    fontSize: '0.55rem',
+    letterSpacing: '0.03em',
     cursor: 'pointer',
     boxShadow: '0 2px 6px rgba(12, 131, 31, 0.12)',
   },
@@ -101,8 +101,8 @@ const styles: Record<string, CSSProperties> = {
   stepperXs: {
     display: 'inline-flex',
     alignItems: 'center',
-    minWidth: 64,
-    borderRadius: 6,
+    minWidth: 52,
+    borderRadius: 5,
     background: 'var(--accent)',
     color: 'var(--text-inverse)',
     overflow: 'hidden',
@@ -132,9 +132,9 @@ const styles: Record<string, CSSProperties> = {
     background: 'transparent',
     color: 'inherit',
     fontWeight: 800,
-    fontSize: '0.95rem',
+    fontSize: '0.8rem',
     lineHeight: 1,
-    padding: '0.28rem 0.35rem',
+    padding: '0.2rem 0.28rem',
     cursor: 'pointer',
   },
   stepBtn: {
@@ -148,10 +148,10 @@ const styles: Record<string, CSSProperties> = {
     cursor: 'pointer',
   },
   qtyXs: {
-    minWidth: 16,
+    minWidth: 12,
     textAlign: 'center',
     fontWeight: 800,
-    fontSize: '0.75rem',
+    fontSize: '0.65rem',
   },
   qty: {
     minWidth: 22,

@@ -4,6 +4,7 @@ import lombok.Builder;
 import lombok.Data;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.UUID;
 
 @Data
@@ -16,4 +17,6 @@ public class MasterItemSummaryResponse {
     private String unit;
     private String category;
     private BigDecimal mrp;
+    /** Ordered public URLs (max 3) from admin uploads. */
+    private List<String> imageUrls;
 }

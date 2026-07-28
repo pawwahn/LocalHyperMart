@@ -8,12 +8,15 @@ import {
   fetchMasterItems,
   fetchMyListings,
   parseDraftPricing,
+  setListingImages,
   updateListingActive,
   updateListingPricing,
+  uploadListingImage,
   type CategoryView,
   type DraftPricing,
   type ListingView,
   type MasterItemView,
+  type UploadedMedia,
 } from '../api/listingsApi';
 
 type ListingsCache = {
@@ -28,7 +31,14 @@ type ListingsCache = {
 let listingsCache: ListingsCache | null = null;
 
 function cacheFor(vendorId: string): ListingsCache | null {
-  return listingsCache?.vendorId === vendorId ? listingsCache : null;
+  if (!listingsCache || listingsCache.vendorId !== vendorId) return null;
+  // Drop stale cache shapes after listing-image fields were added.
+  const sample = listingsCache.listings[0] as ListingView | undefined;
+  if (sample && !Array.isArray(sample.imageUrls)) {
+    listingsCache = null;
+    return null;
+  }
+  return listingsCache;
 }
 
 export function useVendorListings() {
@@ -128,6 +138,14 @@ export function useVendorListings() {
   useEffect(() => {
     void reload();
   }, [reload]);
+
+  // HMR can keep React state with old listing rows that lack image fields.
+  useEffect(() => {
+    if (listings.some((row) => !Array.isArray(row.imageUrls))) {
+      listingsCache = null;
+      void reload();
+    }
+  }, [listings, reload]);
 
   const listedByMaster = useMemo(() => {
     const map = new Map<string, ListingView>();
@@ -328,6 +346,57 @@ export function useVendorListings() {
     }
   }
 
+  async function saveListingPhotos(
+    listing: ListingView,
+    images: UploadedMedia[],
+  ): Promise<boolean> {
+    if (!session) return false;
+    setActionId(listing.id);
+    setError(null);
+    setNotice(null);
+    try {
+      const urls = await setListingImages(
+        session.accessToken,
+        session.vendorId,
+        listing.id,
+        images.map((m) => ({ mediaId: m.mediaId, url: m.url })),
+      );
+      setListings((prev) => {
+        const next = prev.map((row) =>
+          row.id === listing.id
+            ? {
+                ...row,
+                listingImageUrls: urls,
+                customImages: urls.length > 0,
+                imageUrls: urls.length > 0 ? urls : (row.masterImageUrls ?? []),
+                masterImageUrls: row.masterImageUrls ?? [],
+              }
+            : row,
+        );
+        if (listingsCache?.vendorId === session.vendorId) {
+          listingsCache = { ...listingsCache, listings: next };
+        }
+        return next;
+      });
+      setNotice(
+        urls.length > 0
+          ? `Updated photos for ${listing.name} (only your listing).`
+          : `Cleared custom photos for ${listing.name}. Buyers will see catalog photos.`,
+      );
+      return true;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not update photos');
+      return false;
+    } finally {
+      setActionId(null);
+    }
+  }
+
+  async function uploadPhoto(file: File): Promise<UploadedMedia> {
+    if (!session) throw new Error('Sign in required');
+    return uploadListingImage(session.accessToken, file);
+  }
+
   return {
     listings,
     categories,
@@ -360,5 +429,7 @@ export function useVendorListings() {
     publishSelected,
     toggleActive,
     saveListingPricing,
+    saveListingPhotos,
+    uploadPhoto,
   };
 }

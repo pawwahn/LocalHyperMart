@@ -51,6 +51,18 @@ function useShopState() {
   const [notice, setNotice] = useState<string | null>(null);
   const [storeCreditBalance, setStoreCreditBalance] = useState(0);
   const hasLoadedOnce = useRef(false);
+  const cartRef = useRef<CartView | null>(null);
+  const itemsRef = useRef<CatalogItemView[]>([]);
+  const desiredQtyRef = useRef<Map<string, number>>(new Map());
+  const syncChainRef = useRef<Map<string, Promise<void>>>(new Map());
+
+  useEffect(() => {
+    cartRef.current = cart;
+  }, [cart]);
+
+  useEffect(() => {
+    itemsRef.current = items;
+  }, [items]);
 
   const qtyByListingId = useMemo(() => {
     const map = new Map<string, CartLineView>();
@@ -59,6 +71,176 @@ function useShopState() {
     }
     return map;
   }, [cart]);
+
+  function quantityFor(listingId: string): number {
+    if (desiredQtyRef.current.has(listingId)) {
+      return desiredQtyRef.current.get(listingId) ?? 0;
+    }
+    return qtyByListingId.get(listingId)?.quantity ?? 0;
+  }
+
+  function moneyLabel(v: number): string {
+    return `₹${Number(v).toFixed(2)}`;
+  }
+
+  function emptyCartView(): CartView {
+    return {
+      cartId: null,
+      itemCount: 0,
+      subtotalLabel: moneyLabel(0),
+      promoCode: null,
+      promoDescription: null,
+      promoDiscount: 0,
+      promoDiscountLabel: moneyLabel(0),
+      payableLabel: moneyLabel(0),
+      minOrderValue: cartRef.current?.minOrderValue ?? 0,
+      minOrderLabel: cartRef.current?.minOrderLabel ?? moneyLabel(0),
+      minOrderMet: false,
+      items: [],
+    };
+  }
+
+  function patchLocalQuantity(listingId: string, nextQty: number) {
+    desiredQtyRef.current.set(listingId, nextQty);
+    setCart((prev) => {
+      const base = prev ?? emptyCartView();
+      const catalog = itemsRef.current.find((i) => i.listingId === listingId);
+      const existing = base.items.find((i) => i.listingId === listingId);
+      let items: CartLineView[];
+
+      if (nextQty <= 0) {
+        items = base.items.filter((i) => i.listingId !== listingId);
+      } else if (existing) {
+        const unitFromLine =
+          existing.quantity > 0
+            ? Number(existing.lineLabel.replace(/[^\d.]/g, '') || 0) / existing.quantity
+            : 0;
+        const unitPrice =
+          catalog?.price && catalog.price > 0
+            ? catalog.price
+            : Number.isFinite(unitFromLine) && unitFromLine > 0
+              ? unitFromLine
+              : 0;
+        items = base.items.map((i) =>
+          i.listingId === listingId
+            ? {
+                ...i,
+                quantity: nextQty,
+                lineLabel: moneyLabel(unitPrice * nextQty),
+              }
+            : i,
+        );
+      } else {
+        items = [
+          ...base.items,
+          {
+            itemId: `optimistic-${listingId}`,
+            listingId,
+            name: catalog?.name ?? 'Item',
+            shopName: catalog?.shopName ?? '',
+            quantity: nextQty,
+            lineLabel: moneyLabel((catalog?.price ?? 0) * nextQty),
+          },
+        ];
+      }
+
+      const itemCount = items.reduce((sum, i) => sum + i.quantity, 0);
+      const approxSubtotal = items.reduce((sum, i) => {
+        const n = Number(i.lineLabel.replace(/[^\d.]/g, '') || 0);
+        return sum + (Number.isFinite(n) ? n : 0);
+      }, 0);
+
+      const next: CartView = {
+        ...base,
+        items,
+        itemCount,
+        subtotalLabel: moneyLabel(approxSubtotal),
+        payableLabel: moneyLabel(Math.max(0, approxSubtotal - (base.promoDiscount ?? 0))),
+        minOrderMet: approxSubtotal >= (base.minOrderValue ?? 0),
+      };
+      cartRef.current = next;
+      return next;
+    });
+  }
+
+  async function flushListingToServer(listingId: string) {
+    if (!session || !townId) return;
+
+    try {
+      // Keep pushing until local desired qty matches server (handles rapid +/-).
+      for (;;) {
+        if (!desiredQtyRef.current.has(listingId)) break;
+        const target = desiredQtyRef.current.get(listingId) ?? 0;
+
+        const realLine = cartRef.current?.items.find(
+          (i) => i.listingId === listingId && !i.itemId.startsWith('optimistic-'),
+        );
+
+        let next: CartView;
+        if (target <= 0) {
+          if (realLine) {
+            next = await removeCartItem(session.accessToken, realLine.itemId);
+          } else {
+            desiredQtyRef.current.delete(listingId);
+            break;
+          }
+        } else if (!realLine) {
+          next = await addToCart(session.accessToken, townId, listingId, target);
+        } else if (realLine.quantity === target) {
+          desiredQtyRef.current.delete(listingId);
+          break;
+        } else {
+          next = await updateCartItem(session.accessToken, realLine.itemId, target);
+        }
+
+        cartRef.current = next;
+        setCart(next);
+
+        const serverQty = next.items.find((i) => i.listingId === listingId)?.quantity ?? 0;
+        const pending = desiredQtyRef.current.get(listingId);
+        if (pending === undefined || pending === serverQty) {
+          desiredQtyRef.current.delete(listingId);
+          break;
+        }
+      }
+    } catch (err) {
+      desiredQtyRef.current.delete(listingId);
+      setError(err instanceof Error ? err.message : 'Could not update cart');
+      try {
+        const fresh = await fetchCart(session.accessToken, townId);
+        cartRef.current = fresh;
+        setCart(fresh);
+      } catch {
+        /* keep local until next reload */
+      }
+    }
+  }
+
+  function enqueueListingSync(listingId: string) {
+    const prev = syncChainRef.current.get(listingId) ?? Promise.resolve();
+    const next = prev
+      .catch(() => undefined)
+      .then(() => flushListingToServer(listingId));
+    syncChainRef.current.set(listingId, next);
+    void next.finally(() => {
+      if (syncChainRef.current.get(listingId) === next) {
+        syncChainRef.current.delete(listingId);
+      }
+    });
+  }
+
+  function requireCartSession(): boolean {
+    if (!session) {
+      setError('Sign in to update your cart.');
+      return false;
+    }
+    if (!hasTown || !townId) {
+      setError('Choose your town first');
+      openPicker();
+      return false;
+    }
+    return true;
+  }
 
   const reload = useCallback(async () => {
     // Keep existing UI visible while refreshing — only flash loading on first load.
@@ -82,7 +264,16 @@ function useShopState() {
       if (err instanceof ApiError && err.isUnauthorized) {
         throw err;
       }
-      errors.push(err instanceof Error ? err.message : fallback);
+      const raw = err instanceof Error ? err.message : fallback;
+      if (/internal server error/i.test(raw)) {
+        errors.push(
+          fallback.includes('Cart')
+            ? 'Cart service is unavailable. Start cart-service on :8085, then refresh.'
+            : `${fallback} (server error). Check that related services are running.`,
+        );
+        return;
+      }
+      errors.push(raw || fallback);
     };
 
     try {
@@ -198,42 +389,44 @@ function useShopState() {
   }
 
   async function doAdd(listingId: string) {
-    await withCartBusy(listingId, async () => {
-      const next = await addToCart(session!.accessToken, townId, listingId, 1);
-      setCart(next);
-    });
+    if (!requireCartSession()) return;
+    setError(null);
+    patchLocalQuantity(listingId, quantityFor(listingId) + 1);
+    enqueueListingSync(listingId);
   }
 
   async function doIncrease(listingId: string) {
-    await withCartBusy(listingId, async () => {
-      const line = qtyByListingId.get(listingId);
-      const next = line
-        ? await updateCartItem(session!.accessToken, line.itemId, line.quantity + 1)
-        : await addToCart(session!.accessToken, townId, listingId, 1);
-      setCart(next);
-    });
+    if (!requireCartSession()) return;
+    setError(null);
+    patchLocalQuantity(listingId, quantityFor(listingId) + 1);
+    enqueueListingSync(listingId);
   }
 
   async function doDecrease(listingId: string) {
-    const line = qtyByListingId.get(listingId);
-    if (!line) return;
-    await withCartBusy(listingId, async () => {
-      const next =
-        line.quantity <= 1
-          ? await removeCartItem(session!.accessToken, line.itemId)
-          : await updateCartItem(session!.accessToken, line.itemId, line.quantity - 1);
-      setCart(next);
-    });
+    if (!requireCartSession()) return;
+    const current = quantityFor(listingId);
+    if (current <= 0) return;
+    setError(null);
+    patchLocalQuantity(listingId, current - 1);
+    enqueueListingSync(listingId);
   }
 
   async function doSetLineQuantity(itemId: string, quantity: number) {
-    await withCartBusy(itemId, async () => {
-      const next =
-        quantity <= 0
-          ? await removeCartItem(session!.accessToken, itemId)
-          : await updateCartItem(session!.accessToken, itemId, quantity);
-      setCart(next);
-    });
+    const line = cartRef.current?.items.find((i) => i.itemId === itemId);
+    if (!line) {
+      await withCartBusy(itemId, async () => {
+        const next =
+          quantity <= 0
+            ? await removeCartItem(session!.accessToken, itemId)
+            : await updateCartItem(session!.accessToken, itemId, quantity);
+        setCart(next);
+      });
+      return;
+    }
+    if (!requireCartSession()) return;
+    setError(null);
+    patchLocalQuantity(line.listingId, quantity);
+    enqueueListingSync(line.listingId);
   }
 
   async function doRemove(itemId: string) {
@@ -365,10 +558,6 @@ function useShopState() {
     } finally {
       setBusy(false);
     }
-  }
-
-  function quantityFor(listingId: string): number {
-    return qtyByListingId.get(listingId)?.quantity ?? 0;
   }
 
   return {

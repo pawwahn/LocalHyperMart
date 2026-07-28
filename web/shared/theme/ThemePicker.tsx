@@ -1,4 +1,12 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
+import {
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+} from 'react';
+import { createPortal } from 'react-dom';
 import { ACCENT_PRESETS } from './presets';
 import { useTheme } from './ThemeContext';
 
@@ -10,7 +18,7 @@ type Props = {
 type PanelPos = { top: number; left: number };
 
 export function ThemePicker({ compact = true }: Props) {
-  const { preference, setMode, setAccent } = useTheme();
+  const { preference, setMode, setAccent, personalized } = useTheme();
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<PanelPos>({ top: 0, left: 0 });
   const rootRef = useRef<HTMLDivElement>(null);
@@ -36,7 +44,6 @@ export function ThemePicker({ compact = true }: Props) {
     }
 
     place();
-    // Re-measure after paint so panel size is accurate.
     const raf = window.requestAnimationFrame(place);
     window.addEventListener('resize', place);
     window.addEventListener('scroll', place, true);
@@ -52,6 +59,7 @@ export function ThemePicker({ compact = true }: Props) {
     function onDoc(e: MouseEvent) {
       const t = e.target as Node;
       if (rootRef.current?.contains(t)) return;
+      if (panelRef.current?.contains(t)) return;
       setOpen(false);
     }
     function onKey(e: KeyboardEvent) {
@@ -64,6 +72,72 @@ export function ThemePicker({ compact = true }: Props) {
       document.removeEventListener('keydown', onKey);
     };
   }, [open]);
+
+  const panel =
+    open && typeof document !== 'undefined'
+      ? createPortal(
+          <div
+            ref={panelRef}
+            id={panelId}
+            role="dialog"
+            aria-label="Choose theme"
+            style={{
+              ...styles.panel,
+              top: pos.top,
+              left: pos.left,
+            }}
+          >
+            {!personalized ? (
+              <p style={styles.hint}>Preview only — sign in to save.</p>
+            ) : null}
+            <p style={styles.heading}>Appearance</p>
+            <div style={styles.modeRow}>
+              <button
+                type="button"
+                style={preference.mode === 'light' ? styles.modeActive : styles.modeBtn}
+                onClick={() => setMode('light')}
+              >
+                Light
+              </button>
+              <button
+                type="button"
+                style={preference.mode === 'dark' ? styles.modeActive : styles.modeBtn}
+                onClick={() => setMode('dark')}
+              >
+                Dark
+              </button>
+            </div>
+            <p style={styles.heading}>Color</p>
+            <div style={styles.swatches}>
+              {ACCENT_PRESETS.map((preset) => {
+                const active = preference.accent === preset.id;
+                return (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    title={preset.label}
+                    aria-label={preset.label}
+                    aria-pressed={active}
+                    onClick={() => setAccent(preset.id)}
+                    style={{
+                      ...styles.swatch,
+                      background: preset.accent,
+                      boxShadow: active
+                        ? `0 0 0 2px var(--bg-elevated, #fff), 0 0 0 4px ${preset.accent}`
+                        : '0 0 0 1px rgba(15, 23, 20, 0.2)',
+                    }}
+                  />
+                );
+              })}
+            </div>
+            <p style={styles.hint}>
+              {ACCENT_PRESETS.find((p) => p.id === preference.accent)?.label} ·{' '}
+              {preference.mode === 'dark' ? 'Dark' : 'Light'}
+            </p>
+          </div>,
+          document.body,
+        )
+      : null;
 
   return (
     <div ref={rootRef} style={styles.wrap}>
@@ -78,70 +152,13 @@ export function ThemePicker({ compact = true }: Props) {
       >
         {compact ? '◐' : 'Theme'}
       </button>
-      {open ? (
-        <div
-          ref={panelRef}
-          id={panelId}
-          role="dialog"
-          aria-label="Choose theme"
-          style={{
-            ...styles.panel,
-            top: pos.top,
-            left: pos.left,
-          }}
-        >
-          <p style={styles.heading}>Appearance</p>
-          <div style={styles.modeRow}>
-            <button
-              type="button"
-              style={preference.mode === 'light' ? styles.modeActive : styles.modeBtn}
-              onClick={() => setMode('light')}
-            >
-              Light
-            </button>
-            <button
-              type="button"
-              style={preference.mode === 'dark' ? styles.modeActive : styles.modeBtn}
-              onClick={() => setMode('dark')}
-            >
-              Dark
-            </button>
-          </div>
-          <p style={styles.heading}>Color</p>
-          <div style={styles.swatches}>
-            {ACCENT_PRESETS.map((preset) => {
-              const active = preference.accent === preset.id;
-              return (
-                <button
-                  key={preset.id}
-                  type="button"
-                  title={preset.label}
-                  aria-label={preset.label}
-                  aria-pressed={active}
-                  onClick={() => setAccent(preset.id)}
-                  style={{
-                    ...styles.swatch,
-                    background: preset.accent,
-                    boxShadow: active
-                      ? `0 0 0 2px var(--bg-elevated, #fff), 0 0 0 4px ${preset.accent}`
-                      : '0 0 0 1px rgba(15, 23, 20, 0.2)',
-                  }}
-                />
-              );
-            })}
-          </div>
-          <p style={styles.hint}>
-            {ACCENT_PRESETS.find((p) => p.id === preference.accent)?.label} ·{' '}
-            {preference.mode === 'dark' ? 'Dark' : 'Light'}
-          </p>
-        </div>
-      ) : null}
+      {panel}
     </div>
   );
 }
 
 const styles: Record<string, CSSProperties> = {
-  wrap: { position: 'relative' },
+  wrap: { position: 'relative', flexShrink: 0, zIndex: 2 },
   trigger: {
     border: '1px solid var(--border)',
     background: 'var(--bg-muted)',
@@ -177,7 +194,7 @@ const styles: Record<string, CSSProperties> = {
     borderRadius: 'var(--radius-lg)',
     boxShadow: 'var(--shadow-elevated, 0 12px 40px rgba(15, 23, 20, 0.18))',
     padding: '0.85rem',
-    zIndex: 5000,
+    zIndex: 10000,
     display: 'grid',
     gap: '0.55rem',
   },

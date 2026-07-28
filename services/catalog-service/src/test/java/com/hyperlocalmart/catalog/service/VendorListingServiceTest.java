@@ -29,6 +29,8 @@ class VendorListingServiceTest {
 
     @Mock private VendorListingRepository vendorListingRepository;
     @Mock private MasterItemRepository masterItemRepository;
+    @Mock private com.hyperlocalmart.catalog.repository.MasterItemImageRepository masterItemImageRepository;
+    @Mock private com.hyperlocalmart.catalog.repository.VendorListingImageRepository vendorListingImageRepository;
     @Mock private CategoryRepository categoryRepository;
     @Mock private UnitRepository unitRepository;
     @Mock private VendorShopClient vendorShopClient;
@@ -67,6 +69,10 @@ class VendorListingServiceTest {
             listing.setId(UUID.randomUUID());
             return listing;
         });
+        when(vendorListingImageRepository.findByListingIdInOrderByListingIdAscSortOrderAsc(any()))
+                .thenReturn(java.util.List.of());
+        when(masterItemImageRepository.findByMasterItemIdInOrderByMasterItemIdAscSortOrderAsc(any()))
+                .thenReturn(java.util.List.of());
 
         VendorListingResponse response = vendorListingService.createListing(vendorId, actorId, request);
 

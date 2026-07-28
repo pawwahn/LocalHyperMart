@@ -3,6 +3,8 @@ package com.hyperlocalmart.catalog.service;
 import com.hyperlocalmart.catalog.client.VendorShopClient;
 import com.hyperlocalmart.catalog.dto.response.CatalogItemResponse;
 import com.hyperlocalmart.catalog.entity.*;
+import com.hyperlocalmart.catalog.repository.MasterItemImageRepository;
+import com.hyperlocalmart.catalog.repository.VendorListingImageRepository;
 import com.hyperlocalmart.catalog.repository.VendorListingRepository;
 import com.hyperlocalmart.common.api.PageResponse;
 import org.junit.jupiter.api.Test;
@@ -26,6 +28,8 @@ import static org.mockito.Mockito.when;
 class CatalogBrowseServiceTest {
 
     @Mock private VendorListingRepository vendorListingRepository;
+    @Mock private MasterItemImageRepository masterItemImageRepository;
+    @Mock private VendorListingImageRepository vendorListingImageRepository;
     @Mock private VendorShopClient vendorShopClient;
 
     @InjectMocks
@@ -41,6 +45,10 @@ class CatalogBrowseServiceTest {
         when(vendorShopClient.getShopsByIds(anyList())).thenReturn(Map.of(
                 shopId, new VendorShopClient.ShopInfo(shopId, listing.getVendorId(), "Ravi Kirana")
         ));
+        when(vendorListingImageRepository.findByListingIdInOrderByListingIdAscSortOrderAsc(any()))
+                .thenReturn(List.of());
+        when(masterItemImageRepository.findByMasterItemIdInOrderByMasterItemIdAscSortOrderAsc(any()))
+                .thenReturn(List.of());
 
         PageResponse<CatalogItemResponse> response = catalogBrowseService.browse(townId, null, 0, 20);
 

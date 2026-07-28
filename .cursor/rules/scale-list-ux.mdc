@@ -1,34 +1,31 @@
 ---
-description: Vendor portal (and similar ops UIs) must be built for real list scale
+description: All list UIs must scale to thousands of records (pagination, search, no unbounded dumps)
 alwaysApply: true
 ---
 
-# Scale & list UX defaults
+# Scale & list UX (thousands of records)
 
-When building or changing **any list/table/report** in LocalHyperMart portals (vendor, hub, admin, buyer history):
+**Always assume lists can grow to thousands of rows.** Do not wait for the user to remind you. Apply this on every list, table, ledger, activity feed, or nested section (orders under a customer, wallet under a customer, claims, admin consoles, buyer history, etc.).
 
-## Assume hundreds of rows
+## Required by default
 
-Do not ship a bare “map all rows” screen as the final UX. Default toolkit:
-
-- **Pagination** (25/50 default; Prev/Next is enough)
-- **Sort** on the columns people scan (date, amount, status, name)
-- **Search / filter** for the primary identifier (order #, product name, phone, etc.)
-- **Date or status scope** so the first load is not “all time, everything”
-- **Collapse detail** (line items, nested rows) — summary first, expand on demand
-- **Exports** may include the filtered set; say so if scoped
+- **Server-side pagination** (or cursor / offset load-more that fetches the next page from the API). Never load “all” into the browser.
+- **Page size** ~20–40. Prev/Next or “More” that appends the **next API page** only.
+- **Search / filter** for the primary key people use (order #, phone, name, status, date range).
+- **Do not** dump hundreds of rows on one screen. **Do not** use client-only “Show all” that reveals a huge in-memory list as the long-term design.
+- Nested panels (e.g. Customer → Wallet / Orders) follow the same rules as top-level pages.
 
 ## Density
 
-- Prefer one job per viewport (tabs over stacking two huge tables)
-- Primary KPIs only up front; secondary metrics behind “more”
-- Human labels (`New`, `Ready`) over raw enums in filters
+- Short labels; one job per section.
+- Summary first; expand detail on demand.
+- Prefer tabs or separate sections over stacking two unbounded lists.
 
 ## Backend
 
-- Prefer server pagination/filter when payloads get large (items × orders).
-- Until then, client page/sort/filter is required — never leave an unbounded scroll as the only control.
+- Prefer DB/API `page`/`size` or `limit`/`offset` + `hasMore` / `totalPages`.
+- If only a capped first page exists today, wire UI to that and load more via API — do not pretend the first 20 is the full history without a More control that pages.
 
 ## Process
 
-Apply this **without waiting for the user to ask again**. If a new list ships, it should already be searchable, sortable, and paginated unless there is a hard reason (e.g. fixed 5-item checklist).
+If you ship a new list without pagination/search, that is incomplete. Fix scale in the same change unless there is a hard reason (fixed ≤10 item checklist).

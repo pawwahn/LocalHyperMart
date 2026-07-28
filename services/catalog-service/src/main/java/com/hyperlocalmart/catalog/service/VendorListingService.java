@@ -2,21 +2,29 @@ package com.hyperlocalmart.catalog.service;
 
 import com.hyperlocalmart.catalog.client.VendorShopClient;
 import com.hyperlocalmart.catalog.dto.request.BulkCreateVendorListingsRequest;
+import com.hyperlocalmart.catalog.dto.request.CreateCategoryRequest;
 import com.hyperlocalmart.catalog.dto.request.CreateMasterItemRequest;
 import com.hyperlocalmart.catalog.dto.request.CreateVendorListingRequest;
+import com.hyperlocalmart.catalog.dto.request.SetMasterItemImagesRequest;
+import com.hyperlocalmart.catalog.dto.request.SetVendorListingImagesRequest;
 import com.hyperlocalmart.catalog.dto.request.UpdateVendorListingRequest;
 import com.hyperlocalmart.catalog.dto.response.AdminListingResponse;
 import com.hyperlocalmart.catalog.dto.response.CategoryResponse;
+import com.hyperlocalmart.catalog.dto.response.UnitResponse;
 import com.hyperlocalmart.catalog.dto.response.MasterItemSummaryResponse;
 import com.hyperlocalmart.catalog.dto.response.VendorListingResponse;
 import com.hyperlocalmart.catalog.entity.CatalogItemStatus;
 import com.hyperlocalmart.catalog.entity.Category;
 import com.hyperlocalmart.catalog.entity.MasterItem;
+import com.hyperlocalmart.catalog.entity.MasterItemImage;
 import com.hyperlocalmart.catalog.entity.Unit;
 import com.hyperlocalmart.catalog.entity.VendorListing;
+import com.hyperlocalmart.catalog.entity.VendorListingImage;
 import com.hyperlocalmart.catalog.repository.CategoryRepository;
+import com.hyperlocalmart.catalog.repository.MasterItemImageRepository;
 import com.hyperlocalmart.catalog.repository.MasterItemRepository;
 import com.hyperlocalmart.catalog.repository.UnitRepository;
+import com.hyperlocalmart.catalog.repository.VendorListingImageRepository;
 import com.hyperlocalmart.catalog.repository.VendorListingRepository;
 import com.hyperlocalmart.common.api.PageResponse;
 import com.hyperlocalmart.common.exception.BusinessException;
@@ -30,6 +38,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -41,6 +50,8 @@ public class VendorListingService {
 
     private final VendorListingRepository vendorListingRepository;
     private final MasterItemRepository masterItemRepository;
+    private final MasterItemImageRepository masterItemImageRepository;
+    private final VendorListingImageRepository vendorListingImageRepository;
     private final CategoryRepository categoryRepository;
     private final UnitRepository unitRepository;
     private final VendorShopClient vendorShopClient;
@@ -53,6 +64,7 @@ public class VendorListingService {
         List<VendorListingResponse> items = listings.getContent().stream()
                 .map(listing -> toResponse(listing, context.shopName()))
                 .toList();
+        attachListingImages(items);
         return PageResponse.<VendorListingResponse>builder()
                 .items(items)
                 .page(listings.getNumber())
@@ -66,13 +78,18 @@ public class VendorListingService {
     public VendorListingResponse getMyListing(UUID vendorId, UUID listingId) {
         VendorListing listing = loadVendorListing(vendorId, listingId);
         VendorShopClient.VendorShopContext context = vendorShopClient.getShopContextForVendor(vendorId);
-        return toResponse(listing, context.shopName());
+        VendorListingResponse response = toResponse(listing, context.shopName());
+        attachListingImages(List.of(response));
+        return response;
     }
 
     @Transactional
     public VendorListingResponse createListing(UUID vendorId, UUID actorUserId, CreateVendorListingRequest request) {
         VendorShopClient.VendorShopContext context = vendorShopClient.getShopContextForVendor(vendorId);
-        return toResponse(createOrUpdateListing(vendorId, actorUserId, context, request), context.shopName());
+        VendorListingResponse response = toResponse(
+                createOrUpdateListing(vendorId, actorUserId, context, request), context.shopName());
+        attachListingImages(List.of(response));
+        return response;
     }
 
     @Transactional
@@ -93,6 +110,7 @@ public class VendorListingService {
                 throw new BusinessException(ex.getErrorCode(), productName + ": " + ex.getMessage());
             }
         }
+        attachListingImages(results);
         return results;
     }
 
@@ -116,7 +134,9 @@ public class VendorListingService {
 
         validateListingPricing(listing);
         listing.setUpdatedBy(actorUserId);
-        return toResponse(vendorListingRepository.save(listing), context.shopName());
+        VendorListingResponse response = toResponse(vendorListingRepository.save(listing), context.shopName());
+        attachListingImages(List.of(response));
+        return response;
     }
 
     @Transactional(readOnly = true)
@@ -127,15 +147,52 @@ public class VendorListingService {
     }
 
     @Transactional(readOnly = true)
-    public PageResponse<MasterItemSummaryResponse> listMasterItems(UUID categoryId, int page, int size) {
+    public List<UnitResponse> listUnits() {
+        return unitRepository.findByStatusOrderByCodeAsc(CatalogItemStatus.ACTIVE).stream()
+                .map(this::toUnit)
+                .toList();
+    }
+
+    @Transactional
+    public CategoryResponse createCategory(CreateCategoryRequest request, UUID actorUserId) {
+        String name = request.getName().trim();
+        if (categoryRepository.existsByNameIgnoreCase(name)) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Category already exists");
+        }
+        Category category = Category.builder()
+                .name(name)
+                .description(request.getDescription() == null || request.getDescription().isBlank()
+                        ? null
+                        : request.getDescription().trim())
+                .status(CatalogItemStatus.ACTIVE)
+                .build();
+        category.setCreatedBy(actorUserId);
+        category.setUpdatedBy(actorUserId);
+        return toCategory(categoryRepository.save(category));
+    }
+
+    @Transactional(readOnly = true)
+    public PageResponse<MasterItemSummaryResponse> listMasterItems(
+            UUID categoryId, String q, int page, int size) {
         PageRequest pageable = PageRequest.of(page, size);
-        Page<MasterItem> items = categoryId == null
-                ? masterItemRepository.findByStatusOrderByNameAsc(CatalogItemStatus.ACTIVE, pageable)
-                : masterItemRepository.findByStatusAndCategoryIdOrderByNameAsc(
-                        CatalogItemStatus.ACTIVE, categoryId, pageable);
+        String query = q == null ? "" : q.trim();
+        Page<MasterItem> items;
+        if (query.isEmpty()) {
+            items = categoryId == null
+                    ? masterItemRepository.findByStatusOrderByNameAsc(CatalogItemStatus.ACTIVE, pageable)
+                    : masterItemRepository.findByStatusAndCategoryIdOrderByNameAsc(
+                            CatalogItemStatus.ACTIVE, categoryId, pageable);
+        } else if (categoryId == null) {
+            items = masterItemRepository.findByStatusAndNameContainingIgnoreCaseOrderByNameAsc(
+                    CatalogItemStatus.ACTIVE, query, pageable);
+        } else {
+            items = masterItemRepository.findByStatusAndCategoryIdAndNameContainingIgnoreCaseOrderByNameAsc(
+                    CatalogItemStatus.ACTIVE, categoryId, query, pageable);
+        }
         List<MasterItemSummaryResponse> summaries = items.getContent().stream()
                 .map(this::toMasterSummary)
                 .toList();
+        attachImageUrls(summaries);
         return PageResponse.<MasterItemSummaryResponse>builder()
                 .items(summaries)
                 .page(items.getNumber())
@@ -143,6 +200,86 @@ public class VendorListingService {
                 .totalElements(items.getTotalElements())
                 .totalPages(items.getTotalPages())
                 .build();
+    }
+
+    @Transactional(readOnly = true)
+    public List<String> listMasterItemImageUrls(UUID masterItemId) {
+        return masterItemImageRepository.findByMasterItemIdOrderBySortOrderAsc(masterItemId).stream()
+                .map(MasterItemImage::getPublicUrl)
+                .toList();
+    }
+
+    @Transactional
+    public List<String> setMasterItemImages(UUID masterItemId, SetMasterItemImagesRequest request) {
+        MasterItem item = masterItemRepository.findById(masterItemId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Master item not found"));
+        if (item.getStatus() != CatalogItemStatus.ACTIVE) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Master item is not active");
+        }
+        List<SetMasterItemImagesRequest.ImageRef> refs = request.getImages() == null
+                ? List.of()
+                : request.getImages();
+        if (refs.size() > 3) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "At most 3 images allowed");
+        }
+        masterItemImageRepository.deleteByMasterItemId(masterItemId);
+        masterItemImageRepository.flush();
+        short order = 0;
+        for (SetMasterItemImagesRequest.ImageRef ref : refs) {
+            String url = ref.getUrl().trim();
+            if (url.isEmpty()) {
+                throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Image URL is required");
+            }
+            masterItemImageRepository.save(MasterItemImage.builder()
+                    .masterItemId(masterItemId)
+                    .mediaId(ref.getMediaId())
+                    .publicUrl(url)
+                    .sortOrder(order++)
+                    .build());
+        }
+        if (!refs.isEmpty()) {
+            masterItemRepository.save(item);
+        }
+        return listMasterItemImageUrls(masterItemId);
+    }
+
+    @Transactional(readOnly = true)
+    public List<String> listVendorListingImageUrls(UUID vendorId, UUID listingId) {
+        loadVendorListing(vendorId, listingId);
+        return vendorListingImageRepository.findByListingIdOrderBySortOrderAsc(listingId).stream()
+                .map(VendorListingImage::getPublicUrl)
+                .toList();
+    }
+
+    @Transactional
+    public List<String> setVendorListingImages(
+            UUID vendorId, UUID listingId, SetVendorListingImagesRequest request) {
+        loadVendorListing(vendorId, listingId);
+        List<SetVendorListingImagesRequest.ImageRef> refs = request.getImages() == null
+                ? List.of()
+                : request.getImages();
+        if (refs.size() > 3) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "At most 3 images allowed");
+        }
+        vendorListingImageRepository.deleteByListingId(listingId);
+        vendorListingImageRepository.flush();
+        short order = 0;
+        for (SetVendorListingImagesRequest.ImageRef ref : refs) {
+            if (ref.getMediaId() == null) {
+                throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Image mediaId is required");
+            }
+            if (ref.getUrl() == null || ref.getUrl().isBlank()) {
+                throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Image URL is required");
+            }
+            String url = ref.getUrl().trim();
+            vendorListingImageRepository.save(VendorListingImage.builder()
+                    .listingId(listingId)
+                    .mediaId(ref.getMediaId())
+                    .publicUrl(url)
+                    .sortOrder(order++)
+                    .build());
+        }
+        return listVendorListingImageUrls(vendorId, listingId);
     }
 
     @Transactional
@@ -168,7 +305,9 @@ public class VendorListingService {
                 .build();
         item.setCreatedBy(actorUserId);
         item.setUpdatedBy(actorUserId);
-        return toMasterSummary(masterItemRepository.save(item));
+        MasterItemSummaryResponse created = toMasterSummary(masterItemRepository.save(item));
+        created.setImageUrls(List.of());
+        return created;
     }
 
     private String blankToNull(String value) {
@@ -314,6 +453,15 @@ public class VendorListingService {
                 .build();
     }
 
+    private UnitResponse toUnit(Unit unit) {
+        return UnitResponse.builder()
+                .id(unit.getId())
+                .code(unit.getCode())
+                .label(unit.getLabel())
+                .displayName(unit.getLabel())
+                .build();
+    }
+
     private MasterItemSummaryResponse toMasterSummary(MasterItem item) {
         return MasterItemSummaryResponse.builder()
                 .masterItemId(item.getId())
@@ -322,7 +470,22 @@ public class VendorListingService {
                 .unit(item.getUnit().getCode())
                 .category(item.getCategory().getName())
                 .mrp(item.getMrp())
+                .imageUrls(List.of())
                 .build();
+    }
+
+    private void attachImageUrls(List<MasterItemSummaryResponse> summaries) {
+        if (summaries.isEmpty()) {
+            return;
+        }
+        List<UUID> ids = summaries.stream().map(MasterItemSummaryResponse::getMasterItemId).toList();
+        Map<UUID, List<String>> byMaster = new HashMap<>();
+        for (MasterItemImage image : masterItemImageRepository.findByMasterItemIdInOrderByMasterItemIdAscSortOrderAsc(ids)) {
+            byMaster.computeIfAbsent(image.getMasterItemId(), ignored -> new ArrayList<>()).add(image.getPublicUrl());
+        }
+        for (MasterItemSummaryResponse summary : summaries) {
+            summary.setImageUrls(byMaster.getOrDefault(summary.getMasterItemId(), List.of()));
+        }
     }
 
     private AdminListingResponse toAdminResponse(VendorListing listing, String shopName) {
@@ -376,6 +539,41 @@ public class VendorListingService {
                 .effectivePrice(effectivePrice)
                 .vendorNote(listing.getVendorNote())
                 .active(listing.isActive())
+                .imageUrls(List.of())
+                .listingImageUrls(List.of())
+                .masterImageUrls(List.of())
+                .customImages(false)
                 .build();
+    }
+
+    private void attachListingImages(List<VendorListingResponse> responses) {
+        if (responses.isEmpty()) {
+            return;
+        }
+        List<UUID> listingIds = responses.stream().map(VendorListingResponse::getListingId).toList();
+        List<UUID> masterIds = responses.stream().map(VendorListingResponse::getMasterItemId).distinct().toList();
+
+        Map<UUID, List<String>> listingImages = new HashMap<>();
+        for (VendorListingImage image : vendorListingImageRepository
+                .findByListingIdInOrderByListingIdAscSortOrderAsc(listingIds)) {
+            listingImages.computeIfAbsent(image.getListingId(), ignored -> new ArrayList<>())
+                    .add(image.getPublicUrl());
+        }
+
+        Map<UUID, List<String>> masterImages = new HashMap<>();
+        for (MasterItemImage image : masterItemImageRepository
+                .findByMasterItemIdInOrderByMasterItemIdAscSortOrderAsc(masterIds)) {
+            masterImages.computeIfAbsent(image.getMasterItemId(), ignored -> new ArrayList<>())
+                    .add(image.getPublicUrl());
+        }
+
+        for (VendorListingResponse response : responses) {
+            List<String> custom = listingImages.getOrDefault(response.getListingId(), List.of());
+            List<String> master = masterImages.getOrDefault(response.getMasterItemId(), List.of());
+            response.setListingImageUrls(custom);
+            response.setMasterImageUrls(master);
+            response.setCustomImages(!custom.isEmpty());
+            response.setImageUrls(custom.isEmpty() ? master : custom);
+        }
     }
 }

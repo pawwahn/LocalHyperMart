@@ -278,9 +278,18 @@ export function CatalogPicker({
                     </td>
                     <td style={{ ...styles.tdProduct, ...cellBg }} title={`${item.name} · ${subLabel}`}>
                       <div style={styles.productCell}>
-                        <span style={styles.name}>{item.name}</span>
-                        <span style={styles.sub}>{subLabel}</span>
-                        {rowError ? <span style={styles.inlineError}>{rowError}</span> : null}
+                        {item.imageUrl ? (
+                          <img src={item.imageUrl} alt="" style={styles.productThumb} />
+                        ) : (
+                          <span style={styles.productThumbEmpty} aria-hidden>
+                            📦
+                          </span>
+                        )}
+                        <div style={styles.productText}>
+                          <span style={styles.name}>{item.name}</span>
+                          <span style={styles.sub}>{subLabel}</span>
+                          {rowError ? <span style={styles.inlineError}>{rowError}</span> : null}
+                        </div>
                       </div>
                     </td>
                     <td style={{ ...styles.tdMuted, ...cellBg }}>{item.unit}</td>
@@ -531,10 +540,37 @@ const styles: Record<string, CSSProperties> = {
     boxSizing: 'border-box',
   },
   productCell: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.45rem',
+    minWidth: 0,
+    maxWidth: 220,
+  },
+  productText: {
     display: 'grid',
     gap: 1,
     minWidth: 0,
-    maxWidth: 184,
+    flex: 1,
+  },
+  productThumb: {
+    width: 36,
+    height: 36,
+    borderRadius: 8,
+    objectFit: 'cover',
+    border: '1px solid var(--border)',
+    flexShrink: 0,
+    background: 'var(--bg-muted)',
+  },
+  productThumbEmpty: {
+    width: 36,
+    height: 36,
+    borderRadius: 8,
+    display: 'grid',
+    placeItems: 'center',
+    border: '1px solid var(--border)',
+    flexShrink: 0,
+    background: 'var(--bg-muted)',
+    fontSize: '0.9rem',
   },
   name: {
     fontWeight: 700,

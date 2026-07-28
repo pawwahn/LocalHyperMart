@@ -18,6 +18,10 @@ export type ListingDto = {
   effectivePrice?: number;
   vendorNote?: string | null;
   active: boolean;
+  imageUrls?: string[] | null;
+  listingImageUrls?: string[] | null;
+  masterImageUrls?: string[] | null;
+  customImages?: boolean;
 };
 
 export type MasterItemDto = {
@@ -27,6 +31,7 @@ export type MasterItemDto = {
   unit: string;
   category?: string;
   mrp?: number | null;
+  imageUrls?: string[] | null;
 };
 
 export type CategoryDto = {
@@ -49,6 +54,10 @@ export type ListingView = {
   vendorMrp: string;
   price: string;
   discountPrice: string;
+  imageUrls: string[];
+  listingImageUrls: string[];
+  masterImageUrls: string[];
+  customImages: boolean;
 };
 
 export type MasterItemView = {
@@ -59,6 +68,7 @@ export type MasterItemView = {
   unit: string;
   mrp: number | null;
   mrpLabel: string | null;
+  imageUrl: string | null;
 };
 
 export type CategoryView = {
@@ -90,6 +100,13 @@ export function toListingView(dto: ListingDto): ListingView {
   const vendorMrp =
     dto.vendorMrp != null ? dto.vendorMrp : dto.masterMrp != null ? dto.masterMrp : null;
   const mrp = dto.mrp != null ? dto.mrp : vendorMrp;
+  const listingImageUrls = Array.isArray(dto.listingImageUrls) ? dto.listingImageUrls : [];
+  const masterImageUrls = Array.isArray(dto.masterImageUrls) ? dto.masterImageUrls : [];
+  const imageUrls = Array.isArray(dto.imageUrls) && dto.imageUrls.length > 0
+      ? dto.imageUrls
+      : listingImageUrls.length > 0
+        ? listingImageUrls
+        : masterImageUrls;
   return {
     id: dto.listingId,
     masterItemId: dto.masterItemId,
@@ -105,6 +122,10 @@ export function toListingView(dto: ListingDto): ListingView {
     vendorMrp: vendorMrp != null ? String(vendorMrp) : '',
     price: String(dto.price ?? ''),
     discountPrice: dto.discountPrice != null ? String(dto.discountPrice) : '',
+    imageUrls,
+    listingImageUrls,
+    masterImageUrls,
+    customImages: Boolean(dto.customImages) || listingImageUrls.length > 0,
   };
 }
 
@@ -117,6 +138,7 @@ export function toMasterItemView(dto: MasterItemDto): MasterItemView {
     unit: dto.unit,
     mrp: dto.mrp ?? null,
     mrpLabel: dto.mrp != null ? money(dto.mrp) : null,
+    imageUrl: dto.imageUrls?.[0] ?? null,
   };
 }
 
@@ -253,4 +275,51 @@ export async function updateListingPricing(
     },
   });
   return toListingView(data);
+}
+
+export type UploadedMedia = {
+  mediaId: string;
+  url: string;
+};
+
+export async function uploadListingImage(token: string, file: File): Promise<UploadedMedia> {
+  const form = new FormData();
+  form.append('file', file);
+  form.append('context', 'VENDOR_LISTING');
+  const response = await fetch('/api/v1/media/upload', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+    body: form,
+  });
+  const payload = (await response.json()) as {
+    success?: boolean;
+    message?: string;
+    data?: UploadedMedia;
+  };
+  if (!response.ok || !payload.data?.mediaId || !payload.data?.url) {
+    throw new Error(payload.message || 'Image upload failed');
+  }
+  return payload.data;
+}
+
+export async function setListingImages(
+  token: string,
+  vendorId: string,
+  listingId: string,
+  images: Array<{ mediaId: string; url: string }>,
+): Promise<string[]> {
+  const data = await apiRequest<{ items: string[] }>(
+    `/api/v1/catalog/vendors/me/listings/${listingId}/images`,
+    {
+      method: 'PUT',
+      token,
+      vendorId,
+      body: {
+        images: images
+          .filter((m) => Boolean(m.mediaId && m.url))
+          .map((m) => ({ mediaId: m.mediaId, url: m.url })),
+      },
+    },
+  );
+  return data.items ?? [];
 }

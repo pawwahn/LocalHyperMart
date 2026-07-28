@@ -1,4 +1,5 @@
 import type { CSSProperties, ReactNode } from 'react';
+import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { HeaderIconButton, ThemePicker } from '@hlm-theme';
 import { useAuth } from '@/shared/auth/AuthContext';
@@ -12,7 +13,7 @@ type Props = {
   title?: string;
   subtitle?: string;
   children: ReactNode;
-  onRefresh?: () => void;
+  onRefresh?: () => void | Promise<void>;
   cartCount?: number;
   cartTotalLabel?: string;
   showDeliveryBanner?: boolean;
@@ -40,6 +41,17 @@ export function PortalShell({
   const onCart = location.pathname.startsWith('/cart');
   const showFloatingCart = showStickyCart && !onCart && cartCount > 0;
   const hasFooter = Boolean(footerSlot);
+  const [refreshing, setRefreshing] = useState(false);
+
+  async function handleRefresh() {
+    if (!onRefresh || refreshing) return;
+    setRefreshing(true);
+    try {
+      await onRefresh();
+    } finally {
+      setRefreshing(false);
+    }
+  }
 
   return (
     <div
@@ -93,10 +105,15 @@ export function PortalShell({
                 <span style={styles.walletChipAmt}>₹{walletBalance.toFixed(0)}</span>
               </Link>
             ) : null}
-            {session ? <ThemePicker /> : null}
+            <ThemePicker />
             {onRefresh ? (
-              <HeaderIconButton label="Refresh" onClick={onRefresh}>
-                ↻
+              <HeaderIconButton
+                label={refreshing ? 'Refreshing…' : 'Refresh'}
+                onClick={() => void handleRefresh()}
+                disabled={refreshing}
+                style={refreshing ? { opacity: 0.65 } : undefined}
+              >
+                {refreshing ? '…' : '↻'}
               </HeaderIconButton>
             ) : null}
             {session ? (
@@ -170,30 +187,35 @@ function Tab({
 const styles: Record<string, CSSProperties> = {
   page: {
     maxWidth: 'var(--shell-max)',
+    width: '100%',
     margin: '0 auto',
-    padding: '0.65rem 0.85rem 0',
+    padding: '0.65rem 0.75rem 0',
     minHeight: '100vh',
     display: 'grid',
     gap: '0.85rem',
     alignContent: 'start',
     background: 'var(--bg)',
+    overflowX: 'hidden',
+    boxSizing: 'border-box',
   },
   header: {
     position: 'sticky',
     top: 0,
-    zIndex: 30,
-    background: 'color-mix(in srgb, var(--bg) 92%, transparent)',
-    backdropFilter: 'blur(10px)',
+    zIndex: 40,
+    background: 'var(--bg)',
     paddingTop: '0.35rem',
-    margin: '0 -0.15rem',
+    paddingBottom: '0.35rem',
+    minWidth: 0,
+    overflow: 'visible',
   },
   headerTop: {
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    gap: '0.75rem',
+    gap: '0.5rem',
+    minWidth: 0,
   },
-  locationBlock: { display: 'grid', gap: '0.15rem' },
+  locationBlock: { display: 'grid', gap: '0.15rem', minWidth: 0, flex: '1 1 auto' },
   brandMark: {
     margin: 0,
     fontSize: '0.68rem',
@@ -246,38 +268,52 @@ const styles: Record<string, CSSProperties> = {
     fontSize: '0.85rem',
     flexShrink: 0,
   },
-  headerActions: { display: 'flex', gap: '0.45rem', alignItems: 'center' },
+  headerActions: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: '0.35rem',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    flex: '0 1 auto',
+    maxWidth: '58%',
+    minWidth: 0,
+    position: 'relative',
+    zIndex: 2,
+    pointerEvents: 'auto',
+  },
   walletChip: {
     display: 'inline-flex',
     alignItems: 'center',
-    gap: '0.35rem',
-    padding: '0.35rem 0.65rem',
+    gap: '0.25rem',
+    padding: '0.3rem 0.5rem',
     borderRadius: 'var(--radius-full)',
     border: '1px solid color-mix(in srgb, var(--accent) 35%, var(--border))',
     background: 'color-mix(in srgb, var(--accent) 10%, var(--bg-elevated))',
     textDecoration: 'none',
     color: 'var(--text)',
+    flexShrink: 0,
   },
   alertsChip: {
     display: 'inline-flex',
     alignItems: 'center',
-    padding: '0.35rem 0.65rem',
+    padding: '0.3rem 0.5rem',
     borderRadius: 'var(--radius-full)',
     border: '1px solid var(--border)',
     background: 'var(--bg-elevated)',
     textDecoration: 'none',
     color: 'var(--text)',
-    fontSize: '0.78rem',
+    fontSize: '0.72rem',
     fontWeight: 800,
+    flexShrink: 0,
   },
   walletChipLabel: {
-    fontSize: '0.68rem',
+    fontSize: '0.62rem',
     fontWeight: 800,
     textTransform: 'uppercase',
     letterSpacing: '0.04em',
     color: 'var(--accent)',
   },
-  walletChipAmt: { fontSize: '0.85rem', fontWeight: 800 },
+  walletChipAmt: { fontSize: '0.78rem', fontWeight: 800 },
   iconBtn: {
     width: 36,
     height: 36,
@@ -318,7 +354,7 @@ const styles: Record<string, CSSProperties> = {
     letterSpacing: '-0.02em',
   },
   sub: { margin: 0, color: 'var(--text-muted)', fontSize: '0.88rem' },
-  main: { display: 'grid', gap: '0.85rem' },
+  main: { display: 'grid', gap: '0.85rem', minWidth: 0, width: '100%', overflowX: 'hidden' },
   tabbar: {
     position: 'fixed',
     left: '50%',
@@ -334,6 +370,7 @@ const styles: Record<string, CSSProperties> = {
     borderTop: '1px solid var(--border)',
     zIndex: 50,
     boxShadow: '0 -4px 20px rgba(0,0,0,0.05)',
+    boxSizing: 'border-box',
   },
   tab: {
     display: 'grid',

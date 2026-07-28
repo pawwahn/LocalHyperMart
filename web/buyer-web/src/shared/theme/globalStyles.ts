@@ -43,7 +43,16 @@ export function injectGlobalStyles(): void {
       --sticky-cart-h: 64px;
     }
     *, *::before, *::after { box-sizing: border-box; }
-    html, body, #root { min-height: 100%; }
+    html {
+      min-height: 100%;
+      overflow-x: hidden;
+      max-width: 100%;
+    }
+    body, #root {
+      min-height: 100%;
+      overflow-x: hidden;
+      max-width: 100%;
+    }
     body {
       margin: 0;
       font-family: var(--font-body);

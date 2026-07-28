@@ -5,6 +5,7 @@ import lombok.Data;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 @Data
@@ -31,4 +32,11 @@ public class VendorListingResponse {
     private BigDecimal effectivePrice;
     private String vendorNote;
     private boolean active;
+    /** Effective images shown to buyers (listing override or master fallback). */
+    private List<String> imageUrls;
+    /** Vendor-uploaded overrides only; empty means using master catalog photos. */
+    private List<String> listingImageUrls;
+    /** Admin master-item defaults. */
+    private List<String> masterImageUrls;
+    private boolean customImages;
 }

@@ -14,6 +14,8 @@ export type CatalogItemDto = {
   effectivePrice?: number | null;
   specialOfferActive?: boolean;
   vendorNote?: string | null;
+  imageUrl?: string | null;
+  imageUrls?: string[] | null;
   avgRating?: number | null;
   ratingCount?: number | null;
 };
@@ -180,6 +182,8 @@ export type CatalogItemView = {
   avgRating: number;
   ratingCount: number;
   price: number;
+  imageUrl?: string | null;
+  imageUrls: string[];
 };
 
 export type CartLineView = {
@@ -215,6 +219,11 @@ export function toCatalogItem(dto: CatalogItemDto): CatalogItemView {
   const price = Number(dto.effectivePrice ?? dto.discountPrice ?? dto.price);
   const hasDiscount = mrp > 0 && price < mrp;
   const discountPercent = hasDiscount ? Math.round(((mrp - price) / mrp) * 100) : null;
+  const imageUrls = (dto.imageUrls ?? [])
+    .map((u) => u?.trim())
+    .filter((u): u is string => Boolean(u));
+  const imageUrl = dto.imageUrl?.trim() || imageUrls[0] || null;
+  const urls = imageUrls.length > 0 ? imageUrls : imageUrl ? [imageUrl] : [];
   return {
     listingId: dto.listingId,
     name: dto.name,
@@ -228,6 +237,8 @@ export function toCatalogItem(dto: CatalogItemDto): CatalogItemView {
     specialOfferActive: Boolean(dto.specialOfferActive),
     avgRating: Number(dto.avgRating ?? 0),
     ratingCount: Number(dto.ratingCount ?? 0),
+    imageUrl,
+    imageUrls: urls,
   };
 }
 

@@ -32,10 +32,14 @@ public final class PublicRouteMatcher {
             return true;
         }
         if (method == HttpMethod.GET && (path.equals("/api/v1/catalog/categories")
-                || path.equals("/api/v1/catalog/master-items"))) {
+                || path.equals("/api/v1/catalog/master-items")
+                || path.equals("/api/v1/catalog/units"))) {
             return true;
         }
         if (method == HttpMethod.POST && path.startsWith("/api/v1/payments/webhooks/")) {
+            return true;
+        }
+        if (method == HttpMethod.GET && path.startsWith("/api/v1/media/") && path.endsWith("/content")) {
             return true;
         }
         return false;

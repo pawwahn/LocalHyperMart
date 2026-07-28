@@ -37,7 +37,7 @@ export const PILOT_ADS: AdCreative[] = [
     title: 'Farm-fresh milk every morning',
     subtitle: 'Order by 8 AM · COD available',
     ctaLabel: 'Shop milk',
-    tint: 'linear-gradient(120deg, #0C831F 0%, #149C2E 55%, #F8CB46 160%)',
+    tint: 'linear-gradient(125deg, #0A7A1C 0%, #12A033 48%, #1DB954 100%)',
     emoji: '🥛',
   },
   {
@@ -45,9 +45,9 @@ export const PILOT_ADS: AdCreative[] = [
     slot: 'home_mid_grid',
     sponsor: 'Siva Kirana',
     title: 'Atta & dal combo packs',
-    subtitle: 'Sponsored · Save on weekly staples',
+    subtitle: 'Save on weekly staples',
     ctaLabel: 'View deals',
-    tint: 'linear-gradient(135deg, #FFF6D6 0%, #E7F6EC 100%)',
+    tint: 'linear-gradient(135deg, #FFF8E8 0%, #EAF8EF 100%)',
     emoji: '🌾',
   },
   {

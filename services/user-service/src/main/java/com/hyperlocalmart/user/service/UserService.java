@@ -42,6 +42,17 @@ public class UserService {
         return toProfile(user);
     }
 
+    @Transactional(readOnly = true)
+    public UserProfileResponse findByPhone(String phone) {
+        String normalized = phone == null ? "" : phone.trim().replaceAll("\\s+", "");
+        if (normalized.isEmpty()) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Phone is required");
+        }
+        User user = userRepository.findByPhone(normalized)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Customer not found"));
+        return toProfile(user);
+    }
+
     @Transactional
     public StaffUserResponse createStaffUser(CreateStaffUserRequest request) {
         if (!STAFF_ROLES.contains(request.getRole())) {
@@ -159,6 +170,8 @@ public class UserService {
                 .email(user.getEmail())
                 .roles(roles)
                 .defaultTownId(user.getDefaultTownId())
+                .status(user.getStatus() == null ? null : user.getStatus().name())
+                .lastLoginAt(user.getLastLoginAt())
                 .build();
     }
 

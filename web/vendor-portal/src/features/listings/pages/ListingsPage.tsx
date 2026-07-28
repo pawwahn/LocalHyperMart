@@ -40,6 +40,8 @@ export function ListingsPage({ active = true }: { active?: boolean }) {
     publishSelected,
     toggleActive,
     saveListingPricing,
+    saveListingPhotos,
+    uploadPhoto,
   } = useVendorListings();
   const [tab, setTab] = useState<ListingsTab>('catalog');
 
@@ -121,6 +123,8 @@ export function ListingsPage({ active = true }: { active?: boolean }) {
               actionId={actionId}
               onToggle={(listing) => void toggleActive(listing)}
               onSavePricing={saveListingPricing}
+              onUploadPhoto={uploadPhoto}
+              onSavePhotos={saveListingPhotos}
             />
           )}
         </>

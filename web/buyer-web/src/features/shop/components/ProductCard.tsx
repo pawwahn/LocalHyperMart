@@ -13,13 +13,16 @@ type Props = {
   specialOfferActive?: boolean;
   avgRating?: number;
   ratingCount?: number;
+  imageUrl?: string | null;
+  imageCount?: number;
   quantity: number;
   busy?: boolean;
+  onOpen: () => void;
   onIncrease: () => void;
   onDecrease: () => void;
 };
 
-/** Presentational product tile — compact 3-up mobile grid. */
+/** Presentational product tile — compact 4-up mobile grid. */
 export function ProductCard({
   name,
   shopName,
@@ -31,8 +34,11 @@ export function ProductCard({
   specialOfferActive,
   avgRating = 0,
   ratingCount = 0,
+  imageUrl,
+  imageCount = 0,
   quantity,
   busy,
+  onOpen,
   onIncrease,
   onDecrease,
 }: Props) {
@@ -43,12 +49,18 @@ export function ProductCard({
   return (
     <article style={styles.card}>
       <div style={{ ...styles.media, background: visual.tint }}>
+        <button type="button" style={styles.mediaHit} onClick={onOpen} aria-label={`View ${name}`} />
         {badge ? (
           <span style={specialOfferActive ? styles.sale : styles.offer}>{badge}</span>
         ) : null}
-        <span style={styles.emoji} aria-hidden>
-          {visual.emoji}
-        </span>
+        {imageUrl ? (
+          <img src={imageUrl} alt="" style={styles.photo} />
+        ) : (
+          <span style={styles.emoji} aria-hidden>
+            {visual.emoji}
+          </span>
+        )}
+        {imageCount > 1 ? <span style={styles.multi}>{imageCount}</span> : null}
         <div style={styles.stepperWrap}>
           <QuantityStepper
             quantity={quantity}
@@ -59,22 +71,23 @@ export function ProductCard({
           />
         </div>
       </div>
-      <div style={styles.body}>
-        <p style={styles.shop}>{shopName}</p>
-        <h3 style={styles.name}>{name}</h3>
-        <p style={styles.unit}>{unit}</p>
-        {showRating ? (
-          <div style={styles.ratingRow}>
-            <span style={styles.ratingChip}>★ {avgRating.toFixed(1)}</span>
-            <span style={styles.ratingMeta}>{ratingCount} rating{ratingCount === 1 ? '' : 's'}</span>
+      <button type="button" style={styles.bodyHit} onClick={onOpen} aria-label={`View ${name} details`}>
+        <div style={styles.body}>
+          <p style={styles.shop}>{shopName}</p>
+          <h3 style={styles.name}>{name}</h3>
+          <p style={styles.unit}>{unit}</p>
+          {showRating ? (
+            <div style={styles.ratingRow}>
+              <span style={styles.ratingChip}>★ {avgRating.toFixed(1)}</span>
+            </div>
+          ) : null}
+          {vendorNote ? <p style={styles.note}>{vendorNote}</p> : null}
+          <div style={styles.priceRow}>
+            <span style={styles.price}>{priceLabel}</span>
+            {mrpLabel ? <span style={styles.mrp}>{mrpLabel}</span> : null}
           </div>
-        ) : null}
-        {vendorNote ? <p style={styles.note}>{vendorNote}</p> : null}
-        <div style={styles.priceRow}>
-          <span style={styles.price}>{priceLabel}</span>
-          {mrpLabel ? <span style={styles.mrp}>{mrpLabel}</span> : null}
         </div>
-      </div>
+      </button>
     </article>
   );
 }
@@ -83,7 +96,7 @@ const styles: Record<string, CSSProperties> = {
   card: {
     background: 'var(--bg-elevated)',
     border: '1px solid var(--border)',
-    borderRadius: 10,
+    borderRadius: 8,
     overflow: 'hidden',
     display: 'grid',
     gridTemplateRows: 'auto 1fr',
@@ -95,53 +108,103 @@ const styles: Record<string, CSSProperties> = {
     aspectRatio: '1 / 1',
     display: 'grid',
     placeItems: 'center',
+    overflow: 'hidden',
+  },
+  mediaHit: {
+    position: 'absolute',
+    inset: 0,
+    border: 'none',
+    background: 'transparent',
+    padding: 0,
+    cursor: 'pointer',
+    zIndex: 1,
+  },
+  photo: {
+    width: '100%',
+    height: '100%',
+    objectFit: 'cover',
+    display: 'block',
+  },
+  emoji: { fontSize: '1.35rem', lineHeight: 1 },
+  multi: {
+    position: 'absolute',
+    top: 3,
+    right: 3,
+    zIndex: 2,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 999,
+    background: 'rgba(15, 23, 42, 0.72)',
+    color: '#fff',
+    fontSize: '0.52rem',
+    fontWeight: 800,
+    display: 'grid',
+    placeItems: 'center',
+    padding: '0 0.2rem',
+    pointerEvents: 'none',
   },
   offer: {
     position: 'absolute',
-    top: 4,
-    left: 4,
+    top: 3,
+    left: 3,
+    zIndex: 2,
     background: '#2563EB',
     color: '#fff',
-    fontSize: '0.55rem',
+    fontSize: '0.48rem',
     fontWeight: 800,
-    padding: '0.12rem 0.28rem',
+    padding: '0.1rem 0.22rem',
     borderRadius: 3,
-    letterSpacing: '0.02em',
+    letterSpacing: '0.01em',
     maxWidth: '70%',
     overflow: 'hidden',
     whiteSpace: 'nowrap',
+    textOverflow: 'ellipsis',
+    pointerEvents: 'none',
   },
   sale: {
     position: 'absolute',
-    top: 4,
-    left: 4,
+    top: 3,
+    left: 3,
+    zIndex: 2,
     background: '#DC2626',
     color: '#fff',
-    fontSize: '0.55rem',
+    fontSize: '0.48rem',
     fontWeight: 800,
-    padding: '0.12rem 0.28rem',
+    padding: '0.1rem 0.22rem',
     borderRadius: 3,
-    letterSpacing: '0.02em',
+    letterSpacing: '0.01em',
     maxWidth: '70%',
     overflow: 'hidden',
     whiteSpace: 'nowrap',
+    pointerEvents: 'none',
   },
-  emoji: { fontSize: '1.85rem', lineHeight: 1 },
   stepperWrap: {
     position: 'absolute',
-    right: 4,
-    bottom: 4,
+    right: 3,
+    bottom: 3,
+    zIndex: 3,
+  },
+  bodyHit: {
+    border: 'none',
+    background: 'transparent',
+    padding: 0,
+    margin: 0,
+    textAlign: 'left',
+    cursor: 'pointer',
+    color: 'inherit',
+    font: 'inherit',
+    width: '100%',
   },
   body: {
-    padding: '0.4rem 0.4rem 0.55rem',
+    padding: '0.3rem 0.28rem 0.4rem',
     display: 'grid',
-    gap: '0.08rem',
+    gap: '0.05rem',
     alignContent: 'start',
     minWidth: 0,
   },
   shop: {
     margin: 0,
-    fontSize: '0.55rem',
+    fontSize: '0.5rem',
     fontWeight: 700,
     letterSpacing: '0.02em',
     textTransform: 'uppercase',
@@ -152,9 +215,9 @@ const styles: Record<string, CSSProperties> = {
   },
   name: {
     margin: 0,
-    fontSize: '0.72rem',
+    fontSize: '0.68rem',
     fontWeight: 700,
-    lineHeight: 1.25,
+    lineHeight: 1.2,
     color: 'var(--text)',
     overflow: 'hidden',
     display: '-webkit-box',
@@ -164,7 +227,7 @@ const styles: Record<string, CSSProperties> = {
   },
   unit: {
     margin: 0,
-    fontSize: '0.62rem',
+    fontSize: '0.55rem',
     color: 'var(--text-muted)',
     overflow: 'hidden',
     textOverflow: 'ellipsis',
@@ -173,28 +236,22 @@ const styles: Record<string, CSSProperties> = {
   ratingRow: {
     display: 'flex',
     alignItems: 'center',
-    gap: '0.3rem',
+    gap: '0.2rem',
     minWidth: 0,
-    marginTop: '0.1rem',
+    marginTop: '0.05rem',
   },
   ratingChip: {
-    fontSize: '0.62rem',
+    fontSize: '0.55rem',
     fontWeight: 800,
     color: '#92400E',
     background: '#FEF3C7',
-    borderRadius: 4,
-    padding: '0.08rem 0.28rem',
-    whiteSpace: 'nowrap',
-  },
-  ratingMeta: {
-    fontSize: '0.58rem',
-    color: 'var(--text-muted)',
-    fontWeight: 700,
+    borderRadius: 3,
+    padding: '0.05rem 0.2rem',
     whiteSpace: 'nowrap',
   },
   note: {
     margin: 0,
-    fontSize: '0.58rem',
+    fontSize: '0.5rem',
     color: 'var(--text-muted)',
     overflow: 'hidden',
     display: '-webkit-box',
@@ -204,18 +261,18 @@ const styles: Record<string, CSSProperties> = {
   priceRow: {
     display: 'flex',
     alignItems: 'baseline',
-    gap: '0.25rem',
-    marginTop: '0.2rem',
+    gap: '0.18rem',
+    marginTop: '0.12rem',
     flexWrap: 'wrap',
     minWidth: 0,
   },
   price: {
     fontFamily: 'var(--font-display)',
     fontWeight: 800,
-    fontSize: '0.82rem',
+    fontSize: '0.72rem',
   },
   mrp: {
-    fontSize: '0.62rem',
+    fontSize: '0.52rem',
     color: 'var(--text-muted)',
     textDecoration: 'line-through',
   },

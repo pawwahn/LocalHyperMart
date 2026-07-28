@@ -3,6 +3,7 @@ import { apiRequest, type PageData } from '@/shared/api/http';
 export type AdminOrderSummary = {
   orderId: string;
   orderNumber: string;
+  townId?: string;
   buyerId: string;
   buyerPhone?: string | null;
   status: string;
@@ -75,16 +76,23 @@ export type AdminOrderDetail = {
 
 export async function listAdminOrders(
   token: string,
-  townId: string,
-  opts: { status?: string; q?: string; page?: number; size?: number } = {},
+  opts: {
+    townId?: string;
+    buyerId?: string;
+    status?: string;
+    q?: string;
+    page?: number;
+    size?: number;
+  } = {},
 ): Promise<PageData<AdminOrderSummary>> {
   const page = opts.page ?? 0;
   const size = opts.size ?? 25;
   const params = new URLSearchParams({
-    townId,
     page: String(page),
     size: String(size),
   });
+  if (opts.townId) params.set('townId', opts.townId);
+  if (opts.buyerId) params.set('buyerId', opts.buyerId);
   if (opts.status) params.set('status', opts.status);
   if (opts.q?.trim()) params.set('q', opts.q.trim());
   return apiRequest<PageData<AdminOrderSummary>>(`/api/v1/orders/admin?${params}`, { token });

@@ -6,6 +6,7 @@ import com.hyperlocalmart.common.exception.BusinessException;
 import com.hyperlocalmart.common.exception.ErrorCode;
 import com.hyperlocalmart.catalog.dto.request.BulkCreateVendorListingsRequest;
 import com.hyperlocalmart.catalog.dto.request.CreateVendorListingRequest;
+import com.hyperlocalmart.catalog.dto.request.SetVendorListingImagesRequest;
 import com.hyperlocalmart.catalog.dto.request.UpdateVendorListingRequest;
 import com.hyperlocalmart.catalog.dto.response.VendorListingResponse;
 import com.hyperlocalmart.catalog.security.AuthUserPrincipal;
@@ -19,6 +20,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @RestController
@@ -85,6 +87,29 @@ public class VendorListingController {
         requireVendor(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
                 vendorListingService.updateListing(vendorId, listingId, principal.getUserId(), request)));
+    }
+
+    @GetMapping("/{listingId}/images")
+    public ResponseEntity<ApiResponse<Map<String, List<String>>>> listListingImages(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @RequestHeader("X-Vendor-Id") UUID vendorId,
+            @PathVariable UUID listingId,
+            HttpServletRequest httpRequest) {
+        requireVendor(principal);
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                Map.of("items", vendorListingService.listVendorListingImageUrls(vendorId, listingId))));
+    }
+
+    @PutMapping("/{listingId}/images")
+    public ResponseEntity<ApiResponse<Map<String, List<String>>>> setListingImages(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @RequestHeader("X-Vendor-Id") UUID vendorId,
+            @PathVariable UUID listingId,
+            @Valid @RequestBody SetVendorListingImagesRequest request,
+            HttpServletRequest httpRequest) {
+        requireVendor(principal);
+        List<String> urls = vendorListingService.setVendorListingImages(vendorId, listingId, request);
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest, Map.of("items", urls)));
     }
 
     private void requireVendor(AuthUserPrincipal principal) {

@@ -19,6 +19,10 @@ spring:
   flyway:
     enabled: true
     locations: classpath:db/migration
+  servlet:
+    multipart:
+      max-file-size: 5MB
+      max-request-size: 6MB
   kafka:
     bootstrap-servers: localhost:9092
 
@@ -31,3 +35,10 @@ management:
 springdoc:
   api-docs:
     path: /v3/api-docs
+
+hyperlocalmart:
+  security:
+    jwt:
+      secret: ${JWT_SECRET:hyperlocalmart-dev-secret-change-in-production-min-32-chars!!}
+  media:
+    storage-dir: ${MEDIA_STORAGE_DIR:${user.home}/.hyperlocalmart/media}

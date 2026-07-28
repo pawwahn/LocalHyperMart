@@ -23,6 +23,7 @@ public final class AdminOrderResponses {
     public static class AdminOrderSummaryResponse {
         UUID orderId;
         String orderNumber;
+        UUID townId;
         UUID buyerId;
         String buyerPhone;
         OrderStatus status;

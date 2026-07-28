@@ -4,6 +4,7 @@ import lombok.Builder;
 import lombok.Data;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.UUID;
 
 @Data
@@ -23,7 +24,10 @@ public class CatalogItemResponse {
     private BigDecimal effectivePrice;
     private boolean specialOfferActive;
     private String vendorNote;
+    /** Primary image (sort order 0); kept for older clients. */
     private String imageUrl;
+    /** Up to 3 master-item images, ordered by sort_order. */
+    private List<String> imageUrls;
     private BigDecimal avgRating;
     private int ratingCount;
 }

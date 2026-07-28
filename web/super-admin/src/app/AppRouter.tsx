@@ -13,6 +13,8 @@ import { AgentsPage } from '@/features/agents/pages/AgentsPage';
 import { SettingsPage } from '@/features/settings/pages/SettingsPage';
 import { OrdersPage } from '@/features/orders/pages/OrdersPage';
 import { OrderDetailPage } from '@/features/orders/pages/OrderDetailPage';
+import { ClaimsPage } from '@/features/claims/pages/ClaimsPage';
+import { CustomersPage } from '@/features/customers/pages/CustomersPage';
 
 export function AppRouter() {
   return (
@@ -26,6 +28,8 @@ export function AppRouter() {
               <Route path="/towns" element={<TownsPage />} />
               <Route path="/orders" element={<OrdersPage />} />
               <Route path="/orders/:orderId" element={<OrderDetailPage />} />
+              <Route path="/claims" element={<ClaimsPage />} />
+              <Route path="/customers" element={<CustomersPage />} />
               <Route path="/vendors" element={<VendorsPage />} />
               <Route path="/catalog" element={<CatalogPage />} />
               <Route path="/store-listings" element={<StoreListingsPage />} />
