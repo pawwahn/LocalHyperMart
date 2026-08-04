@@ -34,14 +34,42 @@ public class OrderClient {
 
     public DeliveryOrderSnapshot getDeliveryOrder(UUID orderId) {
         RestClient client = restClientBuilder.baseUrl(orderServiceProperties.getBaseUrl()).build();
-        ApiResponse<DeliveryOrderSnapshot> response = client.get()
+        // Use a Map so older/newer order-service payloads both deserialize safely.
+        ApiResponse<Map<String, Object>> response = client.get()
                 .uri("/api/v1/internal/orders/{orderId}/delivery-info", orderId)
                 .retrieve()
-                .body(new ParameterizedTypeReference<ApiResponse<DeliveryOrderSnapshot>>() {});
+                .body(new ParameterizedTypeReference<ApiResponse<Map<String, Object>>>() {});
         if (response == null || response.getData() == null) {
             throw new IllegalStateException("Order not found");
         }
-        return response.getData();
+        Map<String, Object> data = response.getData();
+        return new DeliveryOrderSnapshot(
+                uuidVal(data.get("orderId")),
+                uuidVal(data.get("buyerId")),
+                uuidVal(data.get("townId")),
+                strVal(data.get("status")),
+                strVal(data.get("orderNumber")),
+                strVal(data.get("buyerPhone")),
+                strVal(data.get("recipientName")),
+                strVal(data.get("recipientPhone")),
+                strVal(data.get("addressLine1")),
+                strVal(data.get("addressLine2")),
+                strVal(data.get("landmark")),
+                strVal(data.get("pincode")),
+                strVal(data.get("addressLabel")));
+    }
+
+    private static String strVal(Object value) {
+        if (value == null) {
+            return null;
+        }
+        String text = String.valueOf(value).trim();
+        return text.isEmpty() || "null".equals(text) ? null : text;
+    }
+
+    private static UUID uuidVal(Object value) {
+        String text = strVal(value);
+        return text == null ? null : UUID.fromString(text);
     }
 
     public PickupManifest getPickupManifest(UUID subOrderId) {
@@ -105,7 +133,14 @@ public class OrderClient {
             UUID townId,
             String status,
             String orderNumber,
-            String buyerPhone
+            String buyerPhone,
+            String recipientName,
+            String recipientPhone,
+            String addressLine1,
+            String addressLine2,
+            String landmark,
+            String pincode,
+            String addressLabel
     ) {
     }
 

@@ -28,9 +28,11 @@ export function CartPage() {
     doApplyPromo,
     doRemovePromo,
     doCreateAddress,
+    doUpdateAddress,
     doCheckout,
   } = useShop();
   const [showAddressForm, setShowAddressForm] = useState(false);
+  const [editingAddressId, setEditingAddressId] = useState<string | null>(null);
   const [addressHint, setAddressHint] = useState<string | null>(null);
   const [couponCode, setCouponCode] = useState('');
   const [couponError, setCouponError] = useState<string | null>(null);
@@ -46,6 +48,7 @@ export function CartPage() {
 
   function promptForAddress(message: string) {
     setAddressHint(message);
+    setEditingAddressId(null);
     setShowAddressForm(true);
     addressSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
@@ -95,7 +98,7 @@ export function CartPage() {
       showDeliveryBanner={false}
       showStickyCart={false}
       footerSlot={
-        hasCartItems ? (
+        hasCartItems && !showAddressForm ? (
           <div style={styles.stickyCheckout}>
             <div style={styles.stickyInner}>
               <div>
@@ -126,7 +129,7 @@ export function CartPage() {
           actionLabel="Go to shop"
           onAction={() => navigate('/shop')}
         />
-      ) : (
+      ) : showAddressForm ? null : (
         <div style={styles.stack}>
           <Card elevated padding="md" style={styles.deliverCard}>
             <div>
@@ -260,63 +263,113 @@ export function CartPage() {
         </div>
       )}
 
-      <section ref={addressSectionRef} style={styles.section} id="delivery-address">
-        <h2 style={styles.h2}>Delivery address</h2>
-
-        {needsAddress || addressHint ? (
-          <Banner tone="warning" style={styles.addressAlert}>
-            {addressHint ??
-              (addresses.length === 0
-                ? 'No delivery address yet. Add one below to place your COD order.'
-                : 'Select a delivery address below to place your COD order.')}
-          </Banner>
-        ) : null}
-
-        {addresses.length > 0 ? (
-          <div style={styles.list}>
-            {addresses.map((a) => (
-              <label key={a.id} style={selectedAddressId === a.id ? styles.addrActive : styles.addr}>
-                <input
-                  type="radio"
-                  name="address"
-                  checked={selectedAddressId === a.id}
-                  onChange={() => setSelectedAddressId(a.id)}
-                />
-                <span>
-                  <strong>{a.label || 'Address'}</strong>
-                  <br />
-                  {a.recipientName} · {a.recipientPhone}
-                  <br />
-                  {a.line1}
-                  {a.pincode ? `, ${a.pincode}` : ''}
-                </span>
-              </label>
-            ))}
-          </div>
-        ) : null}
+      <section
+        ref={addressSectionRef}
+        style={showAddressForm ? styles.sectionEditing : styles.section}
+        id="delivery-address"
+      >
+        <h2 style={styles.h2}>{showAddressForm ? 'Edit address' : 'Delivery address'}</h2>
 
         {showAddressForm ? (
           <AddressForm
+            key={editingAddressId ?? 'new'}
             phone={session?.phone ?? ''}
             busy={busy}
-            onCancel={() => setShowAddressForm(false)}
-            onSubmit={(values) => {
-              void doCreateAddress(values).then((ok) => {
-                if (ok) {
-                  setShowAddressForm(false);
-                  setAddressHint(null);
-                }
-              });
+            mode={editingAddressId ? 'edit' : 'create'}
+            error={error}
+            initial={
+              editingAddressId
+                ? (() => {
+                    const a = addresses.find((x) => x.id === editingAddressId);
+                    if (!a) return undefined;
+                    return {
+                      label: a.label ?? 'Home',
+                      recipientName: a.recipientName,
+                      recipientPhone: a.recipientPhone,
+                      line1: a.line1,
+                      line2: a.line2 ?? '',
+                      landmark: a.landmark ?? '',
+                      pincode: a.pincode ?? '522601',
+                    };
+                  })()
+                : undefined
+            }
+            onCancel={() => {
+              setShowAddressForm(false);
+              setEditingAddressId(null);
+            }}
+            onSubmit={async (values) => {
+              const ok = editingAddressId
+                ? await doUpdateAddress(editingAddressId, values)
+                : await doCreateAddress(values);
+              if (ok) {
+                setShowAddressForm(false);
+                setEditingAddressId(null);
+                setAddressHint(null);
+              }
             }}
           />
         ) : (
-          <Button
-            variant={needsAddress ? 'primary' : 'ghost'}
-            disabled={busy}
-            onClick={() => setShowAddressForm(true)}
-          >
-            {addresses.length === 0 ? 'Add delivery address' : 'Add another address'}
-          </Button>
+          <>
+            {needsAddress || addressHint ? (
+              <Banner tone="warning" style={styles.addressAlert}>
+                {addressHint ??
+                  (addresses.length === 0
+                    ? 'No delivery address yet. Add one below to place your COD order.'
+                    : 'Select a delivery address below to place your COD order.')}
+              </Banner>
+            ) : null}
+
+            {addresses.length > 0 ? (
+              <div style={styles.list}>
+                {addresses.map((a) => (
+                  <div key={a.id} style={selectedAddressId === a.id ? styles.addrActive : styles.addr}>
+                    <label style={styles.addrSelect}>
+                      <input
+                        type="radio"
+                        name="address"
+                        checked={selectedAddressId === a.id}
+                        onChange={() => setSelectedAddressId(a.id)}
+                      />
+                      <span style={styles.addrText}>
+                        <strong>{a.label || 'Address'}</strong>
+                        <br />
+                        {a.recipientName} · {a.recipientPhone}
+                        <br />
+                        {a.line1}
+                        {a.line2 ? `, ${a.line2}` : ''}
+                        {a.pincode ? `, ${a.pincode}` : ''}
+                      </span>
+                    </label>
+                    <button
+                      type="button"
+                      style={styles.editAddrBtn}
+                      disabled={busy}
+                      onClick={() => {
+                        setEditingAddressId(a.id);
+                        setShowAddressForm(true);
+                        setAddressHint(null);
+                      }}
+                    >
+                      Edit
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+
+            <Button
+              variant={needsAddress ? 'primary' : 'ghost'}
+              disabled={busy}
+              fullWidth
+              onClick={() => {
+                setEditingAddressId(null);
+                setShowAddressForm(true);
+              }}
+            >
+              {addresses.length === 0 ? 'Add delivery address' : 'Add another address'}
+            </Button>
+          </>
         )}
       </section>
     </PortalShell>
@@ -377,28 +430,69 @@ const styles: Record<string, CSSProperties> = {
     fontSize: '1.35rem',
     color: 'var(--text)',
   },
-  section: { display: 'grid', gap: '0.75rem', paddingBottom: '5rem' },
+  section: {
+    display: 'grid',
+    gap: '0.75rem',
+    paddingBottom: 'calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px) + 1.5rem)',
+    minWidth: 0,
+  },
+  sectionEditing: {
+    display: 'grid',
+    gap: '0.75rem',
+    paddingBottom: 'calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px) + 2.5rem)',
+    minWidth: 0,
+  },
   h2: { margin: 0, fontFamily: 'var(--font-display)', fontSize: '1.1rem', fontWeight: 800 },
   addressAlert: { animation: 'hlm-fade-up 220ms ease both' },
   addr: {
     display: 'flex',
-    gap: '0.65rem',
+    gap: '0.55rem',
     alignItems: 'flex-start',
+    justifyContent: 'space-between',
     background: 'var(--bg-elevated)',
     border: '1px solid var(--border)',
     borderRadius: 'var(--radius-md)',
-    padding: '0.85rem 1rem',
-    cursor: 'pointer',
+    padding: '0.75rem 0.85rem',
+    minWidth: 0,
   },
   addrActive: {
     display: 'flex',
-    gap: '0.65rem',
+    gap: '0.55rem',
     alignItems: 'flex-start',
+    justifyContent: 'space-between',
     background: 'var(--accent-soft)',
     border: '1px solid var(--accent)',
     borderRadius: 'var(--radius-md)',
-    padding: '0.85rem 1rem',
+    padding: '0.75rem 0.85rem',
+    minWidth: 0,
+  },
+  addrSelect: {
+    display: 'flex',
+    gap: '0.65rem',
+    alignItems: 'flex-start',
+    flex: 1,
+    minWidth: 0,
     cursor: 'pointer',
+  },
+  addrText: {
+    minWidth: 0,
+    flex: 1,
+    wordBreak: 'break-word',
+    overflowWrap: 'anywhere',
+    fontSize: '0.88rem',
+    lineHeight: 1.35,
+  },
+  editAddrBtn: {
+    border: '1.5px solid var(--border)',
+    borderRadius: 10,
+    background: 'var(--bg-elevated)',
+    color: 'var(--accent)',
+    fontWeight: 800,
+    fontSize: '0.82rem',
+    padding: '0.45rem 0.7rem',
+    minHeight: 'var(--touch-min)',
+    cursor: 'pointer',
+    flexShrink: 0,
   },
   stickyCheckout: {
     position: 'fixed',

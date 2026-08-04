@@ -35,7 +35,7 @@ public class VendorSettlementAdjustment {
     @Column(name = "order_id", nullable = false)
     private UUID orderId;
 
-    /** Display number e.g. NRPT/AP-260722-O0001 — shown to vendors. */
+    /** Display number e.g. NRPT/AP-260722-0001 — shown to vendors. */
     @Column(name = "order_number", length = 64)
     private String orderNumber;
 

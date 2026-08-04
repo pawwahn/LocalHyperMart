@@ -29,6 +29,13 @@ public class ShopInternalController {
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, shops));
     }
 
+    @GetMapping("/api/v1/internal/shops/{shopId}")
+    public ResponseEntity<ApiResponse<ShopSummaryResponse>> getShop(
+            @PathVariable java.util.UUID shopId,
+            HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest, shopService.getShopById(shopId)));
+    }
+
     @GetMapping("/api/v1/internal/vendors/{vendorId}/shop-context")
     public ResponseEntity<ApiResponse<VendorShopContextResponse>> getVendorShopContext(
             @PathVariable java.util.UUID vendorId,

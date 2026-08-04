@@ -16,6 +16,7 @@ const NAV = [
   { to: '/claims', label: 'Claims' },
   { to: '/customers', label: 'Customers' },
   { to: '/vendors', label: 'Vendors' },
+  { to: '/vendor-billing', label: 'Billing' },
   { to: '/agents', label: 'Agents' },
   { to: '/catalog', label: 'Catalog' },
   { to: '/store-listings', label: 'Listings' },

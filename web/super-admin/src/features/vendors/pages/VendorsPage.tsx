@@ -11,6 +11,7 @@ import {
   listRegistrationRequests,
   listVendors,
   rejectRegistration,
+  updateVendorProfile,
   updateVendorStatus,
   type VendorRegistrationVm,
   type VendorVm,
@@ -57,11 +58,24 @@ export function VendorsPage() {
   const [phone, setPhone] = useState('');
   const [shopName, setShopName] = useState('');
   const [address, setAddress] = useState('');
+  const [gstNumber, setGstNumber] = useState('');
+  const [fssaiNumber, setFssaiNumber] = useState('');
+  const [bankAccount, setBankAccount] = useState('');
+  const [ifsc, setIfsc] = useState('');
   const [rejectId, setRejectId] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState('');
   const [disableId, setDisableId] = useState<string | null>(null);
   const [disableReason, setDisableReason] = useState('');
   const [statusBusyId, setStatusBusyId] = useState<string | null>(null);
+  const [editId, setEditId] = useState<string | null>(null);
+  const [editBusinessName, setEditBusinessName] = useState('');
+  const [editOwnerName, setEditOwnerName] = useState('');
+  const [editShopName, setEditShopName] = useState('');
+  const [editAddress, setEditAddress] = useState('');
+  const [editGstNumber, setEditGstNumber] = useState('');
+  const [editFssaiNumber, setEditFssaiNumber] = useState('');
+  const [editBankAccount, setEditBankAccount] = useState('');
+  const [editIfsc, setEditIfsc] = useState('');
 
   const townById = useMemo(() => {
     const map = new Map<string, TownVm>();
@@ -144,6 +158,11 @@ export function VendorsPage() {
       setError('Phone must be a 10-digit Indian mobile number');
       return;
     }
+    const gst = gstNumber.trim().toUpperCase();
+    if (gst && (!bankAccount.trim() || !ifsc.trim())) {
+      setError('Bank account and IFSC are required when GST number is provided');
+      return;
+    }
     setBusy(true);
     setError(null);
     setNotice(null);
@@ -155,6 +174,10 @@ export function VendorsPage() {
         phone: normalizedPhone,
         shopName: shopName.trim(),
         address: address.trim() || undefined,
+        gstNumber: gst || undefined,
+        fssaiNumber: fssaiNumber.trim() || undefined,
+        bankAccount: bankAccount.trim() || undefined,
+        ifsc: ifsc.trim() || undefined,
       });
       setNotice('Request submitted — approve it under Pending');
       setBusinessName('');
@@ -162,6 +185,10 @@ export function VendorsPage() {
       setPhone('');
       setShopName('');
       setAddress('');
+      setGstNumber('');
+      setFssaiNumber('');
+      setBankAccount('');
+      setIfsc('');
       setShowAdd(false);
       setTab('pending');
       await reload();
@@ -232,6 +259,60 @@ export function VendorsPage() {
       setError(err instanceof ApiError || err instanceof Error ? err.message : 'Disable failed');
     } finally {
       setStatusBusyId(null);
+    }
+  }
+
+  function openEdit(vendor: VendorVm) {
+    setEditId(vendor.id);
+    setEditBusinessName(vendor.businessName ?? '');
+    setEditOwnerName(vendor.ownerName ?? '');
+    setEditShopName(vendor.shopName ?? vendor.businessName ?? '');
+    setEditAddress(vendor.address ?? '');
+    setEditGstNumber(vendor.gstNumber ?? '');
+    setEditFssaiNumber(vendor.fssaiNumber ?? '');
+    setEditBankAccount(vendor.bankAccount ?? '');
+    setEditIfsc(vendor.ifsc ?? '');
+    setDisableId(null);
+    setDisableReason('');
+    setRejectId(null);
+  }
+
+  function closeEdit() {
+    setEditId(null);
+  }
+
+  async function onSaveEdit() {
+    if (!editId) return;
+    const gst = editGstNumber.trim().toUpperCase();
+    if (gst && (!editBankAccount.trim() || !editIfsc.trim())) {
+      setError('Bank account and IFSC are required when GST number is provided');
+      return;
+    }
+    if (!editBusinessName.trim() || !editShopName.trim()) {
+      setError('Business and shop name are required');
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const updated = await updateVendorProfile(token, editId, {
+        businessName: editBusinessName.trim(),
+        ownerName: editOwnerName.trim() || undefined,
+        shopName: editShopName.trim(),
+        address: editAddress.trim() || undefined,
+        gstNumber: gst || undefined,
+        fssaiNumber: editFssaiNumber.trim() || undefined,
+        bankAccount: editBankAccount.trim() || undefined,
+        ifsc: editIfsc.trim() || undefined,
+      });
+      setNotice(`Updated ${updated.shopName ?? updated.businessName}`);
+      setEditId(null);
+      await reload();
+    } catch (err) {
+      setError(err instanceof ApiError || err instanceof Error ? err.message : 'Update failed');
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -323,7 +404,38 @@ export function VendorsPage() {
             <div style={styles.fullWidth}>
               <TextField label="Address" value={address} onChange={(e) => setAddress(e.target.value)} />
             </div>
+            <TextField
+              label="GST number (optional)"
+              value={gstNumber}
+              onChange={(e) => setGstNumber(e.target.value.toUpperCase())}
+              placeholder="15-char GSTIN"
+              maxLength={15}
+            />
+            <TextField
+              label="FSSAI number (optional)"
+              value={fssaiNumber}
+              onChange={(e) => setFssaiNumber(e.target.value.replace(/\D/g, '').slice(0, 14))}
+              placeholder="14 digits"
+              inputMode="numeric"
+              maxLength={14}
+            />
+            <TextField
+              label="Bank account (if GST)"
+              value={bankAccount}
+              onChange={(e) => setBankAccount(e.target.value)}
+              placeholder="Required when GST is set"
+            />
+            <TextField
+              label="IFSC (if GST)"
+              value={ifsc}
+              onChange={(e) => setIfsc(e.target.value.toUpperCase())}
+              placeholder="Required when GST is set"
+              maxLength={11}
+            />
           </div>
+          <p style={styles.subtle}>
+            GST and FSSAI are optional. Fee / subscription model is configured later under Billing (per vendor).
+          </p>
           <div style={styles.formActions}>
             <Button
               disabled={busy || !townId || !businessName.trim() || !shopName.trim() || !phone.trim()}
@@ -390,6 +502,8 @@ export function VendorsPage() {
                     <p style={styles.meta}>
                       {req.businessName}
                       {req.ownerName ? ` · ${req.ownerName}` : ''} · {req.phone}
+                      {req.gstNumber ? ` · GST ${req.gstNumber}` : ''}
+                      {req.fssaiNumber ? ` · FSSAI ${req.fssaiNumber}` : ''}
                     </p>
                     {rejectId === req.id ? (
                       <div style={styles.inlineForm}>
@@ -455,6 +569,7 @@ export function VendorsPage() {
               filteredVendors.map((v) => {
                 const statusBusy = statusBusyId === v.id;
                 const disabling = disableId === v.id;
+                const editing = editId === v.id;
                 const disabled = v.status === 'DISABLED';
                 return (
                   <div key={v.id} style={styles.item}>
@@ -471,11 +586,77 @@ export function VendorsPage() {
                       <p style={styles.meta}>
                         {v.businessName}
                         {v.ownerName ? ` · ${v.ownerName}` : ''} · {v.phone}
+                        {v.gstNumber ? ` · GST ${v.gstNumber}` : ' · No GST'}
+                        {v.fssaiNumber ? ` · FSSAI ${v.fssaiNumber}` : ''}
                       </p>
                       {disabled && v.disabledReason ? (
                         <p style={styles.reason}>Reason: {v.disabledReason}</p>
                       ) : null}
-                      {disabling ? (
+                      {editing ? (
+                        <div style={styles.inlineForm}>
+                          <div style={styles.formGrid}>
+                            <TextField
+                              label="Business"
+                              value={editBusinessName}
+                              onChange={(e) => setEditBusinessName(e.target.value)}
+                            />
+                            <TextField
+                              label="Shop"
+                              value={editShopName}
+                              onChange={(e) => setEditShopName(e.target.value)}
+                            />
+                            <TextField
+                              label="Owner"
+                              value={editOwnerName}
+                              onChange={(e) => setEditOwnerName(e.target.value)}
+                            />
+                            <TextField label="Phone" value={v.phone} disabled />
+                            <div style={styles.fullWidth}>
+                              <TextField
+                                label="Address"
+                                value={editAddress}
+                                onChange={(e) => setEditAddress(e.target.value)}
+                              />
+                            </div>
+                            <TextField
+                              label="GST number (optional)"
+                              value={editGstNumber}
+                              onChange={(e) => setEditGstNumber(e.target.value.toUpperCase())}
+                              placeholder="15-char GSTIN"
+                              maxLength={15}
+                            />
+                            <TextField
+                              label="FSSAI number (optional)"
+                              value={editFssaiNumber}
+                              onChange={(e) =>
+                                setEditFssaiNumber(e.target.value.replace(/\D/g, '').slice(0, 14))
+                              }
+                              placeholder="14 digits"
+                              inputMode="numeric"
+                              maxLength={14}
+                            />
+                            <TextField
+                              label="Bank account (if GST)"
+                              value={editBankAccount}
+                              onChange={(e) => setEditBankAccount(e.target.value)}
+                            />
+                            <TextField
+                              label="IFSC (if GST)"
+                              value={editIfsc}
+                              onChange={(e) => setEditIfsc(e.target.value.toUpperCase())}
+                              maxLength={11}
+                            />
+                          </div>
+                          <div style={styles.actions}>
+                            <Button size="sm" disabled={busy} onClick={() => void onSaveEdit()}>
+                              {busy ? 'Saving…' : 'Save'}
+                            </Button>
+                            <Button size="sm" variant="ghost" disabled={busy} onClick={closeEdit}>
+                              Cancel
+                            </Button>
+                          </div>
+                        </div>
+                      ) : disabling ? (
                         <div style={styles.inlineForm}>
                           <TextField
                             label="Disable reason"
@@ -507,6 +688,14 @@ export function VendorsPage() {
                         </div>
                       ) : (
                         <div style={styles.actions}>
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            disabled={statusBusy || busy}
+                            onClick={() => openEdit(v)}
+                          >
+                            Edit
+                          </Button>
                           {disabled ? (
                             <Button size="sm" disabled={statusBusy || busy} onClick={() => void onEnable(v)}>
                               {statusBusy ? '…' : 'Enable'}
@@ -520,6 +709,7 @@ export function VendorsPage() {
                                 setDisableId(v.id);
                                 setDisableReason('');
                                 setRejectId(null);
+                                setEditId(null);
                               }}
                             >
                               Disable

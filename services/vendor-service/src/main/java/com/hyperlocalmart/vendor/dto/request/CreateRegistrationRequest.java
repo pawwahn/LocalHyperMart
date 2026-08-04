@@ -31,7 +31,13 @@ public class CreateRegistrationRequest {
 
     private String address;
 
+    /** Optional GSTIN (15 chars). If set, bank account + IFSC become required. */
+    @Size(max = 20)
     private String gstNumber;
+
+    /** Optional FSSAI licence number. */
+    @Size(max = 32)
+    private String fssaiNumber;
 
     private String bankAccount;
 

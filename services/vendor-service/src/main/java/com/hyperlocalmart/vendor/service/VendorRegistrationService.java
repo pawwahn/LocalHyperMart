@@ -4,6 +4,7 @@ import com.hyperlocalmart.common.exception.BusinessException;
 import com.hyperlocalmart.common.exception.ErrorCode;
 import com.hyperlocalmart.vendor.client.UserClient;
 import com.hyperlocalmart.vendor.dto.request.CreateRegistrationRequest;
+import com.hyperlocalmart.vendor.dto.request.UpdateVendorProfileRequest;
 import com.hyperlocalmart.vendor.dto.request.UpdateVendorStatusRequest;
 import com.hyperlocalmart.vendor.dto.response.VendorListResponse;
 import com.hyperlocalmart.vendor.dto.response.VendorMeResponse;
@@ -26,7 +27,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Locale;
 import java.util.UUID;
+import java.util.regex.Pattern;
 
 @Slf4j
 @Service
@@ -34,11 +37,15 @@ import java.util.UUID;
 public class VendorRegistrationService {
 
     private static final String TEMP_PASSWORD_PREFIX = "HlM@";
+    private static final Pattern GSTIN = Pattern.compile(
+            "^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$");
+    private static final Pattern FSSAI = Pattern.compile("^\\d{14}$");
 
     private final VendorRegistrationRequestRepository registrationRequestRepository;
     private final VendorRepository vendorRepository;
     private final ShopRepository shopRepository;
     private final UserClient userClient;
+    private final VendorCommercialTermsService vendorCommercialTermsService;
 
     @Transactional
     public VendorRegistrationResponse create(CreateRegistrationRequest request, UUID requestedByUserId) {
@@ -46,6 +53,17 @@ public class VendorRegistrationService {
         String businessName = requireName(request.getBusinessName(), "Business name");
         String shopName = requireName(request.getShopName(), "Shop name");
         String ownerName = blankToNull(request.getOwnerName());
+        String gstNumber = normalizeGst(request.getGstNumber());
+        String fssaiNumber = normalizeFssai(request.getFssaiNumber());
+        String bankAccount = blankToNull(request.getBankAccount());
+        String ifsc = blankToNull(request.getIfsc());
+
+        if (gstNumber != null) {
+            if (bankAccount == null || ifsc == null) {
+                throw new BusinessException(ErrorCode.VALIDATION_ERROR,
+                        "Bank account and IFSC are required when GST number is provided");
+            }
+        }
 
         if (registrationRequestRepository.existsByPhoneAndStatus(phone, RegistrationRequestStatus.PENDING)) {
             throw new BusinessException(ErrorCode.CONFLICT, "A pending registration already exists for this phone");
@@ -59,9 +77,10 @@ public class VendorRegistrationService {
                 .phone(phone)
                 .shopName(shopName)
                 .address(blankToNull(request.getAddress()))
-                .gstNumberEnc(blankToNull(request.getGstNumber()))
-                .bankAccountEnc(blankToNull(request.getBankAccount()))
-                .ifscEnc(blankToNull(request.getIfsc()))
+                .gstNumberEnc(gstNumber)
+                .fssaiNumber(fssaiNumber)
+                .bankAccountEnc(bankAccount)
+                .ifscEnc(ifsc == null ? null : ifsc.toUpperCase(Locale.ROOT))
                 .status(RegistrationRequestStatus.PENDING)
                 .build();
         entity.setCreatedBy(requestedByUserId);
@@ -111,6 +130,7 @@ public class VendorRegistrationService {
                 .ownerName(request.getOwnerName())
                 .phone(request.getPhone())
                 .gstNumberEnc(request.getGstNumberEnc())
+                .fssaiNumber(request.getFssaiNumber())
                 .bankAccountEnc(request.getBankAccountEnc())
                 .ifscEnc(request.getIfscEnc())
                 .status(VendorStatus.ACTIVE)
@@ -118,6 +138,7 @@ public class VendorRegistrationService {
         vendor.setCreatedBy(reviewerId);
         vendor.setUpdatedBy(reviewerId);
         vendor = vendorRepository.save(vendor);
+        vendorCommercialTermsService.ensureDefault(vendor.getId(), reviewerId);
 
         Shop shop = Shop.builder()
                 .vendor(vendor)
@@ -174,6 +195,54 @@ public class VendorRegistrationService {
         return VendorListResponse.builder()
                 .items(vendors.stream().map(this::toVendorResponse).toList())
                 .build();
+    }
+
+    @Transactional
+    public VendorResponse updateVendorProfile(UUID vendorId, UUID actorUserId, UpdateVendorProfileRequest request) {
+        Vendor vendor = vendorRepository.findById(vendorId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Vendor not found"));
+
+        String businessName = requireName(request.getBusinessName(), "Business name");
+        String shopName = requireName(request.getShopName(), "Shop name");
+        String gstNumber = normalizeGst(request.getGstNumber());
+        String fssaiNumber = normalizeFssai(request.getFssaiNumber());
+        String bankAccount = blankToNull(request.getBankAccount());
+        String ifsc = blankToNull(request.getIfsc());
+        if (gstNumber != null && (bankAccount == null || ifsc == null)) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR,
+                    "Bank account and IFSC are required when GST number is provided");
+        }
+
+        vendor.setBusinessName(businessName);
+        vendor.setOwnerName(blankToNull(request.getOwnerName()));
+        vendor.setGstNumberEnc(gstNumber);
+        vendor.setFssaiNumber(fssaiNumber);
+        vendor.setBankAccountEnc(bankAccount);
+        vendor.setIfscEnc(ifsc == null ? null : ifsc.toUpperCase(Locale.ROOT));
+        vendor.setUpdatedBy(actorUserId);
+        vendor = vendorRepository.save(vendor);
+
+        List<Shop> shops = shopRepository.findByVendorIdOrderByCreatedAtAsc(vendorId);
+        if (!shops.isEmpty()) {
+            Shop shop = shops.getFirst();
+            shop.setShopName(shopName);
+            shop.setAddress(blankToNull(request.getAddress()));
+            shop.setUpdatedBy(actorUserId);
+            shopRepository.save(shop);
+        } else {
+            Shop shop = Shop.builder()
+                    .vendor(vendor)
+                    .shopName(shopName)
+                    .address(blankToNull(request.getAddress()))
+                    .status(ShopStatus.ACTIVE)
+                    .acceptingOrders(vendor.getStatus() == VendorStatus.ACTIVE)
+                    .build();
+            shop.setCreatedBy(actorUserId);
+            shop.setUpdatedBy(actorUserId);
+            shopRepository.save(shop);
+        }
+
+        return toVendorResponse(vendor);
     }
 
     @Transactional
@@ -280,6 +349,8 @@ public class VendorRegistrationService {
                 .phone(request.getPhone())
                 .shopName(request.getShopName())
                 .address(request.getAddress())
+                .gstNumber(request.getGstNumberEnc())
+                .fssaiNumber(request.getFssaiNumber())
                 .status(request.getStatus().name())
                 .rejectReason(request.getRejectReason())
                 .vendorId(request.getVendorId())
@@ -290,17 +361,46 @@ public class VendorRegistrationService {
 
     private VendorResponse toVendorResponse(Vendor vendor) {
         List<Shop> shops = shopRepository.findByVendorIdOrderByCreatedAtAsc(vendor.getId());
-        String shopName = shops.isEmpty() ? null : shops.getFirst().getShopName();
+        Shop shop = shops.isEmpty() ? null : shops.getFirst();
         return VendorResponse.builder()
                 .id(vendor.getId())
                 .townId(vendor.getTownId())
                 .businessName(vendor.getBusinessName())
                 .ownerName(vendor.getOwnerName())
                 .phone(vendor.getPhone())
+                .gstNumber(vendor.getGstNumberEnc())
+                .fssaiNumber(vendor.getFssaiNumber())
+                .bankAccount(vendor.getBankAccountEnc())
+                .ifsc(vendor.getIfscEnc())
                 .status(vendor.getStatus().name())
-                .shopName(shopName)
+                .shopName(shop != null ? shop.getShopName() : null)
+                .address(shop != null ? shop.getAddress() : null)
                 .disabledReason(vendor.getDisabledReason())
                 .build();
+    }
+
+    private static String normalizeGst(String raw) {
+        String value = blankToNull(raw);
+        if (value == null) {
+            return null;
+        }
+        String gst = value.toUpperCase(Locale.ROOT).replaceAll("\\s+", "");
+        if (!GSTIN.matcher(gst).matches()) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Invalid GST number format");
+        }
+        return gst;
+    }
+
+    private static String normalizeFssai(String raw) {
+        String value = blankToNull(raw);
+        if (value == null) {
+            return null;
+        }
+        String fssai = value.replaceAll("\\s+", "");
+        if (!FSSAI.matcher(fssai).matches()) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "FSSAI number must be 14 digits");
+        }
+        return fssai;
     }
 
     private static String requireName(String value, String field) {

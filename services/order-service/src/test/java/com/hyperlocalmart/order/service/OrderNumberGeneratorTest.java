@@ -40,7 +40,7 @@ class OrderNumberGeneratorTest {
         String orderNumber = orderNumberGenerator.nextOrderNumber(townId, "NRPT", "AP");
 
         assertThat(orderNumber).startsWith("NRPT/AP-");
-        assertThat(orderNumber).endsWith("-O0001");
+        assertThat(orderNumber).endsWith("-0001");
         ArgumentCaptor<DailyOrderSequence> captor = ArgumentCaptor.forClass(DailyOrderSequence.class);
         verify(dailyOrderSequenceRepository).save(captor.capture());
         assertThat(captor.getValue().getLastSequence()).isEqualTo(1);
@@ -48,9 +48,9 @@ class OrderNumberGeneratorTest {
 
     @Test
     void subOrderNumber_appendsIndexAndTotal() {
-        assertThat(OrderNumberGenerator.subOrderNumber("NRPT/AP-260708-O0001", 1, 3))
-                .isEqualTo("NRPT/AP-260708-O0001-1/3");
-        assertThat(OrderNumberGenerator.subOrderNumber("NRPT/AP-260708-O0001", 2, 3))
-                .isEqualTo("NRPT/AP-260708-O0001-2/3");
+        assertThat(OrderNumberGenerator.subOrderNumber("NRPT/AP-260708-0001", 1, 3))
+                .isEqualTo("NRPT/AP-260708-0001-1/3");
+        assertThat(OrderNumberGenerator.subOrderNumber("NRPT/AP-260708-0001", 2, 3))
+                .isEqualTo("NRPT/AP-260708-0001-2/3");
     }
 }

@@ -1,5 +1,5 @@
 import type { CSSProperties, ReactNode } from 'react';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { HeaderIconButton, ThemePicker } from '@hlm-theme';
 import { useAuth } from '@/shared/auth/AuthContext';
 import { useVendorShop } from '@/features/shop/hooks/useVendorShop';
@@ -21,17 +21,33 @@ type Props = {
   shopPause?: ShopPauseControl;
 };
 
+const NAV = [
+  { to: '/dashboard', label: 'Home', icon: '🏠', end: true },
+  { to: '/listings', label: 'Listings', icon: '🛒', end: false },
+  { to: '/reports', label: 'Reports', icon: '📊', end: false },
+  { to: '/payouts', label: 'Payouts', icon: '💵', end: false },
+  { to: '/sellers', label: 'Sellers', icon: '🏆', end: false },
+  { to: '/settings', label: 'Settings', icon: '⚙️', end: false },
+] as const;
+
 export function PortalShell({ title, children, onRefresh, shopPause }: Props) {
   const { session, logout } = useAuth();
   const { hub } = useVendorShop();
   const location = useLocation();
   const navigate = useNavigate();
   const { alertMessage, pendingCount, clearAlert } = useOrderAlert();
-  const narrow = useIsNarrow();
+  const narrow = useIsNarrow(767);
   const shopName = session?.shopName ?? 'Vendor shop';
 
   return (
-    <div style={styles.page}>
+    <div
+      style={{
+        ...styles.page,
+        paddingBottom: narrow
+          ? 'calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px) + 1.25rem)'
+          : '2rem',
+      }}
+    >
       <header style={{ ...styles.header, ...(narrow ? styles.headerNarrow : null) }}>
         <div style={styles.brandBlock}>
           <div style={styles.topRow}>
@@ -44,23 +60,23 @@ export function PortalShell({ title, children, onRefresh, shopPause }: Props) {
             </p>
           </div>
           <h1 style={styles.title}>{title}</h1>
-          <nav style={styles.nav} aria-label="Vendor sections">
-            <NavLink to="/dashboard" current={location.pathname}>
-              Home
-            </NavLink>
-            <NavLink to="/listings" current={location.pathname}>
-              Listings
-            </NavLink>
-            <NavLink to="/reports" current={location.pathname}>
-              Reports
-            </NavLink>
-            <NavLink to="/payouts" current={location.pathname}>
-              Payouts
-            </NavLink>
-            <NavLink to="/settings" current={location.pathname}>
-              Settings
-            </NavLink>
-          </nav>
+          {!narrow ? (
+            <nav style={styles.nav} aria-label="Vendor sections">
+              {NAV.map((item) => (
+                <Link
+                  key={item.to}
+                  to={item.to}
+                  style={
+                    isNavActive(location.pathname, item.to, item.end)
+                      ? styles.navActive
+                      : styles.navLink
+                  }
+                >
+                  {item.label}
+                </Link>
+              ))}
+            </nav>
+          ) : null}
         </div>
         <div style={styles.headerActions}>
           <ThemePicker />
@@ -122,34 +138,43 @@ export function PortalShell({ title, children, onRefresh, shopPause }: Props) {
           {hub.hubHours ? ` (${hub.hubHours})` : null}
         </footer>
       ) : null}
+
+      {narrow ? (
+        <nav style={styles.tabbar} aria-label="Vendor sections">
+          {NAV.map((item) => (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              end={item.end}
+              style={({ isActive }) => (isActive ? styles.tabActive : styles.tab)}
+            >
+              <span style={styles.tabIcon} aria-hidden>
+                {item.icon}
+              </span>
+              <span>{item.label}</span>
+            </NavLink>
+          ))}
+        </nav>
+      ) : null}
     </div>
   );
 }
 
-function NavLink({
-  to,
-  current,
-  children,
-}: {
-  to: string;
-  current: string;
-  children: ReactNode;
-}) {
-  const active = current === to;
-  return (
-    <Link to={to} style={active ? styles.navActive : styles.navLink}>
-      {children}
-    </Link>
-  );
+function isNavActive(pathname: string, to: string, end: boolean): boolean {
+  if (end) return pathname === to;
+  return pathname === to || pathname.startsWith(`${to}/`);
 }
 
 const styles: Record<string, CSSProperties> = {
   page: {
-    maxWidth: 1120,
+    maxWidth: 'var(--shell-max, 1120px)',
+    width: '100%',
     margin: '0 auto',
     padding: '0.75rem 0.75rem 2rem',
     display: 'grid',
     gap: '0.85rem',
+    boxSizing: 'border-box',
+    overflowX: 'hidden',
   },
   header: {
     display: 'flex',
@@ -214,24 +239,32 @@ const styles: Record<string, CSSProperties> = {
     textDecoration: 'none',
     fontWeight: 600,
     fontSize: '0.82rem',
-    padding: '0.3rem 0.55rem',
+    padding: '0.45rem 0.7rem',
+    minHeight: 'var(--touch-min)',
+    display: 'inline-flex',
+    alignItems: 'center',
     borderRadius: 'var(--radius-full)',
+    boxSizing: 'border-box',
   },
   navActive: {
     color: 'var(--accent-hover)',
     textDecoration: 'none',
     fontWeight: 700,
     fontSize: '0.82rem',
-    padding: '0.3rem 0.55rem',
+    padding: '0.45rem 0.7rem',
+    minHeight: 'var(--touch-min)',
+    display: 'inline-flex',
+    alignItems: 'center',
     borderRadius: 'var(--radius-full)',
     background: 'var(--accent-soft)',
+    boxSizing: 'border-box',
   },
   headerActions: {
     display: 'flex',
     gap: '0.35rem',
     alignItems: 'center',
     flexShrink: 0,
-    flexWrap: 'nowrap',
+    flexWrap: 'wrap',
   },
   alertBanner: {
     display: 'flex',
@@ -254,7 +287,8 @@ const styles: Record<string, CSSProperties> = {
     fontWeight: 700,
     cursor: 'pointer',
     opacity: 0.9,
-    padding: 0,
+    padding: '0.45rem 0.25rem',
+    minHeight: 'var(--touch-min)',
   },
   main: { display: 'grid', gap: '0.85rem', minWidth: 0 },
   footer: {
@@ -264,4 +298,46 @@ const styles: Record<string, CSSProperties> = {
     paddingTop: '0.25rem',
   },
   footerLink: { color: 'var(--accent-hover)', fontWeight: 800, textDecoration: 'none' },
+  tabbar: {
+    position: 'fixed',
+    left: '50%',
+    transform: 'translateX(-50%)',
+    bottom: 0,
+    width: '100%',
+    maxWidth: 'var(--shell-max)',
+    height: 'calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px))',
+    paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+    display: 'grid',
+    gridTemplateColumns: 'repeat(6, 1fr)',
+    background: 'var(--bg-elevated)',
+    borderTop: '1px solid var(--border)',
+    zIndex: 50,
+    boxShadow: '0 -4px 20px rgba(0,0,0,0.06)',
+    boxSizing: 'border-box',
+  },
+  tab: {
+    display: 'grid',
+    placeItems: 'center',
+    gap: '0.1rem',
+    textDecoration: 'none',
+    color: 'var(--text-muted)',
+    fontSize: '0.62rem',
+    fontWeight: 700,
+    padding: '0.35rem 0.1rem',
+    minHeight: 'var(--touch-min)',
+    textAlign: 'center',
+  },
+  tabActive: {
+    display: 'grid',
+    placeItems: 'center',
+    gap: '0.1rem',
+    textDecoration: 'none',
+    color: 'var(--accent)',
+    fontSize: '0.62rem',
+    fontWeight: 800,
+    padding: '0.35rem 0.1rem',
+    minHeight: 'var(--touch-min)',
+    textAlign: 'center',
+  },
+  tabIcon: { fontSize: '1.15rem', lineHeight: 1 },
 };

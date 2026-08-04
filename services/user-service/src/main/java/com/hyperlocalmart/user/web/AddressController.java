@@ -39,4 +39,14 @@ public class AddressController {
         AddressResponse response = addressService.createAddress(principal.getUserId(), request);
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponses.ok(httpRequest, "Address created", response));
     }
+
+    @PutMapping("/{addressId}")
+    public ResponseEntity<ApiResponse<AddressResponse>> updateAddress(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @PathVariable UUID addressId,
+            @Valid @RequestBody CreateAddressRequest request,
+            HttpServletRequest httpRequest) {
+        AddressResponse response = addressService.updateAddress(principal.getUserId(), addressId, request);
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest, "Address updated", response));
+    }
 }

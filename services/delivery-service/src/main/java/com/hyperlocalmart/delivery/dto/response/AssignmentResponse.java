@@ -31,4 +31,10 @@ public class AssignmentResponse {
     private Instant completedAt;
     /** Chronological action log for this trip (hub + agent). */
     private List<DeliveryEventResponse> events;
+
+    /** Last-mile: buyer delivery address (null for pickup legs). */
+    private String destinationLabel;
+    private String destinationName;
+    private String destinationPhone;
+    private String destinationAddress;
 }

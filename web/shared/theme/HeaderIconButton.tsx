@@ -55,10 +55,10 @@ export function HeaderIconButton({
 
 const styles: Record<string, CSSProperties> = {
   base: {
-    width: 36,
-    height: 36,
-    minWidth: 36,
-    minHeight: 36,
+    width: 'var(--touch-min, 44px)',
+    height: 'var(--touch-min, 44px)',
+    minWidth: 'var(--touch-min, 44px)',
+    minHeight: 'var(--touch-min, 44px)',
     padding: 0,
     borderRadius: '999px',
     display: 'inline-grid',
@@ -69,5 +69,6 @@ const styles: Record<string, CSSProperties> = {
     cursor: 'pointer',
     flexShrink: 0,
     boxSizing: 'border-box',
+    touchAction: 'manipulation',
   },
 };

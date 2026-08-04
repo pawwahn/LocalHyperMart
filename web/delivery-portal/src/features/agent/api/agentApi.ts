@@ -14,6 +14,10 @@ export type AssignmentView = {
   assignedAt: string | null;
   startedAt: string | null;
   completedAt: string | null;
+  destinationLabel: string | null;
+  destinationName: string | null;
+  destinationPhone: string | null;
+  destinationAddress: string | null;
   events: Array<{
     eventType: string;
     createdAt: string;
@@ -38,6 +42,10 @@ export function toAssignmentView(dto: AssignmentDto): AssignmentView {
     assignedAt: dto.assignedAt ?? null,
     startedAt: dto.startedAt ?? null,
     completedAt: dto.completedAt ?? null,
+    destinationLabel: dto.destinationLabel ?? null,
+    destinationName: dto.destinationName ?? null,
+    destinationPhone: dto.destinationPhone ?? null,
+    destinationAddress: dto.destinationAddress ?? null,
     events: (dto.events ?? []).map((e) => ({
       eventType: e.eventType,
       createdAt: e.createdAt,
@@ -77,6 +85,8 @@ export type PickupManifestView = {
   subOrderNumber: string;
   orderNumber: string;
   shopName: string;
+  shopAddress: string | null;
+  shopPhone: string | null;
   subtotal: number;
   totalItemCount: number;
   items: PickupManifestLineView[];
@@ -88,6 +98,8 @@ function toPickupManifestView(dto: {
   subOrderNumber: string;
   orderNumber: string;
   shopName: string;
+  shopAddress?: string | null;
+  shopPhone?: string | null;
   subtotal: number;
   totalItemCount: number;
   items: Array<{ name: string; quantity: number; unitCode?: string | null; lineTotal: number }>;
@@ -98,6 +110,8 @@ function toPickupManifestView(dto: {
     subOrderNumber: dto.subOrderNumber,
     orderNumber: dto.orderNumber,
     shopName: dto.shopName,
+    shopAddress: dto.shopAddress ?? null,
+    shopPhone: dto.shopPhone ?? null,
     subtotal: Number(dto.subtotal ?? 0),
     totalItemCount: dto.totalItemCount,
     items: (dto.items ?? []).map((item) => ({

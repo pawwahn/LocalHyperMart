@@ -130,11 +130,21 @@ public class ShopService {
                 .build();
     }
 
+    @Transactional(readOnly = true)
+    public ShopSummaryResponse getShopById(UUID shopId) {
+        Shop shop = shopRepository.findById(shopId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Shop not found"));
+        return toSummary(shop);
+    }
+
     private ShopSummaryResponse toSummary(Shop shop) {
         return ShopSummaryResponse.builder()
                 .id(shop.getId())
                 .vendorId(shop.getVendor().getId())
                 .shopName(shop.getShopName())
+                .address(shop.getAddress())
+                .pincode(shop.getPincode())
+                .phone(shop.getVendor() != null ? shop.getVendor().getPhone() : null)
                 .build();
     }
 }

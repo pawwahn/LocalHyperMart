@@ -65,7 +65,6 @@ export function ReportsPage({ active = true }: { active?: boolean }) {
     setPresetCustom,
   } = useVendorReports();
   usePortalChrome({ title: 'Reports', onRefresh: () => void reload() }, active);
-  const [productTab, setProductTab] = useState<'top' | 'least'>('top');
   const [expandedIds, setExpandedIds] = useState<Record<string, boolean>>({});
   const [orderQuery, setOrderQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
@@ -308,34 +307,6 @@ export function ReportsPage({ active = true }: { active?: boolean }) {
               />
               <Metric label="Units" value={String(report.itemQuantityTotal)} hint="Qty sold" muted />
             </div>
-          </Card>
-
-          <Card>
-            <div style={styles.productTabs} role="tablist" aria-label="Product performance">
-              <button
-                type="button"
-                role="tab"
-                aria-selected={productTab === 'top'}
-                style={productTab === 'top' ? styles.productTabActive : styles.productTab}
-                onClick={() => setProductTab('top')}
-              >
-                Top sellers
-              </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={productTab === 'least'}
-                style={productTab === 'least' ? styles.productTabActive : styles.productTab}
-                onClick={() => setProductTab('least')}
-              >
-                Least sold
-              </button>
-            </div>
-            {productTab === 'top' ? (
-              <ItemRankTable empty="No sold items in this range." rows={report.topSellingItems ?? []} />
-            ) : (
-              <ItemRankTable empty="No sold items in this range." rows={report.leastSellingItems ?? []} />
-            )}
           </Card>
 
           <Card>
@@ -603,49 +574,6 @@ function OrderRow({
   );
 }
 
-function ItemRankTable({
-  rows,
-  empty,
-}: {
-  rows: Array<{
-    name: string;
-    unit?: string | null;
-    quantitySold: number;
-    revenue: number;
-    orderCount: number;
-  }>;
-  empty: string;
-}) {
-  if (rows.length === 0) return <p style={styles.muted}>{empty}</p>;
-  return (
-    <div style={styles.rankWrap}>
-      <table style={styles.table}>
-        <thead>
-          <tr>
-            <th style={styles.th}>Item</th>
-            <th style={styles.thRight}>Qty</th>
-            <th style={styles.thRight}>Revenue</th>
-            <th style={styles.thRight}>Orders</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row) => (
-            <tr key={`${row.name}-${row.unit ?? ''}`}>
-              <td style={styles.td}>
-                <strong>{row.name}</strong>
-                {row.unit ? <div style={styles.sub}>{row.unit}</div> : null}
-              </td>
-              <td style={styles.tdRight}>{row.quantitySold}</td>
-              <td style={styles.tdRight}>{formatMoney(row.revenue)}</td>
-              <td style={styles.tdRight}>{row.orderCount}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
 const styles: Record<string, CSSProperties> = {
   orderToolbar: {
     display: 'grid',
@@ -739,39 +667,6 @@ const styles: Record<string, CSSProperties> = {
     fontFamily: 'var(--font-display)',
     fontSize: '1.05rem',
     fontWeight: 800,
-  },
-  productTabs: {
-    display: 'grid',
-    gridTemplateColumns: '1fr 1fr',
-    gap: '0.3rem',
-    padding: '0.25rem',
-    marginBottom: '0.75rem',
-    borderRadius: 'var(--radius-md)',
-    border: '1px solid var(--border)',
-    background: 'var(--bg-muted)',
-  },
-  productTab: {
-    border: 'none',
-    background: 'transparent',
-    color: 'var(--text-muted)',
-    borderRadius: 'var(--radius-md)',
-    padding: '0.45rem 0.65rem',
-    cursor: 'pointer',
-    fontSize: '0.88rem',
-    fontWeight: 700,
-    fontFamily: 'inherit',
-  },
-  productTabActive: {
-    border: '1px solid var(--border)',
-    background: 'var(--bg-elevated)',
-    color: 'var(--text)',
-    borderRadius: 'var(--radius-md)',
-    padding: '0.45rem 0.65rem',
-    cursor: 'pointer',
-    fontSize: '0.88rem',
-    fontWeight: 800,
-    fontFamily: 'inherit',
-    boxShadow: 'var(--shadow-card)',
   },
   sectionTitleTight: {
     margin: 0,

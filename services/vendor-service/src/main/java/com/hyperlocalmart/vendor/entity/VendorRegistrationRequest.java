@@ -43,6 +43,9 @@ public class VendorRegistrationRequest extends BaseAuditEntity {
     @Column(name = "gst_number_enc")
     private String gstNumberEnc;
 
+    @Column(name = "fssai_number", length = 32)
+    private String fssaiNumber;
+
     @Column(name = "bank_account_enc")
     private String bankAccountEnc;
 

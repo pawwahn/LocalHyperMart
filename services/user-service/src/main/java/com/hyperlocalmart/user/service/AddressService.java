@@ -48,6 +48,36 @@ public class AddressService {
         return toResponse(addressRepository.save(address));
     }
 
+    @Transactional
+    public AddressResponse updateAddress(UUID userId, UUID addressId, CreateAddressRequest request) {
+        Address address = addressRepository.findByIdAndUserId(addressId, userId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Address not found"));
+        // Keep the address in its original town — client town picker must not block edits.
+        if (request.getTownId() != null && !address.getTownId().equals(request.getTownId())) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Address must stay in the same town");
+        }
+        if (request.isDefault()) {
+            clearDefault(userId);
+        }
+        address.setLabel(request.getLabel());
+        address.setRecipientName(request.getRecipientName());
+        address.setRecipientPhone(request.getRecipientPhone());
+        address.setLine1(request.getLine1());
+        address.setLine2(blankToNull(request.getLine2()));
+        address.setLandmark(blankToNull(request.getLandmark()));
+        address.setPincode(blankToNull(request.getPincode()));
+        address.setDefault(request.isDefault());
+        return toResponse(addressRepository.save(address));
+    }
+
+    private static String blankToNull(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
+    }
+
     @Transactional(readOnly = true)
     public AddressResponse getAddressForUser(UUID userId, UUID addressId, UUID townId) {
         Address address = addressRepository.findByIdAndUserId(addressId, userId)

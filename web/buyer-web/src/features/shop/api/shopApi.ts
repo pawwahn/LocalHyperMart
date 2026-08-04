@@ -49,6 +49,8 @@ export type AddressDto = {
   recipientName: string;
   recipientPhone: string;
   line1: string;
+  line2?: string;
+  landmark?: string;
   pincode?: string;
   /** Jackson may serialize boolean isDefault as "default" */
   isDefault?: boolean;
@@ -356,6 +358,24 @@ export async function createAddress(
   },
 ): Promise<AddressDto> {
   return apiRequest<AddressDto>('/api/v1/addresses', { method: 'POST', token, body });
+}
+
+export async function updateAddress(
+  token: string,
+  addressId: string,
+  body: {
+    townId: string;
+    label?: string;
+    recipientName: string;
+    recipientPhone: string;
+    line1: string;
+    line2?: string;
+    landmark?: string;
+    pincode?: string;
+    isDefault?: boolean;
+  },
+): Promise<AddressDto> {
+  return apiRequest<AddressDto>(`/api/v1/addresses/${addressId}`, { method: 'PUT', token, body });
 }
 
 export async function placeCodOrder(

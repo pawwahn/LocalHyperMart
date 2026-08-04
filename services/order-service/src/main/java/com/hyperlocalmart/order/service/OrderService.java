@@ -175,6 +175,7 @@ public class OrderService {
     public OrderDeliveryInfoResponse getDeliveryInfo(UUID orderId) {
         Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Order not found"));
+        Map<String, Object> addr = order.getDeliveryAddressSnapshot();
         return OrderDeliveryInfoResponse.builder()
                 .orderId(order.getId())
                 .buyerId(order.getBuyerId())
@@ -182,6 +183,13 @@ public class OrderService {
                 .status(order.getStatus().name())
                 .orderNumber(order.getOrderNumber())
                 .buyerPhone(order.getBuyerPhoneSnapshot())
+                .recipientName(stringVal(addr, "recipientName"))
+                .recipientPhone(stringVal(addr, "recipientPhone"))
+                .addressLine1(stringVal(addr, "line1"))
+                .addressLine2(stringVal(addr, "line2"))
+                .landmark(stringVal(addr, "landmark"))
+                .pincode(stringVal(addr, "pincode"))
+                .addressLabel(stringVal(addr, "label"))
                 .build();
     }
 
@@ -779,5 +787,17 @@ public class OrderService {
             case CANCELLED -> "Cancelled";
             case DELIVERED -> "Delivered";
         };
+    }
+
+    private static String stringVal(Map<String, Object> map, String key) {
+        if (map == null || key == null) {
+            return null;
+        }
+        Object value = map.get(key);
+        if (value == null) {
+            return null;
+        }
+        String text = String.valueOf(value).trim();
+        return text.isEmpty() ? null : text;
     }
 }

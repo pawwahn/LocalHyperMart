@@ -75,7 +75,24 @@ public class BuyerOrderCancelService {
         OrderStatus prior = order.getStatus();
         String reason = request.getReason();
 
+        BigDecimal codCreditTotal = BigDecimal.ZERO;
         for (VendorSubOrder sub : order.getVendorSubOrders()) {
+            if (sub.getItems() != null) {
+                for (OrderItem item : sub.getItems()) {
+                    if (item.getStatus() != null && item.getStatus() != OrderItemStatus.ACTIVE) {
+                        continue;
+                    }
+                    BigDecimal line = item.getLineTotal() == null ? BigDecimal.ZERO : item.getLineTotal();
+                    item.setStatus(OrderItemStatus.CANCELLED);
+                    item.setCancelReason("Buyer cancelled order: " + reason);
+                    item.setCancelledAt(Instant.now());
+                    item.setCancelledBy(buyerId);
+                    if (order.getPaymentMethod() == PaymentMethod.COD && line.compareTo(BigDecimal.ZERO) > 0) {
+                        item.setStoreCreditAmount(line);
+                        codCreditTotal = codCreditTotal.add(line);
+                    }
+                }
+            }
             if (sub.getStatus() == VendorSubOrderStatus.PLACED) {
                 VendorSubOrderStatus from = sub.getStatus();
                 sub.setStatus(VendorSubOrderStatus.VENDOR_REJECTED);
@@ -95,6 +112,24 @@ public class BuyerOrderCancelService {
         order.setStatus(OrderStatus.CANCELLED);
         order.setCancelReason(reason);
         order.setCancelledAt(Instant.now());
+        orderRepository.saveAndFlush(order);
+
+        if (order.getPaymentMethod() == PaymentMethod.COD && codCreditTotal.compareTo(BigDecimal.ZERO) > 0) {
+            try {
+                paymentClient.creditWallet(
+                        order.getBuyerId(),
+                        codCreditTotal,
+                        "ORDER_CANCEL",
+                        order.getId(),
+                        order.getId(),
+                        null,
+                        "Buyer cancelled order: " + order.getOrderNumber());
+            } catch (RuntimeException ex) {
+                log.error("Wallet credit failed while buyer cancelled order {}", orderId, ex);
+                throw new BusinessException(ErrorCode.INTERNAL_ERROR,
+                        "Could not credit your wallet. Try again in a moment.");
+            }
+        }
 
         OrderMoneyUnwindService.UnwindResult unwind =
                 orderMoneyUnwindService.unwindCancelledOrder(order, reason);
@@ -155,7 +190,7 @@ public class BuyerOrderCancelService {
         }
 
         BigDecimal creditAmount = item.getLineTotal();
-        boolean issueStoreCredit = order.getPaymentMethod() != PaymentMethod.COD;
+        boolean issueStoreCredit = true;
         item.setStatus(OrderItemStatus.CANCELLED);
         item.setCancelReason(request.getReason());
         item.setCancelledAt(Instant.now());
@@ -185,7 +220,6 @@ public class BuyerOrderCancelService {
         boolean orderEmpty = remainingActive == null || remainingActive.compareTo(BigDecimal.ZERO) == 0;
 
         if (orderEmpty) {
-            item.setStoreCreditAmount(null);
             OrderStatus prior = order.getStatus();
             order.setStatus(OrderStatus.CANCELLED);
             order.setCancelReason(request.getReason());
@@ -199,7 +233,30 @@ public class BuyerOrderCancelService {
                     .note("Buyer cancelled all items: " + request.getReason())
                     .build());
 
-            // Convert to whole-order money model (reverse prior item credits + refund capture).
+            // COD: credit this last cancelled line (ONLINE relies on gateway refund in unwind).
+            if (order.getPaymentMethod() == PaymentMethod.COD
+                    && creditAmount != null
+                    && creditAmount.compareTo(BigDecimal.ZERO) > 0) {
+                item.setStoreCreditAmount(creditAmount);
+                try {
+                    paymentClient.creditWallet(
+                            order.getBuyerId(),
+                            creditAmount,
+                            "ORDER_ITEM_CANCEL",
+                            itemId,
+                            order.getId(),
+                            item.getId(),
+                            "Buyer cancelled item: " + item.getItemNameSnapshot());
+                } catch (RuntimeException ex) {
+                    log.error("Wallet credit failed while buyer cancelled last item {}", itemId, ex);
+                    throw new BusinessException(ErrorCode.INTERNAL_ERROR,
+                            "Could not credit your wallet. Try again in a moment.");
+                }
+            } else {
+                item.setStoreCreditAmount(null);
+            }
+
+            // Convert to whole-order money model (reverse prior ONLINE item credits + refund capture).
             OrderMoneyUnwindService.UnwindResult unwind =
                     orderMoneyUnwindService.unwindCancelledOrder(order, request.getReason(), itemId);
             orderRepository.save(order);

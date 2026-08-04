@@ -211,7 +211,7 @@ class VendorSubOrderServiceTest {
     }
 
     @Test
-    void reject_codSibling_reducesCashDueWithoutWalletCredit() {
+    void reject_codSibling_creditsWalletAndReducesCashDue() {
         UUID vendorId = UUID.randomUUID();
         UUID siblingVendorId = UUID.randomUUID();
         UUID subOrderId = UUID.randomUUID();
@@ -291,6 +291,8 @@ class VendorSubOrderServiceTest {
         when(vendorSubOrderRepository.saveAndFlush(subOrder)).thenReturn(subOrder);
         when(orderItemRepository.sumActiveLineTotalsForOrder(order.getId()))
                 .thenReturn(new BigDecimal("500.00"));
+        when(paymentClient.creditWallet(any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn(new BigDecimal("300.00"));
         when(deliveryClient.listHubContactsForTown(townId)).thenReturn(List.of(
                 new com.hyperlocalmart.order.client.DeliveryClient.HubContact(
                         hubUserId, UUID.randomUUID(), "Narsaraopet Hub", "9876500100")));
@@ -298,11 +300,19 @@ class VendorSubOrderServiceTest {
         VendorSubOrderResponse response = vendorSubOrderService.reject(vendorId, subOrderId, actorId, request);
 
         assertThat(response.getStatus()).isEqualTo(VendorSubOrderStatus.VENDOR_REJECTED);
-        assertThat(rejectItem.getStoreCreditAmount()).isNull();
-        verify(paymentClient, never()).creditWallet(any(), any(), any(), any(), any(), any(), any());
-        verify(notificationClient).notifyItemRemovedCodReduced(
+        assertThat(rejectItem.getStoreCreditAmount()).isEqualByComparingTo("300.00");
+        verify(paymentClient).creditWallet(
+                eq(buyerId),
+                eq(new BigDecimal("300.00")),
+                eq("ORDER_ITEM_CANCEL"),
+                eq(subOrderId),
+                eq(order.getId()),
+                eq(itemId),
+                any());
+        verify(notificationClient).notifyItemCancelledStoreCredit(
                 eq(townId), eq(order.getId()), eq(buyerId), eq("9876500112"),
-                eq("NRPT-00012"), eq("Ravi Kirana items"), any());
+                eq("NRPT-00012"), eq("Ravi Kirana items"), eq(new BigDecimal("300.00")),
+                eq(new BigDecimal("300.00")));
         verify(notificationClient).notifyVendorShopRejected(
                 eq(townId), eq(hubUserId), eq("9876500100"), eq(order.getId()),
                 eq("NRPT-00012"), eq("Ravi Kirana"), eq(new BigDecimal("300.00")),
@@ -586,6 +596,63 @@ class VendorSubOrderServiceTest {
                 .hasMessageContaining("already used this store credit");
         verify(paymentClient, never()).debitWallet(any(), any(), any(), any(), any(), any());
         assertThat(cancelled.getStatus()).isEqualTo(OrderItemStatus.CANCELLED);
+    }
+
+    @Test
+    void restoreItem_blocksBuyerCancelledItem() {
+        UUID vendorId = UUID.randomUUID();
+        UUID subOrderId = UUID.randomUUID();
+        UUID actorId = UUID.randomUUID();
+        UUID buyerId = UUID.randomUUID();
+        UUID itemId = UUID.randomUUID();
+
+        Order order = Order.builder()
+                .id(UUID.randomUUID())
+                .orderNumber("NRPT-00022")
+                .townId(UUID.randomUUID())
+                .buyerId(buyerId)
+                .status(OrderStatus.PLACED)
+                .paymentMethod(PaymentMethod.COD)
+                .paymentStatus(PaymentStatus.PENDING)
+                .itemsSubtotal(BigDecimal.ZERO)
+                .deliveryFee(new BigDecimal("38.00"))
+                .storeCreditApplied(BigDecimal.ZERO)
+                .totalAmount(new BigDecimal("38.00"))
+                .deliveryAddressSnapshot(java.util.Map.of("line1", "MG Road"))
+                .vendorSubOrders(new ArrayList<>())
+                .build();
+
+        OrderItem cancelled = OrderItem.builder()
+                .id(itemId)
+                .itemNameSnapshot("Banana Chips")
+                .shopNameSnapshot("Ravi Kirana")
+                .quantity(1)
+                .lineTotal(new BigDecimal("60.00"))
+                .status(OrderItemStatus.CANCELLED)
+                .cancelledBy(buyerId)
+                .storeCreditAmount(new BigDecimal("60.00"))
+                .build();
+
+        VendorSubOrder subOrder = VendorSubOrder.builder()
+                .id(subOrderId)
+                .order(order)
+                .vendorId(vendorId)
+                .shopId(UUID.randomUUID())
+                .subOrderNumber("NRPT-00022-1/1")
+                .status(VendorSubOrderStatus.PLACED)
+                .subtotal(BigDecimal.ZERO)
+                .items(new ArrayList<>(List.of(cancelled)))
+                .build();
+        cancelled.setVendorSubOrder(subOrder);
+        order.getVendorSubOrders().add(subOrder);
+
+        when(vendorSubOrderRepository.findDetailedByIdAndVendorId(subOrderId, vendorId))
+                .thenReturn(Optional.of(subOrder));
+
+        assertThatThrownBy(() -> vendorSubOrderService.restoreItem(vendorId, subOrderId, itemId, actorId))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("Buyer cancelled");
+        verify(paymentClient, never()).debitWallet(any(), any(), any(), any(), any(), any());
     }
 
     private VendorSubOrder placedSubOrder(UUID vendorId, UUID subOrderId) {

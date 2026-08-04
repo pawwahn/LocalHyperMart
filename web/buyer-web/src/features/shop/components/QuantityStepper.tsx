@@ -74,7 +74,8 @@ const styles: Record<string, CSSProperties> = {
     boxShadow: '0 2px 6px rgba(12, 131, 31, 0.12)',
   },
   add: {
-    minWidth: 68,
+    minWidth: 72,
+    minHeight: 'var(--touch-min)',
     padding: '0.42rem 0.7rem',
     border: '1.5px solid var(--accent)',
     borderRadius: 8,
@@ -85,6 +86,7 @@ const styles: Record<string, CSSProperties> = {
     letterSpacing: '0.06em',
     cursor: 'pointer',
     boxShadow: '0 2px 8px rgba(12, 131, 31, 0.12)',
+    boxSizing: 'border-box',
   },
   addMd: {
     minWidth: 84,
@@ -145,6 +147,8 @@ const styles: Record<string, CSSProperties> = {
     fontSize: '1.1rem',
     lineHeight: 1,
     padding: '0.4rem 0.55rem',
+    minWidth: 'var(--touch-min)',
+    minHeight: 'var(--touch-min)',
     cursor: 'pointer',
   },
   qtyXs: {

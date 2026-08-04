@@ -3,6 +3,7 @@ package com.hyperlocalmart.vendor.web;
 import com.hyperlocalmart.common.api.ApiResponse;
 import com.hyperlocalmart.common.exception.BusinessException;
 import com.hyperlocalmart.common.exception.ErrorCode;
+import com.hyperlocalmart.vendor.dto.request.UpdateVendorProfileRequest;
 import com.hyperlocalmart.vendor.dto.request.UpdateVendorStatusRequest;
 import com.hyperlocalmart.vendor.dto.response.VendorListResponse;
 import com.hyperlocalmart.vendor.dto.response.VendorResponse;
@@ -17,6 +18,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -40,6 +42,18 @@ public class VendorAdminController {
         requireAdmin(principal);
         VendorStatus parsed = parseStatus(status);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, vendorRegistrationService.listVendors(townId, parsed)));
+    }
+
+    @PutMapping("/{vendorId}")
+    public ResponseEntity<ApiResponse<VendorResponse>> updateProfile(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @PathVariable UUID vendorId,
+            @Valid @RequestBody UpdateVendorProfileRequest request,
+            HttpServletRequest httpRequest) {
+        requireAdmin(principal);
+        return ResponseEntity.ok(ApiResponses.ok(
+                httpRequest,
+                vendorRegistrationService.updateVendorProfile(vendorId, principal.getUserId(), request)));
     }
 
     @PatchMapping("/{vendorId}/status")

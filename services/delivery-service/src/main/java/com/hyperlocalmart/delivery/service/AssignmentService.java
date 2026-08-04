@@ -5,6 +5,7 @@ import com.hyperlocalmart.common.exception.BusinessException;
 import com.hyperlocalmart.common.exception.ErrorCode;
 import com.hyperlocalmart.delivery.client.NotificationClient;
 import com.hyperlocalmart.delivery.client.OrderClient;
+import com.hyperlocalmart.delivery.client.VendorClient;
 import com.hyperlocalmart.delivery.dto.request.ReassignAssignmentRequest;
 import com.hyperlocalmart.delivery.dto.request.AssignLastMileRequest;
 import com.hyperlocalmart.delivery.dto.request.AssignPickupRequest;
@@ -48,6 +49,7 @@ public class AssignmentService {
     private final DeliveryAssignmentRepository deliveryAssignmentRepository;
     private final DeliveryEventRepository deliveryEventRepository;
     private final OrderClient orderClient;
+    private final VendorClient vendorClient;
     private final DeliveryOtpService deliveryOtpService;
     private final NotificationClient notificationClient;
 
@@ -247,6 +249,17 @@ public class AssignmentService {
         }
 
         OrderClient.PickupManifest manifest = orderClient.getPickupManifest(assignment.getVendorSubOrderId());
+        String shopAddress = null;
+        String shopPhone = null;
+        if (manifest.shopId() != null) {
+            try {
+                VendorClient.ShopSnapshot shop = vendorClient.getShop(manifest.shopId());
+                shopAddress = formatShopAddress(shop.address(), shop.pincode());
+                shopPhone = shop.phone();
+            } catch (RuntimeException ignored) {
+                // Keep pickup usable even if vendor-service is briefly down.
+            }
+        }
         return PickupManifestResponse.builder()
                 .assignmentId(assignment.getId())
                 .subOrderId(manifest.subOrderId())
@@ -254,6 +267,8 @@ public class AssignmentService {
                 .orderNumber(manifest.orderNumber())
                 .shopId(manifest.shopId())
                 .shopName(manifest.shopName())
+                .shopAddress(shopAddress)
+                .shopPhone(shopPhone)
                 .subtotal(manifest.subtotal())
                 .totalItemCount(manifest.totalItemCount())
                 .items(manifest.items().stream()
@@ -464,18 +479,59 @@ public class AssignmentService {
         Map<UUID, List<DeliveryEventResponse>> eventsByAssignment = loadEventResponses(assignments.stream()
                 .map(DeliveryAssignment::getId)
                 .toList());
+        Map<UUID, OrderClient.DeliveryOrderSnapshot> deliveryByOrder = new HashMap<>();
+        for (DeliveryAssignment assignment : assignments) {
+            if (assignment.getLegType() != AssignmentLegType.LAST_MILE) {
+                continue;
+            }
+            deliveryByOrder.computeIfAbsent(assignment.getOrderId(), orderId -> {
+                try {
+                    return orderClient.getDeliveryOrder(orderId);
+                } catch (RuntimeException ex) {
+                    return null;
+                }
+            });
+        }
         return assignments.stream()
-                .map(a -> toResponse(a, eventsByAssignment.getOrDefault(a.getId(), List.of())))
+                .map(a -> toResponse(
+                        a,
+                        eventsByAssignment.getOrDefault(a.getId(), List.of()),
+                        deliveryByOrder.get(a.getOrderId())))
                 .toList();
     }
 
     private AssignmentResponse toResponse(DeliveryAssignment assignment) {
         List<DeliveryEventResponse> events = loadEventResponses(List.of(assignment.getId()))
                 .getOrDefault(assignment.getId(), List.of());
-        return toResponse(assignment, events);
+        OrderClient.DeliveryOrderSnapshot delivery = null;
+        if (assignment.getLegType() == AssignmentLegType.LAST_MILE) {
+            try {
+                delivery = orderClient.getDeliveryOrder(assignment.getOrderId());
+            } catch (RuntimeException ignored) {
+                // Leave destination blank if order-service is unavailable.
+            }
+        }
+        return toResponse(assignment, events, delivery);
     }
 
-    private AssignmentResponse toResponse(DeliveryAssignment assignment, List<DeliveryEventResponse> events) {
+    private AssignmentResponse toResponse(
+            DeliveryAssignment assignment,
+            List<DeliveryEventResponse> events,
+            OrderClient.DeliveryOrderSnapshot delivery) {
+        String destinationLabel = null;
+        String destinationName = null;
+        String destinationPhone = null;
+        String destinationAddress = null;
+        if (assignment.getLegType() == AssignmentLegType.LAST_MILE && delivery != null) {
+            destinationLabel = delivery.addressLabel();
+            destinationName = delivery.recipientName();
+            destinationPhone = firstNonBlank(delivery.recipientPhone(), delivery.buyerPhone());
+            destinationAddress = formatBuyerAddress(
+                    delivery.addressLine1(),
+                    delivery.addressLine2(),
+                    delivery.landmark(),
+                    delivery.pincode());
+        }
         return AssignmentResponse.builder()
                 .assignmentId(assignment.getId())
                 .assignmentNumber(assignment.getAssignmentNumber())
@@ -493,7 +549,57 @@ public class AssignmentService {
                 .startedAt(deriveStartedAt(events))
                 .completedAt(assignment.getCompletedAt())
                 .events(events)
+                .destinationLabel(destinationLabel)
+                .destinationName(destinationName)
+                .destinationPhone(destinationPhone)
+                .destinationAddress(destinationAddress)
                 .build();
+    }
+
+    private static String formatShopAddress(String address, String pincode) {
+        String line = address == null ? "" : address.trim();
+        String pin = pincode == null ? "" : pincode.trim();
+        if (line.isEmpty() && pin.isEmpty()) {
+            return null;
+        }
+        if (line.isEmpty()) {
+            return pin;
+        }
+        if (pin.isEmpty()) {
+            return line;
+        }
+        return line + ", " + pin;
+    }
+
+    private static String formatBuyerAddress(String line1, String line2, String landmark, String pincode) {
+        StringBuilder sb = new StringBuilder();
+        appendPart(sb, line1);
+        appendPart(sb, line2);
+        if (landmark != null && !landmark.isBlank()) {
+            appendPart(sb, "Near " + landmark.trim());
+        }
+        appendPart(sb, pincode);
+        return sb.isEmpty() ? null : sb.toString();
+    }
+
+    private static void appendPart(StringBuilder sb, String part) {
+        if (part == null || part.isBlank()) {
+            return;
+        }
+        if (!sb.isEmpty()) {
+            sb.append(", ");
+        }
+        sb.append(part.trim());
+    }
+
+    private static String firstNonBlank(String primary, String fallback) {
+        if (primary != null && !primary.isBlank()) {
+            return primary.trim();
+        }
+        if (fallback != null && !fallback.isBlank()) {
+            return fallback.trim();
+        }
+        return null;
     }
 
     private Map<UUID, List<DeliveryEventResponse>> loadEventResponses(List<UUID> assignmentIds) {

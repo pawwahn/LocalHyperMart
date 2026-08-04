@@ -22,7 +22,7 @@ type Props = {
   onDecrease: () => void;
 };
 
-/** Presentational product tile — compact 4-up mobile grid. */
+/** Presentational product tile — 2-up phone grid. */
 export function ProductCard({
   name,
   shopName,
@@ -67,7 +67,7 @@ export function ProductCard({
             disabled={busy}
             onIncrease={onIncrease}
             onDecrease={onDecrease}
-            size="xs"
+            size="sm"
           />
         </div>
       </div>

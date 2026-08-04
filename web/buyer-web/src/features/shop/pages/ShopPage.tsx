@@ -284,8 +284,8 @@ const styles: Record<string, CSSProperties> = {
   count: { margin: 0, color: 'var(--text-muted)', fontSize: '0.8rem', fontWeight: 600 },
   grid: {
     display: 'grid',
-    gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
-    gap: '0.4rem',
+    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+    gap: '0.55rem',
     width: '100%',
     minWidth: 0,
   },

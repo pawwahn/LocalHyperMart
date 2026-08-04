@@ -115,8 +115,15 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     function onVisible() {
       if (document.visibilityState === 'visible') void reload();
     }
+    function onInvalidate() {
+      void reload();
+    }
     document.addEventListener('visibilitychange', onVisible);
-    return () => document.removeEventListener('visibilitychange', onVisible);
+    window.addEventListener('hlm:wallet-invalidate', onInvalidate);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('hlm:wallet-invalidate', onInvalidate);
+    };
   }, [session?.accessToken, reload]);
 
   const value = useMemo(

@@ -24,6 +24,10 @@ public class OrderItemDetailResponse {
     private BigDecimal storeCreditAmount;
     /** True when buyer may cancel this line (shop still PLACED). */
     private boolean canCancel;
+    /** True when this line was cancelled by the buyer (vendor must not restore). */
+    private boolean cancelledByBuyer;
+    /** True when vendor may restore this cancelled line. */
+    private boolean canRestore;
     /** True when buyer may file a claim on this delivered line. */
     private boolean canFileClaim;
     /** True when buyer may rate this delivered line. */

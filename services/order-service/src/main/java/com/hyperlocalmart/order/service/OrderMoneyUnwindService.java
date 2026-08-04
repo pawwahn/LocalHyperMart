@@ -80,6 +80,11 @@ public class OrderMoneyUnwindService {
     }
 
     private void reversePriorItemCancelCredits(Order order, UUID skipItemId, String reason) {
+        // COD never captured money at gateway — keep item cancel store credits on the wallet.
+        // Reversing them would wipe the buyer's refund when the order empties.
+        if (order.getPaymentMethod() == PaymentMethod.COD) {
+            return;
+        }
         if (order.getVendorSubOrders() == null) {
             return;
         }
@@ -120,6 +125,9 @@ public class OrderMoneyUnwindService {
     }
 
     private void clearItemCancelCredits(Order order, UUID skipItemId) {
+        if (order.getPaymentMethod() == PaymentMethod.COD) {
+            return;
+        }
         if (order.getVendorSubOrders() == null) {
             return;
         }
@@ -128,6 +136,9 @@ public class OrderMoneyUnwindService {
                 continue;
             }
             for (OrderItem item : sub.getItems()) {
+                if (skipItemId != null && skipItemId.equals(item.getId())) {
+                    continue;
+                }
                 if (item.getStatus() == OrderItemStatus.CANCELLED) {
                     item.setStoreCreditAmount(null);
                 }

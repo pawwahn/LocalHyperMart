@@ -51,11 +51,19 @@ export function VendorPickupCard({
   const canPick = step === 'shop' && !busy;
   const shopName = manifest?.shopName?.trim() || 'Shop';
   const bagShort = task.subOrderNumber?.split('-').pop() || task.subOrderNumber || 'bag';
+  const shopAddress = manifest?.shopAddress?.trim();
+  const shopPhone = manifest?.shopPhone?.trim();
 
   return (
     <article style={styles.card}>
       <p style={styles.shopTitle}>🏪 {shopName}</p>
       <p style={styles.bagMeta}>Bag {bagShort}</p>
+      {shopAddress ? <p style={styles.addressBlock}>📍 {shopAddress}</p> : null}
+      {shopPhone ? (
+        <a href={`tel:${shopPhone}`} style={styles.phoneLink}>
+          Call shop · {shopPhone}
+        </a>
+      ) : null}
       <ActionTimeline
         compact
         events={task.events}
@@ -113,6 +121,22 @@ export function BuyerDeliveryCard({
     <article style={styles.cardBuyer}>
       <p style={styles.orderTitle}>🛵 Customer order</p>
       <p style={styles.orderNo}>{task.orderNumber}</p>
+      <div style={styles.destBox}>
+        <p style={styles.destTitle}>
+          Deliver to{task.destinationLabel ? ` · ${task.destinationLabel}` : ''}
+        </p>
+        {task.destinationName ? <p style={styles.destLine}>{task.destinationName}</p> : null}
+        {task.destinationAddress ? (
+          <p style={styles.addressBlock}>📍 {task.destinationAddress}</p>
+        ) : (
+          <p style={styles.addressMissing}>Address not loaded — pull to refresh or call hub</p>
+        )}
+        {task.destinationPhone ? (
+          <a href={`tel:${task.destinationPhone}`} style={styles.phoneLink}>
+            Call · {task.destinationPhone}
+          </a>
+        ) : null}
+      </div>
       <ActionTimeline
         compact
         events={task.events}
@@ -216,6 +240,38 @@ const styles: Record<string, CSSProperties> = {
     fontFamily: 'var(--font-display)',
   },
   bagMeta: { margin: 0, color: 'var(--text-muted)', fontWeight: 700, fontSize: '0.85rem' },
+  addressBlock: {
+    margin: 0,
+    color: 'var(--text)',
+    fontWeight: 700,
+    fontSize: '0.92rem',
+    lineHeight: 1.35,
+  },
+  phoneLink: {
+    color: 'var(--accent)',
+    fontWeight: 800,
+    fontSize: '0.9rem',
+    textDecoration: 'none',
+    minHeight: 'var(--touch-min)',
+    display: 'inline-flex',
+    alignItems: 'center',
+  },
+  destBox: {
+    display: 'grid',
+    gap: '0.2rem',
+    padding: '0.65rem 0.75rem',
+    borderRadius: 12,
+    background: 'rgba(66, 165, 245, 0.1)',
+    border: '1px solid rgba(66, 165, 245, 0.35)',
+  },
+  destTitle: { margin: 0, fontWeight: 800, fontSize: '0.85rem', color: 'var(--accent)' },
+  destLine: { margin: 0, fontWeight: 800, fontSize: '1rem' },
+  addressMissing: {
+    margin: 0,
+    color: 'var(--danger)',
+    fontWeight: 700,
+    fontSize: '0.88rem',
+  },
   orderTitle: { margin: 0, fontWeight: 800, fontSize: '1.2rem', fontFamily: 'var(--font-display)' },
   orderNo: { margin: 0, fontWeight: 700, fontSize: '0.95rem', wordBreak: 'break-all' },
   hint: {

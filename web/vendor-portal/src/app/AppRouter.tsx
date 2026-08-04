@@ -6,6 +6,7 @@ import { RequireAuth } from '@/shared/routing/RequireAuth';
 import { VendorChromeLayout } from '@/shared/layout/VendorChromeLayout';
 import { LoginPage } from '@/features/auth/pages/LoginPage';
 import { PayoutsPage } from '@/features/payouts/pages/PayoutsPage';
+import { SellersPage } from '@/features/sellers/pages/SellersPage';
 import { SettingsPage } from '@/features/settings/pages/SettingsPage';
 
 function AuthBoundTheme({ children }: { children: ReactNode }) {
@@ -39,6 +40,7 @@ export function AppRouter() {
                 <Route path="/listings" element={<KeepAliveRoute />} />
                 <Route path="/reports" element={<KeepAliveRoute />} />
                 <Route path="/payouts" element={<PayoutsPage />} />
+                <Route path="/sellers" element={<SellersPage />} />
                 <Route path="/settings" element={<SettingsPage />} />
               </Route>
             </Route>

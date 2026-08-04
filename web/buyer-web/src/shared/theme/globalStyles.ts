@@ -41,12 +41,14 @@ export function injectGlobalStyles(): void {
       --shell-max: 560px;
       --tabbar-h: 64px;
       --sticky-cart-h: 64px;
+      --touch-min: 44px;
     }
     *, *::before, *::after { box-sizing: border-box; }
     html {
       min-height: 100%;
       overflow-x: hidden;
       max-width: 100%;
+      -webkit-text-size-adjust: 100%;
     }
     body, #root {
       min-height: 100%;
@@ -60,10 +62,16 @@ export function injectGlobalStyles(): void {
       color: var(--text);
       line-height: 1.45;
       -webkit-font-smoothing: antialiased;
+      padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) 0 env(safe-area-inset-left, 0px);
     }
     button, input, select, textarea { font: inherit; }
     button:disabled { opacity: 0.55; cursor: not-allowed; }
+    button, a, [role="button"] { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
     a { color: var(--accent); }
+    @media (max-width: 767px) {
+      :root { --tabbar-h: 60px; }
+      input, select, textarea { font-size: 16px !important; }
+    }
     ::selection { background: var(--accent-soft); color: var(--accent-hover); }
     @keyframes hlm-fade-up {
       from { opacity: 0; transform: translateY(8px); }

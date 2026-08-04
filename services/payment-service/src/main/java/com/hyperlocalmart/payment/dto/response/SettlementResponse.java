@@ -25,6 +25,8 @@ public class SettlementResponse {
     SettlementPeriodType periodType;
     BigDecimal grossAmount;
     BigDecimal commissionAmount;
+    /** Claim chargebacks deducted from this payout (gross − commission − net). */
+    BigDecimal claimChargebacksAmount;
     BigDecimal netAmount;
     SettlementStatus status;
     String payoutMethod;

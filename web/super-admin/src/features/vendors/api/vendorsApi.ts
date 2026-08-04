@@ -8,6 +8,8 @@ export type VendorRegistrationVm = {
   phone: string;
   shopName: string;
   address?: string | null;
+  gstNumber?: string | null;
+  fssaiNumber?: string | null;
   status: string;
   rejectReason?: string | null;
   vendorId?: string | null;
@@ -22,22 +24,29 @@ export type VendorVm = {
   businessName: string;
   ownerName?: string | null;
   phone: string;
+  gstNumber?: string | null;
+  fssaiNumber?: string | null;
+  bankAccount?: string | null;
+  ifsc?: string | null;
   status: string;
   shopName?: string | null;
+  address?: string | null;
   disabledReason?: string | null;
 };
 
-type RegistrationDto = VendorRegistrationVm;
-type VendorDto = {
-  id: string;
-  townId: string;
+export type UpdateVendorProfileInput = {
   businessName: string;
-  ownerName?: string | null;
-  phone: string;
-  status: string;
-  shopName?: string | null;
-  disabledReason?: string | null;
+  ownerName?: string;
+  shopName: string;
+  address?: string;
+  gstNumber?: string;
+  fssaiNumber?: string;
+  bankAccount?: string;
+  ifsc?: string;
 };
+
+type RegistrationDto = VendorRegistrationVm;
+type VendorDto = VendorVm;
 
 export type CreateRegistrationInput = {
   townId: string;
@@ -47,6 +56,7 @@ export type CreateRegistrationInput = {
   shopName: string;
   address?: string;
   gstNumber?: string;
+  fssaiNumber?: string;
   bankAccount?: string;
   ifsc?: string;
 };
@@ -113,5 +123,17 @@ export async function updateVendorStatus(
     method: 'PATCH',
     token,
     body: reason ? { status, reason } : { status },
+  });
+}
+
+export async function updateVendorProfile(
+  token: string,
+  vendorId: string,
+  input: UpdateVendorProfileInput,
+): Promise<VendorVm> {
+  return apiRequest<VendorVm>(`/api/v1/vendors/${vendorId}`, {
+    method: 'PUT',
+    token,
+    body: input,
   });
 }

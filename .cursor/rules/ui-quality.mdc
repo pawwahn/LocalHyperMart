@@ -1,19 +1,32 @@
 ---
-description: UI quality bar — polished, responsive, q-commerce grade (Blinkit/Zepto/Instamart)
+description: UI quality bar — mobile-first, polished, q-commerce grade (Blinkit/Zepto/Instamart)
 alwaysApply: true
 ---
 
 # UI quality bar
 
-Always ship **best-effort UI** without waiting for the user to complain. Benchmark against **Blinkit / Zepto / Instamart / Zomato** ops and consumer patterns: clear hierarchy, dense-but-breathable lists, strong primary actions, readable tables on mobile.
+Always ship **best-effort UI** without waiting for the user to complain. Benchmark against **Blinkit / Zepto / Instamart / Zomato** ops and consumer patterns: clear hierarchy, dense-but-breathable lists, strong primary actions, readable on a phone.
+
+## Mobile-first (default assumption)
+
+**Design and review every screen as if it is used on a phone first** (buyer, vendor, delivery hub, delivery agent). Desktop is a wider layout of the same mobile UX — not the primary canvas.
+
+- One column by default; no side-by-side list/detail unless `useIsMobile()` is false.
+- List → detail drill-in on mobile (back control to return to the list).
+- Compact rows/cards are good; **hit targets must stay ≥ `var(--touch-min)` (44px)** for tappable rows and primary buttons.
+- Prefer short human labels over long sentences; put full copy in `title` / expanders if needed.
+- Avoid multi-column “box grids” for worklists — use a **compact vertical list**.
+- Sticky/primary actions near the thumb when a screen is action-heavy.
+- Inputs stay ≥ 16px on mobile (already enforced globally) so iOS does not zoom.
+- Respect safe-area / bottom tab bar; do not bury critical actions under chrome.
 
 ## Defaults for data screens
 
-- Prefer **tables** for multi-field records (orders, wallet, claims, addresses) with sticky header and horizontal scroll on small screens.
+- Prefer **tables** for multi-field records (orders, wallet, claims, addresses) with sticky header and horizontal scroll on small screens — or compact list rows when a table is too wide on phone.
 - Prefer **tabs** when a page has multiple heavy datasets (do not stack unbounded sections).
 - Always **paginate** (Prev/Next or numbered) — see `scale-list-ux.mdc`.
 - Short human labels; status pills; money right-aligned; tap-to-call phones.
-- Responsive: one column on narrow viewports; toolbars wrap cleanly; touch-friendly hit targets.
+- Toolbars wrap cleanly; search and filters stay usable with one thumb.
 
 ## Visual
 
@@ -23,4 +36,4 @@ Always ship **best-effort UI** without waiting for the user to complain. Benchma
 
 ## Process
 
-If a screen looks “admin prototype”, refine it in the same pass. Do not leave “we’ll polish later” for list/detail UIs.
+If a screen looks “admin prototype” or “desktop spreadsheet”, refine it in the same pass for phone use. Do not leave “we’ll polish later” for list/detail UIs.

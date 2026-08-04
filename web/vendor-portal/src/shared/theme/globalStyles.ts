@@ -36,9 +36,13 @@ export function injectGlobalStyles(): void {
       --shadow-soft: ${tokens.shadow.soft};
       --motion-fast: ${tokens.motion.fast};
       --motion-normal: ${tokens.motion.normal};
+      --shell-max: 1120px;
+      --tabbar-h: 64px;
+      --touch-min: 44px;
     }
     *, *::before, *::after { box-sizing: border-box; }
     html, body, #root { min-height: 100%; }
+    html { -webkit-text-size-adjust: 100%; }
     body {
       margin: 0;
       font-family: var(--font-body);
@@ -49,10 +53,17 @@ export function injectGlobalStyles(): void {
       color: var(--text);
       line-height: 1.5;
       -webkit-font-smoothing: antialiased;
+      overflow-x: hidden;
+      padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) 0 env(safe-area-inset-left, 0px);
     }
     button, input, select, textarea { font: inherit; }
     button:disabled { opacity: 0.55; cursor: not-allowed; }
+    button, a, [role="button"] { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
     a { color: var(--accent); }
+    @media (max-width: 767px) {
+      :root { --shell-max: 100%; --tabbar-h: 60px; }
+      input, select, textarea { font-size: 16px !important; }
+    }
     @keyframes hlm-fade-up {
       from { opacity: 0; transform: translateY(6px); }
       to { opacity: 1; transform: translateY(0); }

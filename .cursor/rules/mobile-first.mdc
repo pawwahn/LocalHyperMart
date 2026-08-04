@@ -1,0 +1,23 @@
+---
+description: All HyperLocalMart portals are phone-first (buyer, vendor, hub, agent, admin)
+alwaysApply: true
+---
+
+# Mobile-first for every portal
+
+**Assume the app is used on a phone.** This applies to buyer-web, vendor-portal, delivery-portal (hub + agent), and super-admin — not only the hub desk.
+
+## Required defaults
+
+- Design the **narrow viewport first**; widen for desktop. Do not ship desktop-only tables/splits without a phone path.
+- Tappable controls and list rows ≥ `var(--touch-min)` (44px).
+- Prefer **compact vertical lists** and list → detail drill-in over multi-column card grids or forced side-by-side panes.
+- Bottom tab bars (or equally large nav) for primary sections on phone; respect safe-area insets.
+- Inputs/selects ≥ 16px on mobile so iOS does not zoom.
+- Wide data: horizontal scroll **or** card rows on narrow — never unreadable squeezed columns.
+
+## When changing UI
+
+1. Mentally check the screen at ~390px width before finishing.
+2. Reuse delivery-portal patterns (`useIsMobile`, bottom tabs, WorklistToolbar) when adding ops screens.
+3. Do not regress touch targets for “compact” aesthetics — compact text/padding is fine; tiny hit areas are not.

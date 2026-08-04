@@ -29,6 +29,7 @@ export type AdminOrderDto = {
   placedAt?: string;
   subOrderCount: number;
   readySubOrderCount: number;
+  atHubSubOrderCount?: number;
 };
 
 export type AdminOrderDetailDto = {
@@ -93,6 +94,10 @@ export type AssignmentDto = {
   assignedAt?: string | null;
   startedAt?: string | null;
   completedAt?: string | null;
+  destinationLabel?: string | null;
+  destinationName?: string | null;
+  destinationPhone?: string | null;
+  destinationAddress?: string | null;
   events?: Array<{
     eventId: string;
     eventType: string;
@@ -122,6 +127,7 @@ export type OrderRowView = {
   totalLabel: string;
   subOrderCount: number;
   readySubOrderCount: number;
+  atHubSubOrderCount: number;
   pickupReadiness: 'none' | 'partial' | 'all';
 };
 
@@ -164,6 +170,7 @@ export function toHubDashboardView(dto: HubDashboardDto): HubDashboardView {
 export function toOrderRow(dto: AdminOrderDto): OrderRowView {
   const ready = dto.readySubOrderCount ?? 0;
   const total = dto.subOrderCount ?? 0;
+  const atHub = dto.atHubSubOrderCount ?? 0;
   const pickupReadiness: OrderRowView['pickupReadiness'] =
     ready <= 0 ? 'none' : ready >= total ? 'all' : 'partial';
   return {
@@ -174,6 +181,7 @@ export function toOrderRow(dto: AdminOrderDto): OrderRowView {
     totalLabel: money(dto.totalAmount),
     subOrderCount: total,
     readySubOrderCount: ready,
+    atHubSubOrderCount: atHub,
     pickupReadiness,
   };
 }

@@ -6,6 +6,7 @@ import { LoginPage } from '@/features/auth/pages/LoginPage';
 import { DashboardPage } from '@/features/dashboard/pages/DashboardPage';
 import { TownsPage } from '@/features/towns/pages/TownsPage';
 import { VendorsPage } from '@/features/vendors/pages/VendorsPage';
+import { VendorBillingPage } from '@/features/vendors/pages/VendorBillingPage';
 import { CatalogPage } from '@/features/catalog/pages/CatalogPage';
 import { StoreListingsPage } from '@/features/store-listings/pages/StoreListingsPage';
 import { SettlementsPage } from '@/features/settlements/pages/SettlementsPage';
@@ -31,6 +32,7 @@ export function AppRouter() {
               <Route path="/claims" element={<ClaimsPage />} />
               <Route path="/customers" element={<CustomersPage />} />
               <Route path="/vendors" element={<VendorsPage />} />
+              <Route path="/vendor-billing" element={<VendorBillingPage />} />
               <Route path="/catalog" element={<CatalogPage />} />
               <Route path="/store-listings" element={<StoreListingsPage />} />
               <Route path="/settlements" element={<SettlementsPage />} />

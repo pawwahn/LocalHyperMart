@@ -32,7 +32,7 @@ public class OrderNumberGenerator {
                         .build());
         sequence.setLastSequence(sequence.getLastSequence() + 1);
         dailyOrderSequenceRepository.save(sequence);
-        return String.format("%s/%s-%s-O%04d",
+        return String.format("%s/%s-%s-%04d",
                 townCode, stateCode, orderDate.format(DATE_FMT), sequence.getLastSequence());
     }
 

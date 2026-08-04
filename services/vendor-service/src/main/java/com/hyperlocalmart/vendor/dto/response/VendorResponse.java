@@ -14,7 +14,12 @@ public class VendorResponse {
     private String businessName;
     private String ownerName;
     private String phone;
+    private String gstNumber;
+    private String fssaiNumber;
+    private String bankAccount;
+    private String ifsc;
     private String status;
     private String shopName;
+    private String address;
     private String disabledReason;
 }

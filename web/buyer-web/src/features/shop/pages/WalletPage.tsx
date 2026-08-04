@@ -1,4 +1,4 @@
-import type { CSSProperties } from 'react';
+import { useEffect, type CSSProperties } from 'react';
 import { PortalShell } from '@/shared/layout/PortalShell';
 import { Banner, EmptyState, LoadingBlock } from '@/shared/ui';
 import { useShop } from '../hooks/useShop';
@@ -49,6 +49,11 @@ export function WalletPage() {
   const { cart } = useShop();
   const { balance, transactions, hasMore, loading, loadingMore, error, reload, loadMore } =
     useWallet();
+
+  // Always refresh when opening Wallet so balance matches recent cancel credits.
+  useEffect(() => {
+    void reload();
+  }, [reload]);
 
   return (
     <PortalShell

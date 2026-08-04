@@ -127,7 +127,7 @@ public class VendorSubOrderService {
             item.setCancelReason(request.getReason());
             item.setCancelledAt(Instant.now());
             item.setCancelledBy(actorUserId);
-            // COD: cash due shrinks with totals — do not also wallet-credit (double benefit).
+            // Always record store-credit amount for wallet credit path below.
             item.setStoreCreditAmount(issueStoreCredit ? creditAmount : null);
             shopCredit = shopCredit.add(creditAmount);
         }
@@ -157,12 +157,6 @@ public class VendorSubOrderService {
         BigDecimal remainingActive = orderItemRepository.sumActiveLineTotalsForOrder(order.getId());
         boolean orderEmpty = remainingActive == null || remainingActive.compareTo(BigDecimal.ZERO) == 0;
         if (orderEmpty) {
-            // These lines were never wallet-credited — clear markers so unwind does not
-            // debit the buyer for them. Only earlier shops' item credits get reversed.
-            for (OrderItem item : toCancel) {
-                item.setStoreCreditAmount(null);
-            }
-
             OrderStatus prior = order.getStatus();
             order.setStatus(OrderStatus.CANCELLED);
             order.setCancelReason(request.getReason());
@@ -175,6 +169,32 @@ public class VendorSubOrderService {
                     .changedByRole("VENDOR")
                     .note("Vendor rejected last shop: " + request.getReason())
                     .build());
+
+            if (order.getPaymentMethod() == PaymentMethod.COD
+                    && shopCredit.compareTo(BigDecimal.ZERO) > 0) {
+                for (OrderItem item : toCancel) {
+                    item.setStoreCreditAmount(item.getLineTotal());
+                }
+                try {
+                    paymentClient.creditWallet(
+                            order.getBuyerId(),
+                            shopCredit,
+                            "ORDER_ITEM_CANCEL",
+                            subOrderId,
+                            order.getId(),
+                            toCancel.get(0).getId(),
+                            "Shop rejected: " + request.getReason());
+                } catch (RuntimeException ex) {
+                    log.error("Wallet credit failed while rejecting last shop {}", subOrderId, ex);
+                    throw new BusinessException(ErrorCode.INTERNAL_ERROR,
+                            "Could not credit buyer wallet. Try again in a moment.");
+                }
+            } else {
+                // ONLINE: gateway refund via unwind — clear markers so unwind does not debit them.
+                for (OrderItem item : toCancel) {
+                    item.setStoreCreditAmount(null);
+                }
+            }
 
             OrderMoneyUnwindService.UnwindResult unwind =
                     orderMoneyUnwindService.unwindCancelledOrder(order, request.getReason());
@@ -301,7 +321,6 @@ public class VendorSubOrderService {
         BigDecimal remainingActive = orderItemRepository.sumActiveLineTotalsForOrder(order.getId());
         boolean orderEmpty = remainingActive == null || remainingActive.compareTo(BigDecimal.ZERO) == 0;
         if (orderEmpty) {
-            item.setStoreCreditAmount(null);
             OrderStatus prior = order.getStatus();
             order.setStatus(OrderStatus.CANCELLED);
             order.setCancelReason(request.getReason());
@@ -314,6 +333,28 @@ public class VendorSubOrderService {
                     .changedByRole("VENDOR")
                     .note("All items cancelled: " + request.getReason())
                     .build());
+
+            if (order.getPaymentMethod() == PaymentMethod.COD
+                    && creditAmount != null
+                    && creditAmount.compareTo(BigDecimal.ZERO) > 0) {
+                item.setStoreCreditAmount(creditAmount);
+                try {
+                    paymentClient.creditWallet(
+                            order.getBuyerId(),
+                            creditAmount,
+                            "ORDER_ITEM_CANCEL",
+                            itemId,
+                            order.getId(),
+                            item.getId(),
+                            "Vendor cancelled item: " + item.getItemNameSnapshot());
+                } catch (RuntimeException ex) {
+                    log.error("Wallet credit failed while vendor cancelled last item {}", itemId, ex);
+                    throw new BusinessException(ErrorCode.INTERNAL_ERROR,
+                            "Could not credit buyer wallet. Try again in a moment.");
+                }
+            } else {
+                item.setStoreCreditAmount(null);
+            }
 
             OrderMoneyUnwindService.UnwindResult unwind =
                     orderMoneyUnwindService.unwindCancelledOrder(order, request.getReason(), itemId);
@@ -414,13 +455,16 @@ public class VendorSubOrderService {
         if (item.getStatus() != OrderItemStatus.CANCELLED) {
             throw new BusinessException(ErrorCode.CONFLICT, "Item is not cancelled");
         }
-
-        BigDecimal creditAmount = item.getStoreCreditAmount() != null
-                ? item.getStoreCreditAmount()
-                : item.getLineTotal();
-        if (creditAmount == null || creditAmount.compareTo(BigDecimal.ZERO) <= 0) {
-            throw new BusinessException(ErrorCode.CONFLICT, "No store credit on this item to reverse");
+        if (item.getCancelledBy() != null && item.getCancelledBy().equals(order.getBuyerId())) {
+            throw new BusinessException(ErrorCode.CONFLICT,
+                    "Buyer cancelled this item — it cannot be restored by the shop");
         }
+        if (item.getStoreCreditAmount() == null || item.getStoreCreditAmount().compareTo(BigDecimal.ZERO) <= 0) {
+            throw new BusinessException(ErrorCode.CONFLICT,
+                    "This cancelled item has no store credit to reverse");
+        }
+
+        BigDecimal creditAmount = item.getStoreCreditAmount();
 
         BigDecimal balance;
         try {
@@ -582,11 +626,11 @@ public class VendorSubOrderService {
     }
 
     /**
-     * COD cash-due shrinks with order totals — wallet credit would double-benefit the buyer.
-     * ONLINE (already captured) needs store credit / refund path instead.
+     * Cancelled lines always get buyer wallet store credit (COD and online).
+     * COD cash-due also shrinks with remaining items — credit is for the cancelled line.
      */
     private static boolean shouldIssueStoreCredit(Order order) {
-        return order.getPaymentMethod() != PaymentMethod.COD;
+        return order != null;
     }
 
     private VendorSubOrder loadForVendorAction(UUID vendorId, UUID subOrderId) {
@@ -595,8 +639,10 @@ public class VendorSubOrderService {
     }
 
     private VendorSubOrderResponse toResponse(VendorSubOrder subOrder) {
+        UUID buyerId = subOrder.getOrder() != null ? subOrder.getOrder().getBuyerId() : null;
+        VendorSubOrderStatus subStatus = subOrder.getStatus();
         List<OrderItemDetailResponse> items = subOrder.getItems().stream()
-                .map(this::toItemDetail)
+                .map(item -> toItemDetail(item, buyerId, subStatus))
                 .toList();
         return VendorSubOrderResponse.builder()
                 .subOrderId(subOrder.getId())
@@ -613,7 +659,18 @@ public class VendorSubOrderService {
                 .build();
     }
 
-    private OrderItemDetailResponse toItemDetail(OrderItem item) {
+    private OrderItemDetailResponse toItemDetail(
+            OrderItem item, UUID buyerId, VendorSubOrderStatus subStatus) {
+        OrderItemStatus status = item.getStatus() == null ? OrderItemStatus.ACTIVE : item.getStatus();
+        boolean cancelled = status == OrderItemStatus.CANCELLED;
+        boolean cancelledByBuyer = cancelled
+                && buyerId != null
+                && buyerId.equals(item.getCancelledBy());
+        boolean restorableParent = subStatus == VendorSubOrderStatus.PLACED
+                || subStatus == VendorSubOrderStatus.READY_FOR_PICKUP
+                || subStatus == VendorSubOrderStatus.VENDOR_REJECTED;
+        boolean hasCredit = item.getStoreCreditAmount() != null
+                && item.getStoreCreditAmount().compareTo(BigDecimal.ZERO) > 0;
         return OrderItemDetailResponse.builder()
                 .orderItemId(item.getId())
                 .name(item.getItemNameSnapshot())
@@ -621,10 +678,12 @@ public class VendorSubOrderService {
                 .unitCode(item.getUnitCodeSnapshot())
                 .quantity(item.getQuantity())
                 .lineTotal(item.getLineTotal())
-                .status(item.getStatus() == null ? OrderItemStatus.ACTIVE : item.getStatus())
+                .status(status)
                 .cancelReason(item.getCancelReason())
                 .cancelledAt(item.getCancelledAt())
                 .storeCreditAmount(item.getStoreCreditAmount())
+                .cancelledByBuyer(cancelledByBuyer)
+                .canRestore(cancelled && restorableParent && !cancelledByBuyer && hasCredit)
                 .build();
     }
 }

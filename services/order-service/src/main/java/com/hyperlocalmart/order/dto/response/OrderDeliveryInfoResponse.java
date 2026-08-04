@@ -15,4 +15,12 @@ public class OrderDeliveryInfoResponse {
     String status;
     String orderNumber;
     String buyerPhone;
+    /** Snapshot fields for last-mile agents. */
+    String recipientName;
+    String recipientPhone;
+    String addressLine1;
+    String addressLine2;
+    String landmark;
+    String pincode;
+    String addressLabel;
 }

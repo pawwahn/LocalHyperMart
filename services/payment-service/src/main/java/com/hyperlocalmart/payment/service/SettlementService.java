@@ -59,11 +59,30 @@ public class SettlementService {
                         .build())
                 .toList();
 
+        List<VendorSettlementAdjustment> pendingAdjustments =
+                vendorSettlementAdjustmentRepository.findByVendorIdAndTownIdAndStatusOrderByCreatedAtAsc(
+                        vendorId, townId, VendorSettlementAdjustmentStatus.PENDING);
+        BigDecimal pendingClaimChargebacks = pendingAdjustments.stream()
+                .map(VendorSettlementAdjustment::getAmount)
+                .filter(Objects::nonNull)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        List<SettlementCandidateView.PendingClaim> pendingClaims = pendingAdjustments.stream()
+                .map(adj -> SettlementCandidateView.PendingClaim.builder()
+                        .claimId(adj.getClaimId())
+                        .orderNumber(adj.getOrderNumber())
+                        .amount(adj.getAmount())
+                        .reason(adj.getReason())
+                        .build())
+                .toList();
+
         return SettlementCandidateView.builder()
                 .vendorId(vendorId)
                 .townId(townId)
                 .from(from.toString())
                 .to(to.toString())
+                .pendingClaimChargebacks(pendingClaimChargebacks)
+                .pendingClaimCount(pendingAdjustments.size())
+                .pendingClaims(pendingClaims)
                 .items(items)
                 .build();
     }
@@ -298,6 +317,22 @@ public class SettlementService {
                         .build())
                 .toList();
 
+        BigDecimal commission = settlement.getCommissionAmount() == null
+                ? BigDecimal.ZERO : settlement.getCommissionAmount();
+        BigDecimal gross = settlement.getGrossAmount() == null
+                ? BigDecimal.ZERO : settlement.getGrossAmount();
+        BigDecimal net = settlement.getNetAmount() == null
+                ? BigDecimal.ZERO : settlement.getNetAmount();
+        BigDecimal claimFromLines = lines.stream()
+                .filter(line -> "ADJUSTMENT".equalsIgnoreCase(line.getLineType()))
+                .map(SettlementResponse.Line::getAmount)
+                .filter(Objects::nonNull)
+                .map(BigDecimal::abs)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal claimChargebacks = claimFromLines.compareTo(BigDecimal.ZERO) > 0
+                ? claimFromLines
+                : gross.subtract(commission).subtract(net).max(BigDecimal.ZERO);
+
         return SettlementResponse.builder()
                 .id(settlement.getId())
                 .townId(settlement.getTownId())
@@ -309,6 +344,7 @@ public class SettlementService {
                 .periodType(settlement.getPeriodType())
                 .grossAmount(settlement.getGrossAmount())
                 .commissionAmount(settlement.getCommissionAmount())
+                .claimChargebacksAmount(claimChargebacks)
                 .netAmount(settlement.getNetAmount())
                 .status(settlement.getStatus())
                 .payoutMethod(settlement.getPayoutMethod())

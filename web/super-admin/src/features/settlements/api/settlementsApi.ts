@@ -12,11 +12,21 @@ export type SettlementCandidate = {
   alreadySettled: boolean;
 };
 
+export type PendingSettlementClaim = {
+  claimId: string;
+  orderNumber?: string | null;
+  amount: number;
+  reason?: string | null;
+};
+
 export type SettlementCandidates = {
   vendorId: string;
   townId: string;
   from: string;
   to: string;
+  pendingClaimChargebacks?: number | null;
+  pendingClaimCount?: number | null;
+  pendingClaims?: PendingSettlementClaim[] | null;
   items: SettlementCandidate[];
 };
 
@@ -42,6 +52,7 @@ export type SettlementVm = {
   periodType: string;
   grossAmount: number;
   commissionAmount: number;
+  claimChargebacksAmount?: number | null;
   netAmount: number;
   status: string;
   payoutMethod?: string | null;
@@ -51,6 +62,18 @@ export type SettlementVm = {
   createdAt?: string | null;
   lines: SettlementLine[];
 };
+
+export function settlementClaimAmount(s: SettlementVm): number {
+  const fromApi = Number(s.claimChargebacksAmount);
+  if (Number.isFinite(fromApi) && fromApi > 0) return fromApi;
+  const fromLines = (s.lines ?? [])
+    .filter((l) => (l.lineType ?? '').toUpperCase() === 'ADJUSTMENT')
+    .reduce((sum, l) => sum + Math.abs(Number(l.amount ?? 0)), 0);
+  if (fromLines > 0) return fromLines;
+  const derived =
+    Number(s.grossAmount ?? 0) - Number(s.commissionAmount ?? 0) - Number(s.netAmount ?? 0);
+  return Math.max(0, Number.isFinite(derived) ? derived : 0);
+}
 
 export type CreateSettlementInput = {
   townId: string;

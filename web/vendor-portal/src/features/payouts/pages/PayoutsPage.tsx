@@ -8,6 +8,7 @@ import {
   listMyClaimAdjustments,
   listMySettlements,
   lookupOrderPayouts,
+  settlementClaimAmount,
   summarizeSettlements,
   type VendorClaimAdjustment,
   type VendorSettlement,
@@ -23,7 +24,8 @@ import {
 } from '@/shared/table';
 import { ClaimDeductionsDialog } from '@/features/payouts/components/ClaimDeductionsDialog';
 
-type SortKey = 'period' | 'gross' | 'fee' | 'net' | 'status' | 'paidAt';
+type SortKey = 'period' | 'gross' | 'fee' | 'claims' | 'net' | 'status' | 'paidAt';
+type DatePreset = 'all' | '30d' | '90d' | 'month' | 'custom';
 
 function isoToday(): string {
   return new Date().toISOString().slice(0, 10);
@@ -35,6 +37,31 @@ function isoDaysAgo(days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+function isoMonthStart(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
+}
+
+/** Settlement overlaps [from, to] when its payout period intersects the filter range. */
+function settlementOverlapsRange(
+  s: VendorSettlement,
+  from: string,
+  to: string,
+): boolean {
+  const start = (s.periodStart ?? s.periodEnd ?? '').slice(0, 10);
+  const end = (s.periodEnd ?? s.periodStart ?? '').slice(0, 10);
+  if (!start && !end) {
+    const paidDay = (s.paidAt ?? '').slice(0, 10);
+    if (!paidDay) return true;
+    if (from && paidDay < from) return false;
+    if (to && paidDay > to) return false;
+    return true;
+  }
+  if (from && end && end < from) return false;
+  if (to && start && start > to) return false;
+  return true;
+}
+
 export function PayoutsPage() {
   const { session } = useAuth();
   const [settlements, setSettlements] = useState<VendorSettlement[]>([]);
@@ -44,10 +71,37 @@ export function PayoutsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<'all' | 'PAID' | 'OPEN'>('all');
+  const [datePreset, setDatePreset] = useState<DatePreset>('all');
+  const [periodFrom, setPeriodFrom] = useState('');
+  const [periodTo, setPeriodTo] = useState('');
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(25);
   const [sort, setSort] = useState<SortState<SortKey>>({ key: 'period', dir: 'desc' });
   const [claimsOpen, setClaimsOpen] = useState(false);
+
+  function applyDatePreset(next: DatePreset) {
+    setDatePreset(next);
+    if (next === 'all') {
+      setPeriodFrom('');
+      setPeriodTo('');
+      return;
+    }
+    if (next === '30d') {
+      setPeriodFrom(isoDaysAgo(30));
+      setPeriodTo(isoToday());
+      return;
+    }
+    if (next === '90d') {
+      setPeriodFrom(isoDaysAgo(90));
+      setPeriodTo(isoToday());
+      return;
+    }
+    if (next === 'month') {
+      setPeriodFrom(isoMonthStart());
+      setPeriodTo(isoToday());
+      return;
+    }
+  }
 
   const reload = useCallback(async () => {
     if (!session) return;
@@ -106,6 +160,13 @@ export function PayoutsPage() {
     () => pendingClaimDebits.reduce((sum, a) => sum + Number(a.amount ?? 0), 0),
     [pendingClaimDebits],
   );
+  const appliedClaimDebitTotal = useMemo(
+    () =>
+      claimAdjustments
+        .filter((a) => a.status === 'APPLIED')
+        .reduce((sum, a) => sum + Number(a.amount ?? 0), 0),
+    [claimAdjustments],
+  );
 
   /** Prefer open settlement batches; otherwise unpaid shop sales (last 60 days). */
   const awaitingGross =
@@ -125,11 +186,14 @@ export function PayoutsPage() {
 
   const filtered = useMemo(() => {
     return settlements.filter((s) => {
-      if (statusFilter === 'PAID') return s.status === 'PAID';
-      if (statusFilter === 'OPEN') return s.status !== 'PAID';
+      if (statusFilter === 'PAID' && s.status !== 'PAID') return false;
+      if (statusFilter === 'OPEN' && s.status === 'PAID') return false;
+      if (periodFrom || periodTo) {
+        return settlementOverlapsRange(s, periodFrom, periodTo);
+      }
       return true;
     });
-  }, [settlements, statusFilter]);
+  }, [settlements, statusFilter, periodFrom, periodTo]);
 
   const sorted = useMemo(() => {
     const rows = [...filtered];
@@ -145,6 +209,9 @@ export function PayoutsPage() {
           break;
         case 'fee':
           cmp = Number(a.commissionAmount) - Number(b.commissionAmount);
+          break;
+        case 'claims':
+          cmp = settlementClaimAmount(a) - settlementClaimAmount(b);
           break;
         case 'net':
           cmp = Number(a.netAmount) - Number(b.netAmount);
@@ -170,7 +237,7 @@ export function PayoutsPage() {
 
   useEffect(() => {
     setPage(0);
-  }, [statusFilter, pageSize, sort]);
+  }, [statusFilter, periodFrom, periodTo, pageSize, sort]);
 
   usePortalChrome({ title: 'Payouts', onRefresh: () => void reload() });
 
@@ -220,8 +287,15 @@ export function PayoutsPage() {
           <div style={styles.metric}>
             <span style={styles.metricLabel}>Claim deductions</span>
             <strong style={{ ...styles.metricValueClaim, color: 'var(--metric-claim)' }}>
-              {formatMoney(pendingClaimDebitTotal)}
+              {formatMoney(pendingClaimDebitTotal > 0 ? pendingClaimDebitTotal : settlementSummary.paidClaims)}
             </strong>
+            <span style={styles.metricHint}>
+              {pendingClaimDebitTotal > 0
+                ? `${formatMoney(pendingClaimDebitTotal)} pending on next payout`
+                : settlementSummary.paidClaims > 0 || appliedClaimDebitTotal > 0
+                  ? `${formatMoney(settlementSummary.paidClaims || appliedClaimDebitTotal)} already taken from paid settlements`
+                  : 'None yet'}
+            </span>
             {claimAdjustments.length > 0 ? (
               <button
                 type="button"
@@ -234,9 +308,7 @@ export function PayoutsPage() {
                   ? `View ${pendingClaimDebits.length} pending`
                   : 'View claim history'}
               </button>
-            ) : (
-              <span style={styles.metricHint}>No open chargebacks</span>
-            )}
+            ) : null}
           </div>
         </div>
 
@@ -248,15 +320,55 @@ export function PayoutsPage() {
 
         <Card padding="sm" style={styles.settlementsCard}>
           <div style={styles.sectionHead}>
-            <h2 style={styles.sectionTitle}>Settlements</h2>
+            <h2 style={styles.sectionTitle}>Settlements ({total})</h2>
             <div style={styles.toolbar}>
+              <select
+                style={styles.select}
+                value={datePreset}
+                onChange={(e) => applyDatePreset(e.target.value as DatePreset)}
+                aria-label="Settlement period preset"
+              >
+                <option value="all">All dates</option>
+                <option value="30d">Last 30 days</option>
+                <option value="90d">Last 90 days</option>
+                <option value="month">This month</option>
+                <option value="custom">Custom dates</option>
+              </select>
+              <label style={styles.dateLabel}>
+                <span style={styles.dateLabelText}>From</span>
+                <input
+                  type="date"
+                  style={styles.dateInput}
+                  value={periodFrom}
+                  max={periodTo || undefined}
+                  onChange={(e) => {
+                    setDatePreset('custom');
+                    setPeriodFrom(e.target.value);
+                  }}
+                  aria-label="Period from"
+                />
+              </label>
+              <label style={styles.dateLabel}>
+                <span style={styles.dateLabelText}>To</span>
+                <input
+                  type="date"
+                  style={styles.dateInput}
+                  value={periodTo}
+                  min={periodFrom || undefined}
+                  onChange={(e) => {
+                    setDatePreset('custom');
+                    setPeriodTo(e.target.value);
+                  }}
+                  aria-label="Period to"
+                />
+              </label>
               <select
                 style={styles.select}
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value as 'all' | 'PAID' | 'OPEN')}
                 aria-label="Settlement status"
               >
-                <option value="all">All</option>
+                <option value="all">All status</option>
                 <option value="PAID">Paid</option>
                 <option value="OPEN">Open</option>
               </select>
@@ -274,12 +386,23 @@ export function PayoutsPage() {
               </select>
             </div>
           </div>
+          <p style={styles.formulaHint}>
+            Net paid = Gross orders − Commission − Claim deductions (buyer credits clawed back from you).
+            {periodFrom || periodTo
+              ? ` Showing periods overlapping ${periodFrom || '…'} → ${periodTo || '…'}.`
+              : ''}
+          </p>
 
           {loading && settlements.length === 0 ? (
             <p style={styles.muted}>Loading…</p>
-          ) : total === 0 ? (
+          ) : settlements.length === 0 ? (
             <p style={styles.empty}>
               No batches yet — hub creates one when they pay you. Awaiting above is unpaid shop sales.
+            </p>
+          ) : total === 0 ? (
+            <p style={styles.empty}>
+              No settlements in this date range
+              {statusFilter !== 'all' ? ` · status ${statusFilter}` : ''}. Try All dates or widen From/To.
             </p>
           ) : (
             <>
@@ -289,7 +412,8 @@ export function PayoutsPage() {
                     <tr>
                       <SortableTh label="Period" column="period" sort={sort} onSort={(c) => setSort((p) => toggleSort(p, c))} style={styles.th} />
                       <SortableTh label="Gross" column="gross" sort={sort} onSort={(c) => setSort((p) => toggleSort(p, c))} align="right" style={styles.th} />
-                      <SortableTh label="Fee" column="fee" sort={sort} onSort={(c) => setSort((p) => toggleSort(p, c))} align="right" style={styles.th} />
+                      <SortableTh label="Commission" column="fee" sort={sort} onSort={(c) => setSort((p) => toggleSort(p, c))} align="right" style={styles.th} />
+                      <SortableTh label="Claims" column="claims" sort={sort} onSort={(c) => setSort((p) => toggleSort(p, c))} align="right" style={styles.th} />
                       <SortableTh label="Net" column="net" sort={sort} onSort={(c) => setSort((p) => toggleSort(p, c))} align="right" style={styles.th} />
                       <SortableTh label="Status" column="status" sort={sort} onSort={(c) => setSort((p) => toggleSort(p, c))} style={styles.th} />
                       <SortableTh label="Paid at" column="paidAt" sort={sort} onSort={(c) => setSort((p) => toggleSort(p, c))} style={styles.th} />
@@ -297,14 +421,35 @@ export function PayoutsPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {pageItems.map((s) => (
+                    {pageItems.map((s) => {
+                      const claims = settlementClaimAmount(s);
+                      const claimLines = (s.lines ?? []).filter(
+                        (l) => (l.lineType ?? '').toUpperCase() === 'ADJUSTMENT',
+                      );
+                      return (
                       <tr key={s.id}>
                         <td style={styles.td}>
                           {s.periodStart ?? '—'} → {s.periodEnd ?? '—'}
                           {s.periodType ? <div style={styles.sub}>{s.periodType}</div> : null}
+                          {claims > 0 ? (
+                            <div style={styles.breakdown}>
+                              {formatMoney(s.grossAmount)} − {formatMoney(s.commissionAmount)} fee −{' '}
+                              {formatMoney(claims)} claims = {formatMoney(s.netAmount)}
+                            </div>
+                          ) : null}
                         </td>
                         <td style={styles.tdRight}>{formatMoney(s.grossAmount)}</td>
                         <td style={styles.tdRight}>{formatMoney(s.commissionAmount)}</td>
+                        <td style={{ ...styles.tdRight, color: claims > 0 ? 'var(--metric-claim)' : undefined }}>
+                          {formatMoney(claims)}
+                          {claimLines.length > 0 ? (
+                            <div style={styles.sub}>
+                              {claimLines.length} chargeback{claimLines.length === 1 ? '' : 's'}
+                            </div>
+                          ) : claims > 0 ? (
+                            <div style={styles.sub}>Buyer credit clawback</div>
+                          ) : null}
+                        </td>
                         <td style={styles.tdRight}>{formatMoney(s.netAmount)}</td>
                         <td style={styles.td}>
                           <span style={s.status === 'PAID' ? styles.paid : styles.open}>{s.status}</span>
@@ -323,7 +468,8 @@ export function PayoutsPage() {
                           )}
                         </td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -383,6 +529,20 @@ const styles: Record<string, CSSProperties> = {
     lineHeight: 1.15,
   },
   metricHint: { fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 600 },
+  formulaHint: {
+    margin: 0,
+    fontSize: '0.72rem',
+    color: 'var(--text-muted)',
+    lineHeight: 1.35,
+    fontWeight: 600,
+  },
+  breakdown: {
+    marginTop: '0.2rem',
+    fontSize: '0.7rem',
+    color: 'var(--metric-claim)',
+    fontWeight: 700,
+    lineHeight: 1.3,
+  },
   claimToggle: {
     margin: 0,
     padding: 0,
@@ -405,7 +565,7 @@ const styles: Record<string, CSSProperties> = {
     flexWrap: 'wrap',
   },
   sectionTitle: { margin: 0, fontSize: '0.92rem', fontWeight: 800 },
-  toolbar: { display: 'flex', gap: '0.35rem', flexWrap: 'wrap' },
+  toolbar: { display: 'flex', gap: '0.35rem', flexWrap: 'wrap', alignItems: 'center' },
   select: {
     padding: '0.3rem 0.45rem',
     borderRadius: 'var(--radius-md)',
@@ -413,6 +573,24 @@ const styles: Record<string, CSSProperties> = {
     background: 'var(--bg)',
     color: 'var(--text)',
     fontSize: '0.8rem',
+  },
+  dateLabel: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '0.25rem',
+    fontSize: '0.72rem',
+    fontWeight: 700,
+    color: 'var(--text-muted)',
+  },
+  dateLabelText: { whiteSpace: 'nowrap' },
+  dateInput: {
+    padding: '0.28rem 0.4rem',
+    borderRadius: 'var(--radius-md)',
+    border: '1px solid var(--border)',
+    background: 'var(--bg)',
+    color: 'var(--text)',
+    fontSize: '0.8rem',
+    minHeight: '2rem',
   },
   tableWrap: {
     overflowX: 'auto',

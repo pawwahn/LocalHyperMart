@@ -31,9 +31,22 @@ function money(v: number | null | undefined): string {
 function filterHubOrders(orders: OrderRowView[], tab: HubOrderTab, search: string): OrderRowView[] {
   let list = orders;
   if (tab === 'action') {
-    list = list.filter((o) => o.readySubOrderCount > 0 || o.pickupReadiness === 'partial');
+    // Needs hub action: shops ready for pickup, or all bags at hub awaiting home delivery.
+    list = list.filter(
+      (o) =>
+        o.status === 'PLACED' &&
+        (o.readySubOrderCount > 0 ||
+          o.pickupReadiness === 'partial' ||
+          (o.subOrderCount > 0 && o.atHubSubOrderCount >= o.subOrderCount)),
+    );
   } else if (tab === 'vendor-wait') {
-    list = list.filter((o) => o.status === 'PLACED' && o.readySubOrderCount === 0);
+    // Still packing — nothing ready and nothing at hub yet.
+    list = list.filter(
+      (o) =>
+        o.status === 'PLACED' &&
+        o.readySubOrderCount === 0 &&
+        o.atHubSubOrderCount === 0,
+    );
   }
   const q = search.trim().toLowerCase();
   if (q) {

@@ -23,12 +23,16 @@ const styles: Record<string, CSSProperties> = {
     fontWeight: 600,
   },
   input: {
+    width: '100%',
+    maxWidth: '100%',
+    boxSizing: 'border-box',
     padding: '0.75rem 0.95rem',
     borderRadius: 'var(--radius-md)',
     border: '1px solid var(--border)',
     background: 'var(--bg-elevated)',
     color: 'var(--text)',
     outline: 'none',
+    minWidth: 0,
     transition: 'border-color var(--motion-fast), box-shadow var(--motion-fast)',
   },
 };

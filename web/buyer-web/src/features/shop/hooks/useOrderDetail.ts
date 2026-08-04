@@ -169,6 +169,8 @@ export function useOrderDetail(orderId: string | undefined, preview?: OrderDetai
       const data = await cancelOrder(session.accessToken, orderId, reason);
       detailCache.set(cacheKey(orderId), data);
       setOrder(data);
+      // Cancel may restore/credit wallet — refresh header chip + cart store-credit copy.
+      window.dispatchEvent(new Event('hlm:wallet-invalidate'));
       return data;
     } finally {
       setCancelBusy(false);
@@ -182,6 +184,8 @@ export function useOrderDetail(orderId: string | undefined, preview?: OrderDetai
       const data = await cancelOrderItem(session.accessToken, orderId, itemId, reason);
       detailCache.set(cacheKey(orderId), data);
       setOrder(data);
+      // Item cancel credits store credit — refresh header chip immediately.
+      window.dispatchEvent(new Event('hlm:wallet-invalidate'));
       return data;
     } finally {
       setCancelBusy(false);

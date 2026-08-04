@@ -1,4 +1,4 @@
-﻿server:
+server:
   port: 8088
 
 spring:
@@ -30,6 +30,8 @@ hyperlocalmart:
     base-url: http://localhost:8086
   user-service:
     base-url: http://localhost:8081
+  vendor-service:
+    base-url: http://localhost:8083
   notification-service:
     base-url: http://localhost:8089
   delivery:

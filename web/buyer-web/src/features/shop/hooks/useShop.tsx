@@ -23,6 +23,7 @@ import {
   placeCodOrder,
   removeCartItem,
   removePromo,
+  updateAddress,
   updateCartItem,
   type AddressDto,
   type CartLineView,
@@ -363,6 +364,19 @@ function useShopState() {
     return () => window.removeEventListener('hlm:catalog-invalidate', onInvalidate);
   }, [reload]);
 
+  useEffect(() => {
+    if (!session?.accessToken) return;
+    function onWalletInvalidate() {
+      void fetchWalletBalance(session!.accessToken)
+        .then((wallet) => setStoreCreditBalance(Number(wallet.balance ?? 0)))
+        .catch(() => {
+          /* keep last known balance */
+        });
+    }
+    window.addEventListener('hlm:wallet-invalidate', onWalletInvalidate);
+    return () => window.removeEventListener('hlm:wallet-invalidate', onWalletInvalidate);
+  }, [session?.accessToken]);
+
   async function withCartBusy<T>(key: string, fn: () => Promise<T>): Promise<T | undefined> {
     if (!session) {
       setError('Sign in to update your cart.');
@@ -515,6 +529,59 @@ function useShopState() {
     }
   }
 
+  async function doUpdateAddress(
+    addressId: string,
+    values: {
+      label: string;
+      recipientName: string;
+      recipientPhone: string;
+      line1: string;
+      line2: string;
+      landmark: string;
+      pincode: string;
+    },
+  ) {
+    if (!session) return false;
+    const existing = addresses.find((a) => a.id === addressId);
+    const addressTownId = existing?.townId || townId;
+    if (!addressTownId) {
+      setError('Choose your town first');
+      openPicker();
+      return false;
+    }
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const updated = await updateAddress(session.accessToken, addressId, {
+        townId: addressTownId,
+        label: values.label,
+        recipientName: values.recipientName,
+        recipientPhone: values.recipientPhone,
+        line1: values.line1,
+        line2: values.line2 || undefined,
+        landmark: values.landmark || undefined,
+        pincode: values.pincode || undefined,
+        isDefault: true,
+      });
+      if (!updated?.id) {
+        throw new Error('Address update did not return saved data. Restart user-service and try again.');
+      }
+      setAddresses((prev) => {
+        const rest = prev.filter((a) => a.id !== updated.id);
+        return [updated, ...rest];
+      });
+      setSelectedAddressId(updated.id);
+      setNotice('Address updated.');
+      return true;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not update address');
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function doCheckout() {
     if (!session || !cart?.cartId) {
       setError('Cart is empty');
@@ -585,6 +652,7 @@ function useShopState() {
     doApplyPromo,
     doRemovePromo,
     doCreateAddress,
+    doUpdateAddress,
     doCheckout,
   };
 }

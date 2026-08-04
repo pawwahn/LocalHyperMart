@@ -17,6 +17,8 @@ public class PickupManifestResponse {
     private String orderNumber;
     private UUID shopId;
     private String shopName;
+    private String shopAddress;
+    private String shopPhone;
     private BigDecimal subtotal;
     private int totalItemCount;
     private List<PickupManifestLineResponse> items;

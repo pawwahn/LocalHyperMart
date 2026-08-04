@@ -193,6 +193,9 @@ public class OrderAdminService {
         int readySubOrderCount = (int) order.getVendorSubOrders().stream()
                 .filter(sub -> sub.getStatus() == VendorSubOrderStatus.READY_FOR_PICKUP)
                 .count();
+        int atHubSubOrderCount = (int) order.getVendorSubOrders().stream()
+                .filter(sub -> sub.getStatus() == VendorSubOrderStatus.DELIVERED)
+                .count();
         return AdminOrderSummaryResponse.builder()
                 .orderId(order.getId())
                 .orderNumber(order.getOrderNumber())
@@ -205,6 +208,7 @@ public class OrderAdminService {
                 .placedAt(order.getPlacedAt())
                 .subOrderCount(order.getVendorSubOrders().size())
                 .readySubOrderCount(readySubOrderCount)
+                .atHubSubOrderCount(atHubSubOrderCount)
                 .build();
     }
 

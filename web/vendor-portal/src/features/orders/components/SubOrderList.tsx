@@ -114,7 +114,11 @@ export function SubOrderList({
                               {item.unitCode ? ` ${item.unitCode.toLowerCase()}` : ''} × {item.name}
                               {' · '}
                               {item.lineTotalLabel}
-                              {item.cancelled ? ' · cancelled' : ''}
+                              {item.cancelled
+                                ? item.cancelledByBuyer
+                                  ? ' · cancelled by buyer'
+                                  : ' · cancelled'
+                                : ''}
                             </span>
                             {canAct && !item.cancelled ? (
                               <Button

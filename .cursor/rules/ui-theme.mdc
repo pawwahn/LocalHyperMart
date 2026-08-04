@@ -26,3 +26,4 @@ When building or changing any portal screen (buyer-web, vendor-portal, delivery-
 2. No native browser dialogs for confirmations.
 3. Interactive controls use shared `Button` / form fields where possible.
 4. Loading, empty, and error states use existing Banner / Empty patterns.
+5. Usable on a phone (~390px): one column, ≥44px taps, no desktop-only layout traps (see `mobile-first.mdc`).

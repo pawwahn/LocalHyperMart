@@ -32,6 +32,8 @@ public final class AdminOrderResponses {
         Instant placedAt;
         int subOrderCount;
         int readySubOrderCount;
+        /** Sub-orders already brought to hub (vendor leg complete). */
+        int atHubSubOrderCount;
     }
 
     @Value

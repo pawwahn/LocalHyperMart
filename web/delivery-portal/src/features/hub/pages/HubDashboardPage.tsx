@@ -38,23 +38,60 @@ function subOrderCardStyle(state: PickupUiState): CSSProperties {
   return { ...styles.card, ...styles.cardInProgress };
 }
 
-function orderWhatToDo(order: OrderRowView): { label: string; tone: 'wait' | 'go' | 'partial' | 'done' } {
+function orderWhatToDo(order: OrderRowView): {
+  label: string;
+  shortLabel: string;
+  tone: 'wait' | 'go' | 'partial' | 'done';
+} {
   if (order.status === 'DELIVERED') {
-    return { label: 'Delivered to customer ✓', tone: 'done' };
+    return { label: 'Delivered to customer ✓', shortLabel: 'Delivered', tone: 'done' };
   }
   if (order.status === 'CANCELLED') {
-    return { label: 'Cancelled', tone: 'wait' };
+    return { label: 'Cancelled', shortLabel: 'Cancelled', tone: 'wait' };
   }
-  if (order.pickupReadiness === 'none') {
-    return { label: 'Shop is still packing — wait', tone: 'wait' };
-  }
-  if (order.pickupReadiness === 'partial') {
+
+  const total = order.subOrderCount;
+  const ready = order.readySubOrderCount;
+  const atHub = order.atHubSubOrderCount;
+
+  // All bags already at hub → next action is last-mile home delivery.
+  if (total > 0 && atHub >= total) {
     return {
-      label: `${order.readySubOrderCount} shop ready — send boy (other shop still packing)`,
+      label: 'All bags at hub — send home',
+      shortLabel: 'Send home',
+      tone: 'go',
+    };
+  }
+
+  // Some bags at hub, others still en route / packing.
+  if (atHub > 0 && atHub < total) {
+    return {
+      label: `${atHub} of ${total} bags at hub — keep bringing to hub`,
+      shortLabel: `${atHub}/${total} at hub`,
       tone: 'partial',
     };
   }
-  return { label: 'All shops ready — bring to hub / send home', tone: 'go' };
+
+  if (order.pickupReadiness === 'none') {
+    return {
+      label: 'Shop is still packing — wait',
+      shortLabel: 'Packing',
+      tone: 'wait',
+    };
+  }
+  if (order.pickupReadiness === 'partial') {
+    return {
+      label: `${ready} shop ready — send boy to bring to hub`,
+      shortLabel: `${ready} ready`,
+      tone: 'partial',
+    };
+  }
+  // All shops packed, bags not yet at hub.
+  return {
+    label: 'All shops ready — bring to hub',
+    shortLabel: 'Bring to hub',
+    tone: 'go',
+  };
 }
 
 function orderRowStyle(order: OrderRowView, selected: boolean): CSSProperties {
@@ -65,10 +102,13 @@ function orderRowStyle(order: OrderRowView, selected: boolean): CSSProperties {
   if (order.status === 'CANCELLED') {
     return { ...base, borderColor: 'var(--border)', background: 'var(--bg-muted)' };
   }
+  if (order.subOrderCount > 0 && order.atHubSubOrderCount >= order.subOrderCount) {
+    return { ...base, borderColor: 'var(--success)', background: 'rgba(129, 199, 132, 0.1)' };
+  }
   if (order.pickupReadiness === 'all') {
     return { ...base, borderColor: 'var(--success)', background: 'rgba(129, 199, 132, 0.1)' };
   }
-  if (order.pickupReadiness === 'partial') {
+  if (order.pickupReadiness === 'partial' || order.atHubSubOrderCount > 0) {
     return { ...base, borderColor: 'var(--warning)', background: 'rgba(255, 183, 77, 0.1)' };
   }
   return { ...base, borderColor: 'var(--danger)', background: 'rgba(229, 115, 115, 0.08)' };
@@ -79,13 +119,13 @@ function vendorLegStatusLabel(state: PickupUiState): string {
     case 'awaiting_vendor':
       return 'Packing';
     case 'ready':
-      return 'Ready — send boy';
+      return 'Ready';
     case 'agent_assigned':
-      return 'Going to shop';
+      return 'To shop';
     case 'agent_collecting':
-      return 'Coming to hub';
+      return 'To hub';
     case 'at_hub':
-      return 'At hub ✓';
+      return 'At hub';
   }
 }
 
@@ -109,9 +149,9 @@ function vendorLegAction(state: PickupUiState): VendorLegAction {
 function vendorLegHint(state: PickupUiState): string | null {
   switch (state) {
     case 'awaiting_vendor':
-      return 'Wait — shop still packing';
+      return 'wait for shop';
     case 'agent_assigned':
-      return 'Boy on the way to shop';
+      return 'boy heading to shop';
     case 'at_hub':
       return null;
     default:
@@ -340,36 +380,40 @@ export function HubDashboardPage() {
               ) : (
                 orders.map((o) => {
                   const what = orderWhatToDo(o);
+                  const packLabel =
+                    o.status === 'DELIVERED'
+                      ? 'Done'
+                      : o.status === 'CANCELLED'
+                        ? 'Cancelled'
+                        : o.atHubSubOrderCount >= o.subOrderCount && o.subOrderCount > 0
+                          ? `${o.atHubSubOrderCount}/${o.subOrderCount} hub`
+                          : o.atHubSubOrderCount > 0
+                            ? `${o.atHubSubOrderCount} hub · ${o.readySubOrderCount} ready`
+                            : `${o.readySubOrderCount}/${o.subOrderCount} packed`;
                   return (
                     <button
                       key={o.id}
                       type="button"
                       style={orderRowStyle(o, selectedOrderId === o.id)}
                       onClick={() => void openOrder(o.id)}
+                      title={`${o.orderNumber} · ${what.label}`}
                     >
                       <strong style={styles.orderNo}>{o.orderNumber}</strong>
-                      <span style={styles.meta}>
-                        {o.totalLabel} · {o.subOrderCount} shop bag
-                        {o.subOrderCount === 1 ? '' : 's'}
-                      </span>
                       <span
-                      style={
-                        what.tone === 'done' || what.tone === 'go'
-                          ? styles.badgeReady
-                          : what.tone === 'partial'
-                            ? styles.badgePartial
-                            : styles.badgeWaiting
-                      }
-                    >
-                      {what.label}
-                    </span>
-                    <span style={styles.bagCount}>
-                      {o.status === 'DELIVERED'
-                        ? 'Finished — delivered to home'
-                        : o.status === 'CANCELLED'
-                          ? 'Order cancelled'
-                          : `Packed: ${o.readySubOrderCount} of ${o.subOrderCount}`}
-                    </span>
+                        style={
+                          what.tone === 'done' || what.tone === 'go'
+                            ? styles.badgeReady
+                            : what.tone === 'partial'
+                              ? styles.badgePartial
+                              : styles.badgeWaiting
+                        }
+                      >
+                        {what.shortLabel}
+                      </span>
+                      <span style={styles.orderMeta}>
+                        {o.totalLabel} · {o.subOrderCount} bag
+                        {o.subOrderCount === 1 ? '' : 's'} · {packLabel}
+                      </span>
                     </button>
                   );
                 })
@@ -388,7 +432,7 @@ export function HubDashboardPage() {
         {detail || !isMobile ? (
         <div ref={detailRef}>
           <div style={styles.detailHeader}>
-            <h2 style={{ ...styles.h2, margin: 0 }}>What to do for this order</h2>
+            <h2 style={{ ...styles.h2, margin: 0, fontSize: '0.95rem' }}>Order detail</h2>
             {showMobileDetail ? (
               <button type="button" style={styles.backBtn} onClick={clearOrderSelection}>
                 ← All orders
@@ -396,28 +440,28 @@ export function HubDashboardPage() {
             ) : null}
           </div>
           {!detail ? (
-            <p style={styles.emptyBox}>← Tap one order on the left to see buttons.</p>
+            <p style={styles.emptyBox}>← Tap an order to see what to do.</p>
           ) : (
             <div style={styles.detail}>
-              <p style={styles.detailTitle}>{detail.orderNumber}</p>
-              <p style={styles.detailMoney}>₹{Number(detail.totalAmount).toFixed(2)} · Cash on delivery</p>
-              {detail.placedAt ? (
-                <p style={styles.timeLine}>Order placed · {formatPortalTime(detail.placedAt)}</p>
-              ) : null}
-              {detail.deliveredAt ? (
-                <p style={styles.timeLine}>Delivered · {formatPortalTime(detail.deliveredAt)}</p>
-              ) : null}
+              <div style={styles.detailTop}>
+                <p style={styles.detailTitle}>{detail.orderNumber}</p>
+                <p style={styles.detailMoney}>
+                  ₹{Number(detail.totalAmount).toFixed(2)} · COD
+                  {detail.placedAt ? ` · ${formatPortalTime(detail.placedAt)}` : ''}
+                  {detail.deliveredAt ? ` · delivered ${formatPortalTime(detail.deliveredAt)}` : ''}
+                </p>
+              </div>
               {detail.status === 'DELIVERED' ? (
-                <p style={styles.deliveredBanner}>Delivered to customer ✓ — no more action needed</p>
+                <p style={styles.deliveredBanner}>Delivered ✓ — nothing left to do</p>
               ) : null}
               {detail.status === 'CANCELLED' ? (
-                <p style={styles.cancelledBanner}>This order was cancelled</p>
+                <p style={styles.cancelledBanner}>Cancelled</p>
               ) : null}
 
               <div style={styles.legSection}>
-                <h3 style={styles.h3}>
-                  <span style={styles.legVendor}>Step 1 — Shop → Hub</span>
-                </h3>
+                <p style={styles.legTitle}>
+                  <span style={styles.legVendor}>1 · Shop → Hub</span>
+                </p>
                 {subOrders.map((s) => {
                   const vendorPickup = (detail.assignments ?? []).find(
                     (a) => a.legType === 'PICKUP' && a.subOrderNumber === s.subOrderNumber,
@@ -440,26 +484,26 @@ export function HubDashboardPage() {
                   return (
                     <div key={s.id} style={subOrderCardStyle(legState)}>
                       <div style={styles.cardHead}>
-                        <p style={styles.shopName}>🏪 {s.shopName}</p>
+                        <p style={styles.shopName}>{s.shopName}</p>
                         <span style={pillStyle}>{vendorLegStatusLabel(legState)}</span>
                       </div>
                       <p style={styles.meta}>
-                        {s.subOrderNumber}
-                        {' · '}
                         {s.subtotalLabel}
+                        {' · '}
+                        <button
+                          type="button"
+                          style={styles.itemsToggleInline}
+                          onClick={() =>
+                            setOpenItemBags((prev) => ({ ...prev, [s.id]: !prev[s.id] }))
+                          }
+                          aria-expanded={Boolean(openItemBags[s.id])}
+                        >
+                          {openItemBags[s.id] ? '▾' : '▸'} {s.itemCount} item
+                          {s.itemCount === 1 ? '' : 's'}
+                        </button>
+                        {vendorPickup ? ` · ${agentLabel(vendorPickup.agentId)}` : ''}
+                        {hint ? ` · ${hint}` : ''}
                       </p>
-                      <button
-                        type="button"
-                        style={styles.itemsToggle}
-                        onClick={() =>
-                          setOpenItemBags((prev) => ({ ...prev, [s.id]: !prev[s.id] }))
-                        }
-                        aria-expanded={Boolean(openItemBags[s.id])}
-                      >
-                        {openItemBags[s.id] ? '▾' : '▸'} {s.itemCount} item
-                        {s.itemCount === 1 ? '' : 's'}
-                        {openItemBags[s.id] ? '' : ' — tap to see'}
-                      </button>
                       {openItemBags[s.id] ? (
                         s.items.length > 0 ? (
                           <ul style={styles.itemList}>
@@ -476,23 +520,11 @@ export function HubDashboardPage() {
                             ))}
                           </ul>
                         ) : (
-                          <p style={styles.meta}>Item list not available for this bag.</p>
+                          <p style={styles.meta}>Items not available.</p>
                         )
-                      ) : null}
-                      {hint ? (
-                        <p
-                          style={
-                            legState === 'awaiting_vendor'
-                              ? styles.statusWaiting
-                              : styles.statusInProgress
-                          }
-                        >
-                          {hint}
-                        </p>
                       ) : null}
                       {vendorPickup ? (
                         <div style={styles.tripBlock}>
-                          <p style={styles.boyLine}>Boy: {agentLabel(vendorPickup.agentId)}</p>
                           <ActionTimeline
                             compact
                             events={vendorPickup.events}
@@ -554,13 +586,13 @@ export function HubDashboardPage() {
                 })}
               </div>
 
-              <div style={{ ...styles.legSection, marginTop: '1.25rem' }}>
-                <h3 style={styles.h3}>
-                  <span style={styles.legBuyer}>Step 2 — Send order to customer home</span>
-                </h3>
+              <div style={{ ...styles.legSection, marginTop: '0.55rem' }}>
+                <p style={styles.legTitle}>
+                  <span style={styles.legBuyer}>2 · Home delivery</span>
+                </p>
                 {detail.status === 'DELIVERED' ? (
                   <div style={styles.lastMileCard}>
-                    <p style={styles.meta}>Order already reached the customer home.</p>
+                    <p style={styles.meta}>Already at customer home.</p>
                   </div>
                 ) : (
                   (() => {
@@ -581,10 +613,10 @@ export function HubDashboardPage() {
                       <div style={styles.lastMileCard}>
                         <p style={styles.meta}>
                           {lastMileDone
-                            ? 'Boy finished — order delivered at home.'
+                            ? 'Delivered at home.'
                             : vendorLegDone
-                              ? 'All bags are at the hub. Now send a boy to the customer home.'
-                              : `Wait until all bags reach hub (${atHubCount} of ${subOrders.length} here).`}
+                              ? 'All bags at hub — send a boy home.'
+                              : `Waiting for bags (${atHubCount}/${subOrders.length} at hub).`}
                         </p>
                         <button
                           type="button"
@@ -599,13 +631,14 @@ export function HubDashboardPage() {
                           }
                         >
                           {lastMile
-                            ? `Boy sent to home (${assignmentStatusPlain(lastMile.status)})`
-                            : 'Send boy to customer home'}
+                            ? `Boy en route (${assignmentStatusPlain(lastMile.status)})`
+                            : 'Send boy home'}
                         </button>
                         {lastMile ? (
                           <>
-                            <p style={styles.boyLine}>Boy: {agentLabel(lastMile.agentId)}</p>
+                            <p style={styles.boyLine}>{agentLabel(lastMile.agentId)}</p>
                             <ActionTimeline
+                              compact
                               events={lastMile.events}
                               assignedAt={lastMile.assignedAt}
                               startedAt={lastMile.startedAt}
@@ -885,95 +918,108 @@ const styles: Record<string, CSSProperties> = {
     marginBottom: '0.25rem',
   },
   backBtn: {
-    border: '2px solid var(--border)',
-    borderRadius: 12,
-    padding: '0.55rem 0.85rem',
+    border: '1.5px solid var(--border)',
+    borderRadius: 8,
+    padding: '0.45rem 0.75rem',
     minHeight: 'var(--touch-min)',
     background: 'var(--bg-elevated)',
     color: 'var(--text)',
     fontWeight: 800,
+    fontSize: '0.85rem',
     cursor: 'pointer',
   },
   h2: { margin: '0 0 0.75rem', fontSize: '1.15rem', fontWeight: 800 },
   h3: { margin: '0 0 0.5rem', fontSize: '1rem' },
   legSection: {
     border: '1px solid var(--border)',
-    borderRadius: 'var(--radius-sm)',
-    padding: '0.7rem',
-    marginTop: '0.65rem',
+    borderRadius: 10,
+    padding: '0.45rem 0.5rem',
+    marginTop: '0.45rem',
   },
+  legTitle: { margin: '0 0 0.3rem' },
   legHintBlock: { margin: '0 0 0.5rem', color: 'var(--text-muted)', fontSize: '0.85rem', fontWeight: 600 },
   legVendor: {
     display: 'inline-block',
-    padding: '0.2rem 0.55rem',
-    borderRadius: '999px',
+    padding: '0.12rem 0.45rem',
+    borderRadius: 999,
     background: 'rgba(129, 199, 132, 0.2)',
     color: 'var(--success)',
     fontWeight: 800,
-    fontSize: '0.9rem',
+    fontSize: '0.72rem',
   },
   legBuyer: {
     display: 'inline-block',
-    padding: '0.2rem 0.55rem',
-    borderRadius: '999px',
+    padding: '0.12rem 0.45rem',
+    borderRadius: 999,
     background: 'rgba(66, 165, 245, 0.2)',
     color: 'var(--accent)',
     fontWeight: 800,
-    fontSize: '0.9rem',
+    fontSize: '0.72rem',
   },
   lastMileCard: {
-    border: '1px solid rgba(66, 165, 245, 0.35)',
-    borderRadius: 'var(--radius-sm)',
-    padding: '0.85rem',
-    background: 'rgba(66, 165, 245, 0.08)',
-    marginTop: '0.5rem',
+    border: '1px solid rgba(66, 165, 245, 0.3)',
+    borderRadius: 10,
+    padding: '0.45rem 0.55rem',
+    background: 'rgba(66, 165, 245, 0.07)',
+    marginTop: '0.25rem',
+    display: 'grid',
+    gap: '0.3rem',
   },
   deliveryReady: {
     border: 'none',
-    borderRadius: 'var(--radius-sm)',
-    padding: '0.85rem 1rem',
-    marginTop: '0.75rem',
+    borderRadius: 10,
+    padding: '0.55rem 0.75rem',
+    marginTop: 0,
     width: '100%',
     minHeight: 'var(--touch-min)',
     background: 'var(--accent)',
     color: '#0c1218',
     fontWeight: 800,
-    fontSize: '1rem',
+    fontSize: '0.9rem',
     cursor: 'pointer',
   },
   deliveryWaiting: {
     border: '1px solid var(--border)',
-    borderRadius: 'var(--radius-sm)',
-    padding: '0.85rem 1rem',
-    marginTop: '0.75rem',
+    borderRadius: 10,
+    padding: '0.55rem 0.75rem',
+    marginTop: 0,
     width: '100%',
+    minHeight: 'var(--touch-min)',
     background: 'var(--bg-muted)',
     color: 'var(--text-muted)',
     fontWeight: 700,
-    fontSize: '1rem',
+    fontSize: '0.85rem',
     cursor: 'not-allowed',
   },
   hubConfirm: {
     border: 'none',
-    borderRadius: 12,
-    padding: '0.7rem 0.85rem',
-    flex: '1 1 9rem',
+    borderRadius: 10,
+    padding: '0.55rem 0.75rem',
+    flex: '1 1 7rem',
     minHeight: 'var(--touch-min)',
     background: '#10B981',
     color: '#0f1a10',
     fontWeight: 800,
-    fontSize: '0.98rem',
+    fontSize: '0.9rem',
     cursor: 'pointer',
-    boxShadow: '0 3px 12px rgba(16, 185, 129, 0.35)',
   },
-  list: { display: 'grid', gap: '0.55rem' },
+  list: {
+    display: 'grid',
+    gridTemplateColumns: '1fr',
+    gap: '0.35rem',
+  },
   order: {
     textAlign: 'left',
     display: 'grid',
-    gap: '0.25rem',
-    padding: '0.95rem 1rem',
-    borderRadius: 'var(--radius-md)',
-    border: '2px solid var(--border)',
+    gridTemplateColumns: 'minmax(0, 1fr) auto',
+    columnGap: '0.5rem',
+    rowGap: '0.05rem',
+    alignItems: 'baseline',
+    alignContent: 'center',
+    padding: '0.5rem 0.65rem',
+    minHeight: 'var(--touch-min)',
+    borderRadius: 10,
+    border: '1.5px solid var(--border)',
     background: 'var(--bg-elevated)',
     color: 'var(--text)',
     cursor: 'pointer',
@@ -981,33 +1027,77 @@ const styles: Record<string, CSSProperties> = {
   orderActive: {
     textAlign: 'left',
     display: 'grid',
-    gap: '0.25rem',
-    padding: '0.95rem 1rem',
-    borderRadius: 'var(--radius-md)',
-    border: '2px solid var(--accent)',
+    gridTemplateColumns: 'minmax(0, 1fr) auto',
+    columnGap: '0.5rem',
+    rowGap: '0.05rem',
+    alignItems: 'baseline',
+    alignContent: 'center',
+    padding: '0.5rem 0.65rem',
+    minHeight: 'var(--touch-min)',
+    borderRadius: 10,
+    border: '1.5px solid var(--accent)',
     background: 'rgba(66, 165, 245, 0.12)',
     color: 'var(--text)',
     cursor: 'pointer',
   },
-  orderNo: { fontSize: '1rem', fontFamily: 'var(--font-display)' },
-  bagCount: { fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 600 },
+  orderNo: {
+    fontSize: '0.82rem',
+    fontFamily: 'var(--font-display)',
+    fontWeight: 800,
+    lineHeight: 1.2,
+    minWidth: 0,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  },
+  bagCount: {
+    fontSize: '0.7rem',
+    color: 'var(--text-muted)',
+    fontWeight: 600,
+  },
+  orderMeta: {
+    gridColumn: '1 / -1',
+    margin: 0,
+    color: 'var(--text-muted)',
+    fontSize: '0.7rem',
+    fontWeight: 600,
+    lineHeight: 1.25,
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+  },
   detail: {
     background: 'var(--bg-elevated)',
     border: '1px solid var(--border)',
-    borderRadius: 'var(--radius-md)',
-    padding: '1rem',
+    borderRadius: 12,
+    padding: '0.65rem 0.7rem',
+    display: 'grid',
+    gap: '0.15rem',
   },
-  detailTitle: { margin: 0, fontWeight: 800, fontSize: '1.15rem', fontFamily: 'var(--font-display)' },
-  detailMoney: { margin: '0.25rem 0 0', color: 'var(--text-muted)', fontWeight: 700 },
+  detailTop: { display: 'grid', gap: '0.1rem' },
+  detailTitle: {
+    margin: 0,
+    fontWeight: 800,
+    fontSize: '0.95rem',
+    fontFamily: 'var(--font-display)',
+    lineHeight: 1.25,
+  },
+  detailMoney: {
+    margin: 0,
+    color: 'var(--text-muted)',
+    fontWeight: 600,
+    fontSize: '0.75rem',
+    lineHeight: 1.3,
+  },
   timeLine: { margin: '0.2rem 0 0', color: 'var(--accent)', fontWeight: 700, fontSize: '0.85rem' },
   historyCard: {
-    marginTop: '0.55rem',
-    padding: '0.65rem 0.75rem',
-    borderRadius: 12,
+    marginTop: '0.35rem',
+    padding: '0.4rem 0.55rem',
+    borderRadius: 10,
     border: '1px solid var(--border)',
     background: 'var(--bg-elevated)',
     display: 'grid',
-    gap: '0.25rem',
+    gap: '0.15rem',
   },
   tripHead: {
     margin: 0,
@@ -1027,38 +1117,41 @@ const styles: Record<string, CSSProperties> = {
     color: 'var(--text-muted)',
   },
   deliveredBanner: {
-    margin: '0.75rem 0 0',
-    padding: '0.7rem 0.85rem',
-    borderRadius: 12,
+    margin: '0.25rem 0 0',
+    padding: '0.35rem 0.55rem',
+    borderRadius: 8,
     background: 'rgba(129, 199, 132, 0.18)',
     border: '1px solid rgba(129, 199, 132, 0.55)',
     color: 'var(--success)',
     fontWeight: 800,
+    fontSize: '0.78rem',
   },
   cancelledBanner: {
-    margin: '0.75rem 0 0',
-    padding: '0.7rem 0.85rem',
-    borderRadius: 12,
+    margin: '0.25rem 0 0',
+    padding: '0.35rem 0.55rem',
+    borderRadius: 8,
     background: 'var(--bg-muted)',
     border: '1px solid var(--border)',
     color: 'var(--text-muted)',
     fontWeight: 800,
+    fontSize: '0.78rem',
   },
   emptyBox: {
     margin: 0,
-    padding: '1rem',
-    borderRadius: 'var(--radius-md)',
+    padding: '0.75rem',
+    borderRadius: 10,
     background: 'var(--bg-muted)',
     color: 'var(--text-muted)',
     fontWeight: 600,
+    fontSize: '0.85rem',
   },
   card: {
     border: '1px solid var(--border)',
-    borderRadius: 'var(--radius-sm)',
-    padding: '0.65rem 0.75rem',
-    marginTop: '0.45rem',
+    borderRadius: 10,
+    padding: '0.4rem 0.5rem',
+    marginTop: '0.3rem',
     display: 'grid',
-    gap: '0.3rem',
+    gap: '0.2rem',
   },
   cardWaiting: {
     borderColor: 'var(--danger)',
@@ -1087,39 +1180,43 @@ const styles: Record<string, CSSProperties> = {
     margin: 0,
     fontFamily: 'var(--font-display)',
     fontWeight: 800,
-    fontSize: '1.05rem',
+    fontSize: '0.88rem',
     color: 'var(--text)',
     flex: '1 1 auto',
     minWidth: 0,
+    lineHeight: 1.25,
   },
   tripBlock: {
-    marginTop: '0.1rem',
-    paddingTop: '0.35rem',
+    marginTop: '0.05rem',
+    paddingTop: '0.25rem',
     borderTop: '1px dashed var(--border)',
     display: 'grid',
-    gap: '0.15rem',
+    gap: '0.1rem',
   },
   cardTitle: { margin: '0.2rem 0 0', fontWeight: 600, color: 'var(--text-muted)', fontSize: '0.82rem' },
   badgeWaiting: {
-    margin: '0.2rem 0 0',
-    display: 'inline-block',
-    fontSize: '0.82rem',
+    margin: 0,
+    fontSize: '0.72rem',
     fontWeight: 800,
     color: 'var(--danger)',
+    whiteSpace: 'nowrap',
+    justifySelf: 'end',
   },
   badgePartial: {
-    margin: '0.2rem 0 0',
-    display: 'inline-block',
-    fontSize: '0.82rem',
+    margin: 0,
+    fontSize: '0.72rem',
     fontWeight: 800,
     color: 'var(--warning)',
+    whiteSpace: 'nowrap',
+    justifySelf: 'end',
   },
   badgeReady: {
-    margin: '0.2rem 0 0',
-    display: 'inline-block',
-    fontSize: '0.82rem',
+    margin: 0,
+    fontSize: '0.72rem',
     fontWeight: 800,
     color: 'var(--success)',
+    whiteSpace: 'nowrap',
+    justifySelf: 'end',
   },
   statusWaiting: { margin: 0, color: 'var(--danger)', fontSize: '0.82rem', fontWeight: 700 },
   statusReady: { margin: 0, color: 'var(--success)', fontSize: '0.82rem', fontWeight: 700 },
@@ -1127,9 +1224,9 @@ const styles: Record<string, CSSProperties> = {
   statusPill: {
     margin: 0,
     display: 'inline-block',
-    padding: '0.2rem 0.55rem',
-    borderRadius: '999px',
-    fontSize: '0.72rem',
+    padding: '0.1rem 0.4rem',
+    borderRadius: 999,
+    fontSize: '0.66rem',
     fontWeight: 800,
     background: 'var(--bg-muted)',
     color: 'var(--text-muted)',
@@ -1138,9 +1235,9 @@ const styles: Record<string, CSSProperties> = {
   statusPillActive: {
     margin: 0,
     display: 'inline-block',
-    padding: '0.2rem 0.55rem',
-    borderRadius: '999px',
-    fontSize: '0.72rem',
+    padding: '0.1rem 0.4rem',
+    borderRadius: 999,
+    fontSize: '0.66rem',
     fontWeight: 800,
     background: 'rgba(16, 185, 129, 0.18)',
     color: '#047857',
@@ -1149,9 +1246,9 @@ const styles: Record<string, CSSProperties> = {
   statusPillDone: {
     margin: 0,
     display: 'inline-block',
-    padding: '0.2rem 0.55rem',
-    borderRadius: '999px',
-    fontSize: '0.72rem',
+    padding: '0.1rem 0.4rem',
+    borderRadius: 999,
+    fontSize: '0.66rem',
     fontWeight: 800,
     background: 'rgba(16, 185, 129, 0.14)',
     color: '#047857',
@@ -1159,21 +1256,20 @@ const styles: Record<string, CSSProperties> = {
   },
   pickupReady: {
     border: 'none',
-    borderRadius: 12,
-    padding: '0.7rem 0.85rem',
-    flex: '1 1 8rem',
+    borderRadius: 10,
+    padding: '0.55rem 0.75rem',
+    flex: '1 1 7rem',
     minHeight: 'var(--touch-min)',
     background: '#10B981',
     color: '#0f1a10',
     fontWeight: 800,
-    fontSize: '0.95rem',
+    fontSize: '0.9rem',
     cursor: 'pointer',
-    boxShadow: '0 3px 10px rgba(16, 185, 129, 0.28)',
   },
   meta: {
     margin: 0,
     color: 'var(--text-muted)',
-    fontSize: '0.78rem',
+    fontSize: '0.72rem',
     fontWeight: 600,
     lineHeight: 1.35,
     wordBreak: 'break-word',
@@ -1190,22 +1286,33 @@ const styles: Record<string, CSSProperties> = {
     cursor: 'pointer',
     minHeight: 36,
   },
+  itemsToggleInline: {
+    margin: 0,
+    padding: 0,
+    border: 'none',
+    background: 'transparent',
+    color: 'var(--accent)',
+    fontWeight: 800,
+    fontSize: '0.72rem',
+    cursor: 'pointer',
+    display: 'inline',
+  },
   itemList: {
     listStyle: 'none',
     margin: 0,
-    padding: '0.4rem 0.55rem',
+    padding: '0.3rem 0.45rem',
     display: 'grid',
-    gap: '0.3rem',
+    gap: '0.2rem',
     background: 'var(--bg-elevated)',
     border: '1px solid var(--border)',
-    borderRadius: 10,
+    borderRadius: 8,
   },
   itemRow: {
     display: 'flex',
     justifyContent: 'space-between',
     gap: '0.5rem',
     alignItems: 'baseline',
-    fontSize: '0.82rem',
+    fontSize: '0.74rem',
     fontWeight: 700,
     color: 'var(--text)',
   },
@@ -1213,47 +1320,49 @@ const styles: Record<string, CSSProperties> = {
   boyLine: {
     margin: 0,
     color: 'var(--text)',
-    fontSize: '0.85rem',
+    fontSize: '0.74rem',
     fontWeight: 800,
   },
   changeBoyBtn: {
-    border: '2px solid var(--border)',
-    borderRadius: 12,
-    padding: '0.65rem 0.85rem',
+    border: '1.5px solid var(--border)',
+    borderRadius: 10,
+    padding: '0.5rem 0.7rem',
     minHeight: 'var(--touch-min)',
     width: '100%',
     background: 'var(--bg-elevated)',
     color: 'var(--text)',
     fontWeight: 800,
+    fontSize: '0.85rem',
     cursor: 'pointer',
   },
   changeBoyBtnInline: {
-    border: '2px solid var(--border)',
-    borderRadius: 12,
-    padding: '0.65rem 0.75rem',
+    border: '1.5px solid var(--border)',
+    borderRadius: 10,
+    padding: '0.5rem 0.65rem',
     minHeight: 'var(--touch-min)',
     flex: '0 0 auto',
     background: 'var(--bg-elevated)',
     color: 'var(--text)',
     fontWeight: 800,
+    fontSize: '0.85rem',
     cursor: 'pointer',
   },
   rowActions: {
     display: 'flex',
-    gap: '0.45rem',
-    marginTop: '0.25rem',
+    gap: '0.35rem',
+    marginTop: '0.1rem',
     flexWrap: 'wrap',
     alignItems: 'stretch',
   },
   error: { margin: 0, color: 'var(--danger)', fontWeight: 700 },
   notice: { margin: 0, color: 'var(--success)', fontWeight: 700 },
-  muted: { color: 'var(--text-muted)', fontWeight: 600 },
+  muted: { color: 'var(--text-muted)', fontWeight: 600, fontSize: '0.78rem' },
   historyToggle: {
-    margin: '1rem 0 0.5rem',
+    margin: '0.55rem 0 0.25rem',
     border: 'none',
     background: 'transparent',
     color: 'var(--accent)',
-    fontSize: '0.9rem',
+    fontSize: '0.78rem',
     fontWeight: 700,
     cursor: 'pointer',
     padding: 0,

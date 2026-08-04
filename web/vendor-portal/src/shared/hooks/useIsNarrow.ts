@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 
-/** True when viewport is phone / small tablet width. */
-export function useIsNarrow(breakpointPx = 640): boolean {
+/** True when viewport is phone / small tablet width (aligned with delivery portal). */
+export function useIsNarrow(breakpointPx = 767): boolean {
   const [narrow, setNarrow] = useState(() =>
     typeof window !== 'undefined' ? window.matchMedia(`(max-width: ${breakpointPx}px)`).matches : false,
   );
