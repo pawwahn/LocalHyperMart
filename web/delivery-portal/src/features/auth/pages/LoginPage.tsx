@@ -42,7 +42,11 @@ export function LoginPage() {
             {submitting ? 'Signing in…' : 'Sign in'}
           </Button>
 
-          <p style={styles.hint}>Hub: 9876500100 · Agent: 9876500200 · password</p>
+          <p style={styles.hint}>
+            Town: Narsaraopet (Andhra Pradesh)
+            <br />
+            Hub: 9876500100 · Agent: 9876500200 · password
+          </p>
         </div>
       </div>
     </div>

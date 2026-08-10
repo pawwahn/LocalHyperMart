@@ -211,7 +211,7 @@ export function HubCodPage() {
   const agentName = agents.find((a) => a.agentId === agentId)?.name ?? '';
 
   return (
-    <HubShell title="COD close-day" subtitle={hubName || undefined} onRefresh={() => void loadData()}>
+    <HubShell title="COD close-day" onRefresh={() => void loadData()}>
       {error ? <Banner tone="danger">{error}</Banner> : null}
       {notice ? <Banner tone="success">{notice}</Banner> : null}
 
@@ -219,13 +219,13 @@ export function HubCodPage() {
         <p style={styles.sectionTitle}>1. Agent & date</p>
         <div style={styles.row}>
           <label style={styles.field}>
-            Delivery boy
+            Delivery agent
             <select
               value={agentId}
               onChange={(e) => setAgentId(e.target.value)}
               style={styles.select}
             >
-              {agents.length === 0 ? <option value="">No boys</option> : null}
+              {agents.length === 0 ? <option value="">No agents</option> : null}
               {agents.map((a) => (
                 <option key={a.agentId} value={a.agentId}>
                   {a.name} ({a.status})
@@ -275,7 +275,7 @@ export function HubCodPage() {
         {loading ? (
           <p style={styles.muted}>Loading…</p>
         ) : openCandidates.length === 0 ? (
-          <p style={styles.muted}>No open COD deliveries for {agentName || 'this boy'} on {date}.</p>
+          <p style={styles.muted}>No open COD deliveries for {agentName || 'this agent'} on {date}.</p>
         ) : (
           <ul style={styles.list}>
             {candidates.map((item) => (

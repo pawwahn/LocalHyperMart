@@ -11,7 +11,7 @@ type Props = {
 
 const NAV = [
   { to: '/hub', label: 'Desk', icon: '🖥️', end: true },
-  { to: '/hub/boys', label: 'Boys', icon: '🛵', end: false },
+  { to: '/hub/boys', label: 'Agents', icon: '🛵', end: false },
   { to: '/hub/cod', label: 'COD', icon: '💵', end: false },
   { to: '/hub/claims', label: 'Claims', icon: '🧾', end: false },
   { to: '/hub/reports', label: 'Reports', icon: '📊', end: false },

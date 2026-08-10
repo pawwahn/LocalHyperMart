@@ -34,12 +34,12 @@ export function actionEventLabel(
       const from =
         stringMeta(metadata, 'previousAgentName') ||
         resolveAgentName?.(stringMeta(metadata, 'previousAgentId') ?? '') ||
-        'Previous boy';
+        'Previous agent';
       const to =
         stringMeta(metadata, 'newAgentName') ||
         resolveAgentName?.(stringMeta(metadata, 'newAgentId') ?? '') ||
-        'New boy';
-      return `Changed boy: ${from} → ${to}`;
+        'New agent';
+      return `Changed agent:  ${from} → ${to}`;
     }
     case 'PICKED_FROM_VENDOR':
       return 'Took bag from shop';

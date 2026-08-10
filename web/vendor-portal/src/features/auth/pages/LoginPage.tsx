@@ -101,7 +101,11 @@ export function LoginPage() {
                 Forgot password?
               </button>
 
-              <p style={styles.hint}>Pilot: 9876500001 / password (Ravi Kirana)</p>
+              <p style={styles.hint}>
+                Town: Narsaraopet (Andhra Pradesh)
+                <br />
+                Pilot: 9876500001 / password (Ravi Kirana)
+              </p>
             </>
           ) : null}
 

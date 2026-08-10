@@ -188,7 +188,7 @@ FCM device registration · Flutter Buyer/Vendor/Delivery · Vendor registration/
 
 ### P1 (soft-launch adjacent; can slip slightly)
 
-Guest browse via gateway polish · Buyer-web ONLINE · OpenSearch · Kafka outbox · Redis usage · reporting dashboards polish · Play Integrity · Pen test · ads town-admin API
+Guest browse via gateway polish · Buyer-web ONLINE · OpenSearch · Kafka outbox · Redis usage · reporting dashboards polish · Play Integrity · Pen test · ads **super-admin** UI + town-service API (2 slots/town: image + shop name + headline + body; hub/vendor cannot edit)
 
 ### P2 (explicitly later)
 

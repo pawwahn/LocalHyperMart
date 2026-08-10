@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { AgentShell } from '../layout/AgentShell';
 import { VendorPickupCard } from '../components/AssignmentCards';
+import { CollapsibleHowTo } from '../components/CollapsibleHowTo';
 import { useAgentWorkspace } from '../hooks/useAgentWorkspace';
 import { usePickupManifests } from '../hooks/usePickupManifests';
 import { groupPickupsByOrder } from '../lib/assignmentSteps';
@@ -30,11 +31,11 @@ export function AgentVendorPickupsPage() {
       {error ? <p style={styles.error}>{error}</p> : null}
       {notice ? <p style={styles.notice}>{notice}</p> : null}
 
-      <div style={styles.howto}>
-        <p style={styles.howtoLine}>1️⃣ Go to shop</p>
-        <p style={styles.howtoLine}>2️⃣ Take bag</p>
-        <p style={styles.howtoLine}>3️⃣ Bring to hub</p>
-      </div>
+      <CollapsibleHowTo summary="Shop → bag → hub" storageKey="agent-howto-from-shop">
+        <p style={styles.howtoLine}>1 · Go to shop</p>
+        <p style={styles.howtoLine}>2 · Take bag</p>
+        <p style={styles.howtoLine}>3 · Bring to hub</p>
+      </CollapsibleHowTo>
 
       <div style={styles.filters}>
         <FilterChip active={filter === 'all'} label={`All ${pickupTasks.length}`} onClick={() => setFilter('all')} />
@@ -115,57 +116,48 @@ function FilterChip({
 }
 
 const styles: Record<string, CSSProperties> = {
-  howto: {
-    display: 'flex',
-    gap: '0.75rem',
-    flexWrap: 'wrap',
-    padding: '0.85rem 1rem',
-    borderRadius: 14,
-    background: 'rgba(129, 199, 132, 0.12)',
-    border: '2px solid rgba(129, 199, 132, 0.35)',
-  },
-  howtoLine: { margin: 0, fontWeight: 800, fontSize: '0.95rem' },
-  filters: { display: 'flex', gap: '0.45rem', flexWrap: 'wrap' },
+  howtoLine: { margin: 0, fontWeight: 700, fontSize: '0.82rem', lineHeight: 1.3 },
+  filters: { display: 'flex', gap: '0.35rem', flexWrap: 'wrap' },
   chip: {
-    border: '2px solid var(--border)',
+    border: '1px solid var(--border)',
     borderRadius: 999,
-    padding: '0.55rem 0.9rem',
+    padding: '0.4rem 0.7rem',
     background: 'transparent',
     color: 'var(--text-muted)',
-    fontSize: '0.9rem',
+    fontSize: '0.82rem',
     fontWeight: 700,
     cursor: 'pointer',
   },
   chipActive: {
-    border: '2px solid var(--success)',
+    border: '1px solid var(--success)',
     borderRadius: 999,
-    padding: '0.55rem 0.9rem',
+    padding: '0.4rem 0.7rem',
     background: 'rgba(129, 199, 132, 0.2)',
     color: 'var(--success)',
-    fontSize: '0.9rem',
+    fontSize: '0.82rem',
     fontWeight: 800,
     cursor: 'pointer',
   },
   search: {
     width: '100%',
     boxSizing: 'border-box',
-    border: '2px solid var(--border)',
-    borderRadius: 12,
-    padding: '0.75rem 0.9rem',
+    border: '1px solid var(--border)',
+    borderRadius: 10,
+    padding: '0.55rem 0.75rem',
     background: 'var(--bg-muted)',
     color: 'var(--text)',
-    fontSize: '1rem',
+    fontSize: '0.95rem',
   },
-  list: { display: 'grid', gap: '1.1rem' },
+  list: { display: 'grid', gap: '0.75rem' },
   orderGroup: {
-    border: '2px solid var(--border)',
-    borderRadius: 16,
-    padding: '1rem',
+    border: '1px solid var(--border)',
+    borderRadius: 12,
+    padding: '0.75rem',
     background: 'var(--bg-elevated)',
   },
-  orderTitle: { margin: 0, fontSize: '1.05rem', fontWeight: 800 },
-  orderMeta: { margin: '0.25rem 0 0.75rem', color: 'var(--text-muted)', fontSize: '0.88rem', fontWeight: 700 },
-  cards: { display: 'grid', gap: '0.75rem' },
+  orderTitle: { margin: 0, fontSize: '0.98rem', fontWeight: 800 },
+  orderMeta: { margin: '0.15rem 0 0.5rem', color: 'var(--text-muted)', fontSize: '0.8rem', fontWeight: 700 },
+  cards: { display: 'grid', gap: '0.55rem' },
   error: { margin: 0, color: 'var(--danger)', fontWeight: 700 },
   notice: { margin: 0, color: 'var(--success)', fontWeight: 700 },
   muted: { color: 'var(--text-muted)', fontWeight: 700 },

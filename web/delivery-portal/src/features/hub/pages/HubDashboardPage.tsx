@@ -81,7 +81,7 @@ function orderWhatToDo(order: OrderRowView): {
   }
   if (order.pickupReadiness === 'partial') {
     return {
-      label: `${ready} shop ready — send boy to bring to hub`,
+      label: `${ready} shop ready — send delivery agent to bring to hub`,
       shortLabel: `${ready} ready`,
       tone: 'partial',
     };
@@ -137,7 +137,7 @@ type VendorLegAction =
 function vendorLegAction(state: PickupUiState): VendorLegAction {
   switch (state) {
     case 'ready':
-      return { kind: 'assign', label: 'Send boy' };
+      return { kind: 'assign', label: 'Send agent' };
     case 'agent_collecting':
       return { kind: 'confirm', label: 'Bag at hub ✓' };
     default:
@@ -151,7 +151,7 @@ function vendorLegHint(state: PickupUiState): string | null {
     case 'awaiting_vendor':
       return 'wait for shop';
     case 'agent_assigned':
-      return 'boy heading to shop';
+      return 'delivery agent heading to shop';
     case 'at_hub':
       return null;
     default:
@@ -168,8 +168,8 @@ function assignmentLegStyle(legType: string): CSSProperties {
 }
 
 function assignmentStatusPlain(status: string): string {
-  if (status === 'ASSIGNED') return 'Boy sent';
-  if (status === 'IN_PROGRESS') return 'Boy on the way';
+  if (status === 'ASSIGNED') return 'Agent sent';
+  if (status === 'IN_PROGRESS') return 'Agent on the way';
   if (status === 'COMPLETED') return 'Done';
   return status;
 }
@@ -277,7 +277,6 @@ export function HubDashboardPage() {
   return (
     <HubShell
       title="Hub desk"
-      subtitle={dashboard ? dashboard.hubName : undefined}
       onRefresh={() => void reload()}
     >
       {loading && !dashboard ? <p style={styles.muted}>Loading…</p> : null}
@@ -296,14 +295,14 @@ export function HubDashboardPage() {
             <span style={styles.howtoNum}>2</span>
             <div>
               <strong>Bring to hub</strong>
-              <p style={styles.howtoText}>Boy brings bag to hub</p>
+              <p style={styles.howtoText}>Delivery agent brings bag to hub</p>
             </div>
           </div>
           <div style={styles.howtoStep}>
             <span style={styles.howtoNum}>3</span>
             <div>
               <strong>Send home</strong>
-              <p style={styles.howtoText}>Boy takes order to customer</p>
+              <p style={styles.howtoText}>Delivery agent takes order to customer</p>
             </div>
           </div>
         </div>
@@ -315,7 +314,7 @@ export function HubDashboardPage() {
             icon="🛍️"
             value={String(dashboard.readyForPickup)}
             title="Bags ready at shop"
-            help="Shop packed — send boy to shop"
+            help="Shop packed — send delivery agent to shop"
             tone="go"
           />
           <Stat
@@ -328,14 +327,14 @@ export function HubDashboardPage() {
           <Stat
             icon="🛵"
             value={String(dashboard.activeAgents)}
-            title="Boys available"
-            help="Delivery boys ready for work"
+            title="Agents available"
+            help="Delivery agents ready for work"
             tone="ok"
           />
           <Stat
             icon="📦"
             value={String(dashboard.activeAssignments)}
-            title="Boys on a trip"
+            title="Agents on a trip"
             help="Already going to shop or home"
             tone="warn"
           />
@@ -358,9 +357,9 @@ export function HubDashboardPage() {
               searchPlaceholder="Type order number here…"
               hint={
                 orderTab === 'action'
-                  ? 'These orders have at least one shop ready. You can send a boy for the ready shop. Other shops in the same order may still be packing.'
+                  ? 'These orders have at least one shop ready. You can send a delivery agent for the ready shop. Other shops in the same order may still be packing.'
                   : orderTab === 'vendor-wait'
-                    ? 'No shop has packed yet on these orders. Wait — do not send a boy yet.'
+                    ? 'No shop has packed yet on these orders. Wait — do not send a delivery agent yet.'
                     : 'All open orders in this town (not delivered yet). Your work + Shop packing cover waiting/action; this tab also includes orders already at hub or going home.'
               }
             />
@@ -552,7 +551,7 @@ export function HubDashboardPage() {
                                 })
                               }
                             >
-                              Change boy
+                              Change agent
                             </button>
                           ) : null}
                           {action.kind !== 'none' ? (
@@ -615,7 +614,7 @@ export function HubDashboardPage() {
                           {lastMileDone
                             ? 'Delivered at home.'
                             : vendorLegDone
-                              ? 'All bags at hub — send a boy home.'
+                              ? 'All bags at hub — send a delivery agent home.'
                               : `Waiting for bags (${atHubCount}/${subOrders.length} at hub).`}
                         </p>
                         <button
@@ -631,8 +630,8 @@ export function HubDashboardPage() {
                           }
                         >
                           {lastMile
-                            ? `Boy en route (${assignmentStatusPlain(lastMile.status)})`
-                            : 'Send boy home'}
+                            ? `Agent en route (${assignmentStatusPlain(lastMile.status)})`
+                            : 'Send agent home'}
                         </button>
                         {lastMile ? (
                           <>
@@ -659,7 +658,7 @@ export function HubDashboardPage() {
                                   })
                                 }
                               >
-                                Change boy
+                                Change agent
                               </button>
                             ) : null}
                           </>
@@ -709,7 +708,7 @@ export function HubDashboardPage() {
                           (a) => a.status === 'ASSIGNED' || a.status === 'IN_PROGRESS',
                         );
                         if (active.length === 0) {
-                          return <p style={styles.muted}>No boy is on a trip for this order right now.</p>;
+                          return <p style={styles.muted}>No delivery agent is on a trip for this order right now.</p>;
                         }
                         return active.map((a) => (
                           <div key={a.assignmentId} style={styles.historyCard}>
@@ -749,21 +748,21 @@ export function HubDashboardPage() {
         open={Boolean(agentPrompt)}
         title={
           agentPrompt?.kind === 'reassign'
-            ? 'Change boy?'
+            ? 'Change agent?'
             : agentPrompt?.kind === 'lastMile'
               ? 'Who goes to customer home?'
               : 'Who goes to the shop?'
         }
         description={
           agentPrompt?.kind === 'reassign'
-            ? `Move ${agentPrompt.label} to another boy.`
+            ? `Move ${agentPrompt.label} to another delivery agent.`
             : agentPrompt?.kind === 'lastMile'
-              ? `Pick a boy for ${agentPrompt.orderNumber} home delivery.`
+              ? `Pick a delivery agent for ${agentPrompt.orderNumber} home delivery.`
               : agentPrompt?.kind === 'pickup'
-                ? `Pick a boy to collect from ${agentPrompt.shopName}.`
+                ? `Pick a delivery agent to collect from ${agentPrompt.shopName}.`
                 : ''
         }
-        confirmLabel={agentPrompt?.kind === 'reassign' ? 'Change boy' : 'Send this boy'}
+        confirmLabel={agentPrompt?.kind === 'reassign' ? 'Change agent' : 'Send this agent'}
         agents={agents}
         preferredAgentId={
           agentPrompt?.kind === 'reassign' ? undefined : (lastAgentId ?? undefined)

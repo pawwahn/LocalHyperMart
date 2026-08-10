@@ -18,7 +18,8 @@ alwaysApply: true
 - Persist creatives/slot fills per `townId`; buyer portal should load ads for the buyer's active town.
 - Keep `AdSlot` / slot IDs stable; replace pilot `adsInventory.ts` with admin-backed API when ready.
 
-## Current pilot
+## Current
 
-- Buyer-web has placeholder slots only (`features/ads`). Treat as UI inventory until admin APIs exist.
-- Home currently shows **2** slots: `home_hero` + `home_mid_grid`. `home_search_strip` is reserved for later. Cart keeps `cart_upsell`.
+- Super-admin **Ads** screen manages **3** town slots: `HOME_HERO`, `HOME_MID_GRID`, `CART_UPSELL` (buyer: `home_hero`, `home_mid_grid`, `cart_upsell`).
+- `home_search_strip` remains reserved for later.
+- Buyer `AdSlot` loads live town ads from town-service; pilot inventory is fallback.

@@ -17,4 +17,10 @@ public class AgentResponse {
     String name;
     String phone;
     AgentStatus status;
+    String govtIdType;
+    String govtIdNumber;
+    String reference1Name;
+    String reference1Phone;
+    String reference2Name;
+    String reference2Phone;
 }

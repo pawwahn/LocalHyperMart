@@ -10,6 +10,7 @@ import com.hyperlocalmart.delivery.dto.request.PickedFromVendorRequest;
 import com.hyperlocalmart.delivery.dto.response.AgentMeResponse;
 import com.hyperlocalmart.delivery.dto.response.AgentStatsResponse;
 import com.hyperlocalmart.delivery.dto.response.AssignmentResponse;
+import com.hyperlocalmart.delivery.dto.response.DeliveryManifestResponse;
 import com.hyperlocalmart.delivery.dto.response.PickupManifestResponse;
 import com.hyperlocalmart.delivery.security.AuthUserPrincipal;
 import com.hyperlocalmart.delivery.service.AgentService;
@@ -70,6 +71,16 @@ public class AgentAssignmentController {
         requireDeliveryAgent(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
                 assignmentService.getPickupManifest(principal.getUserId(), assignmentId)));
+    }
+
+    @GetMapping("/api/v1/delivery/agents/me/assignments/{id}/delivery-manifest")
+    public ResponseEntity<ApiResponse<DeliveryManifestResponse>> deliveryManifest(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @PathVariable("id") UUID assignmentId,
+            HttpServletRequest httpRequest) {
+        requireDeliveryAgent(principal);
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                assignmentService.getDeliveryManifest(principal.getUserId(), assignmentId)));
     }
 
     @PostMapping("/api/v1/delivery/assignments/{id}/picked-from-vendor")

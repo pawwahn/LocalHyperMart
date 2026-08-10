@@ -1,5 +1,6 @@
 import { apiRequest } from '@/shared/api/http';
 import type { AuthSession, PortalRole } from '@/shared/auth/session';
+import { resolveTownDisplayName } from '@/features/towns/api/townsApi';
 
 type LoginApiResponse = {
   accessToken: string;
@@ -66,6 +67,7 @@ export async function login(phone: string, password: string): Promise<AuthSessio
     });
     session.hubId = me.hubId;
     session.townId = me.townId;
+    if (me.hubName) session.hubName = me.hubName;
   } else {
     const me = await apiRequest<AgentMeDto>('/api/v1/delivery/agents/me', {
       token: data.accessToken,
@@ -73,6 +75,15 @@ export async function login(phone: string, password: string): Promise<AuthSessio
     session.agentId = me.agentId;
     session.townId = me.townId;
     if (me.hubId) session.hubId = me.hubId;
+  }
+
+  if (session.townId) {
+    try {
+      const townName = await resolveTownDisplayName(session.townId);
+      if (townName) session.townName = townName;
+    } catch {
+      // Town label is best-effort; chrome still shows role + phone.
+    }
   }
 
   return session;

@@ -122,7 +122,6 @@ export function HubReportsPage() {
   return (
     <HubShell
       title="Hub reports"
-      subtitle={hubName || undefined}
       onRefresh={() => void loadReport()}
     >
       <section style={styles.filters}>
@@ -170,16 +169,16 @@ export function HubReportsPage() {
           </label>
         </div>
 
-        <p style={styles.filtersTitle}>2. Choose delivery boy</p>
+        <p style={styles.filtersTitle}>2. Choose delivery agent</p>
         <label style={styles.selectField}>
           Agent phone / name
           <select
             value={agentId}
             onChange={(e) => setAgentId(e.target.value)}
             style={isMobile ? styles.selectMobile : styles.select}
-            aria-label="Select delivery boy"
+            aria-label="Select delivery agent"
           >
-            <option value="all">All delivery boys</option>
+            <option value="all">All delivery agents</option>
             {(report?.agents ?? []).map((a) => (
               <option key={a.agentId} value={a.agentId}>
                 {a.phone} · {a.name}
@@ -194,7 +193,7 @@ export function HubReportsPage() {
           </button>
           <p style={styles.rangeHint}>
             Showing: {rangeLabel}
-            {selectedAgent ? ` · boy ${selectedAgent.phone}` : ' · all boys'}
+            {selectedAgent ? ` · agent ${selectedAgent.phone}` : ' · all agents'}
           </p>
         </div>
       </section>
@@ -206,7 +205,7 @@ export function HubReportsPage() {
         <>
           {selectedAgent ? (
             <section style={styles.agentHero}>
-              <p style={styles.agentHeroEyebrow}>Selected delivery boy</p>
+              <p style={styles.agentHeroEyebrow}>Selected delivery agent</p>
               <h2 style={styles.agentHeroTitle}>
                 🛵 {selectedAgent.name}
               </h2>
@@ -215,13 +214,13 @@ export function HubReportsPage() {
                 <Stat
                   label="Shop → Hub pickups"
                   value={selectedAgent.shopPickupsCompleted}
-                  help="Bags this boy brought to hub"
+                  help="Bags this agent brought to hub"
                   tone="go"
                 />
                 <Stat
                   label="Hub → Home deliveries"
                   value={selectedAgent.homeDeliveriesCompleted}
-                  help="Orders this boy gave to customers"
+                  help="Orders this agent gave to customers"
                   tone="info"
                 />
                 <Stat
@@ -274,13 +273,13 @@ export function HubReportsPage() {
 
           <section>
             <h2 style={styles.h2}>
-              {selectedAgent ? 'This boy — trip numbers' : 'Delivery boys comparison'}
+              {selectedAgent ? 'This agent — trip numbers' : 'Delivery agents comparison'}
             </h2>
             {visibleAgents.length === 0 ? (
               <p style={styles.empty}>
                 {agentId === 'all'
-                  ? 'No delivery boys linked to this hub.'
-                  : 'No trips for this boy in the selected dates.'}
+                  ? 'No delivery agents linked to this hub.'
+                  : 'No trips for this agent in the selected dates.'}
               </p>
             ) : isMobile ? (
               <div style={styles.agentCards}>
@@ -306,7 +305,7 @@ export function HubReportsPage() {
                 <table style={styles.table}>
                   <thead>
                     <tr>
-                      <th style={styles.th}>Boy</th>
+                      <th style={styles.th}>Agent</th>
                       <th style={styles.th}>Phone (agent number)</th>
                       <th style={styles.thNum}>Shop pickups</th>
                       <th style={styles.thNum}>Home deliveries</th>
@@ -325,7 +324,7 @@ export function HubReportsPage() {
                             type="button"
                             style={styles.phoneBtn}
                             onClick={() => setAgentId(a.agentId)}
-                            title="Show only this boy"
+                            title="Show only this agent"
                           >
                             {a.phone}
                           </button>
@@ -343,7 +342,7 @@ export function HubReportsPage() {
             )}
             {selectedAgent ? (
               <button type="button" style={styles.clearBtn} onClick={() => setAgentId('all')}>
-                ← Show all delivery boys
+                ← Show all delivery agents
               </button>
             ) : null}
           </section>

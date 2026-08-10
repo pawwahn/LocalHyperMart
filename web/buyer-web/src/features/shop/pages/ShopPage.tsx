@@ -62,11 +62,10 @@ export function ShopPage() {
       cartTotalLabel={cart?.payableLabel}
       onRefresh={() => reload()}
     >
-      <section style={styles.hero} aria-label="Welcome">
-        <p style={styles.heroTitle}>
-          <span style={styles.heroAccent}>same-day</span> groceries from your town
-        </p>
-      </section>
+      <p style={styles.promise} aria-label="Delivery promise">
+        <span style={styles.promiseBadge}>Same-day</span>
+        <span style={styles.promiseText}>Groceries from your town · usually 30–45 min</span>
+      </p>
 
       <div style={styles.searchShell}>
         <span style={styles.searchIcon} aria-hidden>
@@ -74,7 +73,7 @@ export function ShopPage() {
         </span>
         <input
           aria-label="Search products"
-          placeholder={listening ? 'Listening… say a product' : 'Milk, maggi, mango… what’s the vibe?'}
+          placeholder={listening ? 'Listening… say a product' : 'Search milk, maggi, mango…'}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           style={styles.search}
@@ -93,11 +92,6 @@ export function ShopPage() {
       </div>
       {voiceError ? <Banner tone="warning">{voiceError}</Banner> : null}
       {listening ? <Banner tone="info">Listening… say something like “milk” or “rice”</Banner> : null}
-
-      <p style={styles.speedChip} aria-label="Delivery speed">
-        <span style={styles.speedDot} aria-hidden />
-        Usually 30–45 min · from shops near you
-      </p>
 
       <div className="hlm-hide-scrollbar" style={styles.aisles} role="tablist" aria-label="Categories">
         {AISLES.map((aisle) => {
@@ -201,30 +195,29 @@ export function ShopPage() {
 }
 
 const styles: Record<string, CSSProperties> = {
-  hero: {
-    margin: '0 -0.75rem',
-    padding: '0.4rem 0.85rem',
-    background:
-      'linear-gradient(105deg, var(--hero) 0%, var(--hero-deep) 62%, #0a5c16 100%)',
-    color: 'var(--text-inverse)',
-  },
-  heroTitle: {
+  promise: {
     margin: 0,
-    fontFamily: 'var(--font-display)',
-    fontSize: '0.86rem',
-    fontWeight: 700,
-    letterSpacing: '-0.02em',
-    lineHeight: 1.3,
+    display: 'flex',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: '0.4rem 0.55rem',
   },
-  heroAccent: {
-    display: 'inline-block',
-    background: 'var(--highlight)',
-    color: '#0a1a08',
+  promiseBadge: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    padding: '0.2rem 0.5rem',
+    borderRadius: 8,
+    background: 'var(--accent)',
+    color: '#fff',
+    fontSize: '0.72rem',
     fontWeight: 800,
-    padding: '0.05rem 0.35rem',
-    borderRadius: 6,
-    marginRight: '0.3rem',
-    letterSpacing: '-0.02em',
+    letterSpacing: '0.02em',
+  },
+  promiseText: {
+    fontSize: '0.8rem',
+    fontWeight: 650,
+    color: 'var(--text)',
+    lineHeight: 1.3,
   },
   searchShell: {
     display: 'flex',
@@ -269,24 +262,6 @@ const styles: Record<string, CSSProperties> = {
     fontSize: '0.75rem',
     lineHeight: 1,
     fontWeight: 800,
-  },
-  speedChip: {
-    margin: 0,
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: '0.4rem',
-    fontSize: '0.72rem',
-    fontWeight: 600,
-    color: 'var(--text-muted)',
-    letterSpacing: '-0.01em',
-  },
-  speedDot: {
-    width: 7,
-    height: 7,
-    borderRadius: '50%',
-    background: 'var(--accent)',
-    boxShadow: '0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent)',
-    flexShrink: 0,
   },
   aisles: {
     display: 'flex',

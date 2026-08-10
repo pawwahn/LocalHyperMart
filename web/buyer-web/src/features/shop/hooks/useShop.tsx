@@ -227,9 +227,6 @@ function useShopState() {
           cartRef.current = cleared;
           setCart(cleared);
           setError(null);
-          setNotice(
-            `Now shopping in ${townLabel}. Items from your previous town cart were cleared.`,
-          );
           await pushUntilSynced();
           return;
         } catch (recoverErr) {

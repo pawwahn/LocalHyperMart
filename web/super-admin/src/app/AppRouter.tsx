@@ -3,6 +3,7 @@ import { ThemeProvider } from '@hlm-theme';
 import { AuthProvider } from '@/shared/auth/AuthContext';
 import { RequireAuth } from '@/shared/routing/RequireAuth';
 import { LoginPage } from '@/features/auth/pages/LoginPage';
+import { AdsPage } from '@/features/ads/pages/AdsPage';
 import { DashboardPage } from '@/features/dashboard/pages/DashboardPage';
 import { TownsPage } from '@/features/towns/pages/TownsPage';
 import { VendorsPage } from '@/features/vendors/pages/VendorsPage';
@@ -28,6 +29,7 @@ export function AppRouter() {
             <Route element={<RequireAuth />}>
               <Route path="/dashboard" element={<DashboardPage />} />
               <Route path="/towns" element={<TownsPage />} />
+              <Route path="/ads" element={<AdsPage />} />
               <Route path="/orders" element={<OrdersPage />} />
               <Route path="/orders/:orderId" element={<OrderDetailPage />} />
               <Route path="/claims" element={<ClaimsPage />} />

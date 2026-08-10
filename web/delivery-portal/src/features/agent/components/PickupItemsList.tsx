@@ -1,5 +1,5 @@
-import type { CSSProperties } from 'react';
-import type { PickupManifestView } from '../api/agentApi';
+import { useState, type CSSProperties } from 'react';
+import type { DeliveryManifestView, PickupManifestView } from '../api/agentApi';
 
 /** Human labels for catalog unit codes (KG, PIECE, L, …). */
 function formatUnit(unitCode: string | null | undefined): { short: string; full: string } | null {
@@ -45,134 +45,207 @@ export function PickupItemsList({
   loading,
   failed,
   onRetry,
+  title = 'Items',
+  legend,
+  showShop = false,
+  defaultOpen = true,
 }: {
-  manifest?: PickupManifestView;
+  manifest?: PickupManifestView | DeliveryManifestView;
   loading?: boolean;
   failed?: boolean;
   onRetry?: () => void;
+  title?: string;
+  legend?: string;
+  showShop?: boolean;
+  defaultOpen?: boolean;
 }) {
+  const [open, setOpen] = useState(defaultOpen);
+
   if (loading && !manifest) {
-    return <p style={styles.loading}>Loading bag items…</p>;
+    return <p style={styles.loading}>Loading items…</p>;
   }
 
   if (!manifest) {
+    if (!failed) return null;
     return (
-      <div style={styles.missingBox}>
-        <p style={styles.missingTitle}>Bag items not showing</p>
-        <p style={styles.missingHelp}>
-          {failed
-            ? 'Phone could not load what is inside the bag. Ask hub uncle, or tap Try again.'
-            : 'Still loading bag items…'}
-        </p>
+      <div style={styles.missingRow}>
+        <span style={styles.missingText}>Items unavailable</span>
         {onRetry ? (
-          <button type="button" style={styles.retry} onClick={onRetry}>
-            Try again
+          <button type="button" style={styles.retryLink} onClick={onRetry}>
+            Retry
           </button>
         ) : null}
       </div>
     );
   }
 
+  const summary = `${manifest.items.length} item${manifest.items.length === 1 ? '' : 's'} · ₹${manifest.subtotal.toFixed(0)}`;
+
   return (
     <div style={styles.wrap}>
-      <p style={styles.title}>Check these items</p>
-      <p style={styles.legend}>Take = quantity × unit from catalog (kg / pcs / L)</p>
-      <div style={styles.headRow}>
-        <span>Item</span>
-        <span>Take</span>
-      </div>
-      <ul style={styles.list}>
-        {manifest.items.map((item, index) => {
-          const unit = formatUnit(item.unitCode);
-          return (
-            <li key={`${item.name}-${index}`} style={styles.row}>
-              <div style={styles.nameBlock}>
-                <span style={styles.name}>{item.name}</span>
-                <span style={unit ? styles.unitHint : styles.unitMissing}>
-                  {unit ? unit.full : 'Unit missing — confirm with shop'}
-                </span>
-              </div>
-              <strong style={styles.qty}>{formatTakeAmount(item.quantity, item.unitCode)}</strong>
-            </li>
-          );
-        })}
-      </ul>
-      <p style={styles.footer}>
-        {manifest.items.length} product{manifest.items.length === 1 ? '' : 's'} · ₹
-        {manifest.subtotal.toFixed(0)}
-      </p>
+      <button type="button" style={styles.headerBtn} onClick={() => setOpen((v) => !v)} aria-expanded={open}>
+        <span style={styles.headerLeft}>
+          <span style={styles.bagIcon} aria-hidden>
+            🛍️
+          </span>
+          <span style={styles.headerText}>
+            <span style={styles.title}>{title}</span>
+            <span style={styles.summaryInline}>{summary}</span>
+          </span>
+        </span>
+        <span style={styles.chevron} aria-hidden>
+          {open ? '▾' : '▸'}
+        </span>
+      </button>
+
+      {open ? (
+        <>
+          {legend ? <p style={styles.legend}>{legend}</p> : null}
+          <ul style={styles.list}>
+            {manifest.items.map((item, index) => {
+              const unit = formatUnit(item.unitCode);
+              const metaParts = [
+                showShop && item.shopName ? item.shopName : null,
+                unit ? unit.short : null,
+              ].filter(Boolean);
+              return (
+                <li key={`${item.shopName ?? ''}-${item.name}-${index}`} style={styles.row}>
+                  <div style={styles.nameBlock}>
+                    <span style={styles.name}>{item.name}</span>
+                    {metaParts.length > 0 ? (
+                      <span style={styles.unitHint}>{metaParts.join(' · ')}</span>
+                    ) : !unit ? (
+                      <span style={styles.unitMissing}>Unit missing</span>
+                    ) : null}
+                  </div>
+                  <strong style={styles.qty}>{formatTakeAmount(item.quantity, item.unitCode)}</strong>
+                </li>
+              );
+            })}
+          </ul>
+        </>
+      ) : null}
     </div>
   );
 }
 
 const styles: Record<string, CSSProperties> = {
   wrap: {
-    marginTop: '0.35rem',
-    padding: '0.75rem 0.85rem',
-    borderRadius: 12,
-    background: 'rgba(129, 199, 132, 0.1)',
-    border: '1px solid rgba(129, 199, 132, 0.35)',
+    borderRadius: 10,
+    background: 'var(--bg-elevated)',
+    border: '1.5px solid var(--border)',
+    overflow: 'hidden',
   },
-  title: { margin: '0 0 0.2rem', fontSize: '0.9rem', fontWeight: 800 },
+  headerBtn: {
+    width: '100%',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: '0.4rem',
+    margin: 0,
+    padding: '0.4rem 0.55rem',
+    border: 'none',
+    background: 'transparent',
+    color: 'var(--text)',
+    cursor: 'pointer',
+    textAlign: 'left',
+    minHeight: 36,
+  },
+  headerLeft: { display: 'flex', alignItems: 'center', gap: '0.45rem', minWidth: 0 },
+  bagIcon: { fontSize: '0.9rem', lineHeight: 1 },
+  headerText: { display: 'grid', gap: 0, minWidth: 0 },
+  title: { fontSize: '0.75rem', fontWeight: 800, lineHeight: 1.15 },
+  summaryInline: {
+    fontSize: '0.68rem',
+    fontWeight: 650,
+    color: 'var(--text-muted)',
+    lineHeight: 1.15,
+  },
+  chevron: {
+    flexShrink: 0,
+    width: 20,
+    height: 20,
+    borderRadius: 999,
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontSize: '0.7rem',
+    fontWeight: 800,
+    color: 'var(--text-muted)',
+    background: 'var(--bg-elevated)',
+    border: '1px solid var(--border)',
+  },
   legend: {
-    margin: '0 0 0.55rem',
-    fontSize: '0.75rem',
+    margin: '0 0.7rem 0.3rem',
+    fontSize: '0.7rem',
     fontWeight: 600,
     color: 'var(--text-muted)',
   },
-  headRow: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    fontSize: '0.72rem',
-    fontWeight: 700,
-    color: 'var(--text-muted)',
-    textTransform: 'uppercase',
-    letterSpacing: '0.03em',
-    marginBottom: '0.35rem',
+  list: {
+    margin: 0,
+    padding: '0 0.55rem 0.45rem',
+    listStyle: 'none',
+    display: 'grid',
+    gap: 0,
   },
-  list: { margin: 0, padding: 0, listStyle: 'none', display: 'grid', gap: '0.45rem' },
   row: {
     display: 'flex',
     justifyContent: 'space-between',
-    gap: '0.75rem',
+    gap: '0.5rem',
     alignItems: 'center',
-    fontSize: '0.95rem',
+    fontSize: '0.86rem',
+    padding: '0.35rem 0',
+    borderTop: '1px solid var(--border)',
   },
-  nameBlock: { display: 'grid', gap: '0.1rem' },
-  name: { fontWeight: 700 },
-  unitHint: { fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 },
-  unitMissing: { fontSize: '0.75rem', color: '#b45309', fontWeight: 700 },
+  nameBlock: { display: 'grid', gap: 1, minWidth: 0 },
+  name: { fontWeight: 700, lineHeight: 1.2 },
+  unitHint: { fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: 600, lineHeight: 1.2 },
+  unitMissing: { fontSize: '0.68rem', color: '#b45309', fontWeight: 700, lineHeight: 1.2 },
   qty: {
     whiteSpace: 'nowrap',
-    fontSize: '1.05rem',
+    fontSize: '0.8rem',
     fontWeight: 800,
-    color: 'var(--accent-hover)',
-    background: 'var(--accent-soft)',
-    borderRadius: 999,
-    padding: '0.2rem 0.65rem',
+    color: 'var(--text)',
+    flexShrink: 0,
   },
-  footer: { margin: '0.55rem 0 0', color: 'var(--text-muted)', fontSize: '0.82rem', fontWeight: 700 },
-  loading: { margin: '0.5rem 0 0', color: 'var(--text-muted)', fontSize: '0.9rem', fontWeight: 700 },
+  loading: { margin: 0, color: 'var(--text-muted)', fontSize: '0.78rem', fontWeight: 700 },
+  missingRow: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: '0.5rem',
+    padding: '0.35rem 0.15rem',
+  },
+  missingText: { margin: 0, color: 'var(--text-muted)', fontWeight: 650, fontSize: '0.78rem' },
+  retryLink: {
+    border: 'none',
+    background: 'transparent',
+    color: 'var(--accent)',
+    fontWeight: 800,
+    fontSize: '0.78rem',
+    cursor: 'pointer',
+    padding: '0.25rem 0.35rem',
+    minHeight: 36,
+  },
   missingBox: {
-    marginTop: '0.35rem',
-    padding: '0.75rem 0.85rem',
+    padding: '0.55rem 0.7rem',
     borderRadius: 12,
-    background: 'rgba(255, 183, 77, 0.15)',
-    border: '2px solid rgba(255, 183, 77, 0.55)',
+    background: 'rgba(255, 183, 77, 0.12)',
+    border: '1px solid rgba(255, 183, 77, 0.45)',
     display: 'grid',
-    gap: '0.35rem',
+    gap: '0.2rem',
   },
-  missingTitle: { margin: 0, color: '#92400e', fontWeight: 800, fontSize: '0.95rem' },
-  missingHelp: { margin: 0, color: '#92400e', fontWeight: 600, fontSize: '0.85rem', lineHeight: 1.35 },
+  missingTitle: { margin: 0, color: '#92400e', fontWeight: 800, fontSize: '0.85rem' },
+  missingHelp: { margin: 0, color: '#92400e', fontWeight: 600, fontSize: '0.78rem' },
   retry: {
     justifySelf: 'start',
-    marginTop: '0.2rem',
     border: 'none',
-    borderRadius: 10,
-    padding: '0.55rem 0.9rem',
-    background: '#ef6c00',
+    borderRadius: 8,
+    padding: '0.4rem 0.7rem',
+    background: '#ea580c',
     color: '#fff',
     fontWeight: 800,
     cursor: 'pointer',
+    minHeight: 40,
   },
 };

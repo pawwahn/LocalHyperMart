@@ -1,5 +1,6 @@
 import { apiRequest } from '@/shared/api/http';
 import type { AuthSession } from '@/shared/auth/session';
+import { resolveTownDisplayName } from '@/features/towns/api/townsApi';
 
 type LoginApiResponse = {
   accessToken: string;
@@ -55,6 +56,15 @@ export async function login(phone: string, password: string): Promise<AuthSessio
     throw new Error('No vendor shop linked to this login. Ask hub/admin to approve your registration.');
   }
 
+  let townName: string | undefined;
+  if (me.townId) {
+    try {
+      townName = (await resolveTownDisplayName(me.townId)) ?? undefined;
+    } catch {
+      townName = undefined;
+    }
+  }
+
   return {
     accessToken: data.accessToken,
     refreshToken: data.refreshToken,
@@ -64,6 +74,7 @@ export async function login(phone: string, password: string): Promise<AuthSessio
     vendorId,
     phone,
     shopName: shopName ?? 'Your shop',
+    townName,
   };
 }
 

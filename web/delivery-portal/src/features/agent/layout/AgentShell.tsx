@@ -22,6 +22,7 @@ export function AgentShell({ title, subtitle, onRefresh, children }: Props) {
       title={title}
       subtitle={subtitle}
       onRefresh={onRefresh}
+      dense
       footerNav={
         <nav style={styles.tabbar} aria-label="Agent work">
           {NAV.map((item) => (

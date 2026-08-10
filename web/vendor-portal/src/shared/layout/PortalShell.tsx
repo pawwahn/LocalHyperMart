@@ -32,13 +32,14 @@ const NAV = [
 
 export function PortalShell({ title, children, onRefresh, shopPause }: Props) {
   const { session, logout } = useAuth();
-  const { hub, townName } = useVendorShop();
+  const { hub, townName: shopTownName } = useVendorShop();
   const location = useLocation();
   const navigate = useNavigate();
   const { alertMessage, pendingCount, clearAlert } = useOrderAlert();
   const narrow = useIsNarrow(767);
   const shopName = session?.shopName ?? 'Vendor shop';
   const phone = session?.phone;
+  const townName = shopTownName ?? session?.townName ?? null;
 
   return (
     <div

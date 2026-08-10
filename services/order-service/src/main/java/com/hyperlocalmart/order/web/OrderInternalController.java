@@ -7,6 +7,7 @@ import com.hyperlocalmart.order.dto.response.CodDeliveredResponse;
 import com.hyperlocalmart.order.dto.response.HubOrderStatsResponse;
 import com.hyperlocalmart.order.dto.response.HubTownReportStatsResponse;
 import com.hyperlocalmart.order.dto.response.OrderDeliveryInfoResponse;
+import com.hyperlocalmart.order.dto.response.OrderDeliveryManifestResponse;
 import com.hyperlocalmart.order.dto.response.OrderInternalSnapshotResponse;
 import com.hyperlocalmart.order.dto.response.SettlementCandidateResponse;
 import com.hyperlocalmart.order.dto.response.SubOrderInternalSnapshotResponse;
@@ -62,6 +63,13 @@ public class OrderInternalController {
             @PathVariable UUID orderId,
             HttpServletRequest httpRequest) {
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, orderService.getDeliveryInfo(orderId)));
+    }
+
+    @GetMapping("/api/v1/internal/orders/{orderId}/delivery-manifest")
+    public ResponseEntity<ApiResponse<OrderDeliveryManifestResponse>> getDeliveryManifest(
+            @PathVariable UUID orderId,
+            HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest, orderService.getDeliveryManifest(orderId)));
     }
 
     @PostMapping("/api/v1/internal/orders/{orderId}/delivered")

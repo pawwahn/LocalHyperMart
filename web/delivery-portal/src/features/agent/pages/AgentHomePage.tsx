@@ -10,143 +10,238 @@ export function AgentHomePage() {
   const deliveryCount = workSummary.deliveryAtHub + workSummary.deliveryEnRoute;
 
   return (
-    <AgentShell title="Your jobs" subtitle="Tap one big button" onRefresh={() => void reload()}>
+    <AgentShell title="Your jobs" onRefresh={() => void reload()}>
       {error ? <p style={styles.error}>{error}</p> : null}
       {notice ? <p style={styles.notice}>{notice}</p> : null}
+
+      <p style={styles.summaryLine}>
+        {loading && workSummary.totalActive === 0
+          ? 'Checking jobs…'
+          : workSummary.totalActive > 0
+            ? `${workSummary.totalActive} open · tap a row`
+            : 'No open jobs · waiting for hub'}
+        {stats
+          ? ` · today ${stats.buyerDeliveriesCompletedToday} delivered · ${stats.vendorPickupsCollectedToday} pickups`
+          : ''}
+      </p>
 
       {loading && workSummary.totalActive === 0 ? (
         <p style={styles.muted}>Loading…</p>
       ) : (
-        <section style={styles.grid}>
-          <Link to="/agent/pickups" style={{ ...styles.job, ...styles.jobShop }}>
-            <span style={styles.jobIcon} aria-hidden>
-              🛍️
-            </span>
-            <h2 style={styles.jobTitle}>Go to shop</h2>
-            <p style={styles.jobText}>Take bag from shop → bring to hub</p>
-            <span style={pickupCount > 0 ? styles.countHot : styles.countIdle}>
-              {pickupCount > 0 ? `${pickupCount} job${pickupCount === 1 ? '' : 's'}` : 'No job'}
-            </span>
-            <span style={styles.tap}>TAP HERE</span>
-          </Link>
-
-          <Link to="/agent/deliveries" style={{ ...styles.job, ...styles.jobHome }}>
-            <span style={styles.jobIcon} aria-hidden>
-              🛵
-            </span>
-            <h2 style={styles.jobTitle}>Go to customer</h2>
-            <p style={styles.jobText}>Take order from hub → give to customer</p>
-            <span style={deliveryCount > 0 ? styles.countHot : styles.countIdle}>
-              {deliveryCount > 0 ? `${deliveryCount} job${deliveryCount === 1 ? '' : 's'}` : 'No job'}
-            </span>
-            <span style={styles.tap}>TAP HERE</span>
-          </Link>
+        <section style={styles.list} aria-label="Job types">
+          <JobRow
+            to="/agent/pickups"
+            tone="shop"
+            icon="🛍️"
+            title="From shop"
+            flow="Shop → bag → hub"
+            detail={
+              pickupCount > 0
+                ? `${workSummary.pickupAtShop} at shop · ${workSummary.pickupToHub} to hub`
+                : 'No pickups open'
+            }
+            count={pickupCount}
+          />
+          <JobRow
+            to="/agent/deliveries"
+            tone="home"
+            icon="🛵"
+            title="To home"
+            flow="Take FULL order from hub → Give to customer → OTP → Submit"
+            detail={
+              deliveryCount > 0
+                ? `${workSummary.deliveryAtHub} at hub · ${workSummary.deliveryEnRoute} on way`
+                : 'No deliveries open'
+            }
+            count={deliveryCount}
+          />
         </section>
       )}
-
-      {stats ? (
-        <section style={styles.stats}>
-          <Stat icon="🛍️" label="Bags from shop today" value={String(stats.vendorPickupsCollectedToday)} />
-          <Stat icon="🏢" label="Bags at hub today" value={String(stats.vendorPickupsAtHubToday)} />
-          <Stat icon="✅" label="Home deliveries today" value={String(stats.buyerDeliveriesCompletedToday)} />
-        </section>
-      ) : null}
-
-      <p style={styles.muted}>
-        {workSummary.totalActive === 0 && !loading
-          ? 'No job now. Wait for hub uncle to give you work.'
-          : `${workSummary.totalActive} job(s) open for you.`}
-      </p>
     </AgentShell>
   );
 }
 
-function Stat({ icon, label, value }: { icon: string; label: string; value: string }) {
+function JobRow({
+  to,
+  tone,
+  icon,
+  title,
+  flow,
+  detail,
+  count,
+}: {
+  to: string;
+  tone: 'shop' | 'home';
+  icon: string;
+  title: string;
+  flow: string;
+  detail: string;
+  count: number;
+}) {
+  const hot = count > 0;
+  const shop = tone === 'shop';
+
   return (
-    <div style={styles.stat}>
-      <p style={styles.statIcon} aria-hidden>
+    <Link
+      to={to}
+      style={{
+        ...styles.row,
+        ...(shop ? styles.rowShop : styles.rowHome),
+        ...(hot ? (shop ? styles.rowShopHot : styles.rowHomeHot) : null),
+      }}
+    >
+      <span style={{ ...styles.icon, ...(shop ? styles.iconShop : styles.iconHome) }} aria-hidden>
         {icon}
-      </p>
-      <p style={styles.statValue}>{value}</p>
-      <p style={styles.statLabel}>{label}</p>
-    </div>
+      </span>
+
+      <div style={styles.body}>
+        <div style={styles.titleRow}>
+          <h2 style={styles.title}>{title}</h2>
+          <span
+            style={{
+              ...styles.badge,
+              ...(hot ? (shop ? styles.badgeShop : styles.badgeHome) : styles.badgeIdle),
+            }}
+          >
+            {count}
+          </span>
+        </div>
+        <p style={styles.flow}>{flow}</p>
+        <p style={styles.detail}>{detail}</p>
+      </div>
+
+      <span style={styles.chevron} aria-hidden>
+        ›
+      </span>
+    </Link>
   );
 }
 
 const styles: Record<string, CSSProperties> = {
-  grid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
-    gap: '1rem',
-  },
-  job: {
-    textDecoration: 'none',
-    color: 'inherit',
-    borderRadius: 18,
-    padding: '1.35rem 1.25rem',
-    display: 'grid',
-    gap: '0.45rem',
-    justifyItems: 'start',
-    border: '3px solid',
-    minHeight: 220,
-  },
-  jobShop: {
-    background: 'rgba(129, 199, 132, 0.12)',
-    borderColor: 'rgba(76, 175, 80, 0.65)',
-  },
-  jobHome: {
-    background: 'rgba(66, 165, 245, 0.12)',
-    borderColor: 'rgba(66, 165, 245, 0.65)',
-  },
-  jobIcon: { fontSize: '2.6rem', lineHeight: 1 },
-  jobTitle: {
+  summaryLine: {
     margin: 0,
-    fontSize: '1.65rem',
+    fontSize: '0.8rem',
+    fontWeight: 650,
+    color: 'var(--text)',
+    lineHeight: 1.35,
+    opacity: 0.78,
+  },
+  list: {
+    display: 'grid',
+    gap: '0.5rem',
+  },
+  row: {
+    display: 'grid',
+    gridTemplateColumns: '42px minmax(0, 1fr) 18px',
+    alignItems: 'start',
+    columnGap: '0.55rem',
+    textDecoration: 'none',
+    color: 'var(--text)',
+    borderRadius: 12,
+    padding: '0.65rem 0.55rem 0.65rem 0.55rem',
+    border: '1px solid var(--border)',
+    background: 'var(--bg-elevated)',
+  },
+  rowShop: {
+    background: 'color-mix(in srgb, var(--success) 8%, var(--bg-elevated))',
+  },
+  rowHome: {
+    background: 'color-mix(in srgb, var(--accent) 8%, var(--bg-elevated))',
+  },
+  rowShopHot: {
+    borderColor: 'color-mix(in srgb, var(--success) 45%, var(--border))',
+  },
+  rowHomeHot: {
+    borderColor: 'color-mix(in srgb, var(--accent) 45%, var(--border))',
+  },
+  icon: {
+    width: 42,
+    height: 42,
+    borderRadius: 11,
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontSize: '1.2rem',
+    lineHeight: 1,
+    marginTop: 1,
+  },
+  iconShop: {
+    background: 'color-mix(in srgb, var(--success) 22%, var(--bg-elevated))',
+  },
+  iconHome: {
+    background: 'color-mix(in srgb, var(--accent) 22%, var(--bg-elevated))',
+  },
+  body: {
+    minWidth: 0,
+    display: 'grid',
+    gap: '0.2rem',
+  },
+  titleRow: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: '0.5rem',
+  },
+  title: {
+    margin: 0,
     fontFamily: 'var(--font-display)',
-    fontWeight: 800,
-  },
-  jobText: { margin: 0, fontSize: '1rem', fontWeight: 700, color: 'var(--text-muted)', lineHeight: 1.35 },
-  countHot: {
-    marginTop: '0.35rem',
-    padding: '0.45rem 0.85rem',
-    borderRadius: 999,
-    background: '#ef6c00',
-    color: '#fff',
-    fontWeight: 800,
-    fontSize: '1rem',
-  },
-  countIdle: {
-    marginTop: '0.35rem',
-    padding: '0.45rem 0.85rem',
-    borderRadius: 999,
-    background: 'var(--bg-muted)',
-    color: 'var(--text-muted)',
-    fontWeight: 700,
-    fontSize: '0.95rem',
-  },
-  tap: {
-    marginTop: 'auto',
-    fontWeight: 900,
     fontSize: '1.05rem',
-    letterSpacing: '0.04em',
+    fontWeight: 800,
+    letterSpacing: '-0.02em',
+    lineHeight: 1.2,
     color: 'var(--text)',
   },
-  stats: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
-    gap: '0.75rem',
+  flow: {
+    margin: 0,
+    fontSize: '0.8rem',
+    fontWeight: 700,
+    color: 'var(--text)',
+    lineHeight: 1.35,
+    opacity: 0.88,
   },
-  stat: {
-    background: 'var(--bg-elevated)',
+  detail: {
+    margin: 0,
+    fontSize: '0.78rem',
+    fontWeight: 750,
+    color: 'var(--text)',
+    lineHeight: 1.3,
+    opacity: 0.72,
+  },
+  badge: {
+    flexShrink: 0,
+    minWidth: 28,
+    height: 28,
+    padding: '0 0.45rem',
+    borderRadius: 999,
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontWeight: 800,
+    fontSize: '0.82rem',
+  },
+  badgeShop: {
+    background: 'var(--success)',
+    color: '#fff',
+  },
+  badgeHome: {
+    background: 'var(--accent)',
+    color: '#fff',
+  },
+  badgeIdle: {
+    background: 'var(--bg-muted)',
+    color: 'var(--text)',
     border: '1px solid var(--border)',
-    borderRadius: 14,
-    padding: '0.85rem',
-    textAlign: 'center',
+    opacity: 0.9,
   },
-  statIcon: { margin: 0, fontSize: '1.4rem' },
-  statLabel: { margin: '0.25rem 0 0', color: 'var(--text-muted)', fontSize: '0.78rem', fontWeight: 700 },
-  statValue: { margin: '0.15rem 0 0', fontWeight: 800, fontSize: '1.55rem', fontFamily: 'var(--font-display)' },
-  error: { margin: 0, color: 'var(--danger)', fontWeight: 700 },
-  notice: { margin: 0, color: 'var(--success)', fontWeight: 700 },
-  muted: { color: 'var(--text-muted)', fontSize: '0.95rem', fontWeight: 600 },
+  chevron: {
+    fontSize: '1.2rem',
+    fontWeight: 400,
+    color: 'var(--text)',
+    lineHeight: 1,
+    marginTop: 8,
+    opacity: 0.55,
+  },
+  error: { margin: 0, color: 'var(--danger)', fontWeight: 700, fontSize: '0.85rem' },
+  notice: { margin: 0, color: 'var(--success)', fontWeight: 700, fontSize: '0.85rem' },
+  muted: { margin: 0, color: 'var(--text)', fontSize: '0.85rem', fontWeight: 650, opacity: 0.75 },
 };

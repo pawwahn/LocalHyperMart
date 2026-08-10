@@ -35,6 +35,14 @@ public interface VendorSubOrderRepository extends JpaRepository<VendorSubOrder, 
     Optional<VendorSubOrder> findDetailedByIdWithItems(UUID id);
 
     @Query("""
+            SELECT DISTINCT v FROM VendorSubOrder v
+            JOIN FETCH v.order o
+            LEFT JOIN FETCH v.items
+            WHERE o.id = :orderId
+            """)
+    List<VendorSubOrder> findByOrderIdWithItems(@Param("orderId") UUID orderId);
+
+    @Query("""
             SELECT COUNT(v) FROM VendorSubOrder v JOIN v.order o
             WHERE v.vendorId = :vendorId
               AND o.placedAt IS NOT NULL

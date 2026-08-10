@@ -30,9 +30,11 @@ Always ship **best-effort UI** without waiting for the user to complain. Benchma
 
 ## Visual
 
+- **Screen space is very valuable.** Prefer dense layouts: pair related fields in one row when width allows, shrink vertical gaps, avoid tall empty cards and padded “section boxes” that only hold 1–2 inputs. Do not stack every field full-width with large padding unless accessibility requires it.
 - One clear hero (name + key metric). Avoid empty tall cards and sparse two-column imbalance.
 - Consistent spacing, borders, muted meta text; no cluttered badges or competing accents.
 - Loading / empty / error states that are calm and specific.
+- Keep touch targets ≥ 44px for primary actions; density must not shrink hit areas below that.
 
 ## Process
 

@@ -44,6 +44,12 @@ class AgentServiceTest {
         request.setName("New Agent");
         request.setPhone("9876500300");
         request.setPassword("password1");
+        request.setGovtIdType("AADHAAR");
+        request.setGovtIdNumber("123456789012");
+        request.setReference1Name("Ref One");
+        request.setReference1Phone("9876500301");
+        request.setReference2Name("Ref Two");
+        request.setReference2Phone("9876500302");
 
         when(hubAdminRepository.findByUserIdAndStatus(hubAdminUserId, "ACTIVE"))
                 .thenReturn(Optional.of(HubAdmin.builder().hubId(hubId).userId(hubAdminUserId).status("ACTIVE").build()));

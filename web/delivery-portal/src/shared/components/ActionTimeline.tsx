@@ -59,7 +59,7 @@ function fallbackRows(
 ): Array<{ key: string; label: string; at: string }> {
   const rows: Array<{ key: string; label: string; at: string }> = [];
   if (assignedAt) rows.push({ key: 'assigned', label: 'Assigned', at: assignedAt });
-  if (startedAt) rows.push({ key: 'started', label: 'Boy started', at: startedAt });
+  if (startedAt) rows.push({ key: 'started', label: 'Agent started', at: startedAt });
   if (completedAt) rows.push({ key: 'completed', label: 'Finished', at: completedAt });
   return rows;
 }

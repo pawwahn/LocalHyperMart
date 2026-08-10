@@ -16,6 +16,8 @@ type Props = {
   cartCount?: number;
   cartTotalLabel?: string;
   showDeliveryBanner?: boolean;
+  /** Town “Deliver to” control — keep on shop/cart; hide on order history. */
+  showTownPicker?: boolean;
   showStickyCart?: boolean;
   hideTitle?: boolean;
   footerSlot?: ReactNode;
@@ -29,6 +31,7 @@ export function PortalShell({
   cartCount = 0,
   cartTotalLabel,
   showDeliveryBanner = true,
+  showTownPicker = true,
   showStickyCart = true,
   hideTitle = false,
   footerSlot,
@@ -101,24 +104,26 @@ export function PortalShell({
           </div>
         </div>
 
-        <button
-          type="button"
-          style={styles.locationBtn}
-          aria-label={`Change town. Currently ${townLabel}`}
-          title="Tap to change town"
-          onClick={openPicker}
-        >
-          <span style={styles.pin} aria-hidden>
-            📍
-          </span>
-          <span style={styles.locationValue}>
-            <span style={styles.locationEyebrow}>Deliver to </span>
-            {townLabel}
-          </span>
-          <span style={styles.chevron} aria-hidden>
-            ▾
-          </span>
-        </button>
+        {showTownPicker ? (
+          <button
+            type="button"
+            style={styles.locationBtn}
+            aria-label={`Change town. Currently ${townLabel}`}
+            title="Tap to change town"
+            onClick={openPicker}
+          >
+            <span style={styles.pin} aria-hidden>
+              📍
+            </span>
+            <span style={styles.locationValue}>
+              <span style={styles.locationEyebrow}>Deliver to </span>
+              {townLabel}
+            </span>
+            <span style={styles.chevron} aria-hidden>
+              ▾
+            </span>
+          </button>
+        ) : null}
       </header>
 
       {showDeliveryBanner ? <AdSlot slot="home_hero" variant="hero" /> : null}

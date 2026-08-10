@@ -167,8 +167,8 @@ export function useHubWorkspace() {
   }
 
   function agentLabel(agentId?: string | null): string {
-    if (!agentId) return 'Boy';
-    return agentNameById.get(agentId) ?? 'Boy';
+    if (!agentId) return 'Agent';
+    return agentNameById.get(agentId) ?? 'Agent';
   }
 
   async function openOrder(orderId: string) {
@@ -272,7 +272,7 @@ export function useHubWorkspace() {
       await reload();
       return true;
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not change boy');
+      setError(err instanceof Error ? err.message : 'Could not change delivery agent');
       return false;
     } finally {
       setBusy(false);

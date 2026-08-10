@@ -102,6 +102,34 @@ public class OrderClient {
                 lines);
     }
 
+    public DeliveryManifest getDeliveryManifest(UUID orderId) {
+        RestClient client = restClientBuilder.baseUrl(orderServiceProperties.getBaseUrl()).build();
+        ApiResponse<OrderDeliveryManifestDto> response = client.get()
+                .uri("/api/v1/internal/orders/{orderId}/delivery-manifest", orderId)
+                .retrieve()
+                .body(new ParameterizedTypeReference<ApiResponse<OrderDeliveryManifestDto>>() {});
+        if (response == null || response.getData() == null) {
+            throw new IllegalStateException("Delivery manifest not found");
+        }
+        OrderDeliveryManifestDto dto = response.getData();
+        List<DeliveryManifestLine> lines = dto.getItems() == null
+                ? List.of()
+                : dto.getItems().stream()
+                .map(line -> new DeliveryManifestLine(
+                        line.getShopName(),
+                        line.getName(),
+                        line.getQuantity(),
+                        line.getUnitCode(),
+                        line.getLineTotal()))
+                .toList();
+        return new DeliveryManifest(
+                dto.getOrderId(),
+                dto.getOrderNumber(),
+                dto.getSubtotal(),
+                dto.getTotalItemCount(),
+                lines);
+    }
+
     public void markDelivered(UUID orderId, UUID agentUserId, String recipientName) {
         RestClient client = restClientBuilder.baseUrl(orderServiceProperties.getBaseUrl()).build();
         Map<String, Object> body = new HashMap<>();
@@ -203,6 +231,24 @@ public class OrderClient {
             java.math.BigDecimal subtotal,
             int totalItemCount,
             java.util.List<PickupManifestLine> items
+    ) {
+    }
+
+    public record DeliveryManifestLine(
+            String shopName,
+            String name,
+            int quantity,
+            String unitCode,
+            java.math.BigDecimal lineTotal
+    ) {
+    }
+
+    public record DeliveryManifest(
+            UUID orderId,
+            String orderNumber,
+            java.math.BigDecimal subtotal,
+            int totalItemCount,
+            java.util.List<DeliveryManifestLine> items
     ) {
     }
 }

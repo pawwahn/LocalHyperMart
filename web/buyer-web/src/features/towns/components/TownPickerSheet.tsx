@@ -1,15 +1,62 @@
-import type { CSSProperties } from 'react';
+import { useState, type CSSProperties } from 'react';
 import { useTown } from '@/shared/town/TownContext';
+import type { TownVm } from '@/features/towns/api/townsApi';
 import { Button } from '@/shared/ui';
 
 export function TownPickerSheet() {
-  const { pickerOpen, closePicker, towns, townId, hasTown, selectTown, loading, error, reloadTowns } =
-    useTown();
+  const {
+    pickerOpen,
+    closePicker,
+    towns,
+    townId,
+    townLabel,
+    hasTown,
+    selectTown,
+    loading,
+    error,
+    reloadTowns,
+  } = useTown();
+  const [pendingTown, setPendingTown] = useState<TownVm | null>(null);
+  const [busy, setBusy] = useState(false);
 
   if (!pickerOpen) return null;
 
+  function requestSelect(town: TownVm) {
+    if (town.id === townId) {
+      closePicker();
+      return;
+    }
+    if (hasTown) {
+      setPendingTown(town);
+      return;
+    }
+    void selectTown(town);
+  }
+
+  async function confirmSwitch() {
+    if (!pendingTown) return;
+    setBusy(true);
+    try {
+      await selectTown(pendingTown);
+      setPendingTown(null);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
-    <div style={styles.backdrop} role="presentation" onClick={closePicker}>
+    <div
+      style={styles.backdrop}
+      role="presentation"
+      onClick={() => {
+        if (busy) return;
+        if (pendingTown) {
+          setPendingTown(null);
+          return;
+        }
+        closePicker();
+      }}
+    >
       <div
         style={styles.sheet}
         role="dialog"
@@ -23,7 +70,15 @@ export function TownPickerSheet() {
             Choose town
           </h2>
           {hasTown ? (
-            <button type="button" style={styles.closeLink} onClick={closePicker}>
+            <button
+              type="button"
+              style={styles.closeLink}
+              disabled={busy}
+              onClick={() => {
+                setPendingTown(null);
+                closePicker();
+              }}
+            >
               Close
             </button>
           ) : null}
@@ -46,7 +101,7 @@ export function TownPickerSheet() {
         <ul style={styles.list} className="hlm-hide-scrollbar">
           {towns.map((town) => {
             const selected = town.id === townId;
-            const disabled = !town.acceptingOrders;
+            const disabled = !town.acceptingOrders || busy;
             return (
               <li key={town.id}>
                 <button
@@ -57,13 +112,13 @@ export function TownPickerSheet() {
                     ...(disabled ? styles.townBtnDisabled : null),
                   }}
                   disabled={disabled}
-                  onClick={() => void selectTown(town)}
+                  onClick={() => requestSelect(town)}
                 >
                   <span style={styles.townName}>{town.displayName}</span>
                   <span style={styles.townMeta}>
                     {town.stateCode}
                     {selected ? ' · ✓' : ''}
-                    {disabled ? ' · soon' : ''}
+                    {!town.acceptingOrders ? ' · soon' : ''}
                   </span>
                 </button>
               </li>
@@ -75,6 +130,50 @@ export function TownPickerSheet() {
           <p style={styles.muted}>No towns open yet.</p>
         ) : null}
       </div>
+
+      {pendingTown ? (
+        <div
+          style={styles.confirmBackdrop}
+          role="presentation"
+          onClick={(e) => {
+            e.stopPropagation();
+            if (!busy) setPendingTown(null);
+          }}
+        >
+          <div
+            style={styles.confirmSheet}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="confirm-town-switch-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 id="confirm-town-switch-title" style={styles.confirmTitle}>
+              Switch town?
+            </h3>
+            <p style={styles.confirmBody}>
+              Change from <strong>{townLabel}</strong> to{' '}
+              <strong>{pendingTown.displayName}</strong>?
+            </p>
+            <p style={styles.confirmWarn}>
+              Your cart for the previous town will be cleared. This cannot be undone.
+            </p>
+            <div style={styles.confirmActions}>
+              <Button type="button" disabled={busy} onClick={() => void confirmSwitch()} fullWidth>
+                {busy ? 'Switching…' : 'Yes, switch town'}
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                disabled={busy}
+                onClick={() => setPendingTown(null)}
+                fullWidth
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -186,4 +285,47 @@ const styles: Record<string, CSSProperties> = {
     background: 'color-mix(in srgb, #b91c1c 10%, var(--bg))',
   },
   errorText: { margin: 0, color: '#b91c1c', fontSize: '0.78rem' },
+  confirmBackdrop: {
+    position: 'fixed',
+    inset: 0,
+    background: 'rgba(15, 23, 42, 0.55)',
+    zIndex: 90,
+    display: 'grid',
+    placeItems: 'center',
+    padding: '1rem',
+  },
+  confirmSheet: {
+    width: 'min(360px, 100%)',
+    background: 'var(--bg-elevated)',
+    borderRadius: 14,
+    border: '1.5px solid var(--border)',
+    padding: '1rem',
+    display: 'grid',
+    gap: '0.55rem',
+    boxShadow: 'var(--shadow-elevated)',
+  },
+  confirmTitle: {
+    margin: 0,
+    fontFamily: 'var(--font-display)',
+    fontSize: '1.05rem',
+    fontWeight: 800,
+  },
+  confirmBody: {
+    margin: 0,
+    fontSize: '0.88rem',
+    lineHeight: 1.4,
+    color: 'var(--text)',
+  },
+  confirmWarn: {
+    margin: 0,
+    fontSize: '0.8rem',
+    lineHeight: 1.4,
+    fontWeight: 650,
+    color: '#92400e',
+    background: 'rgba(245, 158, 11, 0.14)',
+    border: '1px solid rgba(245, 158, 11, 0.45)',
+    borderRadius: 10,
+    padding: '0.55rem 0.65rem',
+  },
+  confirmActions: { display: 'grid', gap: '0.4rem' },
 };

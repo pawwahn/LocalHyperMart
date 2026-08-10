@@ -361,6 +361,24 @@ export type AgentDto = {
   name: string;
   phone: string;
   status: string;
+  govtIdType?: string | null;
+  govtIdNumber?: string | null;
+  reference1Name?: string | null;
+  reference1Phone?: string | null;
+  reference2Name?: string | null;
+  reference2Phone?: string | null;
+};
+
+export type CreateAgentInput = {
+  name: string;
+  phone: string;
+  password: string;
+  govtIdType: 'AADHAAR' | 'VOTER_ID' | 'DRIVING_LICENSE' | 'PAN' | 'OTHER';
+  govtIdNumber: string;
+  reference1Name: string;
+  reference1Phone: string;
+  reference2Name: string;
+  reference2Phone: string;
 };
 
 export async function fetchHubAgents(token: string, hubId: string): Promise<AgentDto[]> {
@@ -370,10 +388,7 @@ export async function fetchHubAgents(token: string, hubId: string): Promise<Agen
   return data ?? [];
 }
 
-export async function createHubAgent(
-  token: string,
-  body: { name: string; phone: string; password: string },
-): Promise<AgentDto> {
+export async function createHubAgent(token: string, body: CreateAgentInput): Promise<AgentDto> {
   return apiRequest<AgentDto>('/api/v1/delivery/agents', {
     method: 'POST',
     token,

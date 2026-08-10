@@ -1,5 +1,13 @@
-import type { CSSProperties } from 'react';
-import { getAdForSlot, type AdSlotId } from '../adsInventory';
+import {
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type PointerEvent as ReactPointerEvent,
+} from 'react';
+import { useTown } from '@/shared/town/TownContext';
+import { resolveCreative, fetchTownAds, type TownAdDto } from '../api/townAdsApi';
+import { ADS_ENABLED, type AdCreative, type AdSlotId } from '../adsInventory';
 
 type Props = {
   slot: AdSlotId;
@@ -8,61 +16,255 @@ type Props = {
   onCta?: () => void;
 };
 
+const liveCache = new Map<string, TownAdDto[]>();
+
 /**
  * Monetization surface — clearly labelled Sponsored.
- * Easy to remove: stop rendering AdSlot / set ADS_ENABLED=false.
+ * Town-scoped creatives for the buyer's selected town.
+ * Config ownership: **super admin only** (no hub / vendor edit).
+ * Live ads from town-service; pilot inventory is fallback.
  */
 export function AdSlot({ slot, variant = 'strip', onCta }: Props) {
-  const ad = getAdForSlot(slot);
+  const { townId, hasTown } = useTown();
+  const tid = hasTown ? townId : null;
+  const [live, setLive] = useState<TownAdDto[] | null>(() =>
+    tid && liveCache.has(tid) ? liveCache.get(tid)! : null,
+  );
+
+  useEffect(() => {
+    if (!ADS_ENABLED || !tid) {
+      setLive(null);
+      return;
+    }
+    // Always refresh so admin image updates show without hard reload.
+    let cancelled = false;
+    void fetchTownAds(tid)
+      .then((items) => {
+        if (cancelled) return;
+        liveCache.set(tid, items);
+        setLive(items);
+      })
+      .catch(() => {
+        if (!cancelled) setLive(liveCache.get(tid) ?? []);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [tid]);
+
+  if (!ADS_ENABLED) return null;
+  const ad = resolveCreative(slot, tid, live);
   if (!ad) return null;
 
   if (variant === 'hero') {
-    return (
-      <aside
-        style={{ ...styles.hero, background: ad.tint }}
-        aria-label={`Sponsored: ${ad.sponsor}`}
+    return <HeroAd ad={ad} townId={tid} onCta={onCta} />;
+  }
+
+  const isCard = variant === 'card';
+  return <SoftAd ad={ad} townId={tid} isCard={isCard} onCta={onCta} />;
+}
+
+function useAdImages(ad: AdCreative): string[] {
+  if (ad.imageUrls?.length) return ad.imageUrls.slice(0, 3);
+  if (ad.imageUrl) return [ad.imageUrl];
+  return [];
+}
+
+function ImageCarousel({
+  images,
+  height,
+  rounded = 12,
+  dark = false,
+  fill = false,
+}: {
+  images: string[];
+  height: number;
+  rounded?: number;
+  dark?: boolean;
+  fill?: boolean;
+}) {
+  const [index, setIndex] = useState(0);
+  const startX = useRef<number | null>(null);
+  const dragging = useRef(false);
+
+  useEffect(() => {
+    setIndex(0);
+  }, [images.join('|')]);
+
+  if (!images.length) return null;
+
+  const go = (dir: -1 | 1) => {
+    setIndex((i) => (i + dir + images.length) % images.length);
+  };
+
+  const onPointerDown = (e: ReactPointerEvent) => {
+    startX.current = e.clientX;
+    dragging.current = true;
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+  };
+
+  const onPointerUp = (e: ReactPointerEvent) => {
+    if (!dragging.current || startX.current == null) return;
+    const dx = e.clientX - startX.current;
+    dragging.current = false;
+    startX.current = null;
+    if (Math.abs(dx) < 36) return;
+    go(dx < 0 ? 1 : -1);
+  };
+
+  return (
+    <div
+      style={{
+        ...styles.carousel,
+        height: fill ? '100%' : height,
+        borderRadius: rounded,
+        touchAction: 'pan-y',
+      }}
+      onPointerDown={onPointerDown}
+      onPointerUp={onPointerUp}
+      onPointerCancel={() => {
+        dragging.current = false;
+        startX.current = null;
+      }}
+      role="group"
+      aria-roledescription="carousel"
+      aria-label={`Ad images, ${index + 1} of ${images.length}`}
+    >
+      <div
+        style={{
+          ...styles.carouselTrack,
+          transform: `translateX(-${index * 100}%)`,
+        }}
       >
-        <div style={styles.heroGlow} aria-hidden />
-        <div style={styles.heroTop}>
-          <span style={styles.sponsoredHero}>Sponsored</span>
-          <span style={styles.sponsorHero}>{ad.sponsor}</span>
+        {images.map((src) => (
+          <img key={src} src={src} alt="" draggable={false} style={styles.carouselImg} />
+        ))}
+      </div>
+      {images.length > 1 ? (
+        <div style={styles.dots}>
+          {images.map((_, i) => (
+            <button
+              key={i}
+              type="button"
+              aria-label={`Go to image ${i + 1}`}
+              style={{
+                ...styles.dot,
+                ...(i === index ? styles.dotActive : null),
+                ...(dark ? styles.dotDark : null),
+              }}
+              onClick={(e) => {
+                e.stopPropagation();
+                setIndex(i);
+              }}
+            />
+          ))}
         </div>
-        <div style={styles.heroMain}>
+      ) : null}
+    </div>
+  );
+}
+
+function HeroAd({
+  ad,
+  townId,
+  onCta,
+}: {
+  ad: AdCreative;
+  townId: string | null;
+  onCta?: () => void;
+}) {
+  const images = useAdImages(ad);
+  return (
+    <aside
+      key={`${ad.id}-${townId}`}
+      style={{ ...styles.hero, background: images.length ? undefined : ad.tint }}
+      aria-label={`Sponsored: ${ad.sponsor}`}
+    >
+      {images.length ? (
+        <div style={styles.heroMediaWrap}>
+          <ImageCarousel images={images} height={0} fill rounded={16} dark />
+          <div style={styles.heroMediaScrim} aria-hidden />
+        </div>
+      ) : (
+        <div style={styles.heroGlow} aria-hidden />
+      )}
+      <div style={styles.heroTop}>
+        <span style={styles.sponsoredHero}>Sponsored</span>
+      </div>
+      <div style={styles.heroMain}>
+        {!images.length ? (
           <div style={styles.heroVisual} aria-hidden>
             <span style={styles.heroEmoji}>{ad.emoji}</span>
           </div>
-          <div style={styles.heroCopy}>
-            <p style={styles.titleHero}>{ad.title}</p>
-            <p style={styles.subHero}>{ad.subtitle}</p>
-            <button type="button" style={styles.ctaHero} onClick={onCta}>
-              {ad.ctaLabel}
-            </button>
-          </div>
+        ) : null}
+        <div style={styles.heroCopy}>
+          <p style={styles.shopNameHero}>{ad.sponsor}</p>
+          <p style={styles.titleHero}>{ad.title}</p>
+          {ad.subtitle ? <p style={styles.subHero}>{ad.subtitle}</p> : null}
+          <button type="button" style={styles.ctaHero} onClick={onCta}>
+            {ad.ctaLabel}
+          </button>
+        </div>
+      </div>
+    </aside>
+  );
+}
+
+function SoftAd({
+  ad,
+  townId,
+  isCard,
+  onCta,
+}: {
+  ad: AdCreative;
+  townId: string | null;
+  isCard: boolean;
+  onCta?: () => void;
+}) {
+  const images = useAdImages(ad);
+  if (isCard && images.length) {
+    return (
+      <aside
+        key={`${ad.id}-${townId}`}
+        style={styles.cardCarousel}
+        aria-label={`Sponsored: ${ad.sponsor}`}
+      >
+        <ImageCarousel images={images} height={148} rounded={12} />
+        <div style={styles.cardBody}>
+          <span style={styles.sponsoredSoft}>Sponsored</span>
+          <p style={styles.shopName}>{ad.sponsor}</p>
+          <p style={styles.title}>{ad.title}</p>
+          {ad.subtitle ? <p style={{ ...styles.sub, whiteSpace: 'normal' }}>{ad.subtitle}</p> : null}
+          <button type="button" style={{ ...styles.cta, alignSelf: 'start', marginTop: '0.2rem' }} onClick={onCta}>
+            {ad.ctaLabel}
+          </button>
         </div>
       </aside>
     );
   }
 
-  const isCard = variant === 'card';
   return (
     <aside
+      key={`${ad.id}-${townId}`}
       style={{
         ...(isCard ? styles.card : styles.strip),
-        background: ad.tint,
+        background: images.length ? 'var(--bg-elevated)' : ad.tint,
       }}
       aria-label={`Sponsored: ${ad.sponsor}`}
     >
-      <div style={styles.softMain}>
-        <div style={styles.softVisual} aria-hidden>
-          <span style={styles.softEmoji}>{ad.emoji}</span>
+      <div style={images.length ? styles.softMainImage : styles.softMain}>
+        <div style={images.length ? styles.softVisualImage : styles.softVisual} aria-hidden={!images.length}>
+          {images.length ? (
+            <ImageCarousel images={images} height={72} rounded={12} />
+          ) : (
+            <span style={styles.softEmoji}>{ad.emoji}</span>
+          )}
         </div>
         <div style={styles.softCopy}>
-          <div style={styles.softMeta}>
-            <span style={styles.sponsoredSoft}>Sponsored</span>
-            <span style={styles.sponsorSoft}>{ad.sponsor}</span>
-          </div>
+          <span style={styles.sponsoredSoft}>Sponsored</span>
+          <p style={styles.shopName}>{ad.sponsor}</p>
           <p style={styles.title}>{ad.title}</p>
-          <p style={styles.sub}>{ad.subtitle}</p>
+          {ad.subtitle ? <p style={styles.sub}>{ad.subtitle}</p> : null}
         </div>
         <button type="button" style={styles.cta} onClick={onCta}>
           {ad.ctaLabel}
@@ -73,6 +275,54 @@ export function AdSlot({ slot, variant = 'strip', onCta }: Props) {
 }
 
 const styles: Record<string, CSSProperties> = {
+  carousel: {
+    position: 'relative',
+    width: '100%',
+    overflow: 'hidden',
+    background: 'var(--bg-muted)',
+    userSelect: 'none',
+    cursor: 'grab',
+  },
+  carouselTrack: {
+    display: 'flex',
+    height: '100%',
+    width: '100%',
+    transition: 'transform 220ms ease',
+  },
+  carouselImg: {
+    flex: '0 0 100%',
+    width: '100%',
+    height: '100%',
+    objectFit: 'cover',
+    display: 'block',
+    pointerEvents: 'none',
+  },
+  dots: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 8,
+    display: 'flex',
+    justifyContent: 'center',
+    gap: 5,
+    zIndex: 2,
+  },
+  dot: {
+    width: 6,
+    height: 6,
+    borderRadius: 999,
+    border: 'none',
+    padding: 0,
+    background: 'rgba(0,0,0,0.28)',
+    cursor: 'pointer',
+  },
+  dotActive: {
+    background: 'var(--accent)',
+    width: 14,
+  },
+  dotDark: {
+    background: 'rgba(255,255,255,0.45)',
+  },
   hero: {
     position: 'relative',
     borderRadius: 16,
@@ -82,6 +332,21 @@ const styles: Record<string, CSSProperties> = {
     maxWidth: '100%',
     overflow: 'hidden',
     boxShadow: '0 10px 28px rgba(12, 131, 31, 0.22)',
+    background: 'linear-gradient(135deg, #0C831F 0%, #0a6b1a 100%)',
+    minHeight: 140,
+  },
+  heroMediaWrap: {
+    position: 'absolute',
+    inset: 0,
+    zIndex: 0,
+  },
+  heroMediaScrim: {
+    position: 'absolute',
+    inset: 0,
+    background:
+      'linear-gradient(100deg, rgba(8,40,16,0.82) 0%, rgba(8,40,16,0.45) 55%, rgba(8,40,16,0.25) 100%)',
+    pointerEvents: 'none',
+    zIndex: 1,
   },
   heroGlow: {
     position: 'absolute',
@@ -95,6 +360,7 @@ const styles: Record<string, CSSProperties> = {
   },
   heroTop: {
     position: 'relative',
+    zIndex: 2,
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -116,8 +382,17 @@ const styles: Record<string, CSSProperties> = {
     fontWeight: 700,
     opacity: 0.92,
   },
+  shopNameHero: {
+    margin: 0,
+    fontFamily: 'var(--font-display)',
+    fontWeight: 800,
+    fontSize: '1.12rem',
+    lineHeight: 1.2,
+    letterSpacing: '-0.01em',
+  },
   heroMain: {
     position: 'relative',
+    zIndex: 2,
     display: 'grid',
     gridTemplateColumns: 'auto 1fr',
     gap: '0.75rem',
@@ -143,11 +418,10 @@ const styles: Record<string, CSSProperties> = {
   },
   titleHero: {
     margin: 0,
-    fontFamily: 'var(--font-display)',
-    fontWeight: 800,
-    fontSize: '1.05rem',
-    lineHeight: 1.25,
-    letterSpacing: '-0.01em',
+    fontWeight: 700,
+    fontSize: '0.88rem',
+    lineHeight: 1.3,
+    opacity: 0.95,
   },
   subHero: {
     margin: 0,
@@ -180,16 +454,37 @@ const styles: Record<string, CSSProperties> = {
   card: {
     gridColumn: '1 / -1',
     borderRadius: 14,
-    padding: '0.7rem 0.75rem',
+    padding: '0.55rem',
     border: '1px solid color-mix(in srgb, var(--accent) 22%, var(--border))',
     minWidth: 0,
     maxWidth: '100%',
     overflow: 'hidden',
     color: 'var(--text)',
   },
+  cardCarousel: {
+    gridColumn: '1 / -1',
+    borderRadius: 14,
+    padding: '0.55rem',
+    border: '1px solid color-mix(in srgb, var(--accent) 22%, var(--border))',
+    background: 'var(--bg-elevated)',
+    display: 'grid',
+    gap: '0.55rem',
+    minWidth: 0,
+    maxWidth: '100%',
+    overflow: 'hidden',
+    color: 'var(--text)',
+  },
+  cardBody: { display: 'grid', gap: '0.2rem', padding: '0 0.15rem 0.1rem' },
   softMain: {
     display: 'grid',
     gridTemplateColumns: 'auto 1fr auto',
+    gap: '0.65rem',
+    alignItems: 'center',
+    minWidth: 0,
+  },
+  softMainImage: {
+    display: 'grid',
+    gridTemplateColumns: '110px 1fr auto',
     gap: '0.65rem',
     alignItems: 'center',
     minWidth: 0,
@@ -204,20 +499,31 @@ const styles: Record<string, CSSProperties> = {
     placeItems: 'center',
     flexShrink: 0,
   },
+  softVisualImage: {
+    width: 110,
+    height: 72,
+    borderRadius: 12,
+    overflow: 'hidden',
+    flexShrink: 0,
+    background: 'var(--bg-muted)',
+  },
   softEmoji: { fontSize: '1.35rem', lineHeight: 1 },
   softCopy: {
     display: 'grid',
     gap: '0.12rem',
     minWidth: 0,
   },
-  softMeta: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '0.35rem',
-    minWidth: 0,
-    flexWrap: 'wrap',
+  shopName: {
+    margin: 0,
+    fontFamily: 'var(--font-display)',
+    fontWeight: 800,
+    fontSize: '0.98rem',
+    color: 'var(--text)',
+    lineHeight: 1.2,
+    letterSpacing: '-0.01em',
   },
   sponsoredSoft: {
+    justifySelf: 'start',
     fontSize: '0.58rem',
     fontWeight: 800,
     letterSpacing: '0.05em',
@@ -228,21 +534,12 @@ const styles: Record<string, CSSProperties> = {
     borderRadius: 999,
     padding: '0.12rem 0.4rem',
   },
-  sponsorSoft: {
-    fontSize: '0.68rem',
-    fontWeight: 700,
-    color: 'var(--text-muted)',
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    whiteSpace: 'nowrap',
-  },
   title: {
     margin: 0,
-    fontFamily: 'var(--font-display)',
-    fontWeight: 800,
-    fontSize: '0.88rem',
+    fontWeight: 700,
+    fontSize: '0.8rem',
     color: 'var(--text)',
-    lineHeight: 1.25,
+    lineHeight: 1.3,
   },
   sub: {
     margin: 0,

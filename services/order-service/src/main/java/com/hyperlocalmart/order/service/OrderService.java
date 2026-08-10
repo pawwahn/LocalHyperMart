@@ -172,6 +172,46 @@ public class OrderService {
     }
 
     @Transactional(readOnly = true)
+    public OrderDeliveryManifestResponse getDeliveryManifest(UUID orderId) {
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Order not found"));
+        List<VendorSubOrder> subOrders = vendorSubOrderRepository.findByOrderIdWithItems(orderId);
+        List<DeliveryManifestLineResponse> lines = new ArrayList<>();
+        BigDecimal subtotal = BigDecimal.ZERO;
+        for (VendorSubOrder subOrder : subOrders) {
+            if (subOrder.getStatus() == VendorSubOrderStatus.VENDOR_REJECTED) {
+                continue;
+            }
+            String shopName = subOrder.getItems().isEmpty()
+                    ? "Shop"
+                    : java.util.Optional.ofNullable(subOrder.getItems().getFirst().getShopNameSnapshot()).orElse("Shop");
+            for (OrderItem item : subOrder.getItems()) {
+                if (item.getStatus() == OrderItemStatus.CANCELLED) {
+                    continue;
+                }
+                lines.add(DeliveryManifestLineResponse.builder()
+                        .shopName(shopName)
+                        .name(item.getItemNameSnapshot())
+                        .quantity(item.getQuantity())
+                        .unitCode(item.getUnitCodeSnapshot())
+                        .lineTotal(item.getLineTotal())
+                        .build());
+                if (item.getLineTotal() != null) {
+                    subtotal = subtotal.add(item.getLineTotal());
+                }
+            }
+        }
+        int totalItemCount = lines.stream().mapToInt(DeliveryManifestLineResponse::getQuantity).sum();
+        return OrderDeliveryManifestResponse.builder()
+                .orderId(order.getId())
+                .orderNumber(order.getOrderNumber())
+                .subtotal(subtotal)
+                .totalItemCount(totalItemCount)
+                .items(lines)
+                .build();
+    }
+
+    @Transactional(readOnly = true)
     public OrderDeliveryInfoResponse getDeliveryInfo(UUID orderId) {
         Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Order not found"));

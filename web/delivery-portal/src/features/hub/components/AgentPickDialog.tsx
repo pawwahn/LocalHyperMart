@@ -9,7 +9,7 @@ type Props = {
   agents: AgentDto[];
   /** Prefill selection (last used / current). */
   preferredAgentId?: string | null;
-  /** Hide this agent (e.g. current boy when reassigning). */
+  /** Hide this agent (e.g. current agent when reassigning). */
   excludeAgentId?: string | null;
   busy?: boolean;
   onConfirm: (agentId: string) => void;
@@ -72,9 +72,9 @@ export function AgentPickDialog({
         <p style={styles.description}>{description}</p>
 
         {options.length === 0 ? (
-          <p style={styles.empty}>No delivery boys available right now.</p>
+          <p style={styles.empty}>No delivery agents available right now.</p>
         ) : (
-          <div style={styles.list} role="listbox" aria-label="Delivery boys">
+          <div style={styles.list} role="listbox" aria-label="Delivery agents">
             {options.map((agent) => {
               const selected = selectedId === agent.agentId;
               return (

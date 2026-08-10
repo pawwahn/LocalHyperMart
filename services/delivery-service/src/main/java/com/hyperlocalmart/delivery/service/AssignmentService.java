@@ -14,6 +14,8 @@ import com.hyperlocalmart.delivery.dto.request.DeliverRequest;
 import com.hyperlocalmart.delivery.dto.request.PickedFromVendorRequest;
 import com.hyperlocalmart.delivery.dto.response.AssignmentResponse;
 import com.hyperlocalmart.delivery.dto.response.DeliveryEventResponse;
+import com.hyperlocalmart.delivery.dto.response.DeliveryManifestLineResponse;
+import com.hyperlocalmart.delivery.dto.response.DeliveryManifestResponse;
 import com.hyperlocalmart.delivery.dto.response.PickupManifestLineResponse;
 import com.hyperlocalmart.delivery.dto.response.PickupManifestResponse;
 import com.hyperlocalmart.delivery.entity.*;
@@ -273,6 +275,40 @@ public class AssignmentService {
                 .totalItemCount(manifest.totalItemCount())
                 .items(manifest.items().stream()
                         .map(line -> PickupManifestLineResponse.builder()
+                                .name(line.name())
+                                .quantity(line.quantity())
+                                .unitCode(line.unitCode())
+                                .lineTotal(line.lineTotal())
+                                .build())
+                        .toList())
+                .build();
+    }
+
+    @Transactional(readOnly = true)
+    public DeliveryManifestResponse getDeliveryManifest(UUID agentUserId, UUID assignmentId) {
+        DeliveryAgent agent = deliveryAgentRepository.findByUserId(agentUserId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Delivery agent not found"));
+
+        DeliveryAssignment assignment = deliveryAssignmentRepository.findById(assignmentId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Assignment not found"));
+
+        if (!assignment.getAgentId().equals(agent.getId())) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "Assignment does not belong to agent");
+        }
+        if (assignment.getLegType() != AssignmentLegType.LAST_MILE) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Delivery manifest is only for home delivery trips");
+        }
+
+        OrderClient.DeliveryManifest manifest = orderClient.getDeliveryManifest(assignment.getOrderId());
+        return DeliveryManifestResponse.builder()
+                .assignmentId(assignment.getId())
+                .orderId(manifest.orderId())
+                .orderNumber(manifest.orderNumber())
+                .subtotal(manifest.subtotal())
+                .totalItemCount(manifest.totalItemCount())
+                .items(manifest.items().stream()
+                        .map(line -> DeliveryManifestLineResponse.builder()
+                                .shopName(line.shopName())
                                 .name(line.name())
                                 .quantity(line.quantity())
                                 .unitCode(line.unitCode())

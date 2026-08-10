@@ -120,8 +120,6 @@ export function TownProvider({ children }: { children: ReactNode }) {
       setPickerOpen(false);
       setError(null);
 
-      const shortLabel = labelFor(next, towns, town.id);
-
       if (session) {
         const updated = { ...session, townId: town.id };
         setSession(updated);
@@ -135,9 +133,6 @@ export function TownProvider({ children }: { children: ReactNode }) {
         if (previousTownId && previousTownId !== town.id) {
           try {
             await changeCartTown(session.accessToken, town.id, true);
-            setSwitchNotice(
-              `Now shopping in ${shortLabel}. Items from your previous town cart were cleared.`,
-            );
           } catch (err) {
             setSwitchNotice(
               err instanceof Error

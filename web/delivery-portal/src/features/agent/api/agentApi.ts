@@ -77,6 +77,7 @@ export type PickupManifestLineView = {
   quantity: number;
   unitCode: string | null;
   lineTotal: number;
+  shopName?: string | null;
 };
 
 export type PickupManifestView = {
@@ -87,6 +88,15 @@ export type PickupManifestView = {
   shopName: string;
   shopAddress: string | null;
   shopPhone: string | null;
+  subtotal: number;
+  totalItemCount: number;
+  items: PickupManifestLineView[];
+};
+
+export type DeliveryManifestView = {
+  assignmentId: string;
+  orderId: string;
+  orderNumber: string;
   subtotal: number;
   totalItemCount: number;
   items: PickupManifestLineView[];
@@ -183,6 +193,37 @@ export async function fetchPickupManifest(token: string, assignmentId: string): 
     items: Array<{ name: string; quantity: number; unitCode?: string | null; lineTotal: number }>;
   }>(`/api/v1/delivery/agents/me/assignments/${assignmentId}/pickup-manifest`, { token });
   return toPickupManifestView(data);
+}
+
+export async function fetchDeliveryManifest(token: string, assignmentId: string): Promise<DeliveryManifestView> {
+  const data = await apiRequest<{
+    assignmentId: string;
+    orderId: string;
+    orderNumber: string;
+    subtotal: number;
+    totalItemCount: number;
+    items: Array<{
+      shopName?: string | null;
+      name: string;
+      quantity: number;
+      unitCode?: string | null;
+      lineTotal: number;
+    }>;
+  }>(`/api/v1/delivery/agents/me/assignments/${assignmentId}/delivery-manifest`, { token });
+  return {
+    assignmentId: data.assignmentId,
+    orderId: data.orderId,
+    orderNumber: data.orderNumber,
+    subtotal: Number(data.subtotal ?? 0),
+    totalItemCount: data.totalItemCount,
+    items: (data.items ?? []).map((item) => ({
+      shopName: item.shopName ?? null,
+      name: item.name,
+      quantity: item.quantity,
+      unitCode: item.unitCode ?? null,
+      lineTotal: Number(item.lineTotal ?? 0),
+    })),
+  };
 }
 
 export async function pickFromVendor(token: string, assignmentId: string, note?: string): Promise<AssignmentView> {

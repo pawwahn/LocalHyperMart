@@ -11,7 +11,10 @@ export type AuthSession = {
   portalRole: PortalRole;
   phone: string;
   hubId?: string;
+  hubName?: string;
   townId?: string;
+  /** Display name from towns API, e.g. "Narsaraopet (Andhra Pradesh)". */
+  townName?: string;
   agentId?: string;
 };
 

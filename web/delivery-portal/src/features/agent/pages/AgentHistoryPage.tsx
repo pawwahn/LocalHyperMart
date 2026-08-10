@@ -1,9 +1,11 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { PaginationBar } from '@/shared/components/PaginationBar';
 import { AgentShell } from '../layout/AgentShell';
 import { BuyerDeliveryCard, VendorPickupCard } from '../components/AssignmentCards';
 import { useAgentWorkspace, type AgentLeg } from '../hooks/useAgentWorkspace';
+import { useDeliveryManifests } from '../hooks/useDeliveryManifests';
+import { usePickupManifests } from '../hooks/usePickupManifests';
 
 type HistoryLeg = 'all' | AgentLeg;
 
@@ -15,11 +17,23 @@ export function AgentHistoryPage() {
   const { assignments, loading, totalPages, totalElements, pageSize, error, reload, setSearch, search } =
     useAgentWorkspace({ scope: 'completed', leg, page });
 
+  const pickupTasks = useMemo(
+    () => assignments.filter((t) => t.legType === 'PICKUP'),
+    [assignments],
+  );
+  const deliveryTasks = useMemo(
+    () => assignments.filter((t) => t.legType === 'LAST_MILE'),
+    [assignments],
+  );
+
+  const pickup = usePickupManifests(pickupTasks);
+  const delivery = useDeliveryManifests(deliveryTasks);
+
   return (
     <AgentShell title="Done jobs" subtitle="Jobs you already finished" onRefresh={() => void reload()}>
       {error ? <p style={styles.error}>{error}</p> : null}
 
-      <div style={styles.filters}>
+      <div style={styles.segment} role="tablist" aria-label="Filter history">
         <FilterChip
           active={legFilter === 'all'}
           label="All"
@@ -46,28 +60,49 @@ export function AgentHistoryPage() {
         />
       </div>
 
-      <input
-        type="search"
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-        placeholder="Type order number…"
-        style={styles.search}
-      />
+      <div style={styles.searchWrap}>
+        <span style={styles.searchIcon} aria-hidden>
+          ⌕
+        </span>
+        <input
+          type="search"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search order number"
+          style={styles.search}
+        />
+      </div>
 
       {loading && assignments.length === 0 ? (
         <p style={styles.muted}>Loading…</p>
       ) : assignments.length === 0 ? (
-        <p style={styles.empty}>No finished jobs yet.</p>
+        <div style={styles.empty}>
+          <p style={styles.emptyTitle}>No finished jobs yet</p>
+          <p style={styles.emptyBody}>Completed pickups and deliveries show up here.</p>
+        </div>
       ) : (
         <div style={styles.list}>
           {assignments.map((task) =>
             task.legType === 'PICKUP' ? (
-              <VendorPickupCard key={task.id} task={task} busy onPickVendor={() => undefined} />
+              <VendorPickupCard
+                key={task.id}
+                task={task}
+                busy
+                manifest={pickup.manifests[task.id]}
+                manifestLoading={pickup.loadingManifests}
+                manifestFailed={Boolean(pickup.failedIds[task.id])}
+                onRetryManifest={() => pickup.retryManifest(task.id)}
+                onPickVendor={() => undefined}
+              />
             ) : (
               <BuyerDeliveryCard
                 key={task.id}
                 task={task}
                 busy
+                manifest={delivery.manifests[task.id]}
+                manifestLoading={delivery.loadingManifests}
+                manifestFailed={Boolean(delivery.failedIds[task.id])}
+                onRetryManifest={() => delivery.retryManifest(task.id)}
                 onPickHub={() => undefined}
                 onDeliver={() => undefined}
               />
@@ -97,53 +132,78 @@ function FilterChip({
   onClick: () => void;
 }) {
   return (
-    <button type="button" style={active ? styles.chipActive : styles.chip} onClick={onClick}>
+    <button type="button" role="tab" aria-selected={active} style={active ? styles.chipActive : styles.chip} onClick={onClick}>
       {label}
     </button>
   );
 }
 
 const styles: Record<string, CSSProperties> = {
-  filters: { display: 'flex', gap: '0.45rem', flexWrap: 'wrap' },
+  segment: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(3, 1fr)',
+    gap: 4,
+    padding: 4,
+    borderRadius: 12,
+    background: 'var(--bg-muted)',
+    border: '1px solid var(--border)',
+  },
   chip: {
-    border: '2px solid var(--border)',
-    borderRadius: 999,
-    padding: '0.55rem 0.9rem',
+    border: 'none',
+    borderRadius: 9,
+    padding: '0.55rem 0.35rem',
     background: 'transparent',
     color: 'var(--text-muted)',
-    fontSize: '0.9rem',
+    fontSize: '0.78rem',
     fontWeight: 700,
     cursor: 'pointer',
+    minHeight: 40,
   },
   chipActive: {
-    border: '2px solid var(--accent)',
-    borderRadius: 999,
-    padding: '0.55rem 0.9rem',
-    background: 'rgba(66, 165, 245, 0.18)',
+    border: 'none',
+    borderRadius: 9,
+    padding: '0.55rem 0.35rem',
+    background: 'var(--bg-elevated)',
     color: 'var(--accent)',
-    fontSize: '0.9rem',
+    fontSize: '0.78rem',
     fontWeight: 800,
     cursor: 'pointer',
+    minHeight: 40,
+    boxShadow: '0 1px 3px rgba(15, 23, 42, 0.08)',
+  },
+  searchWrap: {
+    position: 'relative',
+    display: 'flex',
+    alignItems: 'center',
+  },
+  searchIcon: {
+    position: 'absolute',
+    left: 12,
+    color: 'var(--text-muted)',
+    fontSize: '0.95rem',
+    pointerEvents: 'none',
   },
   search: {
     width: '100%',
     boxSizing: 'border-box',
-    border: '2px solid var(--border)',
+    border: '1px solid var(--border)',
     borderRadius: 12,
-    padding: '0.75rem 0.9rem',
-    background: 'var(--bg-muted)',
+    padding: '0.65rem 0.75rem 0.65rem 2.1rem',
+    background: 'var(--bg-elevated)',
     color: 'var(--text)',
-    fontSize: '1rem',
+    fontSize: '0.92rem',
+    fontWeight: 600,
   },
-  list: { display: 'grid', gap: '0.75rem' },
-  error: { margin: 0, color: 'var(--danger)', fontWeight: 700 },
-  muted: { color: 'var(--text-muted)', fontWeight: 700 },
+  list: { display: 'grid', gap: '0.7rem' },
+  error: { margin: 0, color: 'var(--danger)', fontWeight: 700, fontSize: '0.85rem' },
+  muted: { margin: 0, color: 'var(--text-muted)', fontWeight: 700, fontSize: '0.85rem' },
   empty: {
-    margin: 0,
-    padding: '1rem',
-    borderRadius: 12,
+    padding: '1.25rem 1rem',
+    borderRadius: 14,
     background: 'var(--bg-muted)',
-    color: 'var(--text-muted)',
-    fontWeight: 700,
+    border: '1px dashed var(--border)',
+    textAlign: 'center',
   },
+  emptyTitle: { margin: 0, fontWeight: 800, fontSize: '0.95rem' },
+  emptyBody: { margin: '0.35rem 0 0', color: 'var(--text-muted)', fontWeight: 600, fontSize: '0.82rem' },
 };

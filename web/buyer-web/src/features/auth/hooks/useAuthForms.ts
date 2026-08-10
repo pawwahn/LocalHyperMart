@@ -13,7 +13,8 @@ export function useAuthForms() {
   const navigate = useNavigate();
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [phone, setPhone] = useState('9876511111');
-  const [password, setPassword] = useState('Buyer@123');
+  // Seeded pilot buyer (9876511111) uses "password". For new register, use e.g. Buyer@123.
+  const [password, setPassword] = useState('password');
   const [firstName, setFirstName] = useState('Test');
   const [lastName, setLastName] = useState('Buyer');
   const [acceptedTerms, setAcceptedTerms] = useState(false);

@@ -127,6 +127,7 @@ export function OrdersPage() {
       cartCount={cart?.itemCount ?? 0}
       onRefresh={() => void reload()}
       showDeliveryBanner={false}
+      showTownPicker={false}
     >
       {loading && orders.length === 0 ? (
         <LoadingBlock label="Loading your order history…" />

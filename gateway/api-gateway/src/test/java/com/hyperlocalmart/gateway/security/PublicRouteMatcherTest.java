@@ -54,6 +54,18 @@ class PublicRouteMatcherTest {
     }
 
     @Test
+    void townAdsPublic_isPublic() {
+        assertThat(PublicRouteMatcher.isPublic(
+                HttpMethod.GET, "/api/v1/towns/abc-123/ads")).isTrue();
+    }
+
+    @Test
+    void townAdsEditor_requiresAuth() {
+        assertThat(PublicRouteMatcher.isPublic(
+                HttpMethod.GET, "/api/v1/towns/abc-123/ads/editor")).isFalse();
+    }
+
+    @Test
     void townDetailRequiresAuth() {
         assertThat(PublicRouteMatcher.isPublic(HttpMethod.GET, "/api/v1/towns/abc-123")).isFalse();
     }

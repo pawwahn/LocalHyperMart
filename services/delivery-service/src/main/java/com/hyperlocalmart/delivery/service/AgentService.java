@@ -180,6 +180,12 @@ public class AgentService {
                     .name(name)
                     .phone(phone)
                     .status(AgentStatus.ACTIVE)
+                    .govtIdType(request.getGovtIdType().trim().toUpperCase())
+                    .govtIdNumber(request.getGovtIdNumber().replaceAll("\\s", "").trim())
+                    .reference1Name(request.getReference1Name().trim())
+                    .reference1Phone(request.getReference1Phone().trim())
+                    .reference2Name(request.getReference2Name().trim())
+                    .reference2Phone(request.getReference2Phone().trim())
                     .build();
             agent.setCreatedBy(hubAdminUserId);
             agent.setUpdatedBy(hubAdminUserId);
@@ -320,6 +326,24 @@ public class AgentService {
                 .name(agent.getName())
                 .phone(agent.getPhone())
                 .status(agent.getStatus())
+                .govtIdType(agent.getGovtIdType())
+                .govtIdNumber(maskGovtId(agent.getGovtIdNumber()))
+                .reference1Name(agent.getReference1Name())
+                .reference1Phone(agent.getReference1Phone())
+                .reference2Name(agent.getReference2Name())
+                .reference2Phone(agent.getReference2Phone())
                 .build();
+    }
+
+    /** Show only last 4 characters of government ID in API responses. */
+    private static String maskGovtId(String value) {
+        if (value == null || value.isBlank()) {
+            return value;
+        }
+        String trimmed = value.trim();
+        if (trimmed.length() <= 4) {
+            return "****";
+        }
+        return "****" + trimmed.substring(trimmed.length() - 4);
     }
 }
