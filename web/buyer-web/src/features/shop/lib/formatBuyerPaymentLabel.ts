@@ -1,6 +1,6 @@
 /**
  * Buyer-facing payment label.
- * COD is stored as PAID at place-time in the backend; UI must not show "PAID" until delivered.
+ * COD stays pending until delivery; cancelled COD was never collected.
  */
 export function formatBuyerPaymentLabel(input: {
   paymentMethod?: string | null;
@@ -13,8 +13,8 @@ export function formatBuyerPaymentLabel(input: {
   const delivered = status === 'DELIVERED';
 
   if (method === 'COD') {
-    if (status === 'CANCELLED') return 'Cancelled · COD';
-    return delivered ? 'PAID(COD)' : 'COD';
+    if (status === 'CANCELLED') return 'Cancelled · COD (not collected)';
+    return delivered && pay === 'PAID' ? 'PAID(COD)' : 'COD';
   }
 
   if (method === 'ONLINE') {

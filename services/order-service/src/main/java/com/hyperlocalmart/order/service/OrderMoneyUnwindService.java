@@ -56,9 +56,11 @@ public class OrderMoneyUnwindService {
         if (gatewayRefunded) {
             order.setPaymentStatus(PaymentStatus.REFUNDED);
         } else if (order.getPaymentMethod() == PaymentMethod.COD
-                && order.getPaymentStatus() == PaymentStatus.PAID) {
-            // COD was never collected — stop looking "paid" on cancelled orders.
-            order.setPaymentStatus(PaymentStatus.FAILED);
+                && (order.getPaymentStatus() == PaymentStatus.PAID
+                || order.getPaymentStatus() == PaymentStatus.PENDING
+                || order.getPaymentStatus() == PaymentStatus.FAILED)) {
+            // COD cash was never collected — keep PENDING (not "Paid" / not gateway "Failed").
+            order.setPaymentStatus(PaymentStatus.PENDING);
         } else if (order.getPaymentMethod() == PaymentMethod.ONLINE
                 && order.getPaymentStatus() == PaymentStatus.PAID
                 && order.getTotalAmount() != null

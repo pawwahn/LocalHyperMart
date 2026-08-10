@@ -203,6 +203,7 @@ public class OrderAdminService {
                 .buyerId(order.getBuyerId())
                 .buyerPhone(order.getBuyerPhoneSnapshot())
                 .status(order.getStatus())
+                .paymentMethod(order.getPaymentMethod())
                 .paymentStatus(order.getPaymentStatus())
                 .totalAmount(order.getTotalAmount())
                 .placedAt(order.getPlacedAt())

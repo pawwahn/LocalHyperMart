@@ -7,6 +7,7 @@ export type AdminOrderSummary = {
   buyerId: string;
   buyerPhone?: string | null;
   status: string;
+  paymentMethod?: string | null;
   paymentStatus: string;
   totalAmount: number;
   placedAt?: string;
@@ -139,6 +140,34 @@ export function labelStatus(raw?: string | null): string {
     .replace(/_/g, ' ')
     .toLowerCase()
     .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+/** Admin payment column / badge — COD is not "Paid" until delivered. */
+export function formatAdminPaymentLabel(input: {
+  paymentMethod?: string | null;
+  paymentStatus?: string | null;
+  orderStatus?: string | null;
+}): string {
+  const method = (input.paymentMethod ?? '').toUpperCase();
+  const pay = (input.paymentStatus ?? '').toUpperCase();
+  const status = (input.orderStatus ?? '').toUpperCase();
+
+  if (method === 'COD') {
+    if (status === 'CANCELLED') return 'COD · Not collected';
+    if (status === 'DELIVERED' && pay === 'PAID') return 'COD · Paid';
+    if (pay === 'PAID' && status !== 'DELIVERED') return 'COD · Due';
+    if (pay === 'PENDING' || !pay) return 'COD · Due';
+    return `COD · ${labelStatus(pay)}`;
+  }
+
+  if (method === 'ONLINE') {
+    if (status === 'CANCELLED' && pay === 'REFUNDED') return 'Online · Refunded';
+    if (status === 'CANCELLED') return `Online · ${labelStatus(pay || 'Cancelled')}`;
+    return `Online · ${labelStatus(pay || 'Pending')}`;
+  }
+
+  if (!method && !pay) return '—';
+  return [method || null, pay ? labelStatus(pay) : null].filter(Boolean).join(' · ');
 }
 
 export function labelLeg(leg?: string | null): string {

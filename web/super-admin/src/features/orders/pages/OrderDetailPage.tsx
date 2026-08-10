@@ -6,6 +6,7 @@ import { ApiError } from '@/shared/api/http';
 import { Banner, Button } from '@/shared/ui';
 import {
   fetchAdminOrderDetail,
+  formatAdminPaymentLabel,
   formatWhen,
   labelEvent,
   labelLeg,
@@ -69,7 +70,11 @@ export function OrderDetailPage() {
               <p style={styles.subMeta}>
                 <span style={styles.pill}>{labelStatus(order.status)}</span>
                 <span>
-                  {order.paymentMethod ?? '—'} · {labelStatus(order.paymentStatus)}
+                  {formatAdminPaymentLabel({
+                    paymentMethod: order.paymentMethod,
+                    paymentStatus: order.paymentStatus,
+                    orderStatus: order.status,
+                  })}
                 </span>
               </p>
             </div>
@@ -127,11 +132,19 @@ export function OrderDetailPage() {
                 </div>
               </div>
               <p style={styles.moneyHint}>
-                {order.paymentMethod === 'COD'
-                  ? 'Collect this amount on delivery (COD).'
-                  : order.paymentMethod
-                    ? `Paid via ${order.paymentMethod}.`
-                    : null}
+                {order.status === 'CANCELLED' && order.paymentMethod === 'COD'
+                  ? 'Cancelled COD — cash was never collected. Vendor is not paid for this order.'
+                  : order.status === 'CANCELLED' && order.paymentStatus === 'REFUNDED'
+                    ? 'Payment refunded after cancel.'
+                    : order.status === 'CANCELLED'
+                      ? 'Order cancelled — no further collection.'
+                      : order.paymentMethod === 'COD' && order.status !== 'DELIVERED'
+                        ? 'Collect this amount on delivery (COD).'
+                        : order.paymentMethod === 'COD' && order.status === 'DELIVERED'
+                          ? 'COD collected on delivery.'
+                          : order.paymentMethod
+                            ? `Paid via ${order.paymentMethod}.`
+                            : null}
                 {Number(order.storeCreditApplied ?? 0) > 0
                   ? ' Store credit was auto-applied from their wallet.'
                   : ''}

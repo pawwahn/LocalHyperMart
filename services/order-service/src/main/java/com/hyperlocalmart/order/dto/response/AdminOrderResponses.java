@@ -27,6 +27,7 @@ public final class AdminOrderResponses {
         UUID buyerId;
         String buyerPhone;
         OrderStatus status;
+        PaymentMethod paymentMethod;
         PaymentStatus paymentStatus;
         BigDecimal totalAmount;
         Instant placedAt;

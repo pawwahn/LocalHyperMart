@@ -6,6 +6,7 @@ import { ApiError } from '@/shared/api/http';
 import { Banner, Button, SearchSelect } from '@/shared/ui';
 import { listTowns, type TownVm } from '@/features/towns/api/townsApi';
 import {
+  formatAdminPaymentLabel,
   formatWhen,
   listAdminOrders,
   money,
@@ -238,7 +239,13 @@ export function OrdersPage() {
                   <td style={styles.td}>
                     <span style={styles.pill}>{o.status}</span>
                   </td>
-                  <td style={styles.tdMuted}>{o.paymentStatus}</td>
+                  <td style={styles.tdMuted}>
+                    {formatAdminPaymentLabel({
+                      paymentMethod: o.paymentMethod,
+                      paymentStatus: o.paymentStatus,
+                      orderStatus: o.status,
+                    })}
+                  </td>
                   <td style={{ ...styles.td, textAlign: 'right', fontWeight: 700 }}>
                     {money(o.totalAmount)}
                   </td>

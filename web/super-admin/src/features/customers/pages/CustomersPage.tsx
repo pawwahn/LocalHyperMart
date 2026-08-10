@@ -5,6 +5,7 @@ import { useAuth } from '@/shared/auth/AuthContext';
 import { ApiError } from '@/shared/api/http';
 import { Banner, Button } from '@/shared/ui';
 import {
+  formatAdminPaymentLabel,
   formatWhen as formatOrderWhen,
   listAdminOrders,
   money as orderMoney,
@@ -559,7 +560,13 @@ export function CustomersPage() {
                           <td style={styles.td}>
                             <span style={statusTone(o.status)}>{o.status}</span>
                           </td>
-                          <td style={styles.tdMuted}>{o.paymentStatus}</td>
+                          <td style={styles.tdMuted}>
+                            {formatAdminPaymentLabel({
+                              paymentMethod: o.paymentMethod,
+                              paymentStatus: o.paymentStatus,
+                              orderStatus: o.status,
+                            })}
+                          </td>
                           <td style={{ ...styles.td, textAlign: 'right', fontWeight: 800 }}>
                             {orderMoney(o.totalAmount)}
                           </td>

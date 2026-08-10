@@ -244,6 +244,11 @@ public class OrderService {
         OrderStatus priorStatus = order.getStatus();
         order.setStatus(OrderStatus.DELIVERED);
         order.setDeliveredAt(Instant.now());
+        // COD: cash collected at door — mark paid now (was PENDING from placement).
+        if (order.getPaymentMethod() == PaymentMethod.COD
+                && order.getPaymentStatus() == PaymentStatus.PENDING) {
+            order.setPaymentStatus(PaymentStatus.PAID);
+        }
         for (VendorSubOrder subOrder : order.getVendorSubOrders()) {
             if (subOrder.getStatus() != VendorSubOrderStatus.VENDOR_REJECTED) {
                 subOrder.setStatus(VendorSubOrderStatus.DELIVERED);
@@ -389,7 +394,8 @@ public class OrderService {
         // Fully covered by store credit → treat as placed/paid with no COD/online charge.
         boolean fullyCoveredByCredit = storeCreditApplied.compareTo(grossTotal) >= 0 && grossTotal.compareTo(BigDecimal.ZERO) > 0;
         OrderStatus orderStatus = (isCod || fullyCoveredByCredit) ? OrderStatus.PLACED : OrderStatus.PAYMENT_PENDING;
-        PaymentStatus paymentStatus = (isCod || fullyCoveredByCredit) ? PaymentStatus.PAID : PaymentStatus.PENDING;
+        // COD cash is collected on delivery — stay PENDING until then. Only wallet-covered is PAID at place.
+        PaymentStatus paymentStatus = fullyCoveredByCredit ? PaymentStatus.PAID : PaymentStatus.PENDING;
 
         Order order = Order.builder()
                 .orderNumber(orderNumber)
