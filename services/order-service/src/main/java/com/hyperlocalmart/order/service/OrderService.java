@@ -328,14 +328,20 @@ public class OrderService {
         TownClient.TownSummary town = townClient.getTownSummary(request.getTownId());
 
         String orderNumber = orderNumberGenerator.nextOrderNumber(request.getTownId(), town.townCode(), town.stateCode());
-        BigDecimal deliveryFee = checkoutProperties.getDeliveryFee();
         BigDecimal promoDiscount = cart.promoDiscount() == null ? BigDecimal.ZERO : cart.promoDiscount();
         BigDecimal payableSubtotal = cart.payableSubtotal() != null
                 ? cart.payableSubtotal()
                 : cart.itemsSubtotal().subtract(promoDiscount).max(BigDecimal.ZERO);
+        BigDecimal configuredFee = townClient.resolveTownDeliveryFee(request.getTownId(), payableSubtotal);
+        if (configuredFee == null) {
+            configuredFee = townClient.getPlatformDeliveryFee();
+        }
+        BigDecimal deliveryFee = configuredFee != null ? configuredFee : checkoutProperties.getDeliveryFee();
         BigDecimal grossTotal = payableSubtotal.add(deliveryFee);
 
-        BigDecimal walletBalance = paymentClient.getWalletBalance(buyerId);
+        BigDecimal walletBalance = request.isUseStoreCredit()
+                ? paymentClient.getWalletBalance(buyerId)
+                : BigDecimal.ZERO;
         BigDecimal storeCreditApplied = walletBalance.min(grossTotal).max(BigDecimal.ZERO);
         BigDecimal totalAmount = grossTotal.subtract(storeCreditApplied);
 

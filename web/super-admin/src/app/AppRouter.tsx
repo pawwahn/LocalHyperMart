@@ -11,6 +11,7 @@ import { CatalogPage } from '@/features/catalog/pages/CatalogPage';
 import { StoreListingsPage } from '@/features/store-listings/pages/StoreListingsPage';
 import { SettlementsPage } from '@/features/settlements/pages/SettlementsPage';
 import { AgentsPage } from '@/features/agents/pages/AgentsPage';
+import { HubsPage } from '@/features/hubs/pages/HubsPage';
 import { SettingsPage } from '@/features/settings/pages/SettingsPage';
 import { OrdersPage } from '@/features/orders/pages/OrdersPage';
 import { OrderDetailPage } from '@/features/orders/pages/OrderDetailPage';
@@ -36,6 +37,7 @@ export function AppRouter() {
               <Route path="/catalog" element={<CatalogPage />} />
               <Route path="/store-listings" element={<StoreListingsPage />} />
               <Route path="/settlements" element={<SettlementsPage />} />
+              <Route path="/hubs" element={<HubsPage />} />
               <Route path="/agents" element={<AgentsPage />} />
               <Route path="/settings" element={<SettingsPage />} />
             </Route>

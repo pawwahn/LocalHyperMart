@@ -4,6 +4,7 @@ import com.hyperlocalmart.common.exception.BusinessException;
 import com.hyperlocalmart.common.exception.ErrorCode;
 import com.hyperlocalmart.payment.client.OrderClient;
 import com.hyperlocalmart.payment.client.OrderClient.SettlementCandidateItem;
+import com.hyperlocalmart.payment.client.VendorClient;
 import com.hyperlocalmart.payment.dto.request.CreateSettlementRequest;
 import com.hyperlocalmart.payment.dto.request.MarkSettlementPaidRequest;
 import com.hyperlocalmart.payment.dto.response.SettlementCandidateView;
@@ -18,6 +19,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.*;
@@ -35,6 +37,7 @@ public class SettlementService {
     private final SettlementLineItemRepository settlementLineItemRepository;
     private final VendorSettlementAdjustmentRepository vendorSettlementAdjustmentRepository;
     private final OrderClient orderClient;
+    private final VendorClient vendorClient;
 
     @Transactional(readOnly = true)
     public SettlementCandidateView listCandidates(UUID townId, UUID vendorId, LocalDate from, LocalDate to) {
@@ -97,7 +100,7 @@ public class SettlementService {
                 orderClient.resolveSettlementSubOrders(request.getVendorId(), requestedIds);
         if (resolved.size() != requestedIds.size()) {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR,
-                    "One or more sub-orders were not found for this vendor or are rejected");
+                    "One or more orders are not eligible for payout — only delivered bags can be paid");
         }
 
         Set<UUID> already = new HashSet<>(
@@ -111,10 +114,25 @@ public class SettlementService {
                 .map(SettlementCandidateItem::subtotal)
                 .filter(Objects::nonNull)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
-        BigDecimal commission = request.getCommissionAmount() == null
-                ? BigDecimal.ZERO : request.getCommissionAmount();
+
+        // Billing is authoritative: quote from vendor commercial terms (order-date aware).
+        List<VendorClient.OrderLine> orderLines = resolved.stream()
+                .map(item -> new VendorClient.OrderLine(
+                        item.subtotal() == null ? BigDecimal.ZERO : item.subtotal(),
+                        item.placedAt()))
+                .toList();
+        VendorClient.CommercialTermsQuote feeQuote = vendorClient.quoteCommercialTerms(
+                request.getVendorId(),
+                request.getPeriodStart(),
+                request.getPeriodEnd(),
+                orderLines);
+        BigDecimal commission = feeQuote.totalFeeAmount() == null
+                ? BigDecimal.ZERO
+                : feeQuote.totalFeeAmount().setScale(2, RoundingMode.HALF_UP);
         if (commission.compareTo(BigDecimal.ZERO) < 0 || commission.compareTo(gross) > 0) {
-            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Invalid commission amount");
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR,
+                    "Billing fees (₹" + commission.toPlainString()
+                            + ") are invalid for gross ₹" + gross.toPlainString());
         }
 
         List<VendorSettlementAdjustment> pendingAdjustments =
@@ -124,11 +142,25 @@ public class SettlementService {
                 .map(VendorSettlementAdjustment::getAmount)
                 .filter(Objects::nonNull)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
-        BigDecimal net = gross.subtract(commission).subtract(claimChargebacks);
+        BigDecimal otherCharges = request.getOtherChargesAmount() == null
+                ? BigDecimal.ZERO
+                : request.getOtherChargesAmount().setScale(2, RoundingMode.HALF_UP);
+        if (otherCharges.compareTo(BigDecimal.ZERO) < 0) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Other charges cannot be negative");
+        }
+        if (otherCharges.compareTo(BigDecimal.ZERO) > 0
+                && (request.getOtherChargesReason() == null || request.getOtherChargesReason().isBlank())) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR,
+                    "Reason is required when adding a penalty or other charge");
+        }
+        BigDecimal net = gross.subtract(commission).subtract(claimChargebacks).subtract(otherCharges);
         if (net.compareTo(BigDecimal.ZERO) < 0) {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR,
-                    "Claim chargebacks (₹" + claimChargebacks.toPlainString()
-                            + ") exceed payout after commission. Include more orders or lower commission.");
+                    "Deductions (claims ₹" + claimChargebacks.toPlainString()
+                            + " + other ₹" + otherCharges.toPlainString()
+                            + " + fees ₹" + commission.toPlainString()
+                            + ") exceed gross ₹" + gross.toPlainString()
+                            + ". Lower charges or include more orders.");
         }
 
         Settlement settlement = Settlement.builder()
@@ -182,6 +214,23 @@ public class SettlementService {
             settlement.getLineItems().add(line);
         }
 
+        if (otherCharges.compareTo(BigDecimal.ZERO) > 0) {
+            String reason = request.getOtherChargesReason().trim();
+            SettlementLineItem line = SettlementLineItem.builder()
+                    .settlement(settlement)
+                    .orderId(null)
+                    .subOrderId(null)
+                    .orderNumber(null)
+                    .subOrderNumber(null)
+                    .lineType("OTHER_CHARGE")
+                    .amount(otherCharges.negate())
+                    .description(reason)
+                    .build();
+            line.setCreatedBy(actorId);
+            line.setUpdatedBy(actorId);
+            settlement.getLineItems().add(line);
+        }
+
         if (request.isMarkPaid()) {
             applyPaid(settlement, actorId, request.getPayoutMethod(), request.getTransactionReference(),
                     request.getTransactionNotes(), request.getPaidAt());
@@ -195,6 +244,9 @@ public class SettlementService {
         }
         if (!pendingAdjustments.isEmpty()) {
             vendorSettlementAdjustmentRepository.saveAll(pendingAdjustments);
+        }
+        if (request.isMarkPaid() && feeQuote.subscriptionIncluded()) {
+            vendorClient.markSubscriptionCharged(request.getVendorId(), request.getPeriodEnd());
         }
         return toResponse(saved);
     }
@@ -323,15 +375,14 @@ public class SettlementService {
                 ? BigDecimal.ZERO : settlement.getGrossAmount();
         BigDecimal net = settlement.getNetAmount() == null
                 ? BigDecimal.ZERO : settlement.getNetAmount();
-        BigDecimal claimFromLines = lines.stream()
-                .filter(line -> "ADJUSTMENT".equalsIgnoreCase(line.getLineType()))
-                .map(SettlementResponse.Line::getAmount)
-                .filter(Objects::nonNull)
-                .map(BigDecimal::abs)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-        BigDecimal claimChargebacks = claimFromLines.compareTo(BigDecimal.ZERO) > 0
-                ? claimFromLines
-                : gross.subtract(commission).subtract(net).max(BigDecimal.ZERO);
+        BigDecimal claimFromLines = sumAbsByLineType(lines, "ADJUSTMENT");
+        BigDecimal otherFromLines = sumAbsByLineType(lines, "OTHER_CHARGE")
+                .add(sumAbsByLineType(lines, "PENALTY"));
+        BigDecimal claimChargebacks = claimFromLines;
+        if (claimFromLines.compareTo(BigDecimal.ZERO) == 0 && otherFromLines.compareTo(BigDecimal.ZERO) == 0) {
+            // Legacy settlements: residual before typed OTHER_CHARGE lines existed.
+            claimChargebacks = gross.subtract(commission).subtract(net).max(BigDecimal.ZERO);
+        }
 
         return SettlementResponse.builder()
                 .id(settlement.getId())
@@ -345,6 +396,7 @@ public class SettlementService {
                 .grossAmount(settlement.getGrossAmount())
                 .commissionAmount(settlement.getCommissionAmount())
                 .claimChargebacksAmount(claimChargebacks)
+                .otherChargesAmount(otherFromLines)
                 .netAmount(settlement.getNetAmount())
                 .status(settlement.getStatus())
                 .payoutMethod(settlement.getPayoutMethod())
@@ -355,5 +407,14 @@ public class SettlementService {
                 .createdAt(settlement.getCreatedAt())
                 .lines(lines)
                 .build();
+    }
+
+    private static BigDecimal sumAbsByLineType(List<SettlementResponse.Line> lines, String lineType) {
+        return lines.stream()
+                .filter(line -> lineType.equalsIgnoreCase(line.getLineType()))
+                .map(SettlementResponse.Line::getAmount)
+                .filter(Objects::nonNull)
+                .map(BigDecimal::abs)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
     }
 }

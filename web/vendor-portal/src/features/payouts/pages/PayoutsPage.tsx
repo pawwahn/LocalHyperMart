@@ -9,6 +9,7 @@ import {
   listMySettlements,
   lookupOrderPayouts,
   settlementClaimAmount,
+  settlementOtherChargesAmount,
   summarizeSettlements,
   type VendorClaimAdjustment,
   type VendorSettlement,
@@ -24,7 +25,7 @@ import {
 } from '@/shared/table';
 import { ClaimDeductionsDialog } from '@/features/payouts/components/ClaimDeductionsDialog';
 
-type SortKey = 'period' | 'gross' | 'fee' | 'claims' | 'net' | 'status' | 'paidAt';
+type SortKey = 'period' | 'gross' | 'fee' | 'claims' | 'other' | 'net' | 'status' | 'paidAt';
 type DatePreset = 'all' | '30d' | '90d' | 'month' | 'custom';
 
 function isoToday(): string {
@@ -128,7 +129,7 @@ export function PayoutsPage() {
       let waiting = 0;
       let waitingOrders = 0;
       for (const row of sales.rows ?? []) {
-        if (row.status === 'VENDOR_REJECTED' || row.status === 'REJECTED') continue;
+        if (row.status !== 'DELIVERED') continue;
         if (!payouts[row.subOrderId]?.paid) {
           waiting += Number(row.subtotal ?? 0);
           waitingOrders += 1;
@@ -213,6 +214,9 @@ export function PayoutsPage() {
         case 'claims':
           cmp = settlementClaimAmount(a) - settlementClaimAmount(b);
           break;
+        case 'other':
+          cmp = settlementOtherChargesAmount(a) - settlementOtherChargesAmount(b);
+          break;
         case 'net':
           cmp = Number(a.netAmount) - Number(b.netAmount);
           break;
@@ -249,6 +253,7 @@ export function PayoutsPage() {
           ['--metric-awaiting' as string]: 'var(--warning, #c2410c)',
           ['--metric-commission' as string]: 'var(--danger, #dc2626)',
           ['--metric-claim' as string]: '#7c3aed',
+          ['--metric-other' as string]: '#b45309',
         }}
       >
         {error ? <Banner tone="danger">{error}</Banner> : null}
@@ -309,6 +314,18 @@ export function PayoutsPage() {
                   : 'View claim history'}
               </button>
             ) : null}
+          </div>
+
+          <div style={styles.metric}>
+            <span style={styles.metricLabel}>Other charges</span>
+            <strong style={{ ...styles.metricValueClaim, color: 'var(--metric-other)' }}>
+              {formatMoney(settlementSummary.paidOtherCharges)}
+            </strong>
+            <span style={styles.metricHint}>
+              {settlementSummary.paidOtherCharges > 0
+                ? 'Penalties / other on paid settlements'
+                : 'None yet'}
+            </span>
           </div>
         </div>
 
@@ -387,7 +404,7 @@ export function PayoutsPage() {
             </div>
           </div>
           <p style={styles.formulaHint}>
-            Net paid = Gross orders − Commission − Claim deductions (buyer credits clawed back from you).
+            Net paid = Gross − Commission − Claim deductions − Other charges (penalties set by hub).
             {periodFrom || periodTo
               ? ` Showing periods overlapping ${periodFrom || '…'} → ${periodTo || '…'}.`
               : ''}
@@ -414,6 +431,7 @@ export function PayoutsPage() {
                       <SortableTh label="Gross" column="gross" sort={sort} onSort={(c) => setSort((p) => toggleSort(p, c))} align="right" style={styles.th} />
                       <SortableTh label="Commission" column="fee" sort={sort} onSort={(c) => setSort((p) => toggleSort(p, c))} align="right" style={styles.th} />
                       <SortableTh label="Claims" column="claims" sort={sort} onSort={(c) => setSort((p) => toggleSort(p, c))} align="right" style={styles.th} />
+                      <SortableTh label="Other" column="other" sort={sort} onSort={(c) => setSort((p) => toggleSort(p, c))} align="right" style={styles.th} />
                       <SortableTh label="Net" column="net" sort={sort} onSort={(c) => setSort((p) => toggleSort(p, c))} align="right" style={styles.th} />
                       <SortableTh label="Status" column="status" sort={sort} onSort={(c) => setSort((p) => toggleSort(p, c))} style={styles.th} />
                       <SortableTh label="Paid at" column="paidAt" sort={sort} onSort={(c) => setSort((p) => toggleSort(p, c))} style={styles.th} />
@@ -423,18 +441,25 @@ export function PayoutsPage() {
                   <tbody>
                     {pageItems.map((s) => {
                       const claims = settlementClaimAmount(s);
+                      const other = settlementOtherChargesAmount(s);
                       const claimLines = (s.lines ?? []).filter(
                         (l) => (l.lineType ?? '').toUpperCase() === 'ADJUSTMENT',
                       );
+                      const otherLines = (s.lines ?? []).filter((l) => {
+                        const t = (l.lineType ?? '').toUpperCase();
+                        return t === 'OTHER_CHARGE' || t === 'PENALTY';
+                      });
                       return (
                       <tr key={s.id}>
                         <td style={styles.td}>
                           {s.periodStart ?? '—'} → {s.periodEnd ?? '—'}
                           {s.periodType ? <div style={styles.sub}>{s.periodType}</div> : null}
-                          {claims > 0 ? (
+                          {claims > 0 || other > 0 ? (
                             <div style={styles.breakdown}>
-                              {formatMoney(s.grossAmount)} − {formatMoney(s.commissionAmount)} fee −{' '}
-                              {formatMoney(claims)} claims = {formatMoney(s.netAmount)}
+                              {formatMoney(s.grossAmount)} − {formatMoney(s.commissionAmount)} fee
+                              {claims > 0 ? ` − ${formatMoney(claims)} claims` : ''}
+                              {other > 0 ? ` − ${formatMoney(other)} other` : ''} ={' '}
+                              {formatMoney(s.netAmount)}
                             </div>
                           ) : null}
                         </td>
@@ -448,6 +473,14 @@ export function PayoutsPage() {
                             </div>
                           ) : claims > 0 ? (
                             <div style={styles.sub}>Buyer credit clawback</div>
+                          ) : null}
+                        </td>
+                        <td style={{ ...styles.tdRight, color: other > 0 ? 'var(--metric-other)' : undefined }}>
+                          {formatMoney(other)}
+                          {otherLines.length > 0 ? (
+                            <div style={styles.sub}>
+                              {otherLines.map((l) => l.description || 'Charge').join(' · ')}
+                            </div>
                           ) : null}
                         </td>
                         <td style={styles.tdRight}>{formatMoney(s.netAmount)}</td>

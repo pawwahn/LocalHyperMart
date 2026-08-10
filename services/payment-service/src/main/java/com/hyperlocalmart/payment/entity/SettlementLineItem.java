@@ -24,10 +24,12 @@ public class SettlementLineItem extends BaseAuditEntity {
     @JoinColumn(name = "settlement_id", nullable = false)
     private Settlement settlement;
 
-    @Column(name = "order_id", nullable = false)
+    /** Null for settlement-level lines such as OTHER_CHARGE (admin penalty). */
+    @Column(name = "order_id")
     private UUID orderId;
 
-    @Column(name = "sub_order_id", nullable = false)
+    /** Null for settlement-level lines such as OTHER_CHARGE (admin penalty). */
+    @Column(name = "sub_order_id")
     private UUID subOrderId;
 
     @Column(name = "order_number", length = 50)

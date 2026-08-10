@@ -15,6 +15,7 @@ const EMPTY: PlatformSettingsVm = {
   refundUrl: '',
   grievanceOfficer: '',
   supportPhone: '',
+  deliveryFee: 40,
 };
 
 export function SettingsPage() {
@@ -97,6 +98,29 @@ export function SettingsPage() {
               }}
             />
           ))}
+        </div>
+      </Card>
+
+      <Card>
+        <h2 style={styles.sectionTitle}>Checkout (all towns)</h2>
+        <p style={styles.themeHelp}>
+          Default delivery fee for towns set to “Default (platform)”. Towns can override with slab-wise fees on the Towns page.
+        </p>
+        <div style={styles.formGrid}>
+          <TextField
+            label="Delivery fee (₹)"
+            type="number"
+            min={0}
+            step="1"
+            inputMode="decimal"
+            value={String(settings.deliveryFee ?? 40)}
+            onChange={(e) =>
+              setSettings((s) => ({
+                ...s,
+                deliveryFee: Math.max(0, Number(e.target.value) || 0),
+              }))
+            }
+          />
         </div>
       </Card>
 

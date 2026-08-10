@@ -30,6 +30,8 @@ hyperlocalmart:
     base-url: http://localhost:8086
   user-service:
     base-url: http://localhost:8081
+  town-service:
+    base-url: http://localhost:8082
   vendor-service:
     base-url: http://localhost:8083
   notification-service:

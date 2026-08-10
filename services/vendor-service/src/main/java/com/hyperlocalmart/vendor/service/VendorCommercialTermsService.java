@@ -60,18 +60,23 @@ public class VendorCommercialTermsService {
     @Transactional(readOnly = true)
     public VendorCommercialTermsResponse get(UUID vendorId) {
         requireVendor(vendorId);
+        UUID currentId = resolveCurrentId(vendorId);
         return currentTerms(vendorId)
-                .map(this::toResponse)
+                .map(t -> toResponse(t, currentId))
                 .orElseGet(() -> emptyCurrent(vendorId));
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public VendorCommercialTermsListResponse list(UUID vendorId) {
         requireVendor(vendorId);
+        // Repair accidental duplicate / overlapping history from older saves.
+        collapseDuplicateStarts(vendorId);
+        repairOverlappingEnds(vendorId);
+        UUID currentId = resolveCurrentId(vendorId);
         List<VendorCommercialTermsResponse> history = termsRepository
                 .findByVendorIdOrderByEffectiveFromDesc(vendorId)
                 .stream()
-                .map(this::toResponse)
+                .map(t -> toResponse(t, currentId))
                 .toList();
         VendorCommercialTermsResponse current = history.stream()
                 .filter(VendorCommercialTermsResponse::isCurrent)
@@ -85,7 +90,8 @@ public class VendorCommercialTermsService {
 
     /**
      * Saving creates a new version from {@code effectiveFrom} (default today) and
-     * closes the previous open version the day before — so older orders keep old rates.
+     * closes prior versions the day before — so older orders keep old rates.
+     * History ranges must not overlap. Re-saving the same Starts from overwrites that version.
      */
     @Transactional
     public VendorCommercialTermsResponse upsert(UUID vendorId, UUID actorId, UpsertVendorCommercialTermsRequest request) {
@@ -93,38 +99,138 @@ public class VendorCommercialTermsService {
         validateRequest(request);
 
         LocalDate from = request.getEffectiveFrom() == null ? LocalDate.now(IST) : request.getEffectiveFrom();
-        VendorCommercialTerms open = termsRepository.findByVendorIdAndEffectiveToIsNull(vendorId).orElse(null);
-
-        if (open != null) {
-            // Same-day correction: overwrite current open row if effectiveFrom matches.
-            if (open.getEffectiveFrom().equals(from)) {
-                applyFields(open, request, from);
-                open.setUpdatedBy(actorId);
-                return toResponse(termsRepository.save(open));
-            }
-            if (from.isBefore(open.getEffectiveFrom())) {
-                throw new BusinessException(ErrorCode.VALIDATION_ERROR,
-                        "Effective from must be on or after the current version start ("
-                                + open.getEffectiveFrom() + ")");
-            }
-            LocalDate closeOn = from.minusDays(1);
-            if (closeOn.isBefore(open.getEffectiveFrom())) {
-                throw new BusinessException(ErrorCode.VALIDATION_ERROR,
-                        "New terms would leave a gap; pick a later effective from date");
-            }
-            open.setEffectiveTo(closeOn);
-            open.setUpdatedBy(actorId);
-            termsRepository.save(open);
+        LocalDate to = request.getEffectiveTo();
+        if (to != null && to.isBefore(from)) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR,
+                    "Ends on must be on or after Starts from");
         }
 
+        collapseDuplicateStarts(vendorId);
+        repairOverlappingEnds(vendorId);
+
+        List<VendorCommercialTerms> sameStart = termsRepository
+                .findByVendorIdAndEffectiveFromOrderByUpdatedAtDesc(vendorId, from);
+        if (!sameStart.isEmpty()) {
+            VendorCommercialTerms keep = sameStart.getFirst();
+            makeRoomForPeriod(vendorId, keep.getId(), from, to, actorId);
+            applyFields(keep, request, from, to);
+            keep.setUpdatedBy(actorId);
+            VendorCommercialTerms saved = termsRepository.save(keep);
+            repairOverlappingEnds(vendorId);
+            return toResponse(saved, resolveCurrentId(vendorId));
+        }
+
+        String lastYm = makeRoomForPeriod(vendorId, null, from, to, actorId);
         VendorCommercialTerms next = VendorCommercialTerms.builder()
                 .vendorId(vendorId)
-                .lastSubscriptionChargedYm(open == null ? null : open.getLastSubscriptionChargedYm())
+                .lastSubscriptionChargedYm(lastYm)
                 .build();
-        applyFields(next, request, from);
+        applyFields(next, request, from, to);
         next.setCreatedBy(actorId);
         next.setUpdatedBy(actorId);
-        return toResponse(termsRepository.save(next));
+        VendorCommercialTerms saved = termsRepository.save(next);
+        repairOverlappingEnds(vendorId);
+        return toResponse(saved, resolveCurrentId(vendorId));
+    }
+
+    /** Keep one row per (vendor, effectiveFrom); delete older duplicates. */
+    private void collapseDuplicateStarts(UUID vendorId) {
+        List<VendorCommercialTerms> all = termsRepository.findByVendorIdOrderByEffectiveFromDesc(vendorId);
+        Map<LocalDate, List<VendorCommercialTerms>> byFrom = new LinkedHashMap<>();
+        for (VendorCommercialTerms row : all) {
+            byFrom.computeIfAbsent(row.getEffectiveFrom(), k -> new ArrayList<>()).add(row);
+        }
+        for (List<VendorCommercialTerms> group : byFrom.values()) {
+            if (group.size() <= 1) {
+                continue;
+            }
+            group.sort(Comparator
+                    .comparing(VendorCommercialTerms::getUpdatedAt, Comparator.nullsLast(Comparator.naturalOrder()))
+                    .reversed());
+            for (int i = 1; i < group.size(); i++) {
+                termsRepository.delete(group.get(i));
+            }
+            termsRepository.flush();
+        }
+    }
+
+    /**
+     * If a later version starts inside an earlier version's range, end the earlier one
+     * the day before (e.g. Monthly 1–31 + No fee from 5 → Monthly becomes 1–4).
+     */
+    private void repairOverlappingEnds(UUID vendorId) {
+        List<VendorCommercialTerms> rows = new ArrayList<>(
+                termsRepository.findByVendorIdOrderByEffectiveFromDesc(vendorId));
+        rows.sort(Comparator
+                .comparing(VendorCommercialTerms::getEffectiveFrom)
+                .thenComparing(VendorCommercialTerms::getUpdatedAt, Comparator.nullsLast(Comparator.naturalOrder())));
+        boolean dirty = false;
+        for (int i = 0; i < rows.size() - 1; i++) {
+            VendorCommercialTerms cur = rows.get(i);
+            VendorCommercialTerms next = rows.get(i + 1);
+            LocalDate mustEndBy = next.getEffectiveFrom().minusDays(1);
+            if (mustEndBy.isBefore(cur.getEffectiveFrom())) {
+                continue;
+            }
+            if (cur.getEffectiveTo() == null || cur.getEffectiveTo().isAfter(mustEndBy)) {
+                cur.setEffectiveTo(mustEndBy);
+                termsRepository.save(cur);
+                dirty = true;
+            }
+        }
+        if (dirty) {
+            termsRepository.flush();
+        }
+    }
+
+    /**
+     * Clears overlap for {@code [from, to]} (to null = open-ended): prior rows end the day
+     * before {@code from}; later rows that start inside the new period are removed.
+     */
+    private String makeRoomForPeriod(
+            UUID vendorId, UUID keepId, LocalDate from, LocalDate to, UUID actorId) {
+        String lastYm = null;
+        List<VendorCommercialTerms> all = new ArrayList<>(
+                termsRepository.findByVendorIdOrderByEffectiveFromDesc(vendorId));
+        for (VendorCommercialTerms row : all) {
+            if (keepId != null && keepId.equals(row.getId())) {
+                continue;
+            }
+            if (!periodOverlaps(row.getEffectiveFrom(), row.getEffectiveTo(), from, to)) {
+                continue;
+            }
+            if (lastYm == null) {
+                lastYm = row.getLastSubscriptionChargedYm();
+            }
+            if (row.getEffectiveFrom().isBefore(from)) {
+                LocalDate closeOn = from.minusDays(1);
+                if (closeOn.isBefore(row.getEffectiveFrom())) {
+                    throw new BusinessException(ErrorCode.VALIDATION_ERROR,
+                            "New terms would leave a gap; pick a later Starts from date");
+                }
+                row.setEffectiveTo(closeOn);
+                row.setUpdatedBy(actorId);
+                termsRepository.saveAndFlush(row);
+            } else {
+                termsRepository.delete(row);
+                termsRepository.flush();
+            }
+        }
+        return lastYm;
+    }
+
+    private static boolean periodOverlaps(
+            LocalDate aFrom, LocalDate aTo, LocalDate bFrom, LocalDate bTo) {
+        LocalDate aEnd = aTo == null ? LocalDate.MAX : aTo;
+        LocalDate bEnd = bTo == null ? LocalDate.MAX : bTo;
+        return !aFrom.isAfter(bEnd) && !bFrom.isAfter(aEnd);
+    }
+
+    private UUID resolveCurrentId(UUID vendorId) {
+        return termsRepository.findCoveringDate(vendorId, LocalDate.now(IST)).stream()
+                .findFirst()
+                .map(VendorCommercialTerms::getId)
+                .orElse(null);
     }
 
     @Transactional
@@ -291,7 +397,12 @@ public class VendorCommercialTermsService {
                 .or(() -> termsRepository.findCoveringDate(vendorId, LocalDate.now(IST)).stream().findFirst());
     }
 
-    private void applyFields(VendorCommercialTerms terms, UpsertVendorCommercialTermsRequest request, LocalDate from) {
+    private void applyFields(
+            VendorCommercialTerms terms,
+            UpsertVendorCommercialTermsRequest request,
+            LocalDate from,
+            LocalDate to
+    ) {
         terms.setFeeModel(request.getFeeModel());
         terms.setCommissionPercent(normalizeMoney(request.getCommissionPercent(), 4));
         terms.setPerOrderFlatAmount(normalizeMoney(request.getPerOrderFlatAmount(), 2));
@@ -300,7 +411,7 @@ public class VendorCommercialTermsService {
         terms.setCommissionSlabsJson(writeSlabs(request.getCommissionSlabs()));
         terms.setNotes(blankToNull(request.getNotes()));
         terms.setEffectiveFrom(from);
-        terms.setEffectiveTo(null);
+        terms.setEffectiveTo(to);
     }
 
     private BigDecimal subscriptionDue(VendorCommercialTerms terms, LocalDate periodEnd, boolean markCharged) {
@@ -310,6 +421,13 @@ public class VendorCommercialTermsService {
         }
         LocalDate ref = periodEnd == null ? LocalDate.now(IST) : periodEnd;
         String ym = ref.format(YM);
+        // Charge once the settlement period reaches the configured billing day for that month.
+        int billingDay = terms.getSubscriptionBillingDay() == null ? 1 : terms.getSubscriptionBillingDay();
+        int dayInMonth = Math.min(billingDay, ref.lengthOfMonth());
+        LocalDate billingDate = LocalDate.of(ref.getYear(), ref.getMonth(), dayInMonth);
+        if (ref.isBefore(billingDate)) {
+            return BigDecimal.ZERO;
+        }
         // Subscription charge flag lives on the open version (copied forward on change).
         VendorCommercialTerms open = termsRepository.findByVendorIdAndEffectiveToIsNull(terms.getVendorId())
                 .orElse(terms);
@@ -321,6 +439,23 @@ public class VendorCommercialTermsService {
             termsRepository.save(open);
         }
         return amount.setScale(2, RoundingMode.HALF_UP);
+    }
+
+    /**
+     * Marks monthly subscription as charged for the period month after a successful payout.
+     * Prefer this over re-quoting with mark=true so fee math is not recomputed.
+     */
+    @Transactional
+    public String markSubscriptionCharged(UUID vendorId, LocalDate periodEnd) {
+        requireVendor(vendorId);
+        LocalDate ref = periodEnd == null ? LocalDate.now(IST) : periodEnd;
+        String ym = ref.format(YM);
+        VendorCommercialTerms target = termsRepository.findByVendorIdAndEffectiveToIsNull(vendorId)
+                .or(() -> termsRepository.findCoveringDate(vendorId, ref).stream().findFirst())
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "No commercial terms for vendor"));
+        target.setLastSubscriptionChargedYm(ym);
+        termsRepository.save(target);
+        return ym;
     }
 
     private void validateRequest(UpsertVendorCommercialTermsRequest request) {
@@ -375,6 +510,10 @@ public class VendorCommercialTermsService {
     }
 
     private VendorCommercialTermsResponse toResponse(VendorCommercialTerms terms) {
+        return toResponse(terms, resolveCurrentId(terms.getVendorId()));
+    }
+
+    private VendorCommercialTermsResponse toResponse(VendorCommercialTerms terms, UUID currentId) {
         return VendorCommercialTermsResponse.builder()
                 .id(terms.getId())
                 .vendorId(terms.getVendorId())
@@ -392,7 +531,7 @@ public class VendorCommercialTermsService {
                 .notes(terms.getNotes())
                 .effectiveFrom(terms.getEffectiveFrom())
                 .effectiveTo(terms.getEffectiveTo())
-                .current(terms.getEffectiveTo() == null)
+                .current(currentId != null && currentId.equals(terms.getId()))
                 .lastSubscriptionChargedYm(terms.getLastSubscriptionChargedYm())
                 .updatedAt(terms.getUpdatedAt())
                 .build();

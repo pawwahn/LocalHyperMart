@@ -35,6 +35,7 @@ public class PlatformSettingsService {
         pub.put("refundUrl", all.getOrDefault("refundUrl", ""));
         pub.put("grievanceOfficer", all.getOrDefault("grievanceOfficer", ""));
         pub.put("supportPhone", all.getOrDefault("supportPhone", ""));
+        pub.put("deliveryFee", all.getOrDefault("deliveryFee", 40));
         return pub;
     }
 
@@ -42,6 +43,11 @@ public class PlatformSettingsService {
     public Map<String, Object> patchSettings(Map<String, Object> patch) {
         Map<String, Object> current = getSettings();
         if (patch != null) {
+            if (patch.containsKey("deliveryFee")) {
+                current.put("deliveryFee", normalizeDeliveryFee(patch.get("deliveryFee")));
+                patch = new LinkedHashMap<>(patch);
+                patch.remove("deliveryFee");
+            }
             current.putAll(patch);
         }
         PlatformSetting row = platformSettingRepository.findBySettingKey(KEY_PLATFORM)
@@ -64,6 +70,37 @@ public class PlatformSettingsService {
         map.put("refundUrl", "");
         map.put("grievanceOfficer", "");
         map.put("supportPhone", "9876500100");
+        // Platform-wide buyer delivery fee (₹) — not town-specific.
+        map.put("deliveryFee", 40);
         return map;
+    }
+
+    @Transactional(readOnly = true)
+    public java.math.BigDecimal resolveDeliveryFee() {
+        Object raw = getSettings().get("deliveryFee");
+        if (raw instanceof Number n) {
+            return java.math.BigDecimal.valueOf(n.doubleValue())
+                    .setScale(2, java.math.RoundingMode.HALF_UP);
+        }
+        if (raw instanceof String s && !s.isBlank()) {
+            return new java.math.BigDecimal(s.trim()).setScale(2, java.math.RoundingMode.HALF_UP);
+        }
+        return new java.math.BigDecimal("40.00");
+    }
+
+    private double normalizeDeliveryFee(Object raw) {
+        double value;
+        if (raw instanceof Number n) {
+            value = n.doubleValue();
+        } else if (raw instanceof String s && !s.isBlank()) {
+            value = Double.parseDouble(s.trim());
+        } else {
+            value = 40;
+        }
+        if (value < 0 || Double.isNaN(value) || Double.isInfinite(value)) {
+            throw new IllegalArgumentException("deliveryFee must be a non-negative number");
+        }
+        // Store as whole paise-friendly 2dp via rounding
+        return Math.round(value * 100.0) / 100.0;
     }
 }

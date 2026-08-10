@@ -205,6 +205,8 @@ export type CartView = {
   promoDescription: string | null;
   promoDiscount: number;
   promoDiscountLabel: string;
+  /** Items − promo (before delivery fee / store credit). */
+  payableSubtotal: number;
   payableLabel: string;
   minOrderValue: number;
   minOrderLabel: string;
@@ -256,6 +258,7 @@ export function toCartView(dto: CartDto): CartView {
     promoDescription: dto.promoDescription ?? null,
     promoDiscount,
     promoDiscountLabel: money(promoDiscount),
+    payableSubtotal: payable,
     payableLabel: money(payable),
     minOrderValue,
     minOrderLabel: money(minOrderValue),
@@ -339,6 +342,32 @@ export async function removeCartItem(token: string, itemId: string): Promise<Car
   return toCartView(data);
 }
 
+/** Move buyer cart to a new town (clears other-town carts when confirmClear=true). */
+export async function changeCartTown(
+  token: string,
+  newTownId: string,
+  confirmClear = true,
+): Promise<CartView> {
+  const data = await apiRequest<CartDto>('/api/v1/cart/change-town', {
+    method: 'POST',
+    token,
+    body: { newTownId, confirmClear },
+  });
+  return toCartView(data);
+}
+
+export function isCartTownConflict(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err ?? '');
+  return /another town|change-town|confirmClear/i.test(msg);
+}
+
+export function friendlyCartError(err: unknown, fallback: string): string {
+  if (isCartTownConflict(err)) {
+    return 'Your cart had items from another town. We cleared it so you can shop here — try again.';
+  }
+  return err instanceof Error && err.message ? err.message : fallback;
+}
+
 export async function listAddresses(token: string): Promise<AddressDto[]> {
   return apiRequest<AddressDto[]>('/api/v1/addresses', { token });
 }
@@ -380,7 +409,7 @@ export async function updateAddress(
 
 export async function placeCodOrder(
   token: string,
-  input: { townId: string; cartId: string; addressId: string },
+  input: { townId: string; cartId: string; addressId: string; useStoreCredit?: boolean },
 ): Promise<CreateOrderDto> {
   return apiRequest<CreateOrderDto>('/api/v1/orders', {
     method: 'POST',
@@ -391,6 +420,7 @@ export async function placeCodOrder(
       cartId: input.cartId,
       addressId: input.addressId,
       paymentMethod: 'COD',
+      useStoreCredit: Boolean(input.useStoreCredit),
     },
   });
 }

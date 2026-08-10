@@ -16,6 +16,9 @@ public interface VendorCommercialTermsRepository extends JpaRepository<VendorCom
 
     Optional<VendorCommercialTerms> findByVendorIdAndEffectiveToIsNull(UUID vendorId);
 
+    List<VendorCommercialTerms> findByVendorIdAndEffectiveFromOrderByUpdatedAtDesc(
+            UUID vendorId, LocalDate effectiveFrom);
+
     @Query("""
             select t from VendorCommercialTerms t
             where t.vendorId = :vendorId

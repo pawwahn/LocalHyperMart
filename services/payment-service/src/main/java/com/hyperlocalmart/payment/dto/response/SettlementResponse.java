@@ -25,8 +25,10 @@ public class SettlementResponse {
     SettlementPeriodType periodType;
     BigDecimal grossAmount;
     BigDecimal commissionAmount;
-    /** Claim chargebacks deducted from this payout (gross − commission − net). */
+    /** Claim chargebacks deducted from this payout (ADJUSTMENT lines). */
     BigDecimal claimChargebacksAmount;
+    /** Admin penalty / other charges deducted (OTHER_CHARGE lines). */
+    BigDecimal otherChargesAmount;
     BigDecimal netAmount;
     SettlementStatus status;
     String payoutMethod;

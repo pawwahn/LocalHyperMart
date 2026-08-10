@@ -94,6 +94,26 @@ public class UserService {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "User not found"));
 
+        if (request.getHubId() != null) {
+            UserRole hubRole = user.getUserRoles().stream()
+                    .filter(ur -> ur.getRole().getName() == RoleName.HUB_ADMIN)
+                    .findFirst()
+                    .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Hub admin role not found for user"));
+            hubRole.setTownId(request.getTownId());
+            hubRole.setHubId(request.getHubId());
+            userRepository.save(user);
+            return StaffUserResponse.builder()
+                    .userId(user.getId())
+                    .phone(user.getPhone())
+                    .role(RoleName.HUB_ADMIN.name())
+                    .status(user.getStatus().name())
+                    .build();
+        }
+
+        if (request.getVendorId() == null) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "vendorId or hubId is required");
+        }
+
         UserRole vendorRole = user.getUserRoles().stream()
                 .filter(ur -> ur.getRole().getName() == RoleName.VENDOR)
                 .findFirst()

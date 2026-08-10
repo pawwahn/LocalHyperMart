@@ -53,6 +53,7 @@ export type SettlementVm = {
   grossAmount: number;
   commissionAmount: number;
   claimChargebacksAmount?: number | null;
+  otherChargesAmount?: number | null;
   netAmount: number;
   status: string;
   payoutMethod?: string | null;
@@ -69,10 +70,18 @@ export function settlementClaimAmount(s: SettlementVm): number {
   const fromLines = (s.lines ?? [])
     .filter((l) => (l.lineType ?? '').toUpperCase() === 'ADJUSTMENT')
     .reduce((sum, l) => sum + Math.abs(Number(l.amount ?? 0)), 0);
-  if (fromLines > 0) return fromLines;
-  const derived =
-    Number(s.grossAmount ?? 0) - Number(s.commissionAmount ?? 0) - Number(s.netAmount ?? 0);
-  return Math.max(0, Number.isFinite(derived) ? derived : 0);
+  return Math.max(0, fromLines);
+}
+
+export function settlementOtherChargesAmount(s: SettlementVm): number {
+  const fromApi = Number(s.otherChargesAmount);
+  if (Number.isFinite(fromApi) && fromApi > 0) return fromApi;
+  return (s.lines ?? [])
+    .filter((l) => {
+      const t = (l.lineType ?? '').toUpperCase();
+      return t === 'OTHER_CHARGE' || t === 'PENALTY';
+    })
+    .reduce((sum, l) => sum + Math.abs(Number(l.amount ?? 0)), 0);
 }
 
 export type CreateSettlementInput = {
@@ -89,6 +98,8 @@ export type CreateSettlementInput = {
   transactionReference?: string;
   transactionNotes?: string;
   paidAt?: string;
+  otherChargesAmount?: number;
+  otherChargesReason?: string;
 };
 
 function money(value: number | null | undefined): string {

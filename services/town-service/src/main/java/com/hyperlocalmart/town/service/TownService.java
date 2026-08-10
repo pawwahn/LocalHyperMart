@@ -29,6 +29,7 @@ public class TownService {
     private final TownRepository townRepository;
     private final TownPincodeRepository townPincodeRepository;
     private final GeoCatalogService geoCatalogService;
+    private final TownConfigService townConfigService;
 
     @Transactional(readOnly = true)
     public TownListResponse listTowns(TownStatus status, boolean includeDisabled) {
@@ -98,6 +99,8 @@ public class TownService {
                     .build();
             townPincodeRepository.save(row);
         }
+
+        townConfigService.ensureDefaultOperationalConfig(town.getId());
 
         return getTown(town.getId());
     }

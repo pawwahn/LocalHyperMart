@@ -39,6 +39,8 @@ export type VendorSettlement = {
   commissionAmount: number;
   /** Claim chargebacks deducted on this payout (buyer credits clawed back from vendor). */
   claimChargebacksAmount?: number | null;
+  /** Admin penalty / other charges deducted on this payout. */
+  otherChargesAmount?: number | null;
   netAmount: number;
   status: string;
   payoutMethod?: string | null;
@@ -51,13 +53,21 @@ export type VendorSettlement = {
 export function settlementClaimAmount(s: VendorSettlement): number {
   const fromApi = Number(s.claimChargebacksAmount);
   if (Number.isFinite(fromApi) && fromApi > 0) return fromApi;
-  const fromLines = (s.lines ?? [])
+  return (s.lines ?? [])
     .filter((l) => (l.lineType ?? '').toUpperCase() === 'ADJUSTMENT')
     .reduce((sum, l) => sum + Math.abs(Number(l.amount ?? 0)), 0);
-  if (fromLines > 0) return fromLines;
-  const derived =
-    Number(s.grossAmount ?? 0) - Number(s.commissionAmount ?? 0) - Number(s.netAmount ?? 0);
-  return Math.max(0, Number.isFinite(derived) ? derived : 0);
+}
+
+/** Admin penalty / other charges on a settlement row. */
+export function settlementOtherChargesAmount(s: VendorSettlement): number {
+  const fromApi = Number(s.otherChargesAmount);
+  if (Number.isFinite(fromApi) && fromApi > 0) return fromApi;
+  return (s.lines ?? [])
+    .filter((l) => {
+      const t = (l.lineType ?? '').toUpperCase();
+      return t === 'OTHER_CHARGE' || t === 'PENALTY';
+    })
+    .reduce((sum, l) => sum + Math.abs(Number(l.amount ?? 0)), 0);
 }
 
 export async function lookupOrderPayouts(
@@ -126,6 +136,7 @@ export type SettlementMoneySummary = {
   paidGross: number;
   paidCommission: number;
   paidClaims: number;
+  paidOtherCharges: number;
   awaitingSettlementNet: number;
   awaitingSettlementGross: number;
   awaitingSettlementCommission: number;
@@ -138,6 +149,7 @@ export function summarizeSettlements(settlements: VendorSettlement[]): Settlemen
   let paidGross = 0;
   let paidCommission = 0;
   let paidClaims = 0;
+  let paidOtherCharges = 0;
   let awaitingSettlementNet = 0;
   let awaitingSettlementGross = 0;
   let awaitingSettlementCommission = 0;
@@ -148,12 +160,14 @@ export function summarizeSettlements(settlements: VendorSettlement[]): Settlemen
     const commission = Number(s.commissionAmount ?? 0);
     const net = Number(s.netAmount ?? 0);
     const claims = settlementClaimAmount(s);
+    const other = settlementOtherChargesAmount(s);
     if (s.status === 'PAID') {
       paidCount += 1;
       paidNet += net;
       paidGross += gross;
       paidCommission += commission;
       paidClaims += claims;
+      paidOtherCharges += other;
     } else {
       awaitingCount += 1;
       awaitingSettlementNet += net;
@@ -166,6 +180,7 @@ export function summarizeSettlements(settlements: VendorSettlement[]): Settlemen
     paidGross,
     paidCommission,
     paidClaims,
+    paidOtherCharges,
     awaitingSettlementNet,
     awaitingSettlementGross,
     awaitingSettlementCommission,

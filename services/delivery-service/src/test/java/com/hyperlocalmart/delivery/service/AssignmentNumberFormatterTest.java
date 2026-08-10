@@ -8,13 +8,13 @@ class AssignmentNumberFormatterTest {
 
     @Test
     void pickup_appendsReadableSuffix() {
-        assertThat(AssignmentNumberFormatter.pickup("NRPT/AP-260708-O0001-1/3"))
-                .isEqualTo("NRPT/AP-260708-O0001-1/3-TO-HUB");
+        assertThat(AssignmentNumberFormatter.pickup("NRPT/AP-080726-0001-1/3"))
+                .isEqualTo("NRPT/AP-080726-0001-1/3-TO-HUB");
     }
 
     @Test
     void lastMile_appendsReadableSuffix() {
-        assertThat(AssignmentNumberFormatter.lastMile("NRPT/AP-260708-O0001"))
-                .isEqualTo("NRPT/AP-260708-O0001-TO-BUYER");
+        assertThat(AssignmentNumberFormatter.lastMile("NRPT/AP-080726-0001"))
+                .isEqualTo("NRPT/AP-080726-0001-TO-BUYER");
     }
 }

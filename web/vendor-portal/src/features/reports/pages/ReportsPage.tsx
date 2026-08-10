@@ -12,7 +12,13 @@ import {
   type SortState,
 } from '@/shared/table';
 import { formatMoney, type SalesReportRow } from '../api/reportsApi';
-import { useVendorReports, isRejectedSalesStatus, type PayoutFilter, type ReportPreset } from '../hooks/useVendorReports';
+import {
+  useVendorReports,
+  isPayoutDueStatus,
+  isRejectedSalesStatus,
+  type PayoutFilter,
+  type ReportPreset,
+} from '../hooks/useVendorReports';
 import type { OrderPayout } from '../api/payoutsApi';
 
 const PRESETS: Array<{ id: ReportPreset; label: string }> = [
@@ -278,9 +284,9 @@ export function ReportsPage({ active = true }: { active?: boolean }) {
                 label="Awaiting"
                 value={formatMoney(payoutSummary.unpaidAmount)}
                 hint={
-                  payoutSummary.rejectedOrders > 0
-                    ? `${payoutSummary.unpaidOrders} unpaid · ${payoutSummary.rejectedOrders} rejected excluded`
-                    : `${payoutSummary.unpaidOrders} unpaid`
+                  payoutSummary.unpaidOrders > 0
+                    ? `${payoutSummary.unpaidOrders} delivered, not paid out`
+                    : 'No delivered bags waiting'
                 }
               />
               <Metric
@@ -295,7 +301,7 @@ export function ReportsPage({ active = true }: { active?: boolean }) {
                 hint={
                   moneyClarity.pendingClaimDebitTotal > 0
                     ? `After ${formatMoney(moneyClarity.pendingClaimDebitTotal)} claims`
-                    : 'Should receive'
+                    : 'Delivered bags not yet paid'
                 }
                 muted
               />
@@ -533,10 +539,12 @@ function OrderRow({
         <td style={styles.td}>
           {rejected ? (
             <span style={styles.rejectedPayout}>NOT PAYABLE</span>
+          ) : payout?.paid ? (
+            <span style={styles.paid}>SETTLED</span>
+          ) : isPayoutDueStatus(row.status) ? (
+            <span style={styles.pending}>AWAITING</span>
           ) : (
-            <span style={payout?.paid ? styles.paid : styles.pending}>
-              {payout?.paid ? 'SETTLED' : 'AWAITING'}
-            </span>
+            <span style={styles.rejectedPayout}>NOT DUE YET</span>
           )}
         </td>
         <td style={styles.tdMuted}>

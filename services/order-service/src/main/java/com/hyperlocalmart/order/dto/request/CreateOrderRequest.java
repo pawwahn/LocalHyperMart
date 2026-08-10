@@ -22,4 +22,10 @@ public class CreateOrderRequest {
     private PaymentMethod paymentMethod;
 
     private String paymentGateway;
+
+    /**
+     * When true, apply available wallet/store credit toward this order.
+     * Default false — credit stays in the wallet unless the buyer opts in.
+     */
+    private boolean useStoreCredit;
 }

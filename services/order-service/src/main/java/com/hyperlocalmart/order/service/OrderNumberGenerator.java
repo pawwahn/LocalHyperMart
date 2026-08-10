@@ -17,7 +17,8 @@ import java.util.UUID;
 public class OrderNumberGenerator {
 
     private static final ZoneId IST = ZoneId.of("Asia/Kolkata");
-    private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("yyMMdd");
+    /** Display format: NRPT/AP-ddMMyy-0001 */
+    private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("ddMMyy");
 
     private final DailyOrderSequenceRepository dailyOrderSequenceRepository;
 

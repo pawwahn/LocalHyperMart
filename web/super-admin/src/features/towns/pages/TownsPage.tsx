@@ -12,6 +12,8 @@ import {
   type GeoCountryVm,
   type TownVm,
 } from '../api/townsApi';
+import { getPlatformSettings } from '@/features/settings/api/settingsApi';
+import { TownDeliveryConfigDialog } from '../components/TownDeliveryConfigDialog';
 
 type Filter = 'all' | 'enabled' | 'disabled';
 
@@ -43,6 +45,8 @@ export function TownsPage() {
   const [townCode, setTownCode] = useState('');
   const [pincodes, setPincodes] = useState('');
   const [radius, setRadius] = useState('10');
+  const [configTown, setConfigTown] = useState<TownVm | null>(null);
+  const [platformDeliveryFee, setPlatformDeliveryFee] = useState(40);
 
   const selectedCountry = useMemo(
     () => countries.find((c) => c.code === countryCode) ?? null,
@@ -86,9 +90,14 @@ export function TownsPage() {
     setLoading(true);
     setError(null);
     try {
-      const [townList, countryList] = await Promise.all([listTowns(token), listCountries(token)]);
+      const [townList, countryList, platform] = await Promise.all([
+        listTowns(token),
+        listCountries(token),
+        getPlatformSettings(token).catch(() => null),
+      ]);
       setTowns(townList);
       setCountries(countryList);
+      if (platform) setPlatformDeliveryFee(platform.deliveryFee);
       if (countryList.length > 0) {
         setCountryCode((prev) => (countryList.some((c) => c.code === prev) ? prev : countryList[0].code));
       }
@@ -147,7 +156,7 @@ export function TownsPage() {
         pincodes: pins,
         coverageRadiusKm: Number(radius) || 10,
       });
-      setNotice('Town created');
+      setNotice('Town created with default min-order config. Next: Hubs → Add hub for this town.');
       setName('');
       setTownCode('');
       setPincodes('');
@@ -362,7 +371,9 @@ export function TownsPage() {
                     return (
                       <tr key={town.id}>
                         <td style={styles.td}>
-                          <strong style={styles.townName}>{town.displayName}</strong>
+                          <button type="button" style={styles.townLink} onClick={() => setConfigTown(town)}>
+                            <strong style={styles.townName}>{town.displayName}</strong>
+                          </button>
                           <div style={styles.tdSub}>{town.country ?? 'India'}</div>
                         </td>
                         <td style={styles.tdMuted}>{town.townCode}</td>
@@ -373,20 +384,25 @@ export function TownsPage() {
                           </span>
                         </td>
                         <td style={styles.tdRight}>
-                          {disabled ? (
-                            <Button size="sm" disabled={rowBusy || busy} onClick={() => void toggleStatus(town)}>
-                              {rowBusy ? '…' : 'Enable'}
+                          <div style={styles.actionRow}>
+                            <Button size="sm" variant="ghost" disabled={busy} onClick={() => setConfigTown(town)}>
+                              Delivery
                             </Button>
-                          ) : (
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              disabled={rowBusy || busy}
-                              onClick={() => void toggleStatus(town)}
-                            >
-                              {rowBusy ? '…' : 'Disable'}
-                            </Button>
-                          )}
+                            {disabled ? (
+                              <Button size="sm" disabled={rowBusy || busy} onClick={() => void toggleStatus(town)}>
+                                {rowBusy ? '…' : 'Enable'}
+                              </Button>
+                            ) : (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                disabled={rowBusy || busy}
+                                onClick={() => void toggleStatus(town)}
+                              >
+                                {rowBusy ? '…' : 'Disable'}
+                              </Button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     );
@@ -416,6 +432,19 @@ export function TownsPage() {
           </>
         )}
       </Card>
+
+      {configTown ? (
+        <TownDeliveryConfigDialog
+          town={configTown}
+          token={token}
+          platformDeliveryFee={platformDeliveryFee}
+          onClose={() => setConfigTown(null)}
+          onSaved={(message) => {
+            setNotice(message);
+            setError(null);
+          }}
+        />
+      ) : null}
     </PortalShell>
   );
 }
@@ -635,7 +664,16 @@ const styles: Record<string, CSSProperties> = {
     whiteSpace: 'nowrap',
   },
   tdSub: { marginTop: 2, color: 'var(--text-muted)', fontSize: '0.78rem' },
+  townLink: {
+    border: 'none',
+    background: 'transparent',
+    padding: 0,
+    cursor: 'pointer',
+    textAlign: 'left',
+    color: 'inherit',
+  },
   townName: { fontFamily: 'var(--font-display)', fontWeight: 800 },
+  actionRow: { display: 'inline-flex', gap: '0.35rem', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' },
   pillOk: {
     fontSize: '0.7rem',
     fontWeight: 800,

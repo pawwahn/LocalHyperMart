@@ -21,6 +21,7 @@ export function QuantityStepper({
     return (
       <button
         type="button"
+        className="hlm-add-btn"
         style={size === 'md' ? styles.addMd : size === 'xs' ? styles.addXs : styles.add}
         disabled={disabled}
         onClick={onIncrease}
@@ -60,45 +61,45 @@ export function QuantityStepper({
 }
 
 const styles: Record<string, CSSProperties> = {
-  addXs: {
-    minWidth: 40,
-    padding: '0.22rem 0.28rem',
-    border: '1.5px solid var(--accent)',
-    borderRadius: 5,
-    background: 'var(--bg-elevated)',
-    color: 'var(--accent)',
-    fontWeight: 800,
-    fontSize: '0.55rem',
-    letterSpacing: '0.03em',
-    cursor: 'pointer',
-    boxShadow: '0 2px 6px rgba(12, 131, 31, 0.12)',
-  },
   add: {
     minWidth: 72,
     minHeight: 'var(--touch-min)',
     padding: '0.42rem 0.7rem',
-    border: '1.5px solid var(--accent)',
-    borderRadius: 8,
-    background: 'var(--bg-elevated)',
-    color: 'var(--accent)',
+    border: 'none',
+    borderRadius: 10,
+    background: 'var(--highlight)',
+    color: '#0a1a08',
     fontWeight: 800,
     fontSize: '0.78rem',
     letterSpacing: '0.06em',
     cursor: 'pointer',
-    boxShadow: '0 2px 8px rgba(12, 131, 31, 0.12)',
+    boxShadow: '0 3px 10px rgba(12, 131, 31, 0.18)',
     boxSizing: 'border-box',
   },
   addMd: {
     minWidth: 84,
     padding: '0.55rem 0.9rem',
-    border: '1.5px solid var(--accent)',
-    borderRadius: 10,
-    background: 'var(--bg-elevated)',
-    color: 'var(--accent)',
+    border: 'none',
+    borderRadius: 12,
+    background: 'var(--highlight)',
+    color: '#0a1a08',
     fontWeight: 800,
     fontSize: '0.88rem',
     letterSpacing: '0.06em',
     cursor: 'pointer',
+  },
+  addXs: {
+    minWidth: 40,
+    padding: '0.22rem 0.28rem',
+    border: 'none',
+    borderRadius: 6,
+    background: 'var(--highlight)',
+    color: '#0a1a08',
+    fontWeight: 800,
+    fontSize: '0.55rem',
+    letterSpacing: '0.03em',
+    cursor: 'pointer',
+    boxShadow: '0 2px 6px rgba(12, 131, 31, 0.14)',
   },
   stepperXs: {
     display: 'inline-flex',

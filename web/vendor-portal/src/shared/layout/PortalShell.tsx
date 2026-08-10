@@ -32,12 +32,13 @@ const NAV = [
 
 export function PortalShell({ title, children, onRefresh, shopPause }: Props) {
   const { session, logout } = useAuth();
-  const { hub } = useVendorShop();
+  const { hub, townName } = useVendorShop();
   const location = useLocation();
   const navigate = useNavigate();
   const { alertMessage, pendingCount, clearAlert } = useOrderAlert();
   const narrow = useIsNarrow(767);
   const shopName = session?.shopName ?? 'Vendor shop';
+  const phone = session?.phone;
 
   return (
     <div
@@ -56,7 +57,25 @@ export function PortalShell({ title, children, onRefresh, shopPause }: Props) {
               ·
             </span>
             <p style={{ ...styles.shop, ...(narrow ? styles.shopNarrow : null) }}>
-              {shopName} · {session?.phone}
+              <span style={styles.shopStrong}>{shopName}</span>
+              {townName ? (
+                <>
+                  <span style={styles.shopSep} aria-hidden>
+                    {' '}
+                    ·{' '}
+                  </span>
+                  <span style={styles.shopTown}>{townName}</span>
+                </>
+              ) : null}
+              {phone ? (
+                <>
+                  <span style={styles.shopSep} aria-hidden>
+                    {' '}
+                    ·{' '}
+                  </span>
+                  <span style={styles.shopStrong}>{phone}</span>
+                </>
+              ) : null}
             </p>
           </div>
           <h1 style={styles.title}>{title}</h1>
@@ -214,11 +233,24 @@ const styles: Record<string, CSSProperties> = {
   dot: { color: 'var(--text-muted)', fontSize: '0.85rem' },
   shop: {
     margin: 0,
-    color: 'var(--text-muted)',
     fontSize: '0.82rem',
     whiteSpace: 'nowrap',
     overflow: 'hidden',
     textOverflow: 'ellipsis',
+    minWidth: 0,
+  },
+  shopStrong: {
+    color: 'var(--text)',
+    fontWeight: 800,
+    letterSpacing: '-0.015em',
+  },
+  shopTown: {
+    color: 'var(--text-muted)',
+    fontWeight: 600,
+  },
+  shopSep: {
+    color: 'var(--text-muted)',
+    fontWeight: 500,
   },
   shopNarrow: {
     whiteSpace: 'normal',

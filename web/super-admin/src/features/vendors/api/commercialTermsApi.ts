@@ -58,16 +58,37 @@ export type UpsertCommercialTermsInput = {
   commissionSlabs?: CommissionSlab[];
   notes?: string;
   effectiveFrom?: string;
+  /** Inclusive end date. Omit or empty for open-ended. */
+  effectiveTo?: string | null;
 };
 
-export const FEE_MODEL_OPTIONS: Array<{ id: VendorFeeModel; label: string; help: string }> = [
-  { id: 'NONE', label: 'None', help: 'No platform fee on payouts' },
-  { id: 'PER_ORDER_FLAT', label: 'Per order (flat ₹)', help: 'Fixed amount × settled orders' },
-  { id: 'COMMISSION_PCT', label: '% commission', help: 'Percent of settlement gross' },
-  { id: 'SLAB_COMMISSION', label: 'Slab % commission', help: 'Percent by GMV slab on this payout' },
-  { id: 'MONTHLY_SUBSCRIPTION', label: 'Monthly subscription', help: 'Fixed monthly fee, once per month' },
-  { id: 'HYBRID', label: 'Hybrid', help: 'Monthly subscription + % commission' },
+export const FEE_MODEL_OPTIONS: Array<{
+  id: VendorFeeModel;
+  label: string;
+  help: string;
+  /** Shown in the main picker; others sit under Advanced. */
+  primary?: boolean;
+}> = [
+  { id: 'NONE', label: 'No fee', help: 'Nothing deducted on payout', primary: true },
+  { id: 'COMMISSION_PCT', label: 'Simple %', help: 'One % on payout total', primary: true },
+  { id: 'PER_ORDER_FLAT', label: '₹ per order', help: 'Fixed ₹ for each settled order', primary: true },
+  { id: 'MONTHLY_SUBSCRIPTION', label: 'Monthly fee', help: 'Fixed ₹ once each month', primary: true },
+  {
+    id: 'HYBRID',
+    label: 'Monthly + %',
+    help: 'Monthly fee plus a simple %',
+    primary: false,
+  },
+  {
+    id: 'SLAB_COMMISSION',
+    label: 'Tiered %',
+    help: 'Different % for small / medium / large payout totals',
+    primary: false,
+  },
 ];
+
+export const PRIMARY_FEE_MODELS = FEE_MODEL_OPTIONS.filter((m) => m.primary);
+export const ADVANCED_FEE_MODELS = FEE_MODEL_OPTIONS.filter((m) => !m.primary);
 
 export async function getVendorCommercialTerms(
   token: string,

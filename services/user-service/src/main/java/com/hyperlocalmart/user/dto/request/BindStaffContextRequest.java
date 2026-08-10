@@ -11,6 +11,9 @@ public class BindStaffContextRequest {
     @NotNull
     private UUID townId;
 
-    @NotNull
+    /** Set when binding a VENDOR role. */
     private UUID vendorId;
+
+    /** Set when binding a HUB_ADMIN role. */
+    private UUID hubId;
 }

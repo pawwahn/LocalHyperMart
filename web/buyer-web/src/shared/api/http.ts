@@ -85,12 +85,14 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
     try {
       payload = JSON.parse(text) as ApiEnvelope<T>;
     } catch {
-      if (response.status === 401) notifyUnauthorized();
+      // Only clear session when an authenticated call was rejected — anonymous
+      // 401s (e.g. public route not yet allowed by an old gateway) must not log out.
+      if (response.status === 401 && options.token) notifyUnauthorized();
       throw new ApiError(text || response.statusText, response.status);
     }
   }
   if (!response.ok) {
-    if (response.status === 401) notifyUnauthorized();
+    if (response.status === 401 && options.token) notifyUnauthorized();
     throw new ApiError(payload?.message || response.statusText || 'Request failed', response.status);
   }
   if (payload == null) throw new ApiError('Empty response', response.status);

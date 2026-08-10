@@ -48,9 +48,9 @@ class OrderNumberGeneratorTest {
 
     @Test
     void subOrderNumber_appendsIndexAndTotal() {
-        assertThat(OrderNumberGenerator.subOrderNumber("NRPT/AP-260708-0001", 1, 3))
-                .isEqualTo("NRPT/AP-260708-0001-1/3");
-        assertThat(OrderNumberGenerator.subOrderNumber("NRPT/AP-260708-0001", 2, 3))
-                .isEqualTo("NRPT/AP-260708-0001-2/3");
+        assertThat(OrderNumberGenerator.subOrderNumber("NRPT/AP-080726-0001", 1, 3))
+                .isEqualTo("NRPT/AP-080726-0001-1/3");
+        assertThat(OrderNumberGenerator.subOrderNumber("NRPT/AP-080726-0001", 2, 3))
+                .isEqualTo("NRPT/AP-080726-0001-2/3");
     }
 }

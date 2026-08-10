@@ -13,6 +13,10 @@ public interface HubAdminRepository extends JpaRepository<HubAdmin, UUID> {
 
     Optional<HubAdmin> findByUserIdAndStatus(UUID userId, String status);
 
+    Optional<HubAdmin> findByHubId(UUID hubId);
+
+    boolean existsByUserId(UUID userId);
+
     @Query("""
             SELECT ha FROM HubAdmin ha, DeliveryHub h
             WHERE ha.hubId = h.id

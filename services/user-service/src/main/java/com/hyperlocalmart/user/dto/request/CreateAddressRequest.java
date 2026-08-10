@@ -33,6 +33,7 @@ public class CreateAddressRequest {
     @Size(max = 255)
     private String line2;
 
+    @NotBlank
     @Size(max = 255)
     private String landmark;
 

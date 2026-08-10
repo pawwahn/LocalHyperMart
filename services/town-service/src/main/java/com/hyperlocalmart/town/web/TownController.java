@@ -2,6 +2,7 @@ package com.hyperlocalmart.town.web;
 
 import com.hyperlocalmart.common.api.ApiResponse;
 import com.hyperlocalmart.town.dto.request.CreateTownRequest;
+import com.hyperlocalmart.town.dto.request.UpdateTownConfigRequest;
 import com.hyperlocalmart.town.dto.request.UpdateTownStatusRequest;
 import com.hyperlocalmart.town.dto.response.TownDetailResponse;
 import com.hyperlocalmart.town.dto.response.TownListResponse;
@@ -18,6 +19,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.math.BigDecimal;
 import java.util.Map;
 import java.util.UUID;
 
@@ -66,6 +68,34 @@ public class TownController {
                 townService.updateStatus(townId, request, actorId)));
     }
 
+    @GetMapping("/api/v1/towns/{townId}/config")
+    public ResponseEntity<ApiResponse<TownOperationalConfigResponse>> getTownConfig(
+            @PathVariable UUID townId,
+            HttpServletRequest httpRequest) {
+        AdminAuth.requireSuperAdmin(httpRequest);
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest, townConfigService.getOperationalConfig(townId)));
+    }
+
+    @PutMapping("/api/v1/towns/{townId}/config")
+    public ResponseEntity<ApiResponse<TownOperationalConfigResponse>> updateTownConfig(
+            @PathVariable UUID townId,
+            @RequestBody UpdateTownConfigRequest request,
+            HttpServletRequest httpRequest) {
+        AdminAuth.requireSuperAdmin(httpRequest);
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                townConfigService.updateOperationalConfig(townId, request)));
+    }
+
+    /** Buyer/cart preview: resolved delivery fee for this town + cart value. */
+    @GetMapping("/api/v1/towns/{townId}/delivery-fee")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> getTownDeliveryFeePreview(
+            @PathVariable UUID townId,
+            @RequestParam(required = false) BigDecimal orderValue,
+            HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                townConfigService.resolveDeliveryFee(townId, orderValue)));
+    }
+
     @GetMapping("/api/v1/platform/settings/public")
     public ResponseEntity<ApiResponse<Map<String, Object>>> getPublicPlatformSettings(HttpServletRequest httpRequest) {
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, platformSettingsService.getPublicSettings()));
@@ -105,5 +135,23 @@ public class TownController {
             @PathVariable UUID townId,
             HttpServletRequest httpRequest) {
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, townService.getTownSummary(townId)));
+    }
+
+    /** Resolve delivery fee for a town + order value (DEFAULT platform or SLAB). */
+    @GetMapping("/api/v1/internal/towns/{townId}/delivery-fee")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> townDeliveryFee(
+            @PathVariable UUID townId,
+            @RequestParam(required = false) BigDecimal orderValue,
+            HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                townConfigService.resolveDeliveryFee(townId, orderValue)));
+    }
+
+    /** Platform-wide delivery fee used when town mode is DEFAULT. */
+    @GetMapping("/api/v1/internal/platform/delivery-fee")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> platformDeliveryFee(HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest, Map.of(
+                "deliveryFee", platformSettingsService.resolveDeliveryFee()
+        )));
     }
 }

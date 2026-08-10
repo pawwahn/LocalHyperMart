@@ -14,10 +14,13 @@ import { ApiError } from '@/shared/api/http';
 import {
   addToCart,
   applyPromo,
+  changeCartTown,
   createAddress,
   fetchCart,
   fetchCatalog,
   fetchWalletBalance,
+  friendlyCartError,
+  isCartTownConflict,
   listAddresses,
   listMyOrders,
   placeCodOrder,
@@ -38,7 +41,7 @@ const ShopContext = createContext<ShopContextValue | null>(null);
 
 function useShopState() {
   const { session } = useAuth();
-  const { townId, hasTown, openPicker } = useTown();
+  const { townId, townLabel, hasTown, openPicker, switchNotice, clearSwitchNotice } = useTown();
   const [items, setItems] = useState<CatalogItemView[]>([]);
   const [cart, setCart] = useState<CartView | null>(null);
   const [addresses, setAddresses] = useState<AddressDto[]>([]);
@@ -64,6 +67,13 @@ function useShopState() {
   useEffect(() => {
     itemsRef.current = items;
   }, [items]);
+
+  useEffect(() => {
+    if (!switchNotice) return;
+    setNotice(switchNotice);
+    setError(null);
+    clearSwitchNotice();
+  }, [switchNotice, clearSwitchNotice]);
 
   const qtyByListingId = useMemo(() => {
     const map = new Map<string, CartLineView>();
@@ -93,6 +103,7 @@ function useShopState() {
       promoDescription: null,
       promoDiscount: 0,
       promoDiscountLabel: moneyLabel(0),
+      payableSubtotal: 0,
       payableLabel: moneyLabel(0),
       minOrderValue: cartRef.current?.minOrderValue ?? 0,
       minOrderLabel: cartRef.current?.minOrderLabel ?? moneyLabel(0),
@@ -151,12 +162,14 @@ function useShopState() {
         return sum + (Number.isFinite(n) ? n : 0);
       }, 0);
 
+      const payableSubtotal = Math.max(0, approxSubtotal - (base.promoDiscount ?? 0));
       const next: CartView = {
         ...base,
         items,
         itemCount,
         subtotalLabel: moneyLabel(approxSubtotal),
-        payableLabel: moneyLabel(Math.max(0, approxSubtotal - (base.promoDiscount ?? 0))),
+        payableSubtotal,
+        payableLabel: moneyLabel(payableSubtotal),
         minOrderMet: approxSubtotal >= (base.minOrderValue ?? 0),
       };
       cartRef.current = next;
@@ -167,8 +180,7 @@ function useShopState() {
   async function flushListingToServer(listingId: string) {
     if (!session || !townId) return;
 
-    try {
-      // Keep pushing until local desired qty matches server (handles rapid +/-).
+    const pushUntilSynced = async () => {
       for (;;) {
         if (!desiredQtyRef.current.has(listingId)) break;
         const target = desiredQtyRef.current.get(listingId) ?? 0;
@@ -204,9 +216,31 @@ function useShopState() {
           break;
         }
       }
+    };
+
+    try {
+      await pushUntilSynced();
     } catch (err) {
+      if (isCartTownConflict(err)) {
+        try {
+          const cleared = await changeCartTown(session.accessToken, townId, true);
+          cartRef.current = cleared;
+          setCart(cleared);
+          setError(null);
+          setNotice(
+            `Now shopping in ${townLabel}. Items from your previous town cart were cleared.`,
+          );
+          await pushUntilSynced();
+          return;
+        } catch (recoverErr) {
+          desiredQtyRef.current.delete(listingId);
+          setError(friendlyCartError(recoverErr, 'Could not update cart'));
+          return;
+        }
+      }
+
       desiredQtyRef.current.delete(listingId);
-      setError(err instanceof Error ? err.message : 'Could not update cart');
+      setError(friendlyCartError(err, 'Could not update cart'));
       try {
         const fresh = await fetchCart(session.accessToken, townId);
         cartRef.current = fresh;
@@ -265,6 +299,10 @@ function useShopState() {
       if (err instanceof ApiError && err.isUnauthorized) {
         throw err;
       }
+      if (isCartTownConflict(err)) {
+        errors.push(friendlyCartError(err, fallback));
+        return;
+      }
       const raw = err instanceof Error ? err.message : fallback;
       if (/internal server error/i.test(raw)) {
         errors.push(
@@ -297,6 +335,13 @@ function useShopState() {
         return;
       }
 
+      // Heal town mismatch before cart reads/writes (clears other-town carts).
+      try {
+        await changeCartTown(session.accessToken, townId, true);
+      } catch {
+        /* non-fatal — cart fetch / add will surface errors */
+      }
+
       const cartTask = fetchCart(session.accessToken, townId)
         .then((next) => {
           setCart(next);
@@ -306,9 +351,10 @@ function useShopState() {
       const addressTask = listAddresses(session.accessToken)
         .then((addrs) => {
           setAddresses(addrs);
+          const forTown = addrs.filter((a) => a.townId === townId);
           setSelectedAddressId((prev) => {
-            if (prev && addrs.some((a) => a.id === prev)) return prev;
-            const preferred = addrs.find((a) => a.isDefault || a.default) ?? addrs[0];
+            if (prev && forTown.some((a) => a.id === prev)) return prev;
+            const preferred = forTown.find((a) => a.isDefault || a.default) ?? forTown[0];
             return preferred?.id ?? '';
           });
         })
@@ -513,7 +559,7 @@ function useShopState() {
         recipientPhone: values.recipientPhone,
         line1: values.line1,
         line2: values.line2 || undefined,
-        landmark: values.landmark || undefined,
+        landmark: values.landmark.trim(),
         pincode: values.pincode || undefined,
         isDefault: true,
       });
@@ -542,11 +588,18 @@ function useShopState() {
     },
   ) {
     if (!session) return false;
-    const existing = addresses.find((a) => a.id === addressId);
-    const addressTownId = existing?.townId || townId;
-    if (!addressTownId) {
+    if (!hasTown || !townId) {
       setError('Choose your town first');
       openPicker();
+      return false;
+    }
+    const existing = addresses.find((a) => a.id === addressId);
+    if (!existing) {
+      setError('Address not found');
+      return false;
+    }
+    if (existing.townId !== townId) {
+      setError('This address belongs to another town. Switch town or add a new address for the selected town.');
       return false;
     }
     setBusy(true);
@@ -554,13 +607,13 @@ function useShopState() {
     setNotice(null);
     try {
       const updated = await updateAddress(session.accessToken, addressId, {
-        townId: addressTownId,
+        townId,
         label: values.label,
         recipientName: values.recipientName,
         recipientPhone: values.recipientPhone,
         line1: values.line1,
         line2: values.line2 || undefined,
-        landmark: values.landmark || undefined,
+        landmark: values.landmark.trim(),
         pincode: values.pincode || undefined,
         isDefault: true,
       });
@@ -582,7 +635,7 @@ function useShopState() {
     }
   }
 
-  async function doCheckout() {
+  async function doCheckout(opts?: { useStoreCredit?: boolean }) {
     if (!session || !cart?.cartId) {
       setError('Cart is empty');
       return;
@@ -594,6 +647,11 @@ function useShopState() {
     }
     if (!selectedAddressId) {
       setError('Add / select a delivery address first');
+      return;
+    }
+    const selected = addresses.find((a) => a.id === selectedAddressId);
+    if (!selected || selected.townId !== townId) {
+      setError('Delivery address must be in the selected town. Add or select an address for this town.');
       return;
     }
     if (!cart.minOrderMet) {
@@ -608,6 +666,7 @@ function useShopState() {
         townId,
         cartId: cart.cartId,
         addressId: selectedAddressId,
+        useStoreCredit: Boolean(opts?.useStoreCredit),
       });
       setNotice(`Order placed: ${order.orderNumber} (${order.status})`);
       await reload();
@@ -615,10 +674,10 @@ function useShopState() {
       const raw = err instanceof Error ? err.message : 'Checkout failed';
       if (/internal server error/i.test(raw) && cart && !cart.minOrderMet) {
         setError(`Minimum order is ${cart.minOrderLabel}. Add more items, then try again.`);
+      } else if (/address must belong/i.test(raw)) {
+        setError('Delivery address is for another town. Add or select an address in your current town, then retry.');
       } else if (/internal server error/i.test(raw)) {
-        setError(
-          'Checkout failed (server). Usually the cart is below the town minimum order (₹199). Add more items and retry.',
-        );
+        setError('Checkout failed. Check address and town match, then retry. If it keeps failing, refresh and try again.');
       } else {
         setError(raw);
       }
@@ -627,10 +686,19 @@ function useShopState() {
     }
   }
 
+  const townAddresses = useMemo(
+    () => (townId ? addresses.filter((a) => a.townId === townId) : []),
+    [addresses, townId],
+  );
+
   return {
     items,
     cart,
-    addresses,
+    addresses: townAddresses,
+    allAddresses: addresses,
+    townLabel,
+    hasTown,
+    openTownPicker: openPicker,
     orders,
     storeCreditBalance,
     query,

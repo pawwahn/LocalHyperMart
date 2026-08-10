@@ -6,13 +6,19 @@ import { Banner, Button, Card, SearchSelect } from '@/shared/ui';
 import { listTowns, type TownVm } from '@/features/towns/api/townsApi';
 import { listVendors, type VendorVm } from '../api/vendorsApi';
 import {
+  ADVANCED_FEE_MODELS,
   FEE_MODEL_OPTIONS,
+  PRIMARY_FEE_MODELS,
   listVendorCommercialTermsHistory,
   upsertVendorCommercialTerms,
   type CommissionSlab,
   type VendorCommercialTerms,
   type VendorFeeModel,
 } from '../api/commercialTermsApi';
+
+const GREEN = '#16a34a';
+const GREEN_BG = '#dcfce7';
+const GREEN_TEXT = '#14532d';
 
 function isoToday(): string {
   return new Date().toISOString().slice(0, 10);
@@ -23,9 +29,7 @@ function feeLabel(model: VendorFeeModel | undefined): string {
 }
 
 function periodLabel(row: VendorCommercialTerms): string {
-  const from = row.effectiveFrom ?? '—';
-  const to = row.effectiveTo ?? 'present';
-  return `${from} → ${to}`;
+  return `${row.effectiveFrom ?? '—'} → ${row.effectiveTo ?? '—'}`;
 }
 
 function termsDetail(row: VendorCommercialTerms): string {
@@ -33,26 +37,26 @@ function termsDetail(row: VendorCommercialTerms): string {
     case 'PER_ORDER_FLAT':
       return `₹${Number(row.perOrderFlatAmount ?? 0).toFixed(2)} / order`;
     case 'COMMISSION_PCT':
-      return `${Number(row.commissionPercent ?? 0)}% of gross`;
+      return `${Number(row.commissionPercent ?? 0)}%`;
     case 'HYBRID':
-      return `₹${Number(row.monthlySubscriptionAmount ?? 0).toFixed(2)}/mo + ${Number(row.commissionPercent ?? 0)}%`;
+      return `₹${Number(row.monthlySubscriptionAmount ?? 0).toFixed(0)}/mo + ${Number(row.commissionPercent ?? 0)}%`;
     case 'MONTHLY_SUBSCRIPTION':
-      return `₹${Number(row.monthlySubscriptionAmount ?? 0).toFixed(2)} / month`;
+      return `₹${Number(row.monthlySubscriptionAmount ?? 0).toFixed(2)} / mo`;
     case 'SLAB_COMMISSION': {
       const slabs = row.commissionSlabs ?? [];
-      if (slabs.length === 0) return 'Slabs not set';
+      if (!slabs.length) return 'No slabs';
       return slabs
-        .map((s) => `${s.uptoAmount == null ? 'Open' : `≤₹${s.uptoAmount}`} @ ${s.percent}%`)
+        .map((s) => `${s.uptoAmount == null ? 'open' : `≤${s.uptoAmount}`}@${s.percent}%`)
         .join(' · ');
     }
     default:
-      return 'No platform fee';
+      return 'No fee';
   }
 }
 
-function applyTermsToForm(
+function applyTerms(
   terms: VendorCommercialTerms,
-  setters: {
+  set: {
     setFeeModel: (v: VendorFeeModel) => void;
     setCommissionPercent: (v: string) => void;
     setPerOrderFlat: (v: string) => void;
@@ -62,14 +66,14 @@ function applyTermsToForm(
     setSlabs: (v: CommissionSlab[]) => void;
   },
 ) {
-  setters.setFeeModel(terms.feeModel ?? 'NONE');
-  setters.setCommissionPercent(String(terms.commissionPercent ?? 0));
-  setters.setPerOrderFlat(String(terms.perOrderFlatAmount ?? 0));
-  setters.setMonthlySub(String(terms.monthlySubscriptionAmount ?? 0));
-  setters.setBillingDay(String(terms.subscriptionBillingDay ?? 1));
-  setters.setNotes(terms.notes ?? '');
-  setters.setSlabs(
-    terms.commissionSlabs && terms.commissionSlabs.length > 0
+  set.setFeeModel(terms.feeModel ?? 'NONE');
+  set.setCommissionPercent(String(terms.commissionPercent ?? 0));
+  set.setPerOrderFlat(String(terms.perOrderFlatAmount ?? 0));
+  set.setMonthlySub(String(terms.monthlySubscriptionAmount ?? 0));
+  set.setBillingDay(String(terms.subscriptionBillingDay ?? 1));
+  set.setNotes(terms.notes ?? '');
+  set.setSlabs(
+    terms.commissionSlabs?.length
       ? terms.commissionSlabs
       : [
           { uptoAmount: 10000, percent: 5 },
@@ -94,6 +98,7 @@ export function VendorBillingPage() {
   const [billingDay, setBillingDay] = useState('1');
   const [notes, setNotes] = useState('');
   const [effectiveFrom, setEffectiveFrom] = useState(isoToday());
+  const [effectiveTo, setEffectiveTo] = useState('');
   const [slabs, setSlabs] = useState<CommissionSlab[]>([
     { uptoAmount: 10000, percent: 5 },
     { uptoAmount: null, percent: 3 },
@@ -101,8 +106,22 @@ export function VendorBillingPage() {
   const [loading, setLoading] = useState(true);
   const [loadingTerms, setLoadingTerms] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+
+  const formSet = useMemo(
+    () => ({
+      setFeeModel,
+      setCommissionPercent,
+      setPerOrderFlat,
+      setMonthlySub,
+      setBillingDay,
+      setNotes,
+      setSlabs,
+    }),
+    [],
+  );
 
   const townOptions = useMemo(
     () =>
@@ -124,23 +143,7 @@ export function VendorBillingPage() {
     [vendors],
   );
 
-  const selectedVendor = useMemo(
-    () => vendors.find((v) => v.id === vendorId) ?? null,
-    [vendors, vendorId],
-  );
-
-  const formSetters = useMemo(
-    () => ({
-      setFeeModel,
-      setCommissionPercent,
-      setPerOrderFlat,
-      setMonthlySub,
-      setBillingDay,
-      setNotes,
-      setSlabs,
-    }),
-    [],
-  );
+  const modelHelp = FEE_MODEL_OPTIONS.find((m) => m.id === feeModel)?.help ?? '';
 
   const loadTerms = useCallback(
     async (id: string) => {
@@ -150,8 +153,14 @@ export function VendorBillingPage() {
         const data = await listVendorCommercialTermsHistory(token, id);
         setCurrent(data.current ?? null);
         setHistory(data.history ?? []);
-        if (data.current) applyTermsToForm(data.current, formSetters);
+        if (data.current) {
+          applyTerms(data.current, formSet);
+          const isAdvanced = ADVANCED_FEE_MODELS.some((m) => m.id === data.current?.feeModel);
+          setShowAdvanced(isAdvanced);
+        }
+        // New save starts today and stays open-ended unless admin sets Ends on.
         setEffectiveFrom(isoToday());
+        setEffectiveTo('');
       } catch (err) {
         setError(err instanceof ApiError || err instanceof Error ? err.message : 'Failed to load terms');
         setCurrent(null);
@@ -160,7 +169,7 @@ export function VendorBillingPage() {
         setLoadingTerms(false);
       }
     },
-    [token, formSetters],
+    [token, formSet],
   );
 
   useEffect(() => {
@@ -206,7 +215,7 @@ export function VendorBillingPage() {
   }, [token, vendorId, loadTerms]);
 
   async function onSave() {
-    if (!token || !vendorId) return;
+    if (!token || !vendorId || saving) return;
     setSaving(true);
     setError(null);
     setNotice(null);
@@ -220,12 +229,10 @@ export function VendorBillingPage() {
         commissionSlabs: feeModel === 'SLAB_COMMISSION' ? slabs : undefined,
         notes: notes.trim() || undefined,
         effectiveFrom: effectiveFrom || isoToday(),
+        effectiveTo: effectiveTo || null,
       });
       await loadTerms(vendorId);
-      setNotice(
-        `Saved ${feeLabel(saved.feeModel)} from ${saved.effectiveFrom} → ${saved.effectiveTo ?? 'present'}. History updated below.`,
-      );
-      window.scrollTo({ top: 0, behavior: 'smooth' });
+      setNotice(`Saved ${feeLabel(saved.feeModel)} · ${periodLabel(saved)}`);
     } catch (err) {
       setError(err instanceof ApiError || err instanceof Error ? err.message : 'Save failed');
     } finally {
@@ -235,15 +242,12 @@ export function VendorBillingPage() {
 
   return (
     <PortalShell title="Vendor billing" onRefresh={() => (vendorId ? void loadTerms(vendorId) : undefined)}>
+      <style>{css}</style>
       {error ? <Banner tone="danger">{error}</Banner> : null}
       {notice ? <Banner tone="success">{notice}</Banner> : null}
 
-      <Card elevated style={styles.card}>
-        <p style={styles.help}>
-          Pick a vendor, set the fee model, choose when it starts. Older date ranges stay in history and still
-          apply to orders placed in that period.
-        </p>
-        <div style={styles.filters}>
+      <Card elevated padding="sm" style={styles.card}>
+        <div className="vb-filters">
           <SearchSelect
             label="Town"
             value={townId}
@@ -254,7 +258,7 @@ export function VendorBillingPage() {
               setNotice(null);
             }}
             disabled={loading || towns.length === 0}
-            placeholder="Select town…"
+            placeholder="Town…"
           />
           <SearchSelect
             label="Vendor"
@@ -265,136 +269,185 @@ export function VendorBillingPage() {
               setNotice(null);
             }}
             disabled={!townId || vendors.length === 0}
-            placeholder="Select vendor…"
+            placeholder="Vendor…"
           />
         </div>
       </Card>
 
       {!vendorId ? (
-        <Card style={styles.card}>
-          <p style={styles.muted}>{loading ? 'Loading…' : 'Select a town and vendor to continue.'}</p>
+        <Card padding="sm">
+          <p style={styles.muted}>{loading ? 'Loading…' : 'Select town and vendor.'}</p>
         </Card>
       ) : loadingTerms ? (
-        <Card style={styles.card}>
-          <p style={styles.muted}>Loading billing terms…</p>
+        <Card padding="sm">
+          <p style={styles.muted}>Loading terms…</p>
         </Card>
       ) : (
-        <>
-          {current ? (
-            <Card style={styles.activeCard}>
-              <div style={styles.activeHead}>
-                <span style={styles.activeBadge}>Active now</span>
-                <strong style={styles.activeModel}>{feeLabel(current.feeModel)}</strong>
+        <div className="vb-layout">
+          <Card padding="sm" style={styles.card}>
+            {current ? (
+              <div style={styles.activeBar}>
+                <span style={styles.activeBadge}>Active</span>
+                <strong>{feeLabel(current.feeModel)}</strong>
+                <span style={styles.activeMeta}>{periodLabel(current)}</span>
+                <span style={styles.activeMeta}>{termsDetail(current)}</span>
               </div>
-              <p style={styles.activePeriod}>{periodLabel(current)}</p>
-              <p style={styles.activeDetail}>{termsDetail(current)}</p>
-              {selectedVendor ? (
-                <p style={styles.vendorLine}>
-                  {selectedVendor.shopName || selectedVendor.businessName}
-                  {selectedVendor.gstNumber ? ` · GST ${selectedVendor.gstNumber}` : ''}
-                </p>
-              ) : null}
-            </Card>
-          ) : null}
+            ) : null}
 
-          <Card style={styles.card}>
-            <h2 style={styles.h2}>Change fee model</h2>
-            <div style={styles.modelList} role="listbox" aria-label="Fee model">
-              {FEE_MODEL_OPTIONS.map((m) => {
-                const selected = feeModel === m.id;
-                return (
-                  <button
-                    key={m.id}
-                    type="button"
-                    role="option"
-                    aria-selected={selected}
-                    style={selected ? styles.modelSelected : styles.modelOption}
-                    onClick={() => setFeeModel(m.id)}
-                  >
-                    <span style={styles.modelTitle}>{m.label}</span>
-                    <span style={selected ? styles.modelHelpSelected : styles.modelHelp}>{m.help}</span>
-                  </button>
-                );
-              })}
-            </div>
+            <div className="vb-editor">
+              <div style={styles.pickerBlock}>
+                <span style={styles.labelText}>How do you charge this vendor?</span>
+                <div className="vb-chips" role="listbox" aria-label="Fee model">
+                  {PRIMARY_FEE_MODELS.map((m) => {
+                    const selected = feeModel === m.id;
+                    return (
+                      <button
+                        key={m.id}
+                        type="button"
+                        role="option"
+                        aria-selected={selected}
+                        style={selected ? styles.chipOn : styles.chip}
+                        onClick={() => setFeeModel(m.id)}
+                      >
+                        {m.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                <button
+                  type="button"
+                  style={styles.advancedToggle}
+                  onClick={() => setShowAdvanced((v) => !v)}
+                >
+                  {showAdvanced ? 'Hide advanced' : 'Advanced (monthly + % / tiered %)'}
+                </button>
+                {showAdvanced ? (
+                  <div className="vb-chips">
+                    {ADVANCED_FEE_MODELS.map((m) => {
+                      const selected = feeModel === m.id;
+                      return (
+                        <button
+                          key={m.id}
+                          type="button"
+                          role="option"
+                          aria-selected={selected}
+                          style={selected ? styles.chipOn : styles.chip}
+                          onClick={() => setFeeModel(m.id)}
+                        >
+                          {m.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : null}
+                <span style={styles.hint}>{modelHelp}</span>
+              </div>
 
-            <div style={styles.form}>
-              {feeModel === 'PER_ORDER_FLAT' ? (
-                <label style={styles.label}>
-                  Flat amount per order (₹)
-                  <input
-                    style={styles.input}
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={perOrderFlat}
-                    onChange={(e) => setPerOrderFlat(e.target.value)}
-                  />
-                </label>
-              ) : null}
-
-              {feeModel === 'COMMISSION_PCT' || feeModel === 'HYBRID' ? (
-                <label style={styles.label}>
-                  Commission %
-                  <input
-                    style={styles.input}
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={commissionPercent}
-                    onChange={(e) => setCommissionPercent(e.target.value)}
-                  />
-                </label>
-              ) : null}
-
-              {feeModel === 'MONTHLY_SUBSCRIPTION' || feeModel === 'HYBRID' ? (
-                <>
+              <div className="vb-params">
+                {feeModel === 'PER_ORDER_FLAT' ? (
                   <label style={styles.label}>
-                    Monthly subscription (₹)
+                    ₹ per order
                     <input
                       style={styles.input}
                       type="number"
                       min="0"
                       step="0.01"
-                      value={monthlySub}
-                      onChange={(e) => setMonthlySub(e.target.value)}
+                      value={perOrderFlat}
+                      onChange={(e) => setPerOrderFlat(e.target.value)}
                     />
                   </label>
+                ) : null}
+
+                {feeModel === 'COMMISSION_PCT' || feeModel === 'HYBRID' ? (
                   <label style={styles.label}>
-                    Billing day (1–28)
+                    % on payout
                     <input
                       style={styles.input}
                       type="number"
-                      min="1"
-                      max="28"
-                      value={billingDay}
-                      onChange={(e) => setBillingDay(e.target.value)}
+                      min="0"
+                      step="0.01"
+                      value={commissionPercent}
+                      onChange={(e) => setCommissionPercent(e.target.value)}
                     />
                   </label>
-                </>
-              ) : null}
+                ) : null}
+
+                {feeModel === 'MONTHLY_SUBSCRIPTION' || feeModel === 'HYBRID' ? (
+                  <>
+                    <label style={styles.label}>
+                      ₹ each month
+                      <input
+                        style={styles.input}
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={monthlySub}
+                        onChange={(e) => setMonthlySub(e.target.value)}
+                      />
+                    </label>
+                    <label style={styles.label}>
+                      Day of month
+                      <input
+                        style={styles.input}
+                        type="number"
+                        min="1"
+                        max="28"
+                        value={billingDay}
+                        onChange={(e) => setBillingDay(e.target.value)}
+                      />
+                    </label>
+                  </>
+                ) : null}
+
+                <label style={styles.label}>
+                  Starts from
+                  <input
+                    style={styles.input}
+                    type="date"
+                    value={effectiveFrom}
+                    onChange={(e) => setEffectiveFrom(e.target.value)}
+                  />
+                </label>
+                <label style={styles.label}>
+                  Ends on
+                  <input
+                    style={styles.input}
+                    type="date"
+                    value={effectiveTo}
+                    min={effectiveFrom || undefined}
+                    onChange={(e) => setEffectiveTo(e.target.value)}
+                  />
+                </label>
+              </div>
 
               {feeModel === 'SLAB_COMMISSION' ? (
-                <div style={styles.slabBlock}>
+                <div style={styles.slabWrap}>
+                  <p style={styles.slabExplain}>
+                    Set % by payout size. Example: up to ₹300 → 5%, up to ₹700 → 4%, above that → 3%.
+                  </p>
                   <div style={styles.slabHead}>
-                    <strong>Slabs</strong>
+                    <span style={styles.slabTitle}>Tiers</span>
                     <button
                       type="button"
-                      style={styles.linkBtn}
-                      onClick={() => setSlabs((prev) => [...prev, { uptoAmount: null, percent: 0 }])}
+                      style={styles.addBtn}
+                      onClick={() => setSlabs((p) => [...p, { uptoAmount: null, percent: 0 }])}
                     >
                       + Add
                     </button>
                   </div>
-                  {slabs.map((slab, idx) => (
-                    <div key={idx} style={styles.slabCard}>
-                      <label style={styles.label}>
-                        Upto ₹
+                  <div style={styles.slabTable}>
+                    <div style={styles.slabHeaderRow}>
+                      <span>If payout up to ₹</span>
+                      <span>Charge %</span>
+                      <span />
+                    </div>
+                    {slabs.map((slab, idx) => (
+                      <div key={idx} style={styles.slabRow}>
                         <input
                           style={styles.input}
                           type="number"
                           min="0"
-                          placeholder="blank = open"
+                          placeholder="no limit"
                           value={slab.uptoAmount ?? ''}
                           onChange={(e) => {
                             const next = [...slabs];
@@ -405,9 +458,6 @@ export function VendorBillingPage() {
                             setSlabs(next);
                           }}
                         />
-                      </label>
-                      <label style={styles.label}>
-                        %
                         <input
                           style={styles.input}
                           type="number"
@@ -420,29 +470,20 @@ export function VendorBillingPage() {
                             setSlabs(next);
                           }}
                         />
-                      </label>
-                      <button
-                        type="button"
-                        style={styles.removeBtn}
-                        disabled={slabs.length <= 1}
-                        onClick={() => setSlabs((prev) => prev.filter((_, i) => i !== idx))}
-                      >
-                        Remove
-                      </button>
-                    </div>
-                  ))}
+                        <button
+                          type="button"
+                          style={styles.xBtn}
+                          disabled={slabs.length <= 1}
+                          aria-label="Remove tier"
+                          onClick={() => setSlabs((p) => p.filter((_, i) => i !== idx))}
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               ) : null}
-
-              <label style={styles.label}>
-                Starts from
-                <input
-                  style={styles.input}
-                  type="date"
-                  value={effectiveFrom}
-                  onChange={(e) => setEffectiveFrom(e.target.value)}
-                />
-              </label>
 
               <label style={styles.label}>
                 Notes (optional)
@@ -453,206 +494,274 @@ export function VendorBillingPage() {
                   placeholder="Internal note"
                 />
               </label>
-            </div>
 
-            <Button disabled={saving} onClick={() => void onSave()}>
-              {saving ? 'Saving…' : 'Save fee model'}
-            </Button>
+              <div style={styles.saveRow}>
+                <Button size="sm" disabled={saving} onClick={() => void onSave()}>
+                  {saving ? 'Saving…' : 'Save fee model'}
+                </Button>
+                <span style={styles.hint}>Orders keep the model active on their placed date.</span>
+              </div>
+            </div>
           </Card>
 
-          <Card style={styles.card}>
-            <h2 style={styles.h2}>History (from → to)</h2>
+          <Card padding="sm" style={styles.card}>
+            <h2 style={styles.h2}>History</h2>
             {history.length === 0 ? (
               <p style={styles.muted}>No versions yet.</p>
             ) : (
-              <ul style={styles.timeline}>
-                {history.map((row) => (
-                  <li key={row.id ?? `${row.effectiveFrom}-${row.feeModel}`} style={styles.timelineItem}>
-                    <div style={styles.timelineTop}>
-                      <strong>{periodLabel(row)}</strong>
-                      {row.current ? <span style={styles.currentPill}>Current</span> : null}
-                    </div>
-                    <div style={styles.timelineModel}>{feeLabel(row.feeModel)}</div>
-                    <div style={styles.timelineDetail}>{termsDetail(row)}</div>
-                  </li>
-                ))}
-              </ul>
+              <div style={styles.histWrap}>
+                <table style={styles.table}>
+                  <thead>
+                    <tr>
+                      <th style={styles.th}>From</th>
+                      <th style={styles.th}>To</th>
+                      <th style={styles.th}>Model</th>
+                      <th style={styles.th}>Details</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {history.map((row) => (
+                      <tr key={row.id ?? `${row.effectiveFrom}-${row.feeModel}`}>
+                        <td style={styles.td}>{row.effectiveFrom ?? '—'}</td>
+                        <td style={styles.td}>{row.effectiveTo ?? '—'}</td>
+                        <td style={styles.td}>
+                          {feeLabel(row.feeModel)}
+                          {row.current ? <span style={styles.pill}>now</span> : null}
+                        </td>
+                        <td style={styles.tdMuted}>{termsDetail(row)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
           </Card>
-        </>
+        </div>
       )}
     </PortalShell>
   );
 }
 
-const SELECTED_GREEN = '#16a34a';
-const SELECTED_GREEN_BG = '#dcfce7';
-const SELECTED_GREEN_TEXT = '#14532d';
+const css = `
+.vb-filters {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.55rem;
+}
+.vb-layout {
+  display: grid;
+  gap: 0.65rem;
+}
+.vb-editor {
+  display: grid;
+  gap: 0.65rem;
+}
+.vb-params {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(7.5rem, 1fr));
+  gap: 0.45rem 0.55rem;
+  align-items: start;
+}
+.vb-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+@media (max-width: 640px) {
+  .vb-filters { grid-template-columns: 1fr; }
+}
+@media (min-width: 960px) {
+  .vb-layout {
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+    align-items: start;
+  }
+}
+`;
 
 const styles: Record<string, CSSProperties> = {
-  card: { display: 'grid', gap: '0.85rem' },
-  help: { margin: 0, color: 'var(--text-muted)', fontSize: '0.88rem', lineHeight: 1.45 },
-  filters: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 220px), 1fr))',
-    gap: '0.65rem',
-  },
-  muted: { margin: 0, color: 'var(--text-muted)', fontSize: '0.9rem' },
-  h2: { margin: 0, fontSize: '1.05rem', fontWeight: 800, fontFamily: 'var(--font-display)' },
-
-  activeCard: {
-    display: 'grid',
-    gap: '0.25rem',
-    border: `2px solid ${SELECTED_GREEN}`,
-    background: SELECTED_GREEN_BG,
-    borderRadius: 'var(--radius-lg)',
-    padding: '0.9rem 1rem',
-  },
-  activeHead: { display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.5rem' },
-  activeBadge: {
-    fontSize: '0.68rem',
-    fontWeight: 800,
-    textTransform: 'uppercase',
-    letterSpacing: '0.04em',
-    color: SELECTED_GREEN_TEXT,
-    background: '#fff',
-    border: `1px solid ${SELECTED_GREEN}`,
-    borderRadius: '999px',
-    padding: '0.15rem 0.5rem',
-  },
-  activeModel: { fontSize: '1.15rem', color: SELECTED_GREEN_TEXT, fontWeight: 800 },
-  activePeriod: { margin: 0, fontWeight: 700, color: SELECTED_GREEN_TEXT, fontSize: '0.95rem' },
-  activeDetail: { margin: 0, color: SELECTED_GREEN_TEXT, fontSize: '0.88rem', fontWeight: 600 },
-  vendorLine: { margin: '0.35rem 0 0', color: SELECTED_GREEN_TEXT, fontSize: '0.8rem', opacity: 0.85 },
-
-  modelList: { display: 'grid', gap: '0.4rem' },
-  modelOption: {
-    display: 'grid',
-    gap: '0.15rem',
-    textAlign: 'left',
-    border: '1px solid var(--border)',
-    background: 'var(--bg)',
-    borderRadius: 'var(--radius-md)',
-    padding: '0.65rem 0.75rem',
-    cursor: 'pointer',
-    fontFamily: 'inherit',
-    width: '100%',
-  },
-  modelSelected: {
-    display: 'grid',
-    gap: '0.15rem',
-    textAlign: 'left',
-    border: `2px solid ${SELECTED_GREEN}`,
-    background: SELECTED_GREEN_BG,
-    borderRadius: 'var(--radius-md)',
-    padding: '0.65rem 0.75rem',
-    cursor: 'pointer',
-    fontFamily: 'inherit',
-    width: '100%',
-    color: SELECTED_GREEN_TEXT,
-  },
-  modelTitle: { fontWeight: 800, fontSize: '0.95rem' },
-  modelHelp: { fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 600, lineHeight: 1.3 },
-  modelHelpSelected: { fontSize: '0.78rem', color: SELECTED_GREEN_TEXT, fontWeight: 600, lineHeight: 1.3, opacity: 0.9 },
-
-  form: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 160px), 1fr))',
-    gap: '0.65rem',
-  },
+  card: { display: 'grid', gap: '0.55rem' },
+  muted: { margin: 0, color: 'var(--text-muted)', fontSize: '0.85rem' },
+  h2: { margin: 0, fontSize: '0.95rem', fontWeight: 800 },
   label: {
     display: 'grid',
-    gap: '0.3rem',
-    fontSize: '0.8rem',
+    gap: '0.2rem',
+    fontSize: '0.72rem',
     fontWeight: 700,
     color: 'var(--text-muted)',
     minWidth: 0,
   },
+  labelText: { fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)' },
+  hint: { fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 600, lineHeight: 1.3 },
+  pickerBlock: { display: 'grid', gap: '0.4rem' },
+  chip: {
+    border: '1px solid var(--border)',
+    background: 'var(--bg)',
+    color: 'var(--text)',
+    borderRadius: '999px',
+    padding: '0.35rem 0.7rem',
+    fontSize: '0.8rem',
+    fontWeight: 700,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+  },
+  chipOn: {
+    border: `1.5px solid ${GREEN}`,
+    background: GREEN_BG,
+    color: GREEN_TEXT,
+    borderRadius: '999px',
+    padding: '0.35rem 0.7rem',
+    fontSize: '0.8rem',
+    fontWeight: 800,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+  },
+  advancedToggle: {
+    border: 'none',
+    background: 'none',
+    color: 'var(--text-muted)',
+    fontSize: '0.75rem',
+    fontWeight: 700,
+    cursor: 'pointer',
+    padding: 0,
+    textAlign: 'left',
+    fontFamily: 'inherit',
+    textDecoration: 'underline',
+    textUnderlineOffset: 2,
+    width: 'fit-content',
+  },
   input: {
-    padding: '0.55rem 0.7rem',
+    padding: '0.4rem 0.5rem',
     borderRadius: 'var(--radius-md)',
     border: '1px solid var(--border)',
     background: 'var(--bg)',
     color: 'var(--text)',
-    fontSize: '0.95rem',
+    fontSize: '0.9rem',
     width: '100%',
     minWidth: 0,
     boxSizing: 'border-box',
+    minHeight: '2.25rem',
   },
-
-  slabBlock: {
-    gridColumn: '1 / -1',
-    display: 'grid',
-    gap: '0.5rem',
-  },
-  slabHead: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  linkBtn: {
-    border: 'none',
-    background: 'none',
-    color: SELECTED_GREEN,
-    fontWeight: 800,
-    cursor: 'pointer',
-    fontSize: '0.85rem',
-    fontFamily: 'inherit',
-  },
-  slabCard: {
-    display: 'grid',
-    gridTemplateColumns: '1fr 1fr',
-    gap: '0.5rem',
-    padding: '0.65rem',
-    border: '1px solid var(--border)',
-    borderRadius: 'var(--radius-md)',
-    background: 'var(--bg-muted)',
-  },
-  removeBtn: {
-    gridColumn: '1 / -1',
-    border: '1px solid var(--border)',
-    background: 'var(--bg)',
-    borderRadius: 'var(--radius-md)',
-    padding: '0.55rem 0.65rem',
-    cursor: 'pointer',
-    fontSize: '0.8rem',
-    fontWeight: 700,
-    fontFamily: 'inherit',
-    color: 'var(--text-muted)',
-    width: '100%',
-  },
-
-  timeline: {
-    listStyle: 'none',
-    margin: 0,
-    padding: 0,
-    display: 'grid',
-    gap: '0.55rem',
-  },
-  timelineItem: {
-    border: '1px solid var(--border)',
-    borderRadius: 'var(--radius-md)',
-    padding: '0.7rem 0.8rem',
-    background: 'var(--bg)',
-    display: 'grid',
-    gap: '0.2rem',
-  },
-  timelineTop: {
+  activeBar: {
     display: 'flex',
     flexWrap: 'wrap',
-    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: '0.35rem 0.65rem',
+    padding: '0.45rem 0.6rem',
+    borderRadius: 'var(--radius-md)',
+    border: `1px solid ${GREEN}`,
+    background: GREEN_BG,
+    color: GREEN_TEXT,
+    fontSize: '0.82rem',
+  },
+  activeBadge: {
+    fontSize: '0.62rem',
+    fontWeight: 800,
+    textTransform: 'uppercase',
+    letterSpacing: '0.03em',
+    background: '#fff',
+    border: `1px solid ${GREEN}`,
+    borderRadius: '999px',
+    padding: '0.1rem 0.4rem',
+  },
+  activeMeta: { color: GREEN_TEXT, fontWeight: 600, opacity: 0.9 },
+  slabWrap: {
+    border: '1px solid var(--border)',
+    borderRadius: 'var(--radius-md)',
+    padding: '0.45rem 0.55rem',
+    display: 'grid',
+    gap: '0.35rem',
+    background: 'var(--bg-muted)',
+  },
+  slabHead: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
+  slabTitle: { fontSize: '0.78rem', fontWeight: 800 },
+  slabExplain: {
+    margin: 0,
+    fontSize: '0.75rem',
+    color: 'var(--text-muted)',
+    fontWeight: 600,
+    lineHeight: 1.35,
+  },
+  addBtn: {
+    border: 'none',
+    background: 'none',
+    color: GREEN,
+    fontWeight: 800,
+    cursor: 'pointer',
+    fontSize: '0.78rem',
+    fontFamily: 'inherit',
+    padding: 0,
+  },
+  slabTable: { display: 'grid', gap: '0.3rem' },
+  slabHeaderRow: {
+    display: 'grid',
+    gridTemplateColumns: '1fr 4.5rem 2rem',
+    gap: '0.35rem',
+    fontSize: '0.68rem',
+    fontWeight: 700,
+    color: 'var(--text-muted)',
+    padding: '0 0.1rem',
+  },
+  slabRow: {
+    display: 'grid',
+    gridTemplateColumns: '1fr 4.5rem 2rem',
     gap: '0.35rem',
     alignItems: 'center',
   },
-  currentPill: {
-    fontSize: '0.68rem',
-    fontWeight: 800,
-    color: SELECTED_GREEN_TEXT,
-    background: SELECTED_GREEN_BG,
-    border: `1px solid ${SELECTED_GREEN}`,
-    borderRadius: '999px',
-    padding: '0.12rem 0.45rem',
+  xBtn: {
+    border: '1px solid var(--border)',
+    background: 'var(--bg)',
+    borderRadius: 'var(--radius-md)',
+    height: '2.25rem',
+    cursor: 'pointer',
+    fontSize: '1.1rem',
+    fontWeight: 700,
+    color: 'var(--text-muted)',
+    lineHeight: 1,
+    fontFamily: 'inherit',
   },
-  timelineModel: { fontWeight: 800, fontSize: '0.95rem' },
-  timelineDetail: { color: 'var(--text-muted)', fontSize: '0.82rem', fontWeight: 600 },
+  saveRow: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: '0.55rem',
+  },
+  histWrap: {
+    overflowX: 'auto',
+    border: '1px solid var(--border)',
+    borderRadius: 'var(--radius-md)',
+  },
+  table: { width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' },
+  th: {
+    textAlign: 'left',
+    padding: '0.35rem 0.45rem',
+    background: 'var(--bg-muted)',
+    borderBottom: '1px solid var(--border)',
+    color: 'var(--text-muted)',
+    fontWeight: 700,
+    whiteSpace: 'nowrap',
+  },
+  td: {
+    padding: '0.35rem 0.45rem',
+    borderBottom: '1px solid var(--border)',
+    verticalAlign: 'top',
+    fontWeight: 600,
+  },
+  tdMuted: {
+    padding: '0.35rem 0.45rem',
+    borderBottom: '1px solid var(--border)',
+    color: 'var(--text-muted)',
+    fontSize: '0.75rem',
+    fontWeight: 600,
+  },
+  pill: {
+    marginLeft: '0.35rem',
+    fontSize: '0.62rem',
+    fontWeight: 800,
+    color: GREEN_TEXT,
+    background: GREEN_BG,
+    border: `1px solid ${GREEN}`,
+    borderRadius: '999px',
+    padding: '0.05rem 0.35rem',
+    verticalAlign: 'middle',
+  },
 };

@@ -9,6 +9,7 @@ export type AuthSession = {
   vendorId: string;
   phone: string;
   shopName?: string;
+  townName?: string;
 };
 
 export function loadSession(): AuthSession | null {

@@ -40,6 +40,9 @@ public class UpsertVendorCommercialTermsRequest {
 
     private LocalDate effectiveFrom;
 
+    /** Inclusive end date. Null = open-ended (continues until a later version starts). */
+    private LocalDate effectiveTo;
+
     @Data
     public static class CommissionSlabRequest {
         /** Upper bound of this slab (inclusive). Null = open-ended top slab. */

@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from 'react';
 import { listEnabledTowns, type TownVm } from '@/features/towns/api/townsApi';
+import { changeCartTown } from '@/features/shop/api/shopApi';
 import { apiRequest } from '@/shared/api/http';
 import { useAuth } from '@/shared/auth/AuthContext';
 import {
@@ -24,25 +25,33 @@ type TownContextValue = {
   hasTown: boolean;
   loading: boolean;
   error: string | null;
+  /** One-shot message after a town switch (cart cleared, etc.). */
+  switchNotice: string | null;
+  clearSwitchNotice: () => void;
   pickerOpen: boolean;
   openPicker: () => void;
   closePicker: () => void;
-  selectTown: (town: TownVm) => void;
+  selectTown: (town: TownVm) => Promise<void>;
   reloadTowns: () => Promise<void>;
 };
 
 const TownContext = createContext<TownContextValue | null>(null);
 
+/** Short header label: "Chirala" or "Chirala, AP" — never "Chirala, Andhra Pradesh, AP". */
+function shortTownName(displayName: string | null | undefined): string {
+  if (!displayName) return '';
+  const noParen = displayName.replace(/\s*\(.*\)\s*$/, '').trim();
+  // displayName is often "Chirala, Andhra Pradesh"
+  const beforeComma = noParen.split(',')[0]?.trim();
+  return beforeComma || noParen;
+}
+
 function labelFor(pref: TownPreference | null, towns: TownVm[], townId: string): string {
-  if (pref?.townId === townId && pref.displayName) {
-    return pref.stateCode ? `${pref.displayName.replace(/\s*\(.*\)\s*$/, '')}, ${pref.stateCode}` : pref.displayName;
-  }
   const match = towns.find((t) => t.id === townId);
-  if (match) {
-    const short = match.displayName.replace(/\s*\(.*\)\s*$/, '').trim() || match.displayName;
-    return match.stateCode ? `${short}, ${match.stateCode}` : short;
-  }
-  return 'Choose your town';
+  const name = shortTownName(match?.displayName ?? (pref?.townId === townId ? pref.displayName : ''));
+  if (!name) return 'Choose your town';
+  const stateCode = match?.stateCode ?? (pref?.townId === townId ? pref.stateCode : undefined);
+  return stateCode ? `${name}, ${stateCode}` : name;
 }
 
 export function TownProvider({ children }: { children: ReactNode }) {
@@ -51,6 +60,7 @@ export function TownProvider({ children }: { children: ReactNode }) {
   const [pref, setPref] = useState<TownPreference | null>(() => loadTownPreference());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [switchNotice, setSwitchNotice] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
 
   const reloadTowns = useCallback(async () => {
@@ -98,7 +108,8 @@ export function TownProvider({ children }: { children: ReactNode }) {
   const townLabel = hasTown ? labelFor(pref, towns, townId) : 'Choose your town';
 
   const selectTown = useCallback(
-    (town: TownVm) => {
+    async (town: TownVm) => {
+      const previousTownId = session?.townId || pref?.townId || '';
       const next: TownPreference = {
         townId: town.id,
         displayName: town.displayName,
@@ -107,6 +118,9 @@ export function TownProvider({ children }: { children: ReactNode }) {
       saveTownPreference(next);
       setPref(next);
       setPickerOpen(false);
+      setError(null);
+
+      const shortLabel = labelFor(next, towns, town.id);
 
       if (session) {
         const updated = { ...session, townId: town.id };
@@ -117,9 +131,24 @@ export function TownProvider({ children }: { children: ReactNode }) {
           body: { defaultTownId: town.id },
           timeoutMs: 8_000,
         }).catch(() => undefined);
+
+        if (previousTownId && previousTownId !== town.id) {
+          try {
+            await changeCartTown(session.accessToken, town.id, true);
+            setSwitchNotice(
+              `Now shopping in ${shortLabel}. Items from your previous town cart were cleared.`,
+            );
+          } catch (err) {
+            setSwitchNotice(
+              err instanceof Error
+                ? `Town updated, but cart sync failed: ${err.message}`
+                : 'Town updated, but cart sync failed. Try adding an item again.',
+            );
+          }
+        }
       }
     },
-    [session, setSession],
+    [session, setSession, pref?.townId, towns],
   );
 
   const value = useMemo(
@@ -130,6 +159,8 @@ export function TownProvider({ children }: { children: ReactNode }) {
       hasTown,
       loading,
       error,
+      switchNotice,
+      clearSwitchNotice: () => setSwitchNotice(null),
       pickerOpen,
       openPicker: () => setPickerOpen(true),
       closePicker: () => {
@@ -140,7 +171,20 @@ export function TownProvider({ children }: { children: ReactNode }) {
       selectTown,
       reloadTowns,
     }),
-    [towns, townId, townLabel, hasTown, loading, error, pickerOpen, selectTown, reloadTowns, session?.townId, pref?.townId],
+    [
+      towns,
+      townId,
+      townLabel,
+      hasTown,
+      loading,
+      error,
+      switchNotice,
+      pickerOpen,
+      selectTown,
+      reloadTowns,
+      session?.townId,
+      pref?.townId,
+    ],
   );
 
   return <TownContext.Provider value={value}>{children}</TownContext.Provider>;

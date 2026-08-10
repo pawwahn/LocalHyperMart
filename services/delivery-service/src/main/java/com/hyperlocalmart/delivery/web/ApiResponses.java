@@ -12,9 +12,13 @@ public final class ApiResponses {
     }
 
     public static <T> ApiResponse<T> ok(HttpServletRequest request, T data) {
+        return ok(request, "Operation successful", data);
+    }
+
+    public static <T> ApiResponse<T> ok(HttpServletRequest request, String message, T data) {
         return ApiResponse.<T>builder()
                 .success(true)
-                .message("Operation successful")
+                .message(message)
                 .data(data)
                 .timestamp(Instant.now())
                 .correlationId(CorrelationIdFilter.getCorrelationId(request))

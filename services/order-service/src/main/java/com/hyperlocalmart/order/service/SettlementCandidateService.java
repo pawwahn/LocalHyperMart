@@ -9,7 +9,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.ZoneOffset;
+import java.time.ZoneId;
 import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
@@ -18,12 +18,19 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class SettlementCandidateService {
 
+    private static final ZoneId IST = ZoneId.of("Asia/Kolkata");
+
     private final VendorSubOrderRepository vendorSubOrderRepository;
 
+    /**
+     * Lists vendor bags eligible for payout: status must be {@code DELIVERED}
+     * and placed date within {@code [from, to]} (IST calendar days).
+     */
     @Transactional(readOnly = true)
     public SettlementCandidateResponse listCandidates(UUID vendorId, UUID townId, LocalDate from, LocalDate to) {
-        Instant start = from.atStartOfDay().toInstant(ZoneOffset.UTC);
-        Instant end = to.plusDays(1).atStartOfDay().toInstant(ZoneOffset.UTC);
+        // Match admin From/To calendar days in IST (not UTC midnight).
+        Instant start = from.atStartOfDay(IST).toInstant();
+        Instant end = to.plusDays(1).atStartOfDay(IST).toInstant();
         List<VendorSubOrder> rows = vendorSubOrderRepository.findSettlementCandidates(vendorId, townId, start, end);
         return SettlementCandidateResponse.builder()
                 .vendorId(vendorId)

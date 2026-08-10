@@ -2,20 +2,29 @@ import type { CSSProperties } from 'react';
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { AdSlot } from '@/features/ads/components/AdSlot';
+import { getPublicPlatformSettings } from '@/features/auth/api/platformSettingsApi';
+import { apiRequest } from '@/shared/api/http';
 import { PortalShell } from '@/shared/layout/PortalShell';
 import { useAuth } from '@/shared/auth/AuthContext';
+import { useTown } from '@/shared/town/TownContext';
 import { Banner, Button, Card, EmptyState, TextField } from '@/shared/ui';
 import { AddressForm } from '../components/AddressForm';
 import { QuantityStepper } from '../components/QuantityStepper';
 import { productVisual } from '../lib/productVisual';
 import { useShop } from '../hooks/useShop';
 
+const DEFAULT_DELIVERY_FEE = 40;
+
 export function CartPage() {
   const navigate = useNavigate();
   const { session } = useAuth();
+  const { townId } = useTown();
   const {
     cart,
     addresses,
+    townLabel,
+    hasTown,
+    openTownPicker,
     storeCreditBalance,
     selectedAddressId,
     setSelectedAddressId,
@@ -36,11 +45,52 @@ export function CartPage() {
   const [addressHint, setAddressHint] = useState<string | null>(null);
   const [couponCode, setCouponCode] = useState('');
   const [couponError, setCouponError] = useState<string | null>(null);
+  const [useStoreCredit, setUseStoreCredit] = useState(false);
+  const [deliveryFee, setDeliveryFee] = useState(DEFAULT_DELIVERY_FEE);
   const addressSectionRef = useRef<HTMLElement | null>(null);
   const couponSectionRef = useRef<HTMLDivElement | null>(null);
 
   const hasCartItems = Boolean(cart?.cartId && cart.items.length > 0);
   const needsAddress = hasCartItems && !selectedAddressId;
+  const itemsPayable = cart?.payableSubtotal ?? 0;
+  const orderGross = itemsPayable + (hasCartItems ? deliveryFee : 0);
+  const creditToApply =
+    useStoreCredit && storeCreditBalance > 0
+      ? Math.min(storeCreditBalance, orderGross)
+      : 0;
+  const payOnDelivery = Math.max(0, orderGross - creditToApply);
+  const payLabel = `₹${payOnDelivery.toFixed(2)}`;
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadFee() {
+      try {
+        if (townId) {
+          const params = new URLSearchParams();
+          if (itemsPayable > 0) params.set('orderValue', String(itemsPayable));
+          const q = params.toString();
+          const data = await apiRequest<{ deliveryFee?: number }>(
+            `/api/v1/towns/${townId}/delivery-fee${q ? `?${q}` : ''}`,
+            { token: session?.accessToken },
+          );
+          if (!cancelled) {
+            setDeliveryFee(Math.max(0, Number(data?.deliveryFee) || DEFAULT_DELIVERY_FEE));
+          }
+          return;
+        }
+        const s = await getPublicPlatformSettings();
+        if (!cancelled) {
+          setDeliveryFee(Math.max(0, Number(s.deliveryFee) || DEFAULT_DELIVERY_FEE));
+        }
+      } catch {
+        if (!cancelled) setDeliveryFee(DEFAULT_DELIVERY_FEE);
+      }
+    }
+    void loadFee();
+    return () => {
+      cancelled = true;
+    };
+  }, [townId, itemsPayable, session?.accessToken]);
 
   useEffect(() => {
     if (selectedAddressId) setAddressHint(null);
@@ -74,17 +124,23 @@ export function CartPage() {
   async function handleCheckout() {
     if (!hasCartItems) return;
 
+    if (!hasTown) {
+      promptForAddress('Choose your town first — delivery address must match the selected town.');
+      openTownPicker();
+      return;
+    }
+
     if (needsAddress) {
       promptForAddress(
         addresses.length === 0
-          ? 'Add a delivery address before placing your order.'
-          : 'Select a delivery address before placing your order.',
+          ? `Add a delivery address in ${townLabel} before placing your order.`
+          : `Select a delivery address in ${townLabel} before placing your order.`,
       );
       return;
     }
 
     setAddressHint(null);
-    await doCheckout();
+    await doCheckout({ useStoreCredit });
   }
 
   const selectedAddress = addresses.find((a) => a.id === selectedAddressId);
@@ -103,7 +159,7 @@ export function CartPage() {
             <div style={styles.stickyInner}>
               <div>
                 <p style={styles.payLabel}>Cash on delivery</p>
-                <p style={styles.payTotal}>{cart?.payableLabel}</p>
+                <p style={styles.payTotal}>{payLabel}</p>
               </div>
               <button
                 type="button"
@@ -242,17 +298,39 @@ export function CartPage() {
                 <strong style={styles.discount}>−{cart.promoDiscountLabel}</strong>
               </div>
             ) : null}
+            <div style={styles.summaryRow}>
+              <span>Delivery fee</span>
+              <strong>₹{deliveryFee.toFixed(2)}</strong>
+            </div>
+            {creditToApply > 0 ? (
+              <div style={styles.summaryRow}>
+                <span>Store credit</span>
+                <strong style={styles.discount}>−₹{creditToApply.toFixed(2)}</strong>
+              </div>
+            ) : null}
             <div style={{ ...styles.summaryRow, marginTop: '0.35rem' }}>
-              <span>Grand total</span>
-              <strong style={styles.total}>{cart.payableLabel}</strong>
+              <span>Pay on delivery</span>
+              <strong style={styles.total}>{payLabel}</strong>
             </div>
             {storeCreditBalance > 0 ? (
-              <Banner tone="success" style={{ marginTop: '0.75rem' }}>
-                Store credit ₹{storeCreditBalance.toFixed(2)} will apply automatically at checkout.{' '}
-                <Link to="/wallet" style={{ color: 'inherit', fontWeight: 800 }}>
-                  View wallet →
-                </Link>
-              </Banner>
+              <label style={styles.creditToggle}>
+                <input
+                  type="checkbox"
+                  checked={useStoreCredit}
+                  onChange={(e) => setUseStoreCredit(e.target.checked)}
+                  disabled={busy}
+                />
+                <span>
+                  Use store credit (₹{storeCreditBalance.toFixed(2)} in{' '}
+                  <Link to="/wallet" style={{ color: 'inherit', fontWeight: 800 }}>
+                    wallet
+                  </Link>
+                  )
+                  {useStoreCredit
+                    ? ` · applying ₹${creditToApply.toFixed(2)}`
+                    : ' · leave unused in wallet'}
+                </span>
+              </label>
             ) : null}
             <Banner tone={cart.minOrderMet ? 'success' : 'warning'} style={{ marginTop: '0.75rem' }}>
               {cart.minOrderMet
@@ -268,15 +346,17 @@ export function CartPage() {
         style={showAddressForm ? styles.sectionEditing : styles.section}
         id="delivery-address"
       >
-        <h2 style={styles.h2}>{showAddressForm ? 'Edit address' : 'Delivery address'}</h2>
+        {showAddressForm ? null : <h2 style={styles.h2}>Delivery address</h2>}
 
         {showAddressForm ? (
           <AddressForm
             key={editingAddressId ?? 'new'}
+            townLabel={townLabel}
             phone={session?.phone ?? ''}
             busy={busy}
             mode={editingAddressId ? 'edit' : 'create'}
             error={error}
+            onChangeTown={openTownPicker}
             initial={
               editingAddressId
                 ? (() => {
@@ -289,7 +369,7 @@ export function CartPage() {
                       line1: a.line1,
                       line2: a.line2 ?? '',
                       landmark: a.landmark ?? '',
-                      pincode: a.pincode ?? '522601',
+                      pincode: a.pincode ?? '',
                     };
                   })()
                 : undefined
@@ -299,6 +379,10 @@ export function CartPage() {
               setEditingAddressId(null);
             }}
             onSubmit={async (values) => {
+              if (!hasTown) {
+                openTownPicker();
+                return;
+              }
               const ok = editingAddressId
                 ? await doUpdateAddress(editingAddressId, values)
                 : await doCreateAddress(values);
@@ -311,12 +395,26 @@ export function CartPage() {
           />
         ) : (
           <>
+            <p style={styles.townScope}>
+              Showing addresses for <strong>{hasTown ? townLabel : 'your selected town'}</strong>
+              {hasTown ? (
+                <>
+                  {' · '}
+                  <button type="button" style={styles.townLink} onClick={openTownPicker}>
+                    Change town
+                  </button>
+                </>
+              ) : null}
+            </p>
+
             {needsAddress || addressHint ? (
               <Banner tone="warning" style={styles.addressAlert}>
                 {addressHint ??
                   (addresses.length === 0
-                    ? 'No delivery address yet. Add one below to place your COD order.'
-                    : 'Select a delivery address below to place your COD order.')}
+                    ? hasTown
+                      ? `No address in ${townLabel} yet. Add one below — it must match this town.`
+                      : 'Choose your town first, then add a delivery address.'
+                    : `Select a delivery address in ${townLabel} to place your COD order.`)}
               </Banner>
             ) : null}
 
@@ -363,6 +461,11 @@ export function CartPage() {
               disabled={busy}
               fullWidth
               onClick={() => {
+                if (!hasTown) {
+                  openTownPicker();
+                  setAddressHint('Choose your town first — delivery address must match the selected town.');
+                  return;
+                }
                 setEditingAddressId(null);
                 setShowAddressForm(true);
               }}
@@ -425,6 +528,21 @@ const styles: Record<string, CSSProperties> = {
     fontWeight: 600,
   },
   discount: { color: 'var(--accent)' },
+  creditToggle: {
+    display: 'flex',
+    alignItems: 'flex-start',
+    gap: '0.55rem',
+    marginTop: '0.65rem',
+    padding: '0.55rem 0.65rem',
+    borderRadius: 10,
+    border: '1px solid color-mix(in srgb, var(--accent) 28%, var(--border))',
+    background: 'var(--accent-soft)',
+    fontSize: '0.82rem',
+    fontWeight: 600,
+    color: 'var(--text)',
+    lineHeight: 1.35,
+    cursor: 'pointer',
+  },
   total: {
     fontFamily: 'var(--font-display)',
     fontSize: '1.35rem',
@@ -438,12 +556,27 @@ const styles: Record<string, CSSProperties> = {
   },
   sectionEditing: {
     display: 'grid',
-    gap: '0.75rem',
-    paddingBottom: 'calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px) + 2.5rem)',
+    gap: '0.4rem',
+    paddingBottom: 'calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px) + 1.25rem)',
     minWidth: 0,
   },
   h2: { margin: 0, fontFamily: 'var(--font-display)', fontSize: '1.1rem', fontWeight: 800 },
   addressAlert: { animation: 'hlm-fade-up 220ms ease both' },
+  townScope: {
+    margin: 0,
+    fontSize: '0.85rem',
+    color: 'var(--text-muted)',
+    lineHeight: 1.4,
+  },
+  townLink: {
+    border: 'none',
+    background: 'transparent',
+    color: 'var(--accent, #ea580c)',
+    fontWeight: 700,
+    fontSize: '0.85rem',
+    cursor: 'pointer',
+    padding: 0,
+  },
   addr: {
     display: 'flex',
     gap: '0.55rem',

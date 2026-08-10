@@ -37,7 +37,7 @@ export const PILOT_ADS: AdCreative[] = [
     title: 'Farm-fresh milk every morning',
     subtitle: 'Order by 8 AM · COD available',
     ctaLabel: 'Shop milk',
-    tint: 'linear-gradient(125deg, #0A7A1C 0%, #12A033 48%, #1DB954 100%)',
+    tint: 'linear-gradient(135deg, #E8F8EC 0%, #D4F0DC 100%)',
     emoji: '🥛',
   },
   {

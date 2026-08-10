@@ -83,7 +83,13 @@ function buildRows(
       status: row.status,
       yourAmount: Number(row.subtotal ?? 0),
       itemCount: row.itemCount,
-      payoutStatus: payout?.paid ? 'SETTLED' : 'AWAITING',
+      payoutStatus: payout?.paid
+        ? 'SETTLED'
+        : row.status === 'DELIVERED'
+          ? 'AWAITING'
+          : row.status === 'VENDOR_REJECTED' || row.status === 'REJECTED'
+            ? 'NOT PAYABLE'
+            : 'NOT DUE YET',
       paidAt: payout?.paidAt ? new Date(payout.paidAt).toLocaleString() : '',
       payoutMode: payout?.payoutMethod ?? '',
       transactionReference: payout?.transactionReference ?? '',

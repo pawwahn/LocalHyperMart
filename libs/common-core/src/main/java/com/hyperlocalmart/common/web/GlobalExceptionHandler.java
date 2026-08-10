@@ -54,6 +54,14 @@ public class GlobalExceptionHandler {
                 message = "A town with this name already exists in this state";
             } else if (lower.contains("towns_town_code_state_code_key") || lower.contains("(town_code, state_code)")) {
                 message = "Town code already exists for this state";
+            } else if (lower.contains("uq_vendor_commercial_terms_open")
+                    || lower.contains("vendor_commercial_terms")) {
+                message = "Could not switch fee model — try again, or pick a Starts from date after the current plan";
+            } else if (lower.contains("settlement_line_items") && lower.contains("order_id")) {
+                message = "Could not save payout line — refresh and try again";
+            } else if (lower.contains("uq_settlement_line_sub_order")
+                    || lower.contains("settlement_line_items") && lower.contains("sub_order")) {
+                message = "One or more orders are already on another payout";
             } else if (lower.contains("value too long") || lower.contains("22001")) {
                 message = "A value is too long (town code and state code max 10 characters)";
             }

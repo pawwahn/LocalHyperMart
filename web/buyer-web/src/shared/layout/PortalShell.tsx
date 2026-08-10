@@ -1,10 +1,9 @@
 import type { CSSProperties, ReactNode } from 'react';
 import { useState } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { HeaderIconButton, ThemePicker } from '@hlm-theme';
 import { useAuth } from '@/shared/auth/AuthContext';
 import { useTown } from '@/shared/town/TownContext';
-import { useWallet } from '@/features/shop/hooks/useWallet';
 import { StickyCartBar } from '@/features/shop/components/StickyCartBar';
 import { AdSlot } from '@/features/ads/components/AdSlot';
 import { TownPickerSheet } from '@/features/towns/components/TownPickerSheet';
@@ -36,8 +35,8 @@ export function PortalShell({
 }: Props) {
   const { session, logout } = useAuth();
   const { townLabel, openPicker } = useTown();
-  const { balance: walletBalance } = useWallet();
   const location = useLocation();
+  const navigate = useNavigate();
   const onCart = location.pathname.startsWith('/cart');
   const showFloatingCart = showStickyCart && !onCart && cartCount > 0;
   const hasFooter = Boolean(footerSlot);
@@ -64,46 +63,17 @@ export function PortalShell({
     >
       <TownPickerSheet />
       <header style={styles.header}>
-        <div style={styles.headerTop}>
-          <div style={styles.locationBlock}>
-            <p style={styles.brandMark}>HyperLocalMart</p>
-            <button
-              type="button"
-              style={styles.locationBtn}
-              aria-label={`Change town. Currently ${townLabel}`}
-              title="Tap to change town"
-              onClick={openPicker}
-            >
-              <span style={styles.locationEyebrow}>Your town · tap to change</span>
-              <span style={styles.locationRow}>
-                <span style={styles.locationValue}>{townLabel}</span>
-                <span style={styles.chevron} aria-hidden>
-                  ▾
-                </span>
-              </span>
-            </button>
-          </div>
+        <div style={styles.brandRow}>
+          <p style={styles.brandMark}>HyperLocalMart</p>
           <div style={styles.headerActions}>
             {session ? (
-              <Link
-                to="/alerts"
-                style={styles.alertsChip}
-                title="Order alerts"
-                aria-label="Order alerts"
+              <HeaderIconButton
+                label="Order alerts"
+                onClick={() => navigate('/alerts')}
+                style={styles.headerIcon}
               >
-                Alerts
-              </Link>
-            ) : null}
-            {session ? (
-              <Link
-                to="/wallet"
-                style={styles.walletChip}
-                title="Your store credit wallet"
-                aria-label={`Wallet balance ₹${walletBalance.toFixed(2)}`}
-              >
-                <span style={styles.walletChipLabel}>Wallet</span>
-                <span style={styles.walletChipAmt}>₹{walletBalance.toFixed(0)}</span>
-              </Link>
+                🔔
+              </HeaderIconButton>
             ) : null}
             <ThemePicker />
             {onRefresh ? (
@@ -111,14 +81,17 @@ export function PortalShell({
                 label={refreshing ? 'Refreshing…' : 'Refresh'}
                 onClick={() => void handleRefresh()}
                 disabled={refreshing}
-                style={refreshing ? { opacity: 0.65 } : undefined}
+                style={{
+                  ...styles.headerIcon,
+                  ...(refreshing ? { opacity: 0.65 } : null),
+                }}
               >
                 {refreshing ? '…' : '↻'}
               </HeaderIconButton>
             ) : null}
             {session ? (
-              <HeaderIconButton label="Sign out" onClick={logout}>
-                {(session.phone ?? 'B').slice(-2)}
+              <HeaderIconButton label="Sign out" onClick={logout} style={styles.headerIcon}>
+                <span style={{ fontSize: '0.58rem', fontWeight: 800, letterSpacing: '0.02em' }}>OUT</span>
               </HeaderIconButton>
             ) : (
               <Link to="/login" style={styles.signIn}>
@@ -127,6 +100,25 @@ export function PortalShell({
             )}
           </div>
         </div>
+
+        <button
+          type="button"
+          style={styles.locationBtn}
+          aria-label={`Change town. Currently ${townLabel}`}
+          title="Tap to change town"
+          onClick={openPicker}
+        >
+          <span style={styles.pin} aria-hidden>
+            📍
+          </span>
+          <span style={styles.locationValue}>
+            <span style={styles.locationEyebrow}>Deliver to </span>
+            {townLabel}
+          </span>
+          <span style={styles.chevron} aria-hidden>
+            ▾
+          </span>
+        </button>
       </header>
 
       {showDeliveryBanner ? <AdSlot slot="home_hero" variant="hero" /> : null}
@@ -189,10 +181,10 @@ const styles: Record<string, CSSProperties> = {
     maxWidth: 'var(--shell-max)',
     width: '100%',
     margin: '0 auto',
-    padding: '0.65rem 0.75rem 0',
+    padding: '0.35rem 0.75rem 0',
     minHeight: '100vh',
     display: 'grid',
-    gap: '0.85rem',
+    gap: '0.45rem',
     alignContent: 'start',
     background: 'var(--bg)',
     overflowX: 'hidden',
@@ -202,67 +194,84 @@ const styles: Record<string, CSSProperties> = {
     position: 'sticky',
     top: 0,
     zIndex: 40,
-    background: 'var(--bg)',
-    paddingTop: '0.35rem',
-    paddingBottom: '0.35rem',
+    margin: '0 -0.75rem',
+    padding: '0.35rem 0.75rem 0.4rem',
+    background: 'color-mix(in srgb, var(--bg-elevated) 96%, transparent)',
+    backdropFilter: 'blur(10px)',
+    WebkitBackdropFilter: 'blur(10px)',
+    borderBottom: '1px solid var(--border)',
+    display: 'grid',
+    gap: '0.3rem',
     minWidth: 0,
-    overflow: 'visible',
   },
-  headerTop: {
+  brandRow: {
     display: 'flex',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    gap: '0.5rem',
+    alignItems: 'center',
+    gap: '0.4rem',
     minWidth: 0,
   },
-  locationBlock: { display: 'grid', gap: '0.15rem', minWidth: 0, flex: '1 1 auto' },
   brandMark: {
     margin: 0,
-    fontSize: '0.68rem',
+    fontFamily: 'var(--font-display)',
+    fontSize: '1.02rem',
     fontWeight: 800,
-    letterSpacing: '0.08em',
-    textTransform: 'uppercase',
+    letterSpacing: '-0.04em',
     color: 'var(--accent)',
+  },
+  headerActions: {
+    display: 'flex',
+    flexWrap: 'nowrap',
+    gap: '0.22rem',
+    alignItems: 'center',
+    flexShrink: 0,
+  },
+  headerIcon: {
+    width: 32,
+    height: 32,
+    minWidth: 32,
+    fontSize: '0.9rem',
   },
   locationBtn: {
-    display: 'grid',
-    gap: '0.12rem',
-    border: '1px dashed color-mix(in srgb, var(--accent) 45%, var(--border))',
-    background: 'color-mix(in srgb, var(--accent) 8%, var(--bg-elevated))',
-    padding: '0.45rem 0.65rem',
-    minHeight: 'var(--touch-min)',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.3rem',
+    width: '100%',
+    border: '1px solid var(--border)',
+    background: 'var(--bg-elevated)',
+    padding: '0.35rem 0.65rem',
+    minHeight: 36,
     textAlign: 'left',
     cursor: 'pointer',
-    borderRadius: 'var(--radius-md)',
-    maxWidth: '100%',
+    borderRadius: 10,
     boxSizing: 'border-box',
+    minWidth: 0,
   },
   locationEyebrow: {
-    margin: 0,
-    fontSize: '0.72rem',
-    fontWeight: 700,
-    color: 'var(--accent)',
-    letterSpacing: '0.01em',
+    fontWeight: 600,
+    color: 'var(--text-muted)',
+    textTransform: 'none',
+    letterSpacing: '-0.01em',
+    fontSize: 'inherit',
   },
-  locationRow: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: '0.35rem',
-    minWidth: 0,
+  pin: {
+    fontSize: '0.85rem',
+    lineHeight: 1,
+    flexShrink: 0,
   },
   locationValue: {
     margin: 0,
     fontFamily: 'var(--font-display)',
-    fontWeight: 800,
-    fontSize: '1.05rem',
+    fontWeight: 700,
+    fontSize: '0.88rem',
     color: 'var(--text)',
-    lineHeight: 1.15,
-    textDecoration: 'underline',
-    textDecorationStyle: 'dotted',
-    textUnderlineOffset: '3px',
+    lineHeight: 1.2,
+    letterSpacing: '-0.015em',
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
+    flex: '1 1 auto',
+    minWidth: 0,
   },
   chevron: {
     color: 'var(--accent)',
@@ -270,97 +279,28 @@ const styles: Record<string, CSSProperties> = {
     fontSize: '0.85rem',
     flexShrink: 0,
   },
-  headerActions: {
-    display: 'flex',
-    flexWrap: 'wrap',
-    gap: '0.35rem',
-    alignItems: 'center',
-    justifyContent: 'flex-end',
-    flex: '0 1 auto',
-    maxWidth: '58%',
-    minWidth: 0,
-    position: 'relative',
-    zIndex: 2,
-    pointerEvents: 'auto',
-  },
-  walletChip: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: '0.25rem',
-    padding: '0.35rem 0.55rem',
-    minHeight: 'var(--touch-min)',
-    borderRadius: 'var(--radius-full)',
-    border: '1px solid color-mix(in srgb, var(--accent) 35%, var(--border))',
-    background: 'color-mix(in srgb, var(--accent) 10%, var(--bg-elevated))',
-    textDecoration: 'none',
-    color: 'var(--text)',
-    flexShrink: 0,
-    boxSizing: 'border-box',
-  },
-  alertsChip: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    padding: '0.35rem 0.55rem',
-    minHeight: 'var(--touch-min)',
-    borderRadius: 'var(--radius-full)',
-    border: '1px solid var(--border)',
-    background: 'var(--bg-elevated)',
-    textDecoration: 'none',
-    color: 'var(--text)',
-    fontSize: '0.72rem',
-    fontWeight: 800,
-    flexShrink: 0,
-    boxSizing: 'border-box',
-  },
-  walletChipLabel: {
-    fontSize: '0.62rem',
-    fontWeight: 800,
-    textTransform: 'uppercase',
-    letterSpacing: '0.04em',
-    color: 'var(--accent)',
-  },
-  walletChipAmt: { fontSize: '0.78rem', fontWeight: 800 },
-  iconBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 'var(--radius-full)',
-    border: '1px solid var(--border)',
-    background: 'var(--bg-elevated)',
-    cursor: 'pointer',
-    fontWeight: 700,
-  },
-  avatarBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 'var(--radius-full)',
-    border: 'none',
-    background: 'var(--accent)',
-    color: 'var(--text-inverse)',
-    fontWeight: 800,
-    fontSize: '0.72rem',
-    cursor: 'pointer',
-  },
   signIn: {
     display: 'inline-flex',
     alignItems: 'center',
-    padding: '0.45rem 0.85rem',
-    borderRadius: 'var(--radius-full)',
-    background: 'var(--accent)',
-    color: 'var(--text-inverse)',
+    padding: '0.3rem 0.7rem',
+    borderRadius: 10,
+    background: 'var(--text)',
+    color: 'var(--bg-elevated)',
     textDecoration: 'none',
     fontWeight: 800,
-    fontSize: '0.82rem',
+    fontSize: '0.75rem',
+    letterSpacing: '-0.01em',
   },
-  titleRow: { display: 'grid', gap: '0.2rem' },
+  titleRow: { display: 'grid', gap: '0.15rem' },
   title: {
     margin: 0,
     fontFamily: 'var(--font-display)',
-    fontSize: '1.45rem',
+    fontSize: '1.25rem',
     fontWeight: 800,
     letterSpacing: '-0.02em',
   },
-  sub: { margin: 0, color: 'var(--text-muted)', fontSize: '0.88rem' },
-  main: { display: 'grid', gap: '0.85rem', minWidth: 0, width: '100%', overflowX: 'hidden' },
+  sub: { margin: 0, color: 'var(--text-muted)', fontSize: '0.82rem' },
+  main: { display: 'grid', gap: '0.5rem', minWidth: 0, width: '100%', overflowX: 'hidden' },
   tabbar: {
     position: 'fixed',
     left: '50%',
@@ -372,10 +312,10 @@ const styles: Record<string, CSSProperties> = {
     paddingBottom: 'env(safe-area-inset-bottom, 0px)',
     display: 'grid',
     gridTemplateColumns: 'repeat(4, 1fr)',
-    background: 'var(--bg-elevated)',
+    background: 'color-mix(in srgb, var(--bg-elevated) 97%, transparent)',
     borderTop: '1px solid var(--border)',
     zIndex: 50,
-    boxShadow: '0 -4px 20px rgba(0,0,0,0.05)',
+    boxShadow: '0 -6px 24px rgba(2, 6, 12, 0.06)',
     boxSizing: 'border-box',
   },
   tab: {

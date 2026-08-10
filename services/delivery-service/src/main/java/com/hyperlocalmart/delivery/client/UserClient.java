@@ -11,6 +11,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
 
+import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
@@ -22,25 +23,27 @@ public class UserClient {
     private final UserServiceProperties userServiceProperties;
 
     public UUID createDeliveryAgentUser(String phone, String password, String firstName) {
+        return createStaffUser(phone, password, firstName, null, null, "DELIVERY_AGENT");
+    }
+
+    public UUID createHubAdminUser(String phone, String password, String firstName, String lastName, UUID townId) {
+        return createStaffUser(phone, password, firstName, lastName, townId, "HUB_ADMIN");
+    }
+
+    public void bindHubContext(UUID userId, UUID townId, UUID hubId) {
         RestClient client = restClientBuilder.baseUrl(userServiceProperties.getBaseUrl()).build();
         try {
-            ApiResponse<StaffUserDto> response = client.post()
-                    .uri("/api/v1/internal/users/staff")
+            client.patch()
+                    .uri("/api/v1/internal/users/{userId}/context", userId)
                     .contentType(MediaType.APPLICATION_JSON)
                     .body(Map.of(
-                            "phone", phone,
-                            "password", password,
-                            "firstName", firstName,
-                            "role", "DELIVERY_AGENT"
+                            "townId", townId.toString(),
+                            "hubId", hubId.toString()
                     ))
                     .retrieve()
-                    .body(new ParameterizedTypeReference<ApiResponse<StaffUserDto>>() {});
-            if (response == null || response.getData() == null || response.getData().userId() == null) {
-                throw new BusinessException(ErrorCode.INTERNAL_ERROR, "Failed to create agent login");
-            }
-            return response.getData().userId();
+                    .toBodilessEntity();
         } catch (RestClientResponseException ex) {
-            throw mapClientError(ex, "Could not create agent login");
+            throw mapClientError(ex, "Could not bind hub admin context");
         }
     }
 
@@ -55,6 +58,42 @@ public class UserClient {
                     .toBodilessEntity();
         } catch (RestClientResponseException ex) {
             throw mapClientError(ex, "Could not update agent login status");
+        }
+    }
+
+    private UUID createStaffUser(
+            String phone,
+            String password,
+            String firstName,
+            String lastName,
+            UUID townId,
+            String role
+    ) {
+        RestClient client = restClientBuilder.baseUrl(userServiceProperties.getBaseUrl()).build();
+        Map<String, Object> body = new HashMap<>();
+        body.put("phone", phone);
+        body.put("password", password);
+        body.put("firstName", firstName);
+        body.put("role", role);
+        if (lastName != null && !lastName.isBlank()) {
+            body.put("lastName", lastName.trim());
+        }
+        if (townId != null) {
+            body.put("townId", townId.toString());
+        }
+        try {
+            ApiResponse<StaffUserDto> response = client.post()
+                    .uri("/api/v1/internal/users/staff")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(body)
+                    .retrieve()
+                    .body(new ParameterizedTypeReference<ApiResponse<StaffUserDto>>() {});
+            if (response == null || response.getData() == null || response.getData().userId() == null) {
+                throw new BusinessException(ErrorCode.INTERNAL_ERROR, "Failed to create staff login");
+            }
+            return response.getData().userId();
+        } catch (RestClientResponseException ex) {
+            throw mapClientError(ex, "Could not create staff login");
         }
     }
 

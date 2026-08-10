@@ -119,12 +119,13 @@ public interface VendorSubOrderRepository extends JpaRepository<VendorSubOrder, 
             """)
     long countMarkedReadyByTownIdAndReadyAtBetween(UUID townId, Instant start, Instant end);
 
+    /** Vendor payout candidates: only delivered bags in the placed-date window. */
     @Query("""
             SELECT DISTINCT v FROM VendorSubOrder v
             JOIN FETCH v.order o
             WHERE v.vendorId = :vendorId
               AND o.townId = :townId
-              AND v.status <> com.hyperlocalmart.order.entity.VendorSubOrderStatus.VENDOR_REJECTED
+              AND v.status = com.hyperlocalmart.order.entity.VendorSubOrderStatus.DELIVERED
               AND o.placedAt IS NOT NULL
               AND o.placedAt >= :start AND o.placedAt < :end
             ORDER BY o.placedAt DESC
@@ -135,12 +136,13 @@ public interface VendorSubOrderRepository extends JpaRepository<VendorSubOrder, 
             @Param("start") Instant start,
             @Param("end") Instant end);
 
+    /** Resolve payout selection — only delivered bags may be settled. */
     @Query("""
             SELECT DISTINCT v FROM VendorSubOrder v
             JOIN FETCH v.order o
             WHERE v.vendorId = :vendorId
               AND v.id IN :ids
-              AND v.status <> com.hyperlocalmart.order.entity.VendorSubOrderStatus.VENDOR_REJECTED
+              AND v.status = com.hyperlocalmart.order.entity.VendorSubOrderStatus.DELIVERED
             """)
     List<VendorSubOrder> findByVendorIdAndIdIn(
             @Param("vendorId") UUID vendorId,

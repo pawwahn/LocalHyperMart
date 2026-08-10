@@ -8,6 +8,8 @@ export type PlatformSettingsVm = {
   refundUrl: string;
   grievanceOfficer: string;
   supportPhone: string;
+  /** Platform-wide buyer delivery fee in ₹ (not town-specific). */
+  deliveryFee: number;
 };
 
 type SettingsDto = Record<string, unknown>;
@@ -20,6 +22,15 @@ function asBool(v: unknown, fallback = false): boolean {
   return typeof v === 'boolean' ? v : fallback;
 }
 
+function asNumber(v: unknown, fallback: number): number {
+  if (typeof v === 'number' && Number.isFinite(v)) return v;
+  if (typeof v === 'string' && v.trim()) {
+    const n = Number(v);
+    if (Number.isFinite(n)) return n;
+  }
+  return fallback;
+}
+
 function mapSettings(data: SettingsDto): PlatformSettingsVm {
   return {
     mapsEnabled: asBool(data.mapsEnabled, false),
@@ -29,6 +40,7 @@ function mapSettings(data: SettingsDto): PlatformSettingsVm {
     refundUrl: asString(data.refundUrl),
     grievanceOfficer: asString(data.grievanceOfficer),
     supportPhone: asString(data.supportPhone),
+    deliveryFee: asNumber(data.deliveryFee, 40),
   };
 }
 

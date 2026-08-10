@@ -6,12 +6,22 @@ export type PublicPlatformSettingsVm = {
   refundUrl: string;
   grievanceOfficer: string;
   supportPhone: string;
+  deliveryFee: number;
 };
 
 type SettingsDto = Record<string, unknown>;
 
 function asString(v: unknown, fallback = ''): string {
   return typeof v === 'string' ? v : fallback;
+}
+
+function asNumber(v: unknown, fallback: number): number {
+  if (typeof v === 'number' && Number.isFinite(v)) return v;
+  if (typeof v === 'string' && v.trim()) {
+    const n = Number(v);
+    if (Number.isFinite(n)) return n;
+  }
+  return fallback;
 }
 
 export async function getPublicPlatformSettings(): Promise<PublicPlatformSettingsVm> {
@@ -22,5 +32,6 @@ export async function getPublicPlatformSettings(): Promise<PublicPlatformSetting
     refundUrl: asString(data?.refundUrl),
     grievanceOfficer: asString(data?.grievanceOfficer),
     supportPhone: asString(data?.supportPhone),
+    deliveryFee: asNumber(data?.deliveryFee, 40),
   };
 }

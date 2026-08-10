@@ -19,6 +19,11 @@ export function isRejectedSalesStatus(status: string | null | undefined): boolea
   return status === 'VENDOR_REJECTED' || status === 'REJECTED';
 }
 
+/** Hub pays out only delivered bags — open/in-progress sales are not yet "due". */
+export function isPayoutDueStatus(status: string | null | undefined): boolean {
+  return status === 'DELIVERED';
+}
+
 function isoDate(d: Date): string {
   const pad = (n: number) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -181,7 +186,7 @@ export function useVendorReports() {
       if (payout?.paid) {
         paidOrders += 1;
         paidAmount += Number(payout.amount ?? row.subtotal ?? 0);
-      } else {
+      } else if (isPayoutDueStatus(row.status)) {
         unpaidOrders += 1;
         unpaidAmount += Number(row.subtotal ?? 0);
       }
@@ -220,7 +225,9 @@ export function useVendorReports() {
     return report.rows.filter((row) => {
       if (isRejectedSalesStatus(row.status)) return false;
       const paid = Boolean(payoutsBySubOrder[row.subOrderId]?.paid);
-      return payoutFilter === 'paid' ? paid : !paid;
+      if (payoutFilter === 'paid') return paid;
+      // Awaiting = delivered and not yet paid out (same rule as hub settlements).
+      return !paid && isPayoutDueStatus(row.status);
     });
   }, [report, payoutFilter, payoutsBySubOrder]);
 

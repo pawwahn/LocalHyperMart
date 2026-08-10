@@ -22,6 +22,9 @@ public final class PublicRouteMatcher {
         if (method == HttpMethod.GET && (path.equals("/api/v1/towns") || path.equals("/api/v1/towns/"))) {
             return true;
         }
+        if (method == HttpMethod.GET && path.matches("^/api/v1/towns/[^/]+/delivery-fee$")) {
+            return true;
+        }
         if (method == HttpMethod.GET && path.equals("/api/v1/platform/settings/public")) {
             return true;
         }
