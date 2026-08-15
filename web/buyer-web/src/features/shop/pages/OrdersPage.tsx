@@ -33,11 +33,6 @@ function formatWhen(value?: string): string {
   });
 }
 
-function shortOrderNo(orderNumber: string): string {
-  const parts = orderNumber.split('/');
-  return parts[parts.length - 1] || orderNumber;
-}
-
 function orderTime(o: OrderSummaryDto): number {
   if (!o.placedAt) return 0;
   const t = new Date(o.placedAt).getTime();
@@ -228,9 +223,7 @@ export function OrdersPage() {
                     >
                       <div style={styles.rowMain}>
                         <div style={styles.rowTop}>
-                          <p style={styles.name} title={o.orderNumber}>
-                            {shortOrderNo(o.orderNumber)}
-                          </p>
+                          <p style={styles.name}>{o.orderNumber}</p>
                           <Badge tone={statusTone(status)}>{status}</Badge>
                         </div>
                         <p style={styles.meta}>
@@ -337,10 +330,11 @@ const styles: Record<string, CSSProperties> = {
     margin: 0,
     fontWeight: 800,
     fontFamily: 'var(--font-display)',
-    fontSize: '0.92rem',
-    whiteSpace: 'nowrap',
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
+    fontSize: '0.82rem',
+    lineHeight: 1.25,
+    wordBreak: 'break-all',
+    minWidth: 0,
+    flex: 1,
   },
   meta: {
     margin: 0,

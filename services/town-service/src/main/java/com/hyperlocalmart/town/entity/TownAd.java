@@ -40,7 +40,7 @@ public class TownAd extends BaseAuditEntity {
 
     @Column(name = "cta_label", nullable = false, length = 60)
     @Builder.Default
-    private String ctaLabel = "Shop now";
+    private String ctaLabel = "";
 
     @Column(name = "image_url", columnDefinition = "TEXT")
     private String imageUrl;

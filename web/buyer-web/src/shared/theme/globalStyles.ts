@@ -109,6 +109,13 @@ export function injectGlobalStyles(): void {
     .hlm-aisle-tile:active {
       transform: scale(0.94);
     }
+    .hlm-brand-tagline {
+      opacity: 0.9;
+      animation: hlm-fade-up 320ms ease both;
+    }
+    @media (max-width: 379px) {
+      .hlm-brand-tagline { display: none; }
+    }
     button, input, select, textarea { font: inherit; }
     button:disabled { opacity: 0.55; cursor: not-allowed; }
     button, a, [role="button"] { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
@@ -142,6 +149,19 @@ export function injectGlobalStyles(): void {
       0%, 100% { transform: rotate(0deg); }
       25% { transform: rotate(-4deg); }
       75% { transform: rotate(4deg); }
+    }
+    @keyframes hlm-balloon-rise {
+      0% { transform: translate3d(0, 12vh, 0) rotate(-5deg); opacity: 0; }
+      12% { opacity: 0.95; }
+      55% { transform: translate3d(18px, -52vh, 0) rotate(6deg); }
+      100% { transform: translate3d(-12px, -118vh, 0) rotate(-4deg); opacity: 0.25; }
+    }
+    @keyframes hlm-celebration-pop {
+      from { opacity: 0; transform: translateY(14px) scale(0.94); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .hlm-order-balloon { animation: none !important; bottom: 8% !important; opacity: 0.35; }
     }
     .hlm-hide-scrollbar {
       -ms-overflow-style: none;

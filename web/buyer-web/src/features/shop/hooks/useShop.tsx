@@ -16,6 +16,7 @@ import {
   applyPromo,
   changeCartTown,
   createAddress,
+  deleteAddress,
   fetchCart,
   fetchCatalog,
   fetchWalletBalance,
@@ -56,6 +57,9 @@ function useShopState() {
   const [storeCreditBalance, setStoreCreditBalance] = useState(0);
   const hasLoadedOnce = useRef(false);
   const cartRef = useRef<CartView | null>(null);
+  // Last cart confirmed by the server. cartRef also holds optimistic edits, so it
+  // cannot be used to decide what still needs to be pushed.
+  const serverCartRef = useRef<CartView | null>(null);
   const itemsRef = useRef<CatalogItemView[]>([]);
   const desiredQtyRef = useRef<Map<string, number>>(new Map());
   const syncChainRef = useRef<Map<string, Promise<void>>>(new Map());
@@ -110,6 +114,19 @@ function useShopState() {
       minOrderMet: false,
       items: [],
     };
+  }
+
+  function applyServerCart(next: CartView) {
+    serverCartRef.current = next;
+    cartRef.current = next;
+    setCart(next);
+  }
+
+  function resetCartState() {
+    serverCartRef.current = null;
+    cartRef.current = null;
+    desiredQtyRef.current.clear();
+    setCart(null);
   }
 
   function patchLocalQuantity(listingId: string, nextQty: number) {
@@ -185,7 +202,7 @@ function useShopState() {
         if (!desiredQtyRef.current.has(listingId)) break;
         const target = desiredQtyRef.current.get(listingId) ?? 0;
 
-        const realLine = cartRef.current?.items.find(
+        const realLine = serverCartRef.current?.items.find(
           (i) => i.listingId === listingId && !i.itemId.startsWith('optimistic-'),
         );
 
@@ -206,8 +223,7 @@ function useShopState() {
           next = await updateCartItem(session.accessToken, realLine.itemId, target);
         }
 
-        cartRef.current = next;
-        setCart(next);
+        applyServerCart(next);
 
         const serverQty = next.items.find((i) => i.listingId === listingId)?.quantity ?? 0;
         const pending = desiredQtyRef.current.get(listingId);
@@ -224,8 +240,7 @@ function useShopState() {
       if (isCartTownConflict(err)) {
         try {
           const cleared = await changeCartTown(session.accessToken, townId, true);
-          cartRef.current = cleared;
-          setCart(cleared);
+          applyServerCart(cleared);
           setError(null);
           await pushUntilSynced();
           return;
@@ -239,9 +254,7 @@ function useShopState() {
       desiredQtyRef.current.delete(listingId);
       setError(friendlyCartError(err, 'Could not update cart'));
       try {
-        const fresh = await fetchCart(session.accessToken, townId);
-        cartRef.current = fresh;
-        setCart(fresh);
+        applyServerCart(await fetchCart(session.accessToken, townId));
       } catch {
         /* keep local until next reload */
       }
@@ -281,7 +294,7 @@ function useShopState() {
 
     if (!hasTown || !townId) {
       setItems([]);
-      setCart(null);
+      resetCartState();
       setAddresses([]);
       setOrders([]);
       setStoreCreditBalance(0);
@@ -325,11 +338,17 @@ function useShopState() {
 
       if (!session) {
         await catalogTask;
-        setCart(null);
+        resetCartState();
         setAddresses([]);
         setOrders([]);
         setStoreCreditBalance(0);
         return;
+      }
+
+      // Wait for in-flight qty syncs before refresh so we don't overwrite with stale server qty.
+      const pendingSyncs = [...syncChainRef.current.values()];
+      if (pendingSyncs.length > 0) {
+        await Promise.all(pendingSyncs.map((p) => p.catch(() => undefined)));
       }
 
       // Heal town mismatch before cart reads/writes (clears other-town carts).
@@ -341,7 +360,12 @@ function useShopState() {
 
       const cartTask = fetchCart(session.accessToken, townId)
         .then((next) => {
-          setCart(next);
+          applyServerCart(next);
+          // Keep any still-pending optimistic qty visible and push it again.
+          for (const [listingId, qty] of [...desiredQtyRef.current.entries()]) {
+            patchLocalQuantity(listingId, qty);
+            enqueueListingSync(listingId);
+          }
         })
         .catch((err) => noteFailure(err, 'Cart failed'));
 
@@ -378,7 +402,7 @@ function useShopState() {
     } catch (err) {
       if (err instanceof ApiError && err.isUnauthorized) {
         setError('Your sign-in expired. Please sign in again.');
-        setCart(null);
+        resetCartState();
         setAddresses([]);
         setOrders([]);
         setStoreCreditBalance(0);
@@ -476,7 +500,7 @@ function useShopState() {
           quantity <= 0
             ? await removeCartItem(session!.accessToken, itemId)
             : await updateCartItem(session!.accessToken, itemId, quantity);
-        setCart(next);
+        applyServerCart(next);
       });
       return;
     }
@@ -488,7 +512,7 @@ function useShopState() {
 
   async function doRemove(itemId: string) {
     await withCartBusy(itemId, async () => {
-      setCart(await removeCartItem(session!.accessToken, itemId));
+      applyServerCart(await removeCartItem(session!.accessToken, itemId));
     });
   }
 
@@ -510,7 +534,7 @@ function useShopState() {
     setNotice(null);
     try {
       const next = await applyPromo(session.accessToken, townId, trimmed);
-      setCart(next);
+      applyServerCart(next);
       setError(null);
       setNotice(next.promoCode ? `Coupon ${next.promoCode} applied` : 'Coupon applied');
       return { ok: true };
@@ -525,7 +549,7 @@ function useShopState() {
 
   async function doRemovePromo() {
     await withCartBusy('promo', async () => {
-      setCart(await removePromo(session!.accessToken, townId));
+      applyServerCart(await removePromo(session!.accessToken, townId));
       setNotice('Coupon removed');
     });
   }
@@ -632,28 +656,56 @@ function useShopState() {
     }
   }
 
+  async function doDeleteAddress(addressId: string): Promise<boolean> {
+    if (!session) return false;
+    const existing = addresses.find((a) => a.id === addressId);
+    if (!existing) {
+      setError('Address not found');
+      return false;
+    }
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      await deleteAddress(session.accessToken, addressId);
+      const remaining = addresses.filter((a) => a.id !== addressId);
+      setAddresses(remaining);
+      setSelectedAddressId((prev) => {
+        if (prev !== addressId) return prev;
+        return remaining[0]?.id ?? '';
+      });
+      setNotice('Address deleted.');
+      return true;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not delete address');
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function doCheckout(opts?: { useStoreCredit?: boolean }) {
     if (!session || !cart?.cartId) {
       setError('Cart is empty');
-      return;
+      return false;
     }
     if (!hasTown || !townId) {
       setError('Choose your town first');
       openPicker();
-      return;
+      return false;
     }
     if (!selectedAddressId) {
       setError('Add / select a delivery address first');
-      return;
+      return false;
     }
     const selected = addresses.find((a) => a.id === selectedAddressId);
     if (!selected || selected.townId !== townId) {
       setError('Delivery address must be in the selected town. Add or select an address for this town.');
-      return;
+      return false;
     }
     if (!cart.minOrderMet) {
       setError(`Add more items — minimum order is ${cart.minOrderLabel}.`);
-      return;
+      return false;
     }
     setBusy(true);
     setError(null);
@@ -667,6 +719,7 @@ function useShopState() {
       });
       setNotice(`Order placed: ${order.orderNumber} (${order.status})`);
       await reload();
+      return true;
     } catch (err) {
       const raw = err instanceof Error ? err.message : 'Checkout failed';
       if (/internal server error/i.test(raw) && cart && !cart.minOrderMet) {
@@ -678,6 +731,7 @@ function useShopState() {
       } else {
         setError(raw);
       }
+      return false;
     } finally {
       setBusy(false);
     }
@@ -718,6 +772,7 @@ function useShopState() {
     doRemovePromo,
     doCreateAddress,
     doUpdateAddress,
+    doDeleteAddress,
     doCheckout,
   };
 }

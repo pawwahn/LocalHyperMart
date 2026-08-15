@@ -11,6 +11,7 @@ public class MarkSettlementPaidRequest {
     @NotBlank
     private String payoutMethod;
 
+    @NotBlank
     private String transactionReference;
 
     private String transactionNotes;

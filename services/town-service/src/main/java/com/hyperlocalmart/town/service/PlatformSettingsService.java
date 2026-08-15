@@ -36,6 +36,8 @@ public class PlatformSettingsService {
         pub.put("grievanceOfficer", all.getOrDefault("grievanceOfficer", ""));
         pub.put("supportPhone", all.getOrDefault("supportPhone", ""));
         pub.put("deliveryFee", all.getOrDefault("deliveryFee", 40));
+        pub.put("vendorOrderAlertMessage",
+                all.getOrDefault("vendorOrderAlertMessage", "Order received"));
         return pub;
     }
 
@@ -47,6 +49,14 @@ public class PlatformSettingsService {
                 current.put("deliveryFee", normalizeDeliveryFee(patch.get("deliveryFee")));
                 patch = new LinkedHashMap<>(patch);
                 patch.remove("deliveryFee");
+            }
+            if (patch.containsKey("vendorOrderAlertMessage")) {
+                current.put("vendorOrderAlertMessage",
+                        normalizeAlertMessage(patch.get("vendorOrderAlertMessage")));
+                if (!(patch instanceof LinkedHashMap)) {
+                    patch = new LinkedHashMap<>(patch);
+                }
+                patch.remove("vendorOrderAlertMessage");
             }
             current.putAll(patch);
         }
@@ -72,6 +82,8 @@ public class PlatformSettingsService {
         map.put("supportPhone", "9876500100");
         // Platform-wide buyer delivery fee (₹) — not town-specific.
         map.put("deliveryFee", 40);
+        // Spoken and displayed to every vendor, regardless of town.
+        map.put("vendorOrderAlertMessage", "Order received");
         return map;
     }
 
@@ -102,5 +114,16 @@ public class PlatformSettingsService {
         }
         // Store as whole paise-friendly 2dp via rounding
         return Math.round(value * 100.0) / 100.0;
+    }
+
+    private String normalizeAlertMessage(Object raw) {
+        String value = raw == null ? "" : raw.toString().trim();
+        if (value.isEmpty()) {
+            return "Order received";
+        }
+        if (value.length() > 120) {
+            throw new IllegalArgumentException("vendorOrderAlertMessage must be at most 120 characters");
+        }
+        return value;
     }
 }

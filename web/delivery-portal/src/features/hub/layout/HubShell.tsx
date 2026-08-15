@@ -54,6 +54,7 @@ const styles: Record<string, CSSProperties> = {
     bottom: 0,
     width: '100%',
     maxWidth: 'var(--shell-max)',
+    minHeight: 'calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px))',
     height: 'calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px))',
     paddingBottom: 'env(safe-area-inset-bottom, 0px)',
     display: 'grid',
@@ -62,6 +63,7 @@ const styles: Record<string, CSSProperties> = {
     borderTop: '1px solid var(--border)',
     zIndex: 50,
     boxShadow: '0 -4px 20px rgba(0,0,0,0.06)',
+    boxSizing: 'border-box',
   },
   tab: {
     display: 'grid',

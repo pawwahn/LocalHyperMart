@@ -16,6 +16,7 @@ const FILTERS: Array<{ value: string; label: string }> = [
 ];
 
 type PromptState =
+  | { kind: 'markReady'; subOrderId: string; label: string }
   | { kind: 'reject'; subOrderId: string }
   | { kind: 'cancelItemAsk'; subOrderId: string; itemId: string; itemName: string }
   | { kind: 'cancelItem'; subOrderId: string; itemId: string; itemName: string }
@@ -70,7 +71,7 @@ export function DashboardPage({ active = true }: { active?: boolean }) {
 
   const dialogBusy = Boolean(
     prompt &&
-      (prompt.kind === 'reject'
+      (prompt.kind === 'markReady' || prompt.kind === 'reject'
         ? actionId === prompt.subOrderId
         : prompt.kind === 'cancelItem' || prompt.kind === 'restoreItem'
           ? actionId === `${prompt.subOrderId}:${prompt.itemId}` ||
@@ -122,7 +123,7 @@ export function DashboardPage({ active = true }: { active?: boolean }) {
           <SubOrderList
             orders={orders}
             actionId={actionId}
-            onReady={(id) => void markReady(id)}
+            onReady={(id, label) => setPrompt({ kind: 'markReady', subOrderId: id, label })}
             onReject={(id) => setPrompt({ kind: 'reject', subOrderId: id })}
             onCancelItem={(subOrderId, itemId, itemName) =>
               setPrompt({ kind: 'cancelItemAsk', subOrderId, itemId, itemName })
@@ -134,6 +135,26 @@ export function DashboardPage({ active = true }: { active?: boolean }) {
         )}
       </section>
 
+      <ConfirmDialog
+        open={prompt?.kind === 'markReady'}
+        title="Bag packed and ready?"
+        description={
+          prompt?.kind === 'markReady'
+            ? `Order ${prompt.label}. Tap YES only if the bag is packed and waiting for the delivery agent.`
+            : 'Tap YES only if the bag is packed and waiting for the delivery agent.'
+        }
+        confirmLabel="YES — mark ready"
+        cancelLabel="NO — still packing"
+        busy={dialogBusy}
+        onClose={() => {
+          if (!dialogBusy) setPrompt(null);
+        }}
+        onConfirm={() => {
+          if (prompt?.kind !== 'markReady') return;
+          const id = prompt.subOrderId;
+          void markReady(id).then(() => setPrompt(null));
+        }}
+      />
       <ConfirmDialog
         open={prompt?.kind === 'cancelItemAsk'}
         title={

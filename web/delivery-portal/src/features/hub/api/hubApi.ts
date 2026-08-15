@@ -28,8 +28,14 @@ export type AdminOrderDto = {
   totalAmount: number;
   placedAt?: string;
   subOrderCount: number;
+  rejectedSubOrderCount?: number;
   readySubOrderCount: number;
   atHubSubOrderCount?: number;
+  assignments?: Array<{
+    legType: string;
+    status: string;
+    subOrderNumber?: string | null;
+  }>;
 };
 
 export type AdminOrderDetailDto = {
@@ -57,6 +63,13 @@ export type AdminOrderDetailDto = {
       lineTotal?: number;
       status?: string;
     }>;
+    vendorAlert?: {
+      alertId: string;
+      status: string;
+      message?: string | null;
+      createdAt?: string | null;
+      acknowledgedAt?: string | null;
+    } | null;
   }>;
   assignments: Array<{
     assignmentId: string;
@@ -119,6 +132,12 @@ export type HubDashboardView = {
   lastMileAssigned: number;
 };
 
+export type OrderAssignmentHint = {
+  legType: string;
+  status: string;
+  subOrderNumber?: string | null;
+};
+
 export type OrderRowView = {
   id: string;
   orderNumber: string;
@@ -126,9 +145,11 @@ export type OrderRowView = {
   paymentStatus: string;
   totalLabel: string;
   subOrderCount: number;
+  rejectedSubOrderCount: number;
   readySubOrderCount: number;
   atHubSubOrderCount: number;
   pickupReadiness: 'none' | 'partial' | 'all';
+  assignments: OrderAssignmentHint[];
 };
 
 export type SubOrderItemView = {
@@ -136,6 +157,13 @@ export type SubOrderItemView = {
   quantity: number;
   unitCode?: string;
   lineTotalLabel?: string;
+};
+
+export type VendorAlertView = {
+  alertId: string;
+  status: 'PENDING' | 'ACKNOWLEDGED' | string;
+  createdAt?: string | null;
+  acknowledgedAt?: string | null;
 };
 
 export type SubOrderRowView = {
@@ -147,6 +175,7 @@ export type SubOrderRowView = {
   itemCount: number;
   vendorId: string;
   items: SubOrderItemView[];
+  vendorAlert?: VendorAlertView | null;
 };
 
 function money(v: number | null | undefined): string {
@@ -170,9 +199,21 @@ export function toHubDashboardView(dto: HubDashboardDto): HubDashboardView {
 export function toOrderRow(dto: AdminOrderDto): OrderRowView {
   const ready = dto.readySubOrderCount ?? 0;
   const total = dto.subOrderCount ?? 0;
-  const atHub = dto.atHubSubOrderCount ?? 0;
+  const rejected = dto.rejectedSubOrderCount ?? 0;
+  const assignments = dto.assignments ?? [];
+  const atHubFromAssignments = assignments.filter(
+    (a) => a.legType === 'PICKUP' && a.status === 'COMPLETED',
+  ).length;
+  const atHub = Math.max(dto.atHubSubOrderCount ?? 0, Math.min(atHubFromAssignments, total));
+  const readyForShop = Math.max(0, ready - Math.min(ready, atHub));
   const pickupReadiness: OrderRowView['pickupReadiness'] =
-    ready <= 0 ? 'none' : ready >= total ? 'all' : 'partial';
+    atHub >= total && total > 0
+      ? 'none'
+      : readyForShop <= 0
+        ? 'none'
+        : readyForShop >= Math.max(0, total - atHub)
+          ? 'all'
+          : 'partial';
   return {
     id: dto.orderId,
     orderNumber: dto.orderNumber,
@@ -180,9 +221,11 @@ export function toOrderRow(dto: AdminOrderDto): OrderRowView {
     paymentStatus: dto.paymentStatus,
     totalLabel: money(dto.totalAmount),
     subOrderCount: total,
-    readySubOrderCount: ready,
+    rejectedSubOrderCount: rejected,
+    readySubOrderCount: readyForShop,
     atHubSubOrderCount: atHub,
     pickupReadiness,
+    assignments,
   };
 }
 
@@ -405,6 +448,18 @@ export async function updateHubAgentStatus(
     method: 'PATCH',
     token,
     body: { status },
+  });
+}
+
+export async function alertVendor(
+  token: string,
+  townId: string,
+  subOrderId: string,
+): Promise<{ alertId: string; status: string }> {
+  return apiRequest(`/api/v1/orders/admin/sub-orders/${subOrderId}/alerts?townId=${townId}`, {
+    method: 'POST',
+    token,
+    body: {},
   });
 }
 

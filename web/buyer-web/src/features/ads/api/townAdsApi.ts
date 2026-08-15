@@ -54,7 +54,7 @@ export function apiAdToCreative(ad: TownAdDto): AdCreative {
     sponsor: ad.shopName,
     title: ad.headline,
     subtitle: ad.bodyText || '',
-    ctaLabel: ad.ctaLabel || 'Shop now',
+    ctaLabel: ad.ctaLabel ?? '',
     tint: SLOT_TINTS[slot] ?? SLOT_TINTS.home_hero,
     emoji: '🛍️',
     imageUrl: imageUrls[0],

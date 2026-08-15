@@ -18,11 +18,6 @@ function formatDay(iso?: string): string {
   }
 }
 
-function shortOrderNo(orderNumber: string): string {
-  const parts = orderNumber.split('/');
-  return parts[parts.length - 1] || orderNumber;
-}
-
 function shortTitle(tx: WalletTransactionDto): string {
   const ref = (tx.referenceType ?? '').toUpperCase();
   if (ref === 'ORDER_CHECKOUT') return 'Checkout';
@@ -39,7 +34,7 @@ function shortTitle(tx: WalletTransactionDto): string {
 
 function rowLabel(tx: WalletTransactionDto): string {
   const parts = [shortTitle(tx)];
-  if (tx.orderNumber) parts.push(shortOrderNo(tx.orderNumber));
+  if (tx.orderNumber) parts.push(tx.orderNumber);
   const day = formatDay(tx.createdAt);
   if (day) parts.push(day);
   return parts.join(' · ');

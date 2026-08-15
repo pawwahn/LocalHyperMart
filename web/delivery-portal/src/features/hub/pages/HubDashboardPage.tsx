@@ -8,6 +8,8 @@ import { formatPortalTime } from '@/shared/time/formatPortalTime';
 import { HubShell } from '../layout/HubShell';
 import { useHubWorkspace, type HubOrderTab } from '../hooks/useHubWorkspace';
 import { AgentPickDialog } from '../components/AgentPickDialog';
+import { ConfirmAtHubDialog } from '../components/ConfirmAtHubDialog';
+import { ConfirmVendorAlertDialog } from '../components/ConfirmVendorAlertDialog';
 import type { OrderRowView } from '../api/hubApi';
 
 type AgentPrompt =
@@ -16,99 +18,185 @@ type AgentPrompt =
   | { kind: 'reassign'; assignmentId: string; currentAgentId: string; label: string }
   | null;
 
-type PickupUiState = 'awaiting_vendor' | 'ready' | 'agent_assigned' | 'agent_collecting' | 'at_hub';
+type AtHubPrompt = { subOrderId: string; shopName: string } | null;
+type AlertPrompt = { subOrderId: string; shopName: string; bagNumber: string } | null;
+
+type PickupUiState =
+  | 'awaiting_vendor'
+  | 'ready'
+  | 'agent_assigned'
+  | 'agent_collecting'
+  | 'at_hub'
+  | 'rejected';
+
+function isActiveSubOrder(status: string): boolean {
+  return status !== 'VENDOR_REJECTED';
+}
 
 function vendorLegState(
   status: string,
   assignment?: { status: string },
 ): PickupUiState {
+  if (status === 'VENDOR_REJECTED') return 'rejected';
   if (status === 'DELIVERED') return 'at_hub';
   if (status === 'PLACED') return 'awaiting_vendor';
   if (assignment?.status === 'COMPLETED') return 'at_hub';
   if (assignment?.status === 'IN_PROGRESS') return 'agent_collecting';
   if (assignment?.status === 'ASSIGNED') return 'agent_assigned';
   if (status === 'READY_FOR_PICKUP') return 'ready';
-  return 'at_hub';
+  return 'awaiting_vendor';
 }
 
 function subOrderCardStyle(state: PickupUiState): CSSProperties {
   if (state === 'ready') return { ...styles.card, ...styles.cardReady };
   if (state === 'awaiting_vendor') return { ...styles.card, ...styles.cardWaiting };
   if (state === 'at_hub') return { ...styles.card, ...styles.cardAtHub };
+  if (state === 'rejected') return { ...styles.card, ...styles.cardRejected };
   return { ...styles.card, ...styles.cardInProgress };
 }
 
-function orderWhatToDo(order: OrderRowView): {
-  label: string;
-  shortLabel: string;
-  tone: 'wait' | 'go' | 'partial' | 'done';
-} {
+type HubPhase = {
+  /** Short status on the left list (not a button). */
+  listStatus: string;
+  /** Same idea, one clear line on the right. */
+  detailNow: string;
+  /** Primary tap label — only when hub staff must act. */
+  doButton: string | null;
+  tone: 'wait' | 'go' | 'partial' | 'done' | 'progress';
+};
+
+/** One shared story for list + detail — simple words for hub staff. */
+function hubPhase(order: OrderRowView): HubPhase {
   if (order.status === 'DELIVERED') {
-    return { label: 'Delivered to customer ✓', shortLabel: 'Delivered', tone: 'done' };
+    return {
+      listStatus: 'Done',
+      detailNow: 'Order finished. Customer has the bag.',
+      doButton: null,
+      tone: 'done',
+    };
   }
   if (order.status === 'CANCELLED') {
-    return { label: 'Cancelled', shortLabel: 'Cancelled', tone: 'wait' };
+    return {
+      listStatus: 'Cancelled',
+      detailNow: 'Order cancelled. Nothing to do.',
+      doButton: null,
+      tone: 'wait',
+    };
   }
 
   const total = order.subOrderCount;
   const ready = order.readySubOrderCount;
   const atHub = order.atHubSubOrderCount;
+  const assignments = order.assignments ?? [];
+  const lastMile = assignments.find((a) => a.legType === 'LAST_MILE');
+  const pickupInProgress = assignments.some(
+    (a) => a.legType === 'PICKUP' && a.status === 'IN_PROGRESS',
+  );
+  const pickupAssigned = assignments.some(
+    (a) => a.legType === 'PICKUP' && a.status === 'ASSIGNED',
+  );
 
-  // All bags already at hub → next action is last-mile home delivery.
   if (total > 0 && atHub >= total) {
+    if (lastMile?.status === 'IN_PROGRESS') {
+      return {
+        listStatus: 'WAIT · Going to customer',
+        detailNow: 'Wait. Agent is taking the order to the customer home.',
+        doButton: null,
+        tone: 'progress',
+      };
+    }
+    if (lastMile?.status === 'ASSIGNED') {
+      return {
+        listStatus: 'WAIT · Agent for home',
+        detailNow: 'Wait. Agent is assigned for home. They will leave the hub soon.',
+        doButton: null,
+        tone: 'progress',
+      };
+    }
     return {
-      label: 'All bags at hub — send home',
-      shortLabel: 'Send home',
+      listStatus: 'DO · Send home',
+      detailNow: 'All bags are at hub. Your next tap: send agent to customer home.',
+      doButton: 'Send agent to home',
       tone: 'go',
     };
   }
 
-  // Some bags at hub, others still en route / packing.
-  if (atHub > 0 && atHub < total) {
+  if (pickupInProgress) {
     return {
-      label: `${atHub} of ${total} bags at hub — keep bringing to hub`,
-      shortLabel: `${atHub}/${total} at hub`,
+      listStatus: 'DO · Bag at hub',
+      detailNow: 'Agent already took the bag from shop. When bag reaches hub, tap below.',
+      doButton: 'Bag reached hub ✓',
+      tone: 'go',
+    };
+  }
+
+  if (atHub > 0 && atHub < total) {
+    if (pickupAssigned) {
+      return {
+        listStatus: 'WAIT · More bags',
+        detailNow: `${atHub} of ${total} bags at hub. Wait for agent at the other shop.`,
+        doButton: null,
+        tone: 'progress',
+      };
+    }
+    if (ready > 0) {
+      return {
+        listStatus: 'DO · Send to shop',
+        detailNow: `${atHub} of ${total} bags at hub. Send agent to the shop that is ready.`,
+        doButton: 'Send agent to shop',
+        tone: 'partial',
+      };
+    }
+    return {
+      listStatus: 'WAIT · More bags',
+      detailNow: `${atHub} of ${total} bags at hub. Wait for other shops to pack.`,
+      doButton: null,
       tone: 'partial',
+    };
+  }
+
+  if (pickupAssigned) {
+    return {
+      listStatus: 'WAIT · Agent to shop',
+      detailNow: 'Wait. Agent is going to the shop to take the bag.',
+      doButton: null,
+      tone: 'progress',
     };
   }
 
   if (order.pickupReadiness === 'none') {
     return {
-      label: 'Shop is still packing — wait',
-      shortLabel: 'Packing',
+      listStatus: 'WAIT · Shop packing',
+      detailNow: 'Wait. Shop is still packing. Do not send agent yet.',
+      doButton: null,
       tone: 'wait',
     };
   }
-  if (order.pickupReadiness === 'partial') {
-    return {
-      label: `${ready} shop ready — send delivery agent to bring to hub`,
-      shortLabel: `${ready} ready`,
-      tone: 'partial',
-    };
-  }
-  // All shops packed, bags not yet at hub.
+
   return {
-    label: 'All shops ready — bring to hub',
-    shortLabel: 'Bring to hub',
-    tone: 'go',
+    listStatus: 'DO · Send to shop',
+    detailNow: 'Shop packed the bag. Your next tap: send agent to shop.',
+    doButton: 'Send agent to shop',
+    tone: ready > 0 && ready < total ? 'partial' : 'go',
   };
 }
 
 function orderRowStyle(order: OrderRowView, selected: boolean): CSSProperties {
   const base = selected ? styles.orderActive : styles.order;
+  const phase = hubPhase(order);
   if (order.status === 'DELIVERED') {
     return { ...base, borderColor: 'var(--success)', background: 'rgba(129, 199, 132, 0.1)' };
   }
   if (order.status === 'CANCELLED') {
     return { ...base, borderColor: 'var(--border)', background: 'var(--bg-muted)' };
   }
-  if (order.subOrderCount > 0 && order.atHubSubOrderCount >= order.subOrderCount) {
+  if (phase.tone === 'progress') {
+    return { ...base, borderColor: 'var(--warning)', background: 'rgba(255, 183, 77, 0.12)' };
+  }
+  if (phase.tone === 'go') {
     return { ...base, borderColor: 'var(--success)', background: 'rgba(129, 199, 132, 0.1)' };
   }
-  if (order.pickupReadiness === 'all') {
-    return { ...base, borderColor: 'var(--success)', background: 'rgba(129, 199, 132, 0.1)' };
-  }
-  if (order.pickupReadiness === 'partial' || order.atHubSubOrderCount > 0) {
+  if (phase.tone === 'partial' || order.atHubSubOrderCount > 0) {
     return { ...base, borderColor: 'var(--warning)', background: 'rgba(255, 183, 77, 0.1)' };
   }
   return { ...base, borderColor: 'var(--danger)', background: 'rgba(229, 115, 115, 0.08)' };
@@ -117,15 +205,17 @@ function orderRowStyle(order: OrderRowView, selected: boolean): CSSProperties {
 function vendorLegStatusLabel(state: PickupUiState): string {
   switch (state) {
     case 'awaiting_vendor':
-      return 'Packing';
+      return 'Shop packing';
     case 'ready':
-      return 'Ready';
+      return 'Shop ready';
     case 'agent_assigned':
-      return 'To shop';
+      return 'Agent going to shop';
     case 'agent_collecting':
-      return 'To hub';
+      return 'Bag coming to hub';
     case 'at_hub':
-      return 'At hub';
+      return 'Bag at hub';
+    case 'rejected':
+      return 'Shop cancelled';
   }
 }
 
@@ -137,23 +227,22 @@ type VendorLegAction =
 function vendorLegAction(state: PickupUiState): VendorLegAction {
   switch (state) {
     case 'ready':
-      return { kind: 'assign', label: 'Send agent' };
+      return { kind: 'assign', label: 'Send agent to shop' };
     case 'agent_collecting':
-      return { kind: 'confirm', label: 'Bag at hub ✓' };
+      return { kind: 'confirm', label: 'Bag reached hub ✓' };
     default:
       return { kind: 'none' };
   }
 }
 
-/** Short hint only when there is no primary button yet. */
 function vendorLegHint(state: PickupUiState): string | null {
   switch (state) {
     case 'awaiting_vendor':
-      return 'wait for shop';
+      return 'wait — shop packing';
     case 'agent_assigned':
-      return 'delivery agent heading to shop';
-    case 'at_hub':
-      return null;
+      return 'wait — agent going to shop';
+    case 'rejected':
+      return 'not needed';
     default:
       return null;
   }
@@ -175,15 +264,39 @@ function assignmentStatusPlain(status: string): string {
 }
 
 function allVendorPickupsComplete(
-  subOrders: { subOrderNumber: string }[],
+  subOrders: { subOrderNumber: string; status: string }[],
   assignments: Array<{ legType: string; status: string; subOrderNumber?: string | null }>,
 ): boolean {
-  if (subOrders.length === 0) return false;
-  return subOrders.every((sub) =>
-    assignments.some(
-      (a) => a.legType === 'PICKUP' && a.status === 'COMPLETED' && a.subOrderNumber === sub.subOrderNumber,
-    ),
+  const active = subOrders.filter((sub) => isActiveSubOrder(sub.status));
+  if (active.length === 0) return false;
+  return active.every(
+    (sub) =>
+      sub.status === 'DELIVERED' ||
+      assignments.some(
+        (a) =>
+          a.legType === 'PICKUP' &&
+          a.status === 'COMPLETED' &&
+          a.subOrderNumber === sub.subOrderNumber,
+      ),
   );
+}
+
+function countBagsAtHub(
+  subOrders: { subOrderNumber: string; status: string }[],
+  assignments: Array<{ legType: string; status: string; subOrderNumber?: string | null }>,
+): { atHub: number; active: number } {
+  const active = subOrders.filter((sub) => isActiveSubOrder(sub.status));
+  const atHub = active.filter(
+    (sub) =>
+      sub.status === 'DELIVERED' ||
+      assignments.some(
+        (a) =>
+          a.legType === 'PICKUP' &&
+          a.status === 'COMPLETED' &&
+          a.subOrderNumber === sub.subOrderNumber,
+      ),
+  ).length;
+  return { atHub, active: active.length };
 }
 
 function lastMileAssignment(
@@ -235,16 +348,23 @@ export function HubDashboardPage() {
     doMarkAtHub,
     doAssignLastMile,
     doReassign,
+    doAlertVendor,
   } = useHubWorkspace();
 
   const isMobile = useIsMobile();
   const detailRef = useRef<HTMLDivElement>(null);
   const showMobileDetail = isMobile && Boolean(detail);
   const [agentPrompt, setAgentPrompt] = useState<AgentPrompt>(null);
+  const [atHubPrompt, setAtHubPrompt] = useState<AtHubPrompt>(null);
+  const [alertPrompt, setAlertPrompt] = useState<AlertPrompt>(null);
+  const [alertError, setAlertError] = useState<string | null>(null);
   const [openItemBags, setOpenItemBags] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     setOpenItemBags({});
+    setAtHubPrompt(null);
+    setAlertPrompt(null);
+    setAlertError(null);
   }, [selectedOrderId]);
 
   useEffect(() => {
@@ -281,60 +401,47 @@ export function HubDashboardPage() {
     >
       {loading && !dashboard ? <p style={styles.muted}>Loading…</p> : null}
 
-      <section style={styles.howto} aria-label="How delivery works">
-        <p style={styles.howtoTitle}>How it works (3 steps)</p>
-        <div style={isMobile ? styles.howtoStepsMobile : styles.howtoSteps}>
-          <div style={styles.howtoStep}>
-            <span style={styles.howtoNum}>1</span>
-            <div>
-              <strong>Shop packs</strong>
-              <p style={styles.howtoText}>Shop packs the bag</p>
-            </div>
-          </div>
-          <div style={styles.howtoStep}>
-            <span style={styles.howtoNum}>2</span>
-            <div>
-              <strong>Bring to hub</strong>
-              <p style={styles.howtoText}>Delivery agent brings bag to hub</p>
-            </div>
-          </div>
-          <div style={styles.howtoStep}>
-            <span style={styles.howtoNum}>3</span>
-            <div>
-              <strong>Send home</strong>
-              <p style={styles.howtoText}>Delivery agent takes order to customer</p>
-            </div>
-          </div>
-        </div>
-      </section>
+      {!isMobile ? (
+        <section style={styles.howto} aria-label="How delivery works">
+          <p style={styles.howtoTitle}>Simple rule</p>
+          <p style={styles.howtoText}>
+            Tap an order on the left. On the right, follow <strong>YOU DO THIS</strong> or{' '}
+            <strong>ONLY WAIT</strong>.
+          </p>
+        </section>
+      ) : (
+        <p style={styles.howtoMobile}>
+          Tap an order → follow <strong>YOU DO THIS</strong> or <strong>ONLY WAIT</strong>.
+        </p>
+      )}
 
       {dashboard ? (
         <section style={isMobile ? styles.statsMobile : styles.stats} aria-label="Today numbers">
           <Stat
             icon="🛍️"
             value={String(dashboard.readyForPickup)}
-            title="Bags ready at shop"
+            title="Ready at shop"
             help="Shop packed — send delivery agent to shop"
             tone="go"
           />
           <Stat
             icon="🏠"
             value={String(dashboard.awaitingDelivery)}
-            title="Orders still open"
+            title="Still open"
             help="Not finished — customer waiting"
             tone="info"
           />
           <Stat
             icon="🛵"
             value={String(dashboard.activeAgents)}
-            title="Agents available"
+            title="Agents free"
             help="Delivery agents ready for work"
             tone="ok"
           />
           <Stat
             icon="📦"
             value={String(dashboard.activeAssignments)}
-            title="Agents on a trip"
+            title="On a trip"
             help="Already going to shop or home"
             tone="warn"
           />
@@ -347,7 +454,7 @@ export function HubDashboardPage() {
       <section style={isMobile ? styles.splitMobile : styles.split}>
         {!showMobileDetail ? (
           <div>
-            <h2 style={styles.h2}>Order list</h2>
+            <h2 style={isMobile ? styles.h2Mobile : styles.h2}>Order list</h2>
             <WorklistToolbar
               tabs={hubTabs}
               activeTab={orderTab}
@@ -357,10 +464,10 @@ export function HubDashboardPage() {
               searchPlaceholder="Type order number here…"
               hint={
                 orderTab === 'action'
-                  ? 'These orders have at least one shop ready. You can send a delivery agent for the ready shop. Other shops in the same order may still be packing.'
+                  ? 'Orders that need your work. Tap one to open.'
                   : orderTab === 'vendor-wait'
-                    ? 'No shop has packed yet on these orders. Wait — do not send a delivery agent yet.'
-                    : 'All open orders in this town (not delivered yet). Your work + Shop packing cover waiting/action; this tab also includes orders already at hub or going home.'
+                    ? 'Shops still packing. Wait — do not send agent.'
+                    : 'All open orders.'
               }
             />
             <div style={styles.list}>
@@ -378,40 +485,25 @@ export function HubDashboardPage() {
                 </p>
               ) : (
                 orders.map((o) => {
-                  const what = orderWhatToDo(o);
-                  const packLabel =
-                    o.status === 'DELIVERED'
-                      ? 'Done'
-                      : o.status === 'CANCELLED'
-                        ? 'Cancelled'
-                        : o.atHubSubOrderCount >= o.subOrderCount && o.subOrderCount > 0
-                          ? `${o.atHubSubOrderCount}/${o.subOrderCount} hub`
-                          : o.atHubSubOrderCount > 0
-                            ? `${o.atHubSubOrderCount} hub · ${o.readySubOrderCount} ready`
-                            : `${o.readySubOrderCount}/${o.subOrderCount} packed`;
+                  const phase = hubPhase(o);
                   return (
                     <button
                       key={o.id}
                       type="button"
                       style={orderRowStyle(o, selectedOrderId === o.id)}
                       onClick={() => void openOrder(o.id)}
-                      title={`${o.orderNumber} · ${what.label}`}
+                      title={`${o.orderNumber} · ${phase.detailNow}`}
                     >
                       <strong style={styles.orderNo}>{o.orderNumber}</strong>
-                      <span
-                        style={
-                          what.tone === 'done' || what.tone === 'go'
-                            ? styles.badgeReady
-                            : what.tone === 'partial'
-                              ? styles.badgePartial
-                              : styles.badgeWaiting
-                        }
-                      >
-                        {what.shortLabel}
-                      </span>
                       <span style={styles.orderMeta}>
                         {o.totalLabel} · {o.subOrderCount} bag
-                        {o.subOrderCount === 1 ? '' : 's'} · {packLabel}
+                        {o.subOrderCount === 1 ? '' : 's'}
+                        {o.rejectedSubOrderCount > 0
+                          ? ` · ${o.rejectedSubOrderCount} shop rejected`
+                          : ''}
+                        {o.atHubSubOrderCount > 0
+                          ? ` · ${o.atHubSubOrderCount}/${o.subOrderCount} at hub`
+                          : ''}
                       </span>
                     </button>
                   );
@@ -439,7 +531,7 @@ export function HubDashboardPage() {
             ) : null}
           </div>
           {!detail ? (
-            <p style={styles.emptyBox}>← Tap an order to see what to do.</p>
+            <p style={styles.emptyBox}>← Tap an order on the left. Then do the big button here.</p>
           ) : (
             <div style={styles.detail}>
               <div style={styles.detailTop}>
@@ -450,6 +542,31 @@ export function HubDashboardPage() {
                   {detail.deliveredAt ? ` · delivered ${formatPortalTime(detail.deliveredAt)}` : ''}
                 </p>
               </div>
+              {(() => {
+                const selectedRow = orders.find((o) => o.id === detail.orderId);
+                const phase = selectedRow
+                  ? hubPhase(selectedRow)
+                  : {
+                      listStatus: '',
+                      detailNow: 'Loading…',
+                      doButton: null as string | null,
+                      tone: 'wait' as const,
+                    };
+                return (
+                  <div
+                    style={
+                      phase.doButton
+                        ? styles.nextStepGo
+                        : phase.tone === 'progress' || phase.tone === 'partial'
+                          ? styles.nextStepWait
+                          : styles.nextStepWait
+                    }
+                  >
+                    <p style={styles.nextStepLabel}>{phase.doButton ? 'YOU DO THIS' : 'ONLY WAIT'}</p>
+                    <p style={styles.nextStepText}>{phase.detailNow}</p>
+                  </div>
+                );
+              })()}
               {detail.status === 'DELIVERED' ? (
                 <p style={styles.deliveredBanner}>Delivered ✓ — nothing left to do</p>
               ) : null}
@@ -470,6 +587,8 @@ export function HubDashboardPage() {
                   const hint = vendorLegHint(legState);
                   const canAssignPickup = !busy && action.kind === 'assign';
                   const canMarkAtHub = !busy && action.kind === 'confirm';
+                  const alertPending = s.vendorAlert?.status === 'PENDING';
+                  const canAlertVendor = !busy && legState === 'awaiting_vendor' && !alertPending;
                   const canChangeBoy =
                     Boolean(vendorPickup) &&
                     (vendorPickup?.status === 'ASSIGNED' || vendorPickup?.status === 'IN_PROGRESS') &&
@@ -477,9 +596,13 @@ export function HubDashboardPage() {
                   const pillStyle =
                     legState === 'at_hub'
                       ? styles.statusPillDone
-                      : legState === 'ready' || legState === 'agent_collecting'
-                        ? styles.statusPillActive
-                        : styles.statusPill;
+                      : legState === 'rejected'
+                        ? styles.statusPillRejected
+                        : legState === 'agent_assigned'
+                          ? styles.statusPillGoing
+                          : legState === 'ready' || legState === 'agent_collecting'
+                            ? styles.statusPillActive
+                            : styles.statusPill;
                   return (
                     <div key={s.id} style={subOrderCardStyle(legState)}>
                       <div style={styles.cardHead}>
@@ -534,7 +657,7 @@ export function HubDashboardPage() {
                           />
                         </div>
                       ) : null}
-                      {action.kind !== 'none' || canChangeBoy ? (
+                      {action.kind !== 'none' || canChangeBoy || canAlertVendor || alertPending || s.vendorAlert ? (
                         <div style={styles.rowActions}>
                           {canChangeBoy && vendorPickup ? (
                             <button
@@ -572,11 +695,36 @@ export function HubDashboardPage() {
                                   });
                                   return;
                                 }
-                                void doMarkAtHub(s.id);
+                                setAtHubPrompt({ subOrderId: s.id, shopName: s.shopName });
                               }}
                             >
                               {action.label}
                             </button>
+                          ) : null}
+                          {legState === 'awaiting_vendor' ? (
+                            alertPending ? (
+                              <span style={styles.alertWaiting}>Waiting for vendor notice</span>
+                            ) : (
+                              <button
+                                type="button"
+                                style={{ ...styles.alertVendorBtn, opacity: busy ? 0.7 : 1 }}
+                                disabled={!canAlertVendor}
+                                onClick={() =>
+                                  setAlertPrompt({
+                                    subOrderId: s.id,
+                                    shopName: s.shopName,
+                                    bagNumber: s.subOrderNumber,
+                                  })
+                                }
+                              >
+                                Alert vendor
+                              </button>
+                            )
+                          ) : null}
+                          {s.vendorAlert?.status === 'ACKNOWLEDGED' && s.vendorAlert.acknowledgedAt && !alertPending ? (
+                            <span style={styles.alertNoticed}>
+                              Noticed {formatPortalTime(s.vendorAlert.acknowledgedAt)}
+                            </span>
                           ) : null}
                         </div>
                       ) : null}
@@ -585,57 +733,79 @@ export function HubDashboardPage() {
                 })}
               </div>
 
-              <div style={{ ...styles.legSection, marginTop: '0.55rem' }}>
-                <p style={styles.legTitle}>
-                  <span style={styles.legBuyer}>2 · Home delivery</span>
-                </p>
-                {detail.status === 'DELIVERED' ? (
-                  <div style={styles.lastMileCard}>
-                    <p style={styles.meta}>Already at customer home.</p>
-                  </div>
-                ) : (
-                  (() => {
-                    const assignments = detail.assignments ?? [];
-                    const vendorLegDone = allVendorPickupsComplete(subOrders, assignments);
-                    const lastMile = lastMileAssignment(assignments);
-                    const atHubCount = subOrders.filter((s) =>
-                      assignments.some(
-                        (a) =>
-                          a.legType === 'PICKUP' &&
-                          a.status === 'COMPLETED' &&
-                          a.subOrderNumber === s.subOrderNumber,
-                      ),
-                    ).length;
-                    const lastMileDone = lastMile?.status === 'COMPLETED';
-                    const canAssignDelivery = vendorLegDone && !busy && !lastMile;
-                    return (
+              {(() => {
+                const assignments = detail.assignments ?? [];
+                const vendorLegDone =
+                  detail.status === 'DELIVERED' ||
+                  allVendorPickupsComplete(subOrders, assignments);
+                const lastMile = lastMileAssignment(assignments);
+                const { atHub: atHubCount, active: activeBagCount } = countBagsAtHub(
+                  subOrders,
+                  assignments,
+                );
+                const lastMileDone = lastMile?.status === 'COMPLETED';
+                const canAssignDelivery = vendorLegDone && !busy && !lastMile && detail.status !== 'DELIVERED';
+                const homeActive = vendorLegDone || Boolean(lastMile) || detail.status === 'DELIVERED';
+
+                if (!homeActive) {
+                  return (
+                    <div style={styles.legSectionCollapsed}>
+                      <span style={styles.legBuyer}>2 · Home delivery</span>
+                      <span style={styles.legCollapsedHint}>
+                        Later · bags at hub {atHubCount}/{activeBagCount}
+                      </span>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div style={{ ...styles.legSection, marginTop: '0.55rem' }}>
+                    <p style={styles.legTitle}>
+                      <span style={styles.legBuyer}>2 · Home delivery</span>
+                    </p>
+                    {detail.status === 'DELIVERED' ? (
+                      <div style={styles.lastMileCard}>
+                        <p style={styles.meta}>Already at customer home.</p>
+                      </div>
+                    ) : (
                       <div style={styles.lastMileCard}>
                         <p style={styles.meta}>
                           {lastMileDone
-                            ? 'Delivered at home.'
-                            : vendorLegDone
-                              ? 'All bags at hub — send a delivery agent home.'
-                              : `Waiting for bags (${atHubCount}/${subOrders.length} at hub).`}
+                            ? 'Delivered at customer home.'
+                            : lastMile
+                              ? lastMile.status === 'IN_PROGRESS'
+                                ? 'Wait — agent is going to customer home.'
+                                : 'Wait — agent assigned for home. They will leave hub soon.'
+                              : 'All bags at hub. Tap the button to send agent home.'}
                         </p>
-                        <button
-                          type="button"
-                          style={canAssignDelivery ? styles.deliveryReady : styles.deliveryWaiting}
-                          disabled={!canAssignDelivery}
-                          onClick={() =>
-                            setAgentPrompt({
-                              kind: 'lastMile',
-                              orderId: detail.orderId,
-                              orderNumber: detail.orderNumber,
-                            })
-                          }
-                        >
-                          {lastMile
-                            ? `Agent en route (${assignmentStatusPlain(lastMile.status)})`
-                            : 'Send agent home'}
-                        </button>
+                        {canAssignDelivery ? (
+                          <button
+                            type="button"
+                            style={styles.deliveryReady}
+                            onClick={() =>
+                              setAgentPrompt({
+                                kind: 'lastMile',
+                                orderId: detail.orderId,
+                                orderNumber: detail.orderNumber,
+                              })
+                            }
+                          >
+                            Send agent to home
+                          </button>
+                        ) : lastMile && !lastMileDone ? (
+                          <p style={styles.statusInProgress}>
+                            {lastMile.status === 'IN_PROGRESS'
+                              ? 'Going to customer'
+                              : 'Agent assigned for home'}
+                            {' · '}
+                            {agentLabel(lastMile.agentId)}
+                          </p>
+                        ) : null}
                         {lastMile ? (
                           <>
-                            <p style={styles.boyLine}>{agentLabel(lastMile.agentId)}</p>
+                            {lastMileDone ? (
+                              <p style={styles.boyLine}>{agentLabel(lastMile.agentId)}</p>
+                            ) : null}
                             <ActionTimeline
                               compact
                               events={lastMile.events}
@@ -664,10 +834,10 @@ export function HubDashboardPage() {
                           </>
                         ) : null}
                       </div>
-                    );
-                  })()
-                )}
-              </div>
+                    )}
+                  </div>
+                );
+              })()}
 
               {(detail.assignments ?? []).length > 0 ? (
                 <>
@@ -678,64 +848,36 @@ export function HubDashboardPage() {
                   >
                     {showHistory ? 'Hide' : 'Show'} trip list ({(detail.assignments ?? []).length})
                   </button>
-                  {showHistory
-                    ? (detail.assignments ?? []).map((a) => (
-                        <div key={a.assignmentId} style={styles.historyCard}>
-                          <p style={styles.tripHead}>
-                            <span style={assignmentLegStyle(a.legType)}>{legLabel(a.legType)}</span>
-                            <span style={styles.tripBill}>
-                              {' '}
-                              {a.subOrderNumber || a.orderNumber}
-                            </span>
-                            <span style={styles.tripMeta}>
-                              {' · '}
-                              {assignmentStatusPlain(a.status)}
-                              {' · '}
-                              {agentLabel(a.agentId)}
-                            </span>
-                          </p>
-                          <ActionTimeline
-                            events={a.events}
-                            assignedAt={a.assignedAt}
-                            startedAt={a.startedAt}
-                            completedAt={a.completedAt}
-                            resolveAgentName={(id) => agentLabel(id)}
-                          />
-                        </div>
-                      ))
-                    : (() => {
-                        const active = (detail.assignments ?? []).filter(
-                          (a) => a.status === 'ASSIGNED' || a.status === 'IN_PROGRESS',
-                        );
-                        if (active.length === 0) {
-                          return <p style={styles.muted}>No delivery agent is on a trip for this order right now.</p>;
-                        }
-                        return active.map((a) => (
-                          <div key={a.assignmentId} style={styles.historyCard}>
-                            <p style={styles.tripHead}>
-                              <span style={assignmentLegStyle(a.legType)}>{legLabel(a.legType)}</span>
-                              <span style={styles.tripBill}>
-                                {' '}
-                                {a.subOrderNumber || a.orderNumber}
-                              </span>
-                              <span style={styles.tripMeta}>
-                                {' · '}
-                                {assignmentStatusPlain(a.status)}
-                                {' · '}
-                                {agentLabel(a.agentId)}
-                              </span>
-                            </p>
-                            <ActionTimeline
-                              compact
-                              events={a.events}
-                              assignedAt={a.assignedAt}
-                              startedAt={a.startedAt}
-                              completedAt={a.completedAt}
-                              resolveAgentName={(id) => agentLabel(id)}
-                            />
-                          </div>
-                        ));
-                      })()}
+                  {showHistory ? (
+                    (detail.assignments ?? []).map((a) => (
+                      <div key={a.assignmentId} style={styles.historyCard}>
+                        <p style={styles.tripHead}>
+                          <span style={assignmentLegStyle(a.legType)}>{legLabel(a.legType)}</span>
+                          <span style={styles.tripBill}>
+                            {' '}
+                            {a.subOrderNumber || a.orderNumber}
+                          </span>
+                          <span style={styles.tripMeta}>
+                            {' · '}
+                            {assignmentStatusPlain(a.status)}
+                            {' · '}
+                            {agentLabel(a.agentId)}
+                          </span>
+                        </p>
+                        <ActionTimeline
+                          events={a.events}
+                          assignedAt={a.assignedAt}
+                          startedAt={a.startedAt}
+                          completedAt={a.completedAt}
+                          resolveAgentName={(id) => agentLabel(id)}
+                        />
+                      </div>
+                    ))
+                  ) : (
+                    <p style={styles.tripCollapsedHint}>
+                      Tap Show trip list to see Shop → Hub and Hub → Home times.
+                    </p>
+                  )}
                 </>
               ) : null}
             </div>
@@ -743,6 +885,51 @@ export function HubDashboardPage() {
         </div>
         ) : null}
       </section>
+
+      <ConfirmVendorAlertDialog
+        open={Boolean(alertPrompt)}
+        shopName={alertPrompt?.shopName ?? 'Shop'}
+        bagNumber={alertPrompt?.bagNumber}
+        busy={busy}
+        error={alertError}
+        onClose={() => {
+          if (!busy) {
+            setAlertPrompt(null);
+            setAlertError(null);
+          }
+        }}
+        onConfirm={() => {
+          if (!alertPrompt) return;
+          const subOrderId = alertPrompt.subOrderId;
+          setAlertError(null);
+          void (async () => {
+            const ok = await doAlertVendor(subOrderId);
+            if (ok) {
+              setAlertPrompt(null);
+              setAlertError(null);
+            } else {
+              setAlertError('Could not alert the vendor. Check that order-service is running, then try again.');
+            }
+          })();
+        }}
+      />
+
+      <ConfirmAtHubDialog
+        open={Boolean(atHubPrompt)}
+        shopName={atHubPrompt?.shopName ?? 'Shop'}
+        busy={busy}
+        onClose={() => {
+          if (!busy) setAtHubPrompt(null);
+        }}
+        onConfirm={() => {
+          if (!atHubPrompt) return;
+          const subOrderId = atHubPrompt.subOrderId;
+          void (async () => {
+            await doMarkAtHub(subOrderId);
+            setAtHubPrompt(null);
+          })();
+        }}
+      />
 
       <AgentPickDialog
         open={Boolean(agentPrompt)}
@@ -816,15 +1003,12 @@ function Stat({
           ? styles.statOk
           : styles.statInfo;
   return (
-    <div style={{ ...styles.stat, ...toneStyle }}>
-      <div style={styles.statTop}>
-        <span style={styles.statIcon} aria-hidden>
-          {icon}
-        </span>
-        <p style={styles.statValue}>{value}</p>
-      </div>
-      <p style={styles.statTitle}>{title}</p>
-      <p style={styles.statHelp}>{help}</p>
+    <div style={{ ...styles.stat, ...toneStyle }} title={help}>
+      <span style={styles.statIcon} aria-hidden>
+        {icon}
+      </span>
+      <span style={styles.statTitle}>{title}</span>
+      <span style={styles.statValue}>{value}</span>
     </div>
   );
 }
@@ -835,6 +1019,14 @@ const styles: Record<string, CSSProperties> = {
     border: '1px solid var(--border)',
     borderRadius: 'var(--radius-lg)',
     padding: '1rem 1.1rem',
+  },
+  howtoMobile: {
+    margin: 0,
+    padding: '0.35rem 0.15rem',
+    color: 'var(--text-muted)',
+    fontSize: '0.78rem',
+    fontWeight: 650,
+    lineHeight: 1.3,
   },
   howtoTitle: {
     margin: '0 0 0.75rem',
@@ -867,46 +1059,58 @@ const styles: Record<string, CSSProperties> = {
   howtoText: { margin: '0.15rem 0 0', color: 'var(--text-muted)', fontSize: '0.85rem' },
   stats: {
     display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-    gap: '0.85rem',
+    gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
+    gap: '0.4rem',
   },
   statsMobile: {
     display: 'grid',
     gridTemplateColumns: '1fr 1fr',
-    gap: '0.65rem',
+    gap: '0.35rem',
   },
   stat: {
     background: 'var(--bg-elevated)',
     border: '1px solid var(--border)',
-    borderRadius: 'var(--radius-md)',
-    padding: '1rem',
-    display: 'grid',
-    gap: '0.25rem',
+    borderRadius: 8,
+    padding: '0.35rem 0.5rem',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.35rem',
+    minWidth: 0,
   },
   statGo: { borderColor: 'rgba(129, 199, 132, 0.7)', background: 'rgba(129, 199, 132, 0.08)' },
   statInfo: { borderColor: 'rgba(66, 165, 245, 0.5)', background: 'rgba(66, 165, 245, 0.06)' },
   statOk: { borderColor: 'var(--border)' },
   statWarn: { borderColor: 'rgba(255, 183, 77, 0.7)', background: 'rgba(255, 183, 77, 0.08)' },
-  statTop: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' },
-  statIcon: { fontSize: '1.35rem' },
+  statIcon: { fontSize: '0.9rem', lineHeight: 1, flexShrink: 0 },
+  statTitle: {
+    margin: 0,
+    fontWeight: 700,
+    fontSize: '0.72rem',
+    lineHeight: 1.2,
+    minWidth: 0,
+    flex: 1,
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+  },
   statValue: {
     margin: 0,
     fontFamily: 'var(--font-display)',
-    fontSize: '1.85rem',
+    fontSize: '1.05rem',
     fontWeight: 800,
     lineHeight: 1,
+    flexShrink: 0,
   },
-  statTitle: { margin: 0, fontWeight: 800, fontSize: '0.95rem' },
-  statHelp: { margin: 0, color: 'var(--text-muted)', fontSize: '0.8rem', fontWeight: 600 },
   split: {
     display: 'grid',
     gridTemplateColumns: 'minmax(240px, 1fr) minmax(280px, 1.2fr)',
     gap: '1.25rem',
+    alignItems: 'start',
   },
   splitMobile: {
     display: 'grid',
     gridTemplateColumns: '1fr',
-    gap: '1rem',
+    gap: '0.65rem',
   },
   detailHeader: {
     display: 'flex',
@@ -928,12 +1132,31 @@ const styles: Record<string, CSSProperties> = {
     cursor: 'pointer',
   },
   h2: { margin: '0 0 0.75rem', fontSize: '1.15rem', fontWeight: 800 },
+  h2Mobile: { margin: '0 0 0.35rem', fontSize: '0.95rem', fontWeight: 800 },
   h3: { margin: '0 0 0.5rem', fontSize: '1rem' },
   legSection: {
-    border: '1px solid var(--border)',
+    border: '2px solid #111',
     borderRadius: 10,
     padding: '0.45rem 0.5rem',
     marginTop: '0.45rem',
+  },
+  legSectionCollapsed: {
+    marginTop: '0.45rem',
+    padding: '0.35rem 0.5rem',
+    borderRadius: 8,
+    border: '1.5px dashed #999',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: '0.5rem',
+    flexWrap: 'wrap',
+    background: 'var(--bg-muted)',
+    opacity: 0.85,
+  },
+  legCollapsedHint: {
+    color: 'var(--text-muted)',
+    fontSize: '0.72rem',
+    fontWeight: 650,
   },
   legTitle: { margin: '0 0 0.3rem' },
   legHintBlock: { margin: '0 0 0.5rem', color: 'var(--text-muted)', fontSize: '0.85rem', fontWeight: 600 },
@@ -956,7 +1179,7 @@ const styles: Record<string, CSSProperties> = {
     fontSize: '0.72rem',
   },
   lastMileCard: {
-    border: '1px solid rgba(66, 165, 245, 0.3)',
+    border: '2px dotted #111',
     borderRadius: 10,
     padding: '0.45rem 0.55rem',
     background: 'rgba(66, 165, 245, 0.07)',
@@ -1010,10 +1233,8 @@ const styles: Record<string, CSSProperties> = {
   order: {
     textAlign: 'left',
     display: 'grid',
-    gridTemplateColumns: 'minmax(0, 1fr) auto',
-    columnGap: '0.5rem',
-    rowGap: '0.05rem',
-    alignItems: 'baseline',
+    gridTemplateColumns: '1fr',
+    gap: '0.1rem',
     alignContent: 'center',
     padding: '0.5rem 0.65rem',
     minHeight: 'var(--touch-min)',
@@ -1026,10 +1247,8 @@ const styles: Record<string, CSSProperties> = {
   orderActive: {
     textAlign: 'left',
     display: 'grid',
-    gridTemplateColumns: 'minmax(0, 1fr) auto',
-    columnGap: '0.5rem',
-    rowGap: '0.05rem',
-    alignItems: 'baseline',
+    gridTemplateColumns: '1fr',
+    gap: '0.1rem',
     alignContent: 'center',
     padding: '0.5rem 0.65rem',
     minHeight: 'var(--touch-min)',
@@ -1055,7 +1274,6 @@ const styles: Record<string, CSSProperties> = {
     fontWeight: 600,
   },
   orderMeta: {
-    gridColumn: '1 / -1',
     margin: 0,
     color: 'var(--text-muted)',
     fontSize: '0.7rem',
@@ -1067,13 +1285,60 @@ const styles: Record<string, CSSProperties> = {
   },
   detail: {
     background: 'var(--bg-elevated)',
-    border: '1px solid var(--border)',
+    border: '2px solid #111',
     borderRadius: 12,
     padding: '0.65rem 0.7rem',
     display: 'grid',
     gap: '0.15rem',
   },
   detailTop: { display: 'grid', gap: '0.1rem' },
+  nextStepGo: {
+    marginTop: '0.25rem',
+    padding: '0.3rem 0.45rem',
+    borderRadius: 8,
+    border: '1.5px solid var(--success)',
+    background: 'rgba(129, 199, 132, 0.12)',
+    display: 'grid',
+    gap: '0.05rem',
+  },
+  nextStepWait: {
+    marginTop: '0.25rem',
+    padding: '0.3rem 0.45rem',
+    borderRadius: 8,
+    border: '1.5px solid var(--warning)',
+    background: 'rgba(255, 183, 77, 0.1)',
+    display: 'grid',
+    gap: '0.05rem',
+  },
+  nextStepLabel: {
+    margin: 0,
+    fontSize: '0.62rem',
+    fontWeight: 800,
+    letterSpacing: '0.03em',
+    color: 'var(--text-muted)',
+  },
+  nextStepText: {
+    margin: 0,
+    fontSize: '0.78rem',
+    fontWeight: 700,
+    lineHeight: 1.25,
+    color: 'var(--text)',
+  },
+  nextStepMatch: {
+    margin: 0,
+    fontSize: '0.72rem',
+    fontWeight: 700,
+    color: 'var(--text-muted)',
+  },
+  waitOnly: {
+    margin: 0,
+    padding: '0.45rem 0.55rem',
+    borderRadius: 8,
+    background: 'var(--bg-muted)',
+    color: 'var(--text-muted)',
+    fontWeight: 700,
+    fontSize: '0.82rem',
+  },
   detailTitle: {
     margin: 0,
     fontWeight: 800,
@@ -1093,10 +1358,16 @@ const styles: Record<string, CSSProperties> = {
     marginTop: '0.35rem',
     padding: '0.4rem 0.55rem',
     borderRadius: 10,
-    border: '1px solid var(--border)',
+    border: '2px solid #111',
     background: 'var(--bg-elevated)',
     display: 'grid',
     gap: '0.15rem',
+  },
+  tripCollapsedHint: {
+    margin: '0.25rem 0 0',
+    color: 'var(--text-muted)',
+    fontSize: '0.78rem',
+    fontWeight: 650,
   },
   tripHead: {
     margin: 0,
@@ -1145,7 +1416,7 @@ const styles: Record<string, CSSProperties> = {
     fontSize: '0.85rem',
   },
   card: {
-    border: '1px solid var(--border)',
+    border: '2px dotted #111',
     borderRadius: 10,
     padding: '0.4rem 0.5rem',
     marginTop: '0.3rem',
@@ -1153,19 +1424,24 @@ const styles: Record<string, CSSProperties> = {
     gap: '0.2rem',
   },
   cardWaiting: {
-    borderColor: 'var(--danger)',
+    borderColor: '#111',
     background: 'rgba(229, 115, 115, 0.08)',
   },
   cardReady: {
-    borderColor: 'var(--success)',
+    borderColor: '#111',
     background: 'rgba(129, 199, 132, 0.12)',
   },
   cardAtHub: {
-    borderColor: 'var(--success)',
+    borderColor: '#111',
     background: 'rgba(129, 199, 132, 0.05)',
   },
+  cardRejected: {
+    borderColor: '#111',
+    background: 'var(--bg-muted)',
+    opacity: 0.85,
+  },
   cardInProgress: {
-    borderColor: 'var(--warning)',
+    borderColor: '#111',
     background: 'rgba(255, 183, 77, 0.08)',
   },
   cardHead: {
@@ -1242,6 +1518,17 @@ const styles: Record<string, CSSProperties> = {
     color: '#047857',
     flexShrink: 0,
   },
+  statusPillGoing: {
+    margin: 0,
+    display: 'inline-block',
+    padding: '0.1rem 0.4rem',
+    borderRadius: 999,
+    fontSize: '0.66rem',
+    fontWeight: 800,
+    background: 'rgba(255, 152, 0, 0.2)',
+    color: '#e65100',
+    flexShrink: 0,
+  },
   statusPillDone: {
     margin: 0,
     display: 'inline-block',
@@ -1251,6 +1538,17 @@ const styles: Record<string, CSSProperties> = {
     fontWeight: 800,
     background: 'rgba(16, 185, 129, 0.14)',
     color: '#047857',
+    flexShrink: 0,
+  },
+  statusPillRejected: {
+    margin: 0,
+    display: 'inline-block',
+    padding: '0.1rem 0.4rem',
+    borderRadius: 999,
+    fontSize: '0.66rem',
+    fontWeight: 800,
+    background: 'rgba(229, 115, 115, 0.18)',
+    color: '#c62828',
     flexShrink: 0,
   },
   pickupReady: {
@@ -1264,6 +1562,35 @@ const styles: Record<string, CSSProperties> = {
     fontWeight: 800,
     fontSize: '0.9rem',
     cursor: 'pointer',
+  },
+  alertVendorBtn: {
+    border: 'none',
+    borderRadius: 10,
+    padding: '0.55rem 0.75rem',
+    flex: '1 1 7rem',
+    minHeight: 'var(--touch-min)',
+    background: '#7c3aed',
+    color: '#fff',
+    fontWeight: 800,
+    fontSize: '0.9rem',
+    cursor: 'pointer',
+  },
+  alertWaiting: {
+    flex: '1 1 8rem',
+    minHeight: 'var(--touch-min)',
+    display: 'inline-flex',
+    alignItems: 'center',
+    fontSize: '0.78rem',
+    fontWeight: 800,
+    color: '#7c3aed',
+  },
+  alertNoticed: {
+    flex: '1 1 8rem',
+    display: 'inline-flex',
+    alignItems: 'center',
+    fontSize: '0.72rem',
+    fontWeight: 700,
+    color: 'var(--text-muted)',
   },
   meta: {
     margin: 0,

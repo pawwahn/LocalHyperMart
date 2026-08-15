@@ -6,14 +6,13 @@ import { ApiError } from '@/shared/api/http';
 import { changePassword } from '@/features/auth/api/authApi';
 import { useVendorShop } from '@/features/shop/hooks/useVendorShop';
 import { useOrderAlert } from '@/features/orders/OrderAlertContext';
-import { playOrderReceivedVoice, unlockOrderAlertAudio } from '@/features/orders/lib/orderAlertSound';
 
 const compactInput: CSSProperties = { padding: '0.45rem 0.65rem', fontSize: '0.9rem' };
 
 export function SettingsPage() {
   const { session, logout } = useAuth();
   const { shop, loading, busy, error: shopError, reload, saveProfile } = useVendorShop();
-  const { notificationsReady, enableNotifications } = useOrderAlert();
+  const { notificationsReady, enableNotifications, enableSound } = useOrderAlert();
   const [status, setStatus] = useState<{ tone: 'success' | 'danger' | 'warning'; text: string } | null>(
     null,
   );
@@ -139,8 +138,7 @@ export function SettingsPage() {
               <Button
                 size="sm"
                 onClick={() => {
-                  void unlockOrderAlertAudio().then((ok) => {
-                    playOrderReceivedVoice();
+                  void enableSound().then((ok) => {
                     setStatus({
                       tone: ok ? 'success' : 'warning',
                       text: ok ? 'Playing “Order received”…' : 'Sound blocked — check volume / click again',

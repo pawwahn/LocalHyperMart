@@ -130,6 +130,16 @@ export function useVendorOrders() {
     if (alertVersion > 0) void reload();
   }, [alertVersion, reload]);
 
+  useEffect(() => {
+    if (!notice) return;
+    const t = window.setTimeout(() => setNotice(null), 4000);
+    return () => window.clearTimeout(t);
+  }, [notice]);
+
+  useEffect(() => {
+    setNotice(null);
+  }, [statusFilter]);
+
   async function markReady(id: string) {
     if (!session) return;
     setActionId(id);

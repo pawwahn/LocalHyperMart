@@ -98,6 +98,12 @@ public class HubOnboardingService {
                     .hubId(hub.getId())
                     .userId(adminUserId)
                     .status(HUB_ACTIVE)
+                    .govtIdType(request.getGovtIdType().trim().toUpperCase())
+                    .govtIdNumber(request.getGovtIdNumber().replaceAll("\\s", "").trim())
+                    .reference1Name(request.getReference1Name().trim())
+                    .reference1Phone(request.getReference1Phone().trim())
+                    .reference2Name(request.getReference2Name().trim())
+                    .reference2Phone(request.getReference2Phone().trim())
                     .build();
             admin.setCreatedBy(actorId);
             admin.setUpdatedBy(actorId);
@@ -128,8 +134,26 @@ public class HubOnboardingService {
                 .status(hub.getStatus())
                 .adminUserId(admin == null ? null : admin.getUserId())
                 .adminPhone(adminPhone)
+                .govtIdType(admin == null ? null : admin.getGovtIdType())
+                .govtIdNumber(admin == null ? null : maskGovtId(admin.getGovtIdNumber()))
+                .reference1Name(admin == null ? null : admin.getReference1Name())
+                .reference1Phone(admin == null ? null : admin.getReference1Phone())
+                .reference2Name(admin == null ? null : admin.getReference2Name())
+                .reference2Phone(admin == null ? null : admin.getReference2Phone())
                 .temporaryPassword(temporaryPassword)
                 .build();
+    }
+
+    /** Show only last 4 characters of government ID in API responses. */
+    private static String maskGovtId(String value) {
+        if (value == null || value.isBlank()) {
+            return value;
+        }
+        String trimmed = value.trim();
+        if (trimmed.length() <= 4) {
+            return "****";
+        }
+        return "****" + trimmed.substring(trimmed.length() - 4);
     }
 
     private static String blankToNull(String value) {

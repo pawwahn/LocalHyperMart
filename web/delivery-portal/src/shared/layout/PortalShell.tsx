@@ -70,20 +70,25 @@ export function PortalShell({ title, subtitle, children, onRefresh, footerNav, d
     subtitleTrimmed.toLowerCase() !== (townName ?? '').toLowerCase() &&
     !identityText.includes(subtitleTrimmed.toLowerCase());
 
-  const denseMobile = dense && isMobile;
+  // Phone: always use compact sticky app bar (saves a lot of vertical space).
+  const compactMobile = isMobile;
 
   return (
     <div
       style={{
         ...styles.page,
-        ...(dense ? (isMobile ? styles.pageDenseMobile : styles.pageDense) : null),
+        ...(compactMobile
+          ? styles.pageDenseMobile
+          : dense
+            ? styles.pageDense
+            : null),
         paddingBottom: footerNav
-          ? 'calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px) + 0.75rem)'
-          : '2.5rem',
+          ? 'calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px) + 1.25rem)'
+          : '2rem',
         maxWidth: isMobile ? '100%' : 'var(--shell-max)',
       }}
     >
-      {denseMobile ? (
+      {compactMobile ? (
         <header style={styles.appBar}>
           <div style={styles.appBarTop}>
             <div style={styles.appBarTitleBlock}>
@@ -112,20 +117,10 @@ export function PortalShell({ title, subtitle, children, onRefresh, footerNav, d
           ) : null}
         </header>
       ) : (
-        <header
-          style={
-            dense
-              ? styles.headerDense
-              : isMobile
-                ? styles.headerMobile
-                : styles.header
-          }
-        >
+        <header style={dense ? styles.headerDense : styles.header}>
           <div style={styles.headerText}>
             <p style={dense ? styles.brandDense : styles.brand}>HyperLocalMart · Delivery</p>
-            <h1 style={dense ? styles.titleDense : isMobile ? styles.titleMobile : styles.title}>
-              {title}
-            </h1>
+            <h1 style={dense ? styles.titleDense : styles.title}>{title}</h1>
             <p style={dense ? styles.subDense : styles.sub}>{identityDesktop}</p>
             {showSubtitle ? (
               <p style={dense ? styles.flowChip : styles.context} title={subtitleTrimmed}>
@@ -146,7 +141,7 @@ export function PortalShell({ title, subtitle, children, onRefresh, footerNav, d
           </div>
         </header>
       )}
-      <main style={dense ? styles.mainDense : styles.main}>{children}</main>
+      <main style={compactMobile || dense ? styles.mainDense : styles.main}>{children}</main>
       {footerNav}
     </div>
   );

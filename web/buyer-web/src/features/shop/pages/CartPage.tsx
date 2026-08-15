@@ -9,6 +9,8 @@ import { useAuth } from '@/shared/auth/AuthContext';
 import { useTown } from '@/shared/town/TownContext';
 import { Banner, Button, Card, EmptyState, TextField } from '@/shared/ui';
 import { AddressForm } from '../components/AddressForm';
+import { ConfirmDialog } from '../components/ConfirmDialog';
+import { OrderCelebration } from '../components/OrderCelebration';
 import { QuantityStepper } from '../components/QuantityStepper';
 import { productVisual } from '../lib/productVisual';
 import { useShop } from '../hooks/useShop';
@@ -38,15 +40,19 @@ export function CartPage() {
     doRemovePromo,
     doCreateAddress,
     doUpdateAddress,
+    doDeleteAddress,
     doCheckout,
   } = useShop();
   const [showAddressForm, setShowAddressForm] = useState(false);
   const [editingAddressId, setEditingAddressId] = useState<string | null>(null);
+  const [deleteAddressId, setDeleteAddressId] = useState<string | null>(null);
   const [addressHint, setAddressHint] = useState<string | null>(null);
   const [couponCode, setCouponCode] = useState('');
   const [couponError, setCouponError] = useState<string | null>(null);
   const [useStoreCredit, setUseStoreCredit] = useState(false);
   const [deliveryFee, setDeliveryFee] = useState(DEFAULT_DELIVERY_FEE);
+  const [confirmCheckout, setConfirmCheckout] = useState(false);
+  const [showCelebration, setShowCelebration] = useState(false);
   const addressSectionRef = useRef<HTMLElement | null>(null);
   const couponSectionRef = useRef<HTMLDivElement | null>(null);
 
@@ -140,10 +146,21 @@ export function CartPage() {
     }
 
     setAddressHint(null);
-    await doCheckout({ useStoreCredit });
+    setConfirmCheckout(true);
+  }
+
+  async function confirmAndPlaceOrder() {
+    const placed = await doCheckout({ useStoreCredit });
+    if (!placed) {
+      setConfirmCheckout(false);
+      return;
+    }
+    setConfirmCheckout(false);
+    setShowCelebration(true);
   }
 
   const selectedAddress = addresses.find((a) => a.id === selectedAddressId);
+  const deleteTarget = addresses.find((a) => a.id === deleteAddressId);
 
   return (
     <PortalShell
@@ -174,6 +191,52 @@ export function CartPage() {
         ) : null
       }
     >
+      <ConfirmDialog
+        open={confirmCheckout}
+        title="Confirm your order"
+        description={`Place this cash-on-delivery order for ${payLabel} to ${
+          selectedAddress?.label || 'your selected address'
+        }?`}
+        confirmLabel="Yes, place order"
+        cancelLabel="Review order"
+        busy={busy}
+        onConfirm={() => void confirmAndPlaceOrder()}
+        onClose={() => setConfirmCheckout(false)}
+      />
+      <OrderCelebration
+        open={showCelebration}
+        townLabel={townLabel}
+        onClose={() => {
+          setShowCelebration(false);
+          navigate('/orders');
+        }}
+      />
+
+      <ConfirmDialog
+        open={Boolean(deleteAddressId)}
+        title="Delete this address?"
+        description={
+          deleteTarget
+            ? `${deleteTarget.label || 'Address'} · ${deleteTarget.line1} will be removed.`
+            : 'This address will be removed.'
+        }
+        confirmLabel="Delete"
+        cancelLabel="Keep"
+        danger
+        busy={busy}
+        onConfirm={() => {
+          if (!deleteAddressId) return;
+          const id = deleteAddressId;
+          void (async () => {
+            const ok = await doDeleteAddress(id);
+            if (ok) setDeleteAddressId(null);
+          })();
+        }}
+        onClose={() => {
+          if (!busy) setDeleteAddressId(null);
+        }}
+      />
+
       {error ? <Banner tone="danger">{error}</Banner> : null}
       {notice ? <Banner tone="success">{notice}</Banner> : null}
 
@@ -439,18 +502,28 @@ export function CartPage() {
                         {a.pincode ? `, ${a.pincode}` : ''}
                       </span>
                     </label>
-                    <button
-                      type="button"
-                      style={styles.editAddrBtn}
-                      disabled={busy}
-                      onClick={() => {
-                        setEditingAddressId(a.id);
-                        setShowAddressForm(true);
-                        setAddressHint(null);
-                      }}
-                    >
-                      Edit
-                    </button>
+                    <div style={styles.addrActions}>
+                      <button
+                        type="button"
+                        style={styles.editAddrBtn}
+                        disabled={busy}
+                        onClick={() => {
+                          setEditingAddressId(a.id);
+                          setShowAddressForm(true);
+                          setAddressHint(null);
+                        }}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        style={styles.deleteAddrBtn}
+                        disabled={busy}
+                        onClick={() => setDeleteAddressId(a.id)}
+                      >
+                        Delete
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -621,11 +694,34 @@ const styles: Record<string, CSSProperties> = {
     background: 'var(--bg-elevated)',
     color: 'var(--accent)',
     fontWeight: 800,
-    fontSize: '0.82rem',
-    padding: '0.45rem 0.7rem',
-    minHeight: 'var(--touch-min)',
+    fontSize: '0.78rem',
+    padding: '0.4rem 0.65rem',
+    minHeight: 40,
+    minWidth: '4.5rem',
     cursor: 'pointer',
     flexShrink: 0,
+    textAlign: 'center',
+  },
+  deleteAddrBtn: {
+    border: '1.5px solid color-mix(in srgb, var(--danger) 35%, var(--border))',
+    borderRadius: 10,
+    background: 'var(--bg-elevated)',
+    color: 'var(--danger)',
+    fontWeight: 800,
+    fontSize: '0.78rem',
+    padding: '0.4rem 0.65rem',
+    minHeight: 40,
+    minWidth: '4.5rem',
+    cursor: 'pointer',
+    flexShrink: 0,
+    textAlign: 'center',
+  },
+  addrActions: {
+    display: 'flex',
+    flexDirection: 'row',
+    gap: '0.3rem',
+    flexShrink: 0,
+    alignItems: 'center',
   },
   stickyCheckout: {
     position: 'fixed',

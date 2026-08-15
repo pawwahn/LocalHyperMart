@@ -142,12 +142,20 @@ export function ClaimDeductionsDialog({ open, items, onClose }: Props) {
             <h2 id={titleId} style={styles.title}>
               Claim deductions
             </h2>
-            <p style={styles.subtitle}>Taken from your next payout · {filtered.length} shown</p>
+            <p style={styles.subtitle}>
+              Purple amount = money taken from your payout (buyer store credit) · {filtered.length}{' '}
+              shown
+            </p>
           </div>
           <Button type="button" variant="ghost" size="sm" onClick={onClose}>
             Close
           </Button>
         </div>
+
+        <p style={styles.legend}>
+          Open an order link to see bag line prices. A claim can be only part of a line (e.g. sold
+          ₹120, credit −₹30).
+        </p>
 
         <div style={styles.filters}>
           <select
@@ -207,12 +215,15 @@ export function ClaimDeductionsDialog({ open, items, onClose }: Props) {
                 const parsed = parseClaimReason(a.reason);
                 return (
                   <li key={a.id} style={styles.item}>
-                    <strong style={styles.amount}>−{formatMoney(a.amount)}</strong>
+                    <div style={styles.amountBlock}>
+                      <strong style={styles.amount}>−{formatMoney(a.amount)}</strong>
+                      <span style={styles.amountHint}>from payout</span>
+                    </div>
                     <div style={styles.main}>
                       <button
                         type="button"
                         style={styles.orderLink}
-                        title="View your bag for this order"
+                        title="View bag: sold price vs claim credit"
                         onClick={() => setDetailAdj(a)}
                       >
                         {a.orderNumber?.trim() || 'Order'}
@@ -266,6 +277,7 @@ export function ClaimDeductionsDialog({ open, items, onClose }: Props) {
         open={Boolean(detailAdj)}
         subOrderId={detailAdj?.subOrderId ?? null}
         highlightItemId={detailAdj?.orderItemId}
+        creditedAmount={detailAdj?.amount}
         orderNumberHint={detailAdj?.orderNumber}
         onClose={() => setDetailAdj(null)}
       />
@@ -293,8 +305,8 @@ const styles: Record<string, CSSProperties> = {
     boxShadow: 'var(--shadow-elevated)',
     padding: '1rem 1.15rem 0.85rem',
     display: 'grid',
-    gridTemplateRows: 'auto auto auto minmax(0, 1fr) auto',
-    gap: '0.65rem',
+    gridTemplateRows: 'auto auto auto auto minmax(0, 1fr) auto',
+    gap: '0.55rem',
     animation: 'hlm-fade-up 180ms ease both',
     boxSizing: 'border-box',
   },
@@ -312,6 +324,13 @@ const styles: Record<string, CSSProperties> = {
     color: 'var(--text)',
   },
   subtitle: { margin: '0.15rem 0 0', fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 600 },
+  legend: {
+    margin: 0,
+    fontSize: '0.74rem',
+    fontWeight: 600,
+    color: 'var(--text-muted)',
+    lineHeight: 1.35,
+  },
   filters: {
     display: 'flex',
     flexWrap: 'wrap',
@@ -361,7 +380,16 @@ const styles: Record<string, CSSProperties> = {
     background: 'var(--bg)',
     border: '1px solid var(--border)',
   },
+  amountBlock: { display: 'grid', gap: '0.05rem', justifyItems: 'start' },
   amount: { fontSize: '0.88rem', fontWeight: 800, color: '#7c3aed', whiteSpace: 'nowrap' },
+  amountHint: {
+    fontSize: '0.62rem',
+    fontWeight: 700,
+    color: '#7c3aed',
+    textTransform: 'uppercase',
+    letterSpacing: '0.03em',
+    whiteSpace: 'nowrap',
+  },
   main: { display: 'grid', gap: '0.08rem', minWidth: 0 },
   orderLink: {
     margin: 0,

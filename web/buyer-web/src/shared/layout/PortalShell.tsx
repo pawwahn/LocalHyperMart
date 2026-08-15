@@ -67,7 +67,15 @@ export function PortalShell({
       <TownPickerSheet />
       <header style={styles.header}>
         <div style={styles.brandRow}>
-          <p style={styles.brandMark}>HyperLocalMart</p>
+          <div style={styles.brandLockup}>
+            <p style={styles.brandMark}>HyperLocalMart</p>
+            <span className="hlm-brand-tagline" style={styles.brandTagline}>
+              <span style={styles.brandDash} aria-hidden>
+                —
+              </span>
+              Supporting your home town
+            </span>
+          </div>
           <div style={styles.headerActions}>
             {session ? (
               <HeaderIconButton
@@ -216,6 +224,13 @@ const styles: Record<string, CSSProperties> = {
     gap: '0.4rem',
     minWidth: 0,
   },
+  brandLockup: {
+    display: 'flex',
+    alignItems: 'baseline',
+    gap: '0.3rem',
+    minWidth: 0,
+    flex: '1 1 auto',
+  },
   brandMark: {
     margin: 0,
     fontFamily: 'var(--font-display)',
@@ -223,6 +238,25 @@ const styles: Record<string, CSSProperties> = {
     fontWeight: 800,
     letterSpacing: '-0.04em',
     color: 'var(--accent)',
+    flexShrink: 0,
+  },
+  brandTagline: {
+    fontFamily: 'var(--font-display)',
+    fontSize: '0.78rem',
+    fontWeight: 600,
+    fontStyle: 'italic',
+    letterSpacing: '-0.005em',
+    color: 'var(--text-muted)',
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    minWidth: 0,
+  },
+  brandDash: {
+    marginRight: '0.22rem',
+    color: 'color-mix(in srgb, var(--accent) 55%, var(--text-muted))',
+    fontStyle: 'normal',
+    fontWeight: 700,
   },
   headerActions: {
     display: 'flex',

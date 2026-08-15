@@ -49,4 +49,13 @@ public class AddressController {
         AddressResponse response = addressService.updateAddress(principal.getUserId(), addressId, request);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, "Address updated", response));
     }
+
+    @DeleteMapping("/{addressId}")
+    public ResponseEntity<ApiResponse<Void>> deleteAddress(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @PathVariable UUID addressId,
+            HttpServletRequest httpRequest) {
+        addressService.deleteAddress(principal.getUserId(), addressId);
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest, "Address deleted", null));
+    }
 }

@@ -2,13 +2,21 @@ import { useMemo, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { AgentShell } from '../layout/AgentShell';
 import { BuyerDeliveryCard } from '../components/AssignmentCards';
+import { ConfirmTookFromHubDialog } from '../components/ConfirmTookFromHubDialog';
 import { useAgentWorkspace } from '../hooks/useAgentWorkspace';
 import { useDeliveryManifests } from '../hooks/useDeliveryManifests';
 
 type DeliveryFilter = 'all' | 'at_hub' | 'en_route';
 
+type TookHubPrompt = {
+  id: string;
+  status: string;
+  orderNumber: string;
+} | null;
+
 export function AgentBuyerDeliveriesPage() {
   const [filter, setFilter] = useState<DeliveryFilter>('all');
+  const [tookHubPrompt, setTookHubPrompt] = useState<TookHubPrompt>(null);
   const {
     deliveryTasks,
     loading,
@@ -32,6 +40,7 @@ export function AgentBuyerDeliveriesPage() {
 
   const atHubCount = deliveryTasks.filter((t) => t.status === 'ASSIGNED').length;
   const enRouteCount = deliveryTasks.filter((t) => t.status === 'IN_PROGRESS').length;
+  const promptBusy = Boolean(tookHubPrompt && actionId === tookHubPrompt.id);
 
   return (
     <AgentShell
@@ -93,12 +102,35 @@ export function AgentBuyerDeliveriesPage() {
               manifestLoading={loadingManifests}
               manifestFailed={Boolean(failedIds[task.id])}
               onRetryManifest={() => retryManifest(task.id)}
-              onPickHub={doPickHub}
+              onPickHub={(id, status) => {
+                setTookHubPrompt({
+                  id,
+                  status,
+                  orderNumber: task.orderNumber,
+                });
+              }}
               onDeliver={doDeliver}
             />
           ))}
         </div>
       )}
+
+      <ConfirmTookFromHubDialog
+        open={Boolean(tookHubPrompt)}
+        orderNumber={tookHubPrompt?.orderNumber}
+        busy={promptBusy}
+        onClose={() => {
+          if (!promptBusy) setTookHubPrompt(null);
+        }}
+        onConfirm={() => {
+          if (!tookHubPrompt) return;
+          const { id, status } = tookHubPrompt;
+          void (async () => {
+            await doPickHub(id, status);
+            setTookHubPrompt(null);
+          })();
+        }}
+      />
     </AgentShell>
   );
 }

@@ -37,7 +37,7 @@ export function injectGlobalStyles(): void {
       --motion-fast: ${tokens.motion.fast};
       --motion-normal: ${tokens.motion.normal};
       --shell-max: 1100px;
-      --tabbar-h: 64px;
+      --tabbar-h: 72px;
       --touch-min: 44px;
     }
     *, *::before, *::after { box-sizing: border-box; }
@@ -61,7 +61,7 @@ export function injectGlobalStyles(): void {
     button, a, [role="button"] { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
     a { color: var(--accent); }
     @media (max-width: 767px) {
-      :root { --shell-max: 100%; --tabbar-h: 60px; }
+      :root { --shell-max: 100%; --tabbar-h: 68px; }
       input, select, textarea { font-size: 16px !important; }
     }
     @keyframes hlm-fade-up {

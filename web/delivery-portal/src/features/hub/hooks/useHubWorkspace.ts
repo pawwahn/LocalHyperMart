@@ -4,6 +4,7 @@ import { ApiError } from '@/shared/api/http';
 import {
   assignLastMile,
   assignPickup,
+  alertVendor,
   fetchAdminOrderDetail,
   fetchAdminOrders,
   fetchHubAgents,
@@ -84,7 +85,7 @@ export function useHubWorkspace() {
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
   const [detail, setDetail] = useState<AdminOrderDetailDto | null>(null);
   const [subOrders, setSubOrders] = useState<SubOrderRowView[]>([]);
-  const [showHistory, setShowHistory] = useState(false);
+  const [showHistory, setShowHistory] = useState(true);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -158,7 +159,7 @@ export function useHubWorkspace() {
     setSelectedOrderId(null);
     setDetail(null);
     setSubOrders([]);
-    setShowHistory(false);
+    setShowHistory(true);
   }
 
   function rememberAgent(agentId: string) {
@@ -174,11 +175,53 @@ export function useHubWorkspace() {
   async function openOrder(orderId: string) {
     if (!session) return;
     setSelectedOrderId(orderId);
-    setShowHistory(false);
+    setShowHistory(true);
     setError(null);
     try {
       const d = await fetchAdminOrderDetail(session.accessToken, townId, orderId);
       setDetail(d);
+      const assignments = (d.assignments ?? []).map((a) => ({
+        legType: a.legType,
+        status: a.status,
+        subOrderNumber: a.subOrderNumber,
+      }));
+      const allSubs = d.subOrders ?? [];
+      const activeSubs = allSubs.filter((s) => s.status !== 'VENDOR_REJECTED');
+      const rejected = allSubs.length - activeSubs.length;
+      const atHub = activeSubs.filter(
+        (s) =>
+          s.status === 'DELIVERED' ||
+          assignments.some(
+            (a) =>
+              a.legType === 'PICKUP' &&
+              a.status === 'COMPLETED' &&
+              a.subOrderNumber === s.subOrderNumber,
+          ),
+      ).length;
+      setOrders((prev) =>
+        prev.map((o) => {
+          if (o.id !== orderId) return o;
+          const total = activeSubs.length || o.subOrderCount;
+          const readyRaw = activeSubs.filter((s) => s.status === 'READY_FOR_PICKUP').length;
+          const readyForShop = Math.max(0, readyRaw - Math.min(readyRaw, atHub));
+          return {
+            ...o,
+            subOrderCount: total,
+            rejectedSubOrderCount: rejected,
+            atHubSubOrderCount: atHub,
+            readySubOrderCount: readyForShop,
+            assignments,
+            pickupReadiness:
+              atHub >= total && total > 0
+                ? 'none'
+                : readyForShop <= 0
+                  ? 'none'
+                  : readyForShop >= Math.max(0, total - atHub)
+                    ? 'all'
+                    : 'partial',
+          };
+        }),
+      );
       setSubOrders(
         (d.subOrders ?? []).map((s) => ({
           id: s.subOrderId,
@@ -195,6 +238,14 @@ export function useHubWorkspace() {
             lineTotalLabel:
               item.lineTotal != null ? money(item.lineTotal) : undefined,
           })),
+          vendorAlert: s.vendorAlert
+            ? {
+                alertId: s.vendorAlert.alertId,
+                status: s.vendorAlert.status,
+                createdAt: s.vendorAlert.createdAt,
+                acknowledgedAt: s.vendorAlert.acknowledgedAt,
+              }
+            : null,
         })),
       );
     } catch (err) {
@@ -279,6 +330,24 @@ export function useHubWorkspace() {
     }
   }
 
+  async function doAlertVendor(subOrderId: string): Promise<boolean> {
+    if (!session || !townId) return false;
+    setBusy(true);
+    setNotice(null);
+    setError(null);
+    try {
+      await alertVendor(session.accessToken, townId, subOrderId);
+      setNotice('Reminder sent — vendor popup + sound until they tap Noticed order.');
+      if (selectedOrderId) await openOrder(selectedOrderId);
+      return true;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not alert vendor');
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return {
     hubId,
     townId,
@@ -313,5 +382,6 @@ export function useHubWorkspace() {
     doMarkAtHub,
     doAssignLastMile,
     doReassign,
+    doAlertVendor,
   };
 }

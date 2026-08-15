@@ -103,6 +103,7 @@ export function SettlementsPage() {
   const [success, setSuccess] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [confirmPayOpen, setConfirmPayOpen] = useState(false);
 
   const selectedVendor = useMemo(
     () => vendors.find((v) => v.id === vendorId) ?? null,
@@ -267,16 +268,25 @@ export function SettlementsPage() {
 
   async function submitPayout() {
     if (!token || !townId || !vendorId || selected.size === 0) return;
+    const txnRef = transactionReference.trim();
+    if (!txnRef) {
+      setError('Txn ref is required (UTR / UPI / cheque number)');
+      setConfirmPayOpen(false);
+      return;
+    }
     if (feeQuoteLoading) {
       setError('Wait for billing fees to finish calculating');
+      setConfirmPayOpen(false);
       return;
     }
     if (feeQuoteError || !feeQuote) {
       setError(feeQuoteError || 'Billing fees are required before payout. Refresh and try again.');
+      setConfirmPayOpen(false);
       return;
     }
     if (otherChargesNum > 0 && !otherChargesReason.trim()) {
       setError('Add a reason for the penalty / other charge');
+      setConfirmPayOpen(false);
       return;
     }
     setSaving(true);
@@ -295,7 +305,7 @@ export function SettlementsPage() {
         commissionAmount: Number(commissionAmount || 0),
         markPaid: true,
         payoutMethod,
-        transactionReference: transactionReference.trim() || undefined,
+        transactionReference: txnRef,
         transactionNotes: transactionNotes.trim() || undefined,
         otherChargesAmount: otherChargesNum > 0 ? otherChargesNum : undefined,
         otherChargesReason: otherChargesNum > 0 ? otherChargesReason.trim() : undefined,
@@ -309,18 +319,32 @@ export function SettlementsPage() {
       if (claimsTaken > 0) parts.push(`claims ${formatMoney(claimsTaken)}`);
       if (otherTaken > 0) parts.push(`other ${formatMoney(otherTaken)}`);
       setSuccess(
-        `Paid ${formatMoney(created.netAmount)} (${parts.join(' − ')}) to ${created.payeeName ?? 'vendor'} · ${created.payoutMethod}`,
+        `Paid ${formatMoney(created.netAmount)} (${parts.join(' − ')}) to ${created.payeeName ?? 'vendor'} · ${created.payoutMethod} · ref ${txnRef}`,
       );
       setTransactionReference('');
       setTransactionNotes('');
       setOtherChargesAmount('');
       setOtherChargesReason('');
+      setConfirmPayOpen(false);
       await Promise.all([reloadCandidates(), reloadHistory()]);
     } catch (err) {
       setError(err instanceof ApiError || err instanceof Error ? err.message : 'Failed to record payout');
     } finally {
       setSaving(false);
     }
+  }
+
+  function requestMarkPaid() {
+    if (!transactionReference.trim()) {
+      setError('Txn ref is required (UTR / UPI / cheque number)');
+      return;
+    }
+    if (otherChargesNum > 0 && !otherChargesReason.trim()) {
+      setError('Add a reason for the penalty / other charge');
+      return;
+    }
+    setError(null);
+    setConfirmPayOpen(true);
   }
 
   const canPay =
@@ -330,7 +354,8 @@ export function SettlementsPage() {
     !!vendorId &&
     !feeQuoteLoading &&
     !feeQuoteError &&
-    !!feeQuote;
+    !!feeQuote &&
+    transactionReference.trim().length > 0;
 
   const showSummary = !!townId && !!vendorId && (selected.size > 0 || pendingClaimChargebacks > 0);
 
@@ -441,12 +466,13 @@ export function SettlementsPage() {
                 </select>
               </label>
               <label style={styles.label}>
-                Txn ref
+                Txn ref <span style={styles.req}>*</span>
                 <input
                   style={styles.input}
                   value={transactionReference}
                   onChange={(e) => setTransactionReference(e.target.value)}
-                  placeholder="UTR / UPI / cheque"
+                  placeholder="UTR / UPI / cheque (required)"
+                  required
                 />
               </label>
               <label style={styles.label} className="sp-notes">
@@ -645,7 +671,7 @@ export function SettlementsPage() {
             )}
 
             <div style={styles.sideActions}>
-              <Button size="sm" disabled={!canPay} onClick={() => void submitPayout()}>
+              <Button size="sm" disabled={!canPay} onClick={requestMarkPaid}>
                 {saving ? 'Saving…' : `Mark paid · ${formatMoney(expectedNet)}`}
               </Button>
               <Button size="sm" variant="secondary" onClick={() => void reload()} disabled={loading}>
@@ -655,6 +681,51 @@ export function SettlementsPage() {
           </Card>
         </aside>
       </div>
+
+      {confirmPayOpen ? (
+        <div
+          style={styles.confirmOverlay}
+          role="presentation"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget && !saving) setConfirmPayOpen(false);
+          }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Confirm mark paid"
+            style={styles.confirmDialog}
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <h2 style={styles.confirmTitle}>Confirm payout?</h2>
+            <p style={styles.confirmBody}>
+              Pay <strong>{formatMoney(expectedNet)}</strong> to{' '}
+              <strong>
+                {selectedVendor?.shopName || selectedVendor?.businessName || 'vendor'}
+              </strong>
+              ?
+            </p>
+            <p style={styles.confirmMeta}>
+              {selected.size} order{selected.size === 1 ? '' : 's'} · {payoutMethod} · ref{' '}
+              <strong>{transactionReference.trim()}</strong>
+            </p>
+            <p style={styles.confirmWarn}>This cannot be undone from here. Check UTR / amount first.</p>
+            <div style={styles.confirmActions}>
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={saving}
+                onClick={() => setConfirmPayOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button size="sm" disabled={saving} onClick={() => void submitPayout()}>
+                {saving ? 'Paying…' : 'Yes, mark paid'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <Card padding="sm" style={styles.cardPad}>
         <h2 style={styles.sectionTitle}>
@@ -953,6 +1024,51 @@ const styles: Record<string, CSSProperties> = {
   feeHint: { margin: 0, fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 600 },
   feeError: { margin: 0, fontSize: '0.72rem', color: '#b91c1c', fontWeight: 650, lineHeight: 1.3 },
   sideActions: { display: 'grid', gap: '0.35rem' },
+  req: { color: '#b91c1c', fontWeight: 800 },
+  confirmOverlay: {
+    position: 'fixed',
+    inset: 0,
+    zIndex: 1000,
+    display: 'grid',
+    placeItems: 'center',
+    padding: '1rem',
+    background: 'rgba(15, 23, 42, 0.5)',
+  },
+  confirmDialog: {
+    width: 'min(26rem, 100%)',
+    background: 'var(--bg-elevated)',
+    border: '1px solid var(--border)',
+    borderRadius: 'var(--radius-lg)',
+    boxShadow: 'var(--shadow-elevated)',
+    padding: '1.1rem',
+    display: 'grid',
+    gap: '0.55rem',
+  },
+  confirmTitle: {
+    margin: 0,
+    fontFamily: 'var(--font-display)',
+    fontWeight: 800,
+    fontSize: '1.15rem',
+  },
+  confirmBody: { margin: 0, fontSize: '0.92rem', fontWeight: 650, lineHeight: 1.4 },
+  confirmMeta: { margin: 0, fontSize: '0.82rem', color: 'var(--text-muted)', fontWeight: 650 },
+  confirmWarn: {
+    margin: 0,
+    padding: '0.5rem 0.65rem',
+    borderRadius: 8,
+    background: 'rgba(255, 183, 77, 0.18)',
+    border: '1px solid rgba(255, 183, 77, 0.45)',
+    fontSize: '0.8rem',
+    fontWeight: 700,
+    lineHeight: 1.35,
+  },
+  confirmActions: {
+    display: 'flex',
+    justifyContent: 'flex-end',
+    gap: '0.5rem',
+    flexWrap: 'wrap',
+    marginTop: '0.25rem',
+  },
   claimAmt: { color: '#7c3aed' },
   claimList: {
     margin: 0,

@@ -407,6 +407,10 @@ export async function updateAddress(
   return apiRequest<AddressDto>(`/api/v1/addresses/${addressId}`, { method: 'PUT', token, body });
 }
 
+export async function deleteAddress(token: string, addressId: string): Promise<void> {
+  await apiRequest<unknown>(`/api/v1/addresses/${addressId}`, { method: 'DELETE', token });
+}
+
 export async function placeCodOrder(
   token: string,
   input: { townId: string; cartId: string; addressId: string; useStoreCredit?: boolean },

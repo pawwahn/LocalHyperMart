@@ -201,9 +201,11 @@ function HeroAd({
           <p style={styles.shopNameHero}>{ad.sponsor}</p>
           <p style={styles.titleHero}>{ad.title}</p>
           {ad.subtitle ? <p style={styles.subHero}>{ad.subtitle}</p> : null}
-          <button type="button" style={styles.ctaHero} onClick={onCta}>
-            {ad.ctaLabel}
-          </button>
+          {ad.ctaLabel?.trim() ? (
+            <button type="button" style={styles.ctaHero} onClick={onCta}>
+              {ad.ctaLabel}
+            </button>
+          ) : null}
         </div>
       </div>
     </aside>
@@ -235,9 +237,11 @@ function SoftAd({
           <p style={styles.shopName}>{ad.sponsor}</p>
           <p style={styles.title}>{ad.title}</p>
           {ad.subtitle ? <p style={{ ...styles.sub, whiteSpace: 'normal' }}>{ad.subtitle}</p> : null}
-          <button type="button" style={{ ...styles.cta, alignSelf: 'start', marginTop: '0.2rem' }} onClick={onCta}>
-            {ad.ctaLabel}
-          </button>
+          {ad.ctaLabel?.trim() ? (
+            <button type="button" style={{ ...styles.cta, alignSelf: 'start', marginTop: '0.2rem' }} onClick={onCta}>
+              {ad.ctaLabel}
+            </button>
+          ) : null}
         </div>
       </aside>
     );
@@ -266,9 +270,11 @@ function SoftAd({
           <p style={styles.title}>{ad.title}</p>
           {ad.subtitle ? <p style={styles.sub}>{ad.subtitle}</p> : null}
         </div>
-        <button type="button" style={styles.cta} onClick={onCta}>
-          {ad.ctaLabel}
-        </button>
+        {ad.ctaLabel?.trim() ? (
+          <button type="button" style={styles.cta} onClick={onCta}>
+            {ad.ctaLabel}
+          </button>
+        ) : null}
       </div>
     </aside>
   );

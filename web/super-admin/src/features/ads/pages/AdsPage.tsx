@@ -35,7 +35,7 @@ function toDraft(ad: TownAdVm): DraftAd {
     shopName: ad.shopName ?? '',
     headline: ad.headline ?? '',
     bodyText: ad.bodyText ?? '',
-    ctaLabel: ad.ctaLabel || 'Shop now',
+    ctaLabel: ad.ctaLabel ?? '',
     images: normalizeAdImages(ad),
     enabled: ad.enabled,
   };
@@ -47,7 +47,7 @@ function emptyDraft(slot: TownAdSlot): DraftAd {
     shopName: '',
     headline: '',
     bodyText: '',
-    ctaLabel: 'Shop now',
+    ctaLabel: '',
     images: [],
     enabled: false,
   };
@@ -157,7 +157,7 @@ export function AdsPage() {
         shopName: d.shopName.trim(),
         headline: d.headline.trim(),
         bodyText: d.bodyText.trim(),
-        ctaLabel: d.ctaLabel.trim() || 'Shop now',
+        ctaLabel: d.ctaLabel.trim(),
         images: d.images.slice(0, MAX_AD_IMAGES),
         enabled: d.enabled,
       }));
@@ -296,11 +296,12 @@ export function AdsPage() {
                 value={draft.ctaLabel}
                 onChange={(e) => updateDraft(draft.slot, { ctaLabel: e.target.value })}
                 disabled={busy}
+                placeholder="Optional — leave empty for no button"
               />
 
               <p style={styles.hint}>
                 Images {draft.images.length}/{MAX_AD_IMAGES} · enable needs shop name, headline, and ≥1
-                image.
+                image · button label optional.
               </p>
             </Card>
           ))}

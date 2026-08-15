@@ -7,7 +7,7 @@ import { useIsNarrow } from '@/shared/hooks/useIsNarrow';
 type Props = {
   orders: SubOrderView[];
   actionId: string | null;
-  onReady: (id: string) => void;
+  onReady: (id: string, label: string) => void;
   onReject: (id: string) => void;
   onCancelItem: (subOrderId: string, itemId: string, itemName: string) => void;
   onRestoreItem: (subOrderId: string, itemId: string, itemName: string, creditLabel: string) => void;
@@ -158,7 +158,12 @@ export function SubOrderList({
                   </div>
                   {canAct ? (
                     <div style={{ ...styles.actions, ...(narrow ? styles.actionsNarrow : null) }}>
-                      <Button size="sm" fullWidth={narrow} disabled={busy} onClick={() => onReady(order.id)}>
+                      <Button
+                        size="sm"
+                        fullWidth={narrow}
+                        disabled={busy}
+                        onClick={() => onReady(order.id, order.subOrderNumber)}
+                      >
                         {busy ? '…' : 'Mark ready'}
                       </Button>
                       <Button

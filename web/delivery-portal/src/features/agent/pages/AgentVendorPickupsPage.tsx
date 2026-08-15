@@ -2,15 +2,23 @@ import { useMemo, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { AgentShell } from '../layout/AgentShell';
 import { VendorPickupCard } from '../components/AssignmentCards';
-import { CollapsibleHowTo } from '../components/CollapsibleHowTo';
+import { ConfirmTookBagDialog } from '../components/ConfirmTookBagDialog';
 import { useAgentWorkspace } from '../hooks/useAgentWorkspace';
 import { usePickupManifests } from '../hooks/usePickupManifests';
 import { groupPickupsByOrder } from '../lib/assignmentSteps';
 
 type PickupFilter = 'all' | 'at_shop' | 'to_hub';
 
+type TookBagPrompt = {
+  id: string;
+  status: string;
+  shopName: string;
+  orderNumber: string;
+} | null;
+
 export function AgentVendorPickupsPage() {
   const [filter, setFilter] = useState<PickupFilter>('all');
+  const [tookPrompt, setTookPrompt] = useState<TookBagPrompt>(null);
   const { pickupTasks, loading, actionId, error, notice, reload, setSearch, search, doPickVendor } =
     useAgentWorkspace({ scope: 'active', leg: 'PICKUP' });
 
@@ -25,17 +33,12 @@ export function AgentVendorPickupsPage() {
 
   const atShopCount = pickupTasks.filter((t) => t.status === 'ASSIGNED').length;
   const toHubCount = pickupTasks.filter((t) => t.status === 'IN_PROGRESS').length;
+  const promptBusy = Boolean(tookPrompt && actionId === tookPrompt.id);
 
   return (
     <AgentShell title="From shop" subtitle="Take bag → bring to hub" onRefresh={() => void reload()}>
       {error ? <p style={styles.error}>{error}</p> : null}
       {notice ? <p style={styles.notice}>{notice}</p> : null}
-
-      <CollapsibleHowTo summary="Shop → bag → hub" storageKey="agent-howto-from-shop">
-        <p style={styles.howtoLine}>1 · Go to shop</p>
-        <p style={styles.howtoLine}>2 · Take bag</p>
-        <p style={styles.howtoLine}>3 · Bring to hub</p>
-      </CollapsibleHowTo>
 
       <div style={styles.filters}>
         <FilterChip active={filter === 'all'} label={`All ${pickupTasks.length}`} onClick={() => setFilter('all')} />
@@ -87,7 +90,15 @@ export function AgentVendorPickupsPage() {
                     manifestLoading={loadingManifests}
                     manifestFailed={Boolean(failedIds[task.id])}
                     onRetryManifest={() => retryManifest(task.id)}
-                    onPickVendor={doPickVendor}
+                    onPickVendor={(id, status) => {
+                      const shopName = manifests[id]?.shopName?.trim() || 'Shop';
+                      setTookPrompt({
+                        id,
+                        status,
+                        shopName,
+                        orderNumber: task.orderNumber,
+                      });
+                    }}
                   />
                 ))}
               </div>
@@ -95,6 +106,24 @@ export function AgentVendorPickupsPage() {
           ))}
         </div>
       )}
+
+      <ConfirmTookBagDialog
+        open={Boolean(tookPrompt)}
+        shopName={tookPrompt?.shopName ?? 'Shop'}
+        orderNumber={tookPrompt?.orderNumber}
+        busy={promptBusy}
+        onClose={() => {
+          if (!promptBusy) setTookPrompt(null);
+        }}
+        onConfirm={() => {
+          if (!tookPrompt) return;
+          const { id, status } = tookPrompt;
+          void (async () => {
+            await doPickVendor(id, status);
+            setTookPrompt(null);
+          })();
+        }}
+      />
     </AgentShell>
   );
 }
@@ -116,7 +145,6 @@ function FilterChip({
 }
 
 const styles: Record<string, CSSProperties> = {
-  howtoLine: { margin: 0, fontWeight: 700, fontSize: '0.82rem', lineHeight: 1.3 },
   filters: { display: 'flex', gap: '0.35rem', flexWrap: 'wrap' },
   chip: {
     border: '1px solid var(--border)',

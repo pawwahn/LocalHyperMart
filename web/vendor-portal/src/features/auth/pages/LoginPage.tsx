@@ -70,7 +70,10 @@ export function LoginPage() {
           {mode === 'login' ? (
             <>
               <h2 style={styles.title}>Sign in</h2>
-              <p style={styles.sub}>Manage orders and mark items ready for hub pickup.</p>
+              <p style={styles.sub}>
+                Manage orders and mark items ready for hub pickup. Order sound turns on when you sign
+                in.
+              </p>
 
               <TextField
                 label="Phone"

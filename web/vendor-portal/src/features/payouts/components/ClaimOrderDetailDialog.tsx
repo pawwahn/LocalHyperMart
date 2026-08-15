@@ -3,11 +3,14 @@ import { Button } from '@/shared/ui';
 import { useAuth } from '@/shared/auth/AuthContext';
 import { ApiError } from '@/shared/api/http';
 import { fetchSubOrder, type SubOrderView } from '@/features/orders/api/ordersApi';
+import { formatMoney } from '@/features/reports/api/reportsApi';
 
 type Props = {
   open: boolean;
   subOrderId: string | null;
   highlightItemId?: string | null;
+  /** Amount taken from vendor payout / credited to buyer for this claim. */
+  creditedAmount?: number | null;
   orderNumberHint?: string | null;
   onClose: () => void;
 };
@@ -16,6 +19,7 @@ export function ClaimOrderDetailDialog({
   open,
   subOrderId,
   highlightItemId,
+  creditedAmount,
   orderNumberHint,
   onClose,
 }: Props) {
@@ -63,6 +67,10 @@ export function ClaimOrderDetailDialog({
 
   if (!open) return null;
 
+  const credit = Number(creditedAmount ?? 0);
+  const hasCredit = Number.isFinite(credit) && credit > 0;
+  const claimedItem = order?.items.find((i) => i.orderItemId === highlightItemId) ?? null;
+
   return (
     <div
       style={styles.overlay}
@@ -97,6 +105,30 @@ export function ClaimOrderDetailDialog({
 
         {order && !loading ? (
           <div style={styles.body}>
+            {hasCredit ? (
+              <div style={styles.explain}>
+                <p style={styles.explainTitle}>How to read this claim</p>
+                <ul style={styles.explainList}>
+                  <li>
+                    <strong style={styles.creditAmt}>−{formatMoney(credit)}</strong>
+                    {' '}
+                    = taken from your payout (buyer got this as store credit)
+                  </li>
+                  <li>
+                    Bag line prices below are what the buyer paid — they stay on the order even after a claim
+                  </li>
+                  {claimedItem ? (
+                    <li>
+                      Highlighted item sold for <strong>{claimedItem.lineTotalLabel}</strong>
+                      {claimedItem.lineTotal - credit > 0.009
+                        ? ` — claim is only part of that line, not the full ${claimedItem.lineTotalLabel}`
+                        : ' — claim covers the full line'}
+                    </li>
+                  ) : null}
+                </ul>
+              </div>
+            ) : null}
+
             <div style={styles.metaGrid}>
               <div>
                 <span style={styles.metaLabel}>Order</span>
@@ -111,7 +143,7 @@ export function ClaimOrderDetailDialog({
                 <strong style={styles.metaValue}>{order.status}</strong>
               </div>
               <div>
-                <span style={styles.metaLabel}>Subtotal</span>
+                <span style={styles.metaLabel}>Bag subtotal</span>
                 <strong style={styles.metaValue}>{order.subtotalLabel}</strong>
               </div>
               <div>
@@ -126,13 +158,21 @@ export function ClaimOrderDetailDialog({
                 const hot = Boolean(highlightItemId && item.orderItemId === highlightItemId);
                 return (
                   <li key={item.orderItemId} style={hot ? styles.itemHot : styles.item}>
-                    <span>
-                      {item.quantity}
-                      {item.unitCode ? ` ${item.unitCode.toLowerCase()}` : ''} × {item.name}
-                      {item.cancelled ? ' · cancelled' : ''}
-                      {hot ? ' · claimed' : ''}
-                    </span>
-                    <strong>{item.lineTotalLabel}</strong>
+                    <div style={styles.itemMain}>
+                      <span style={styles.itemName}>
+                        {item.quantity}
+                        {item.unitCode ? ` ${item.unitCode.toLowerCase()}` : ''} × {item.name}
+                        {item.cancelled ? ' · cancelled' : ''}
+                      </span>
+                      {hot && hasCredit ? (
+                        <span style={styles.itemClaimNote}>
+                          Sold {item.lineTotalLabel} · claim credit −{formatMoney(credit)} (from payout)
+                        </span>
+                      ) : hot ? (
+                        <span style={styles.itemClaimNote}>This line was claimed</span>
+                      ) : null}
+                    </div>
+                    <strong style={styles.itemPrice}>{item.lineTotalLabel}</strong>
                   </li>
                 );
               })}
@@ -181,6 +221,33 @@ const styles: Record<string, CSSProperties> = {
   muted: { margin: 0, color: 'var(--text-muted)', fontSize: '0.88rem' },
   error: { margin: 0, color: 'var(--danger)', fontSize: '0.88rem', fontWeight: 600 },
   body: { display: 'grid', gap: '0.65rem' },
+  explain: {
+    padding: '0.5rem 0.65rem',
+    borderRadius: 'var(--radius-md)',
+    border: '1px solid #7c3aed',
+    background: 'rgba(124, 58, 237, 0.08)',
+    display: 'grid',
+    gap: '0.25rem',
+  },
+  explainTitle: {
+    margin: 0,
+    fontSize: '0.72rem',
+    fontWeight: 800,
+    textTransform: 'uppercase',
+    letterSpacing: '0.04em',
+    color: '#5b21b6',
+  },
+  explainList: {
+    margin: 0,
+    paddingLeft: '1.1rem',
+    display: 'grid',
+    gap: '0.2rem',
+    fontSize: '0.78rem',
+    fontWeight: 600,
+    color: 'var(--text)',
+    lineHeight: 1.35,
+  },
+  creditAmt: { color: '#7c3aed', fontWeight: 800 },
   metaGrid: {
     display: 'grid',
     gridTemplateColumns: 'repeat(auto-fit, minmax(9rem, 1fr))',
@@ -200,6 +267,7 @@ const styles: Record<string, CSSProperties> = {
     display: 'flex',
     justifyContent: 'space-between',
     gap: '0.5rem',
+    alignItems: 'flex-start',
     padding: '0.45rem 0.55rem',
     borderRadius: 'var(--radius-md)',
     border: '1px solid var(--border)',
@@ -210,10 +278,20 @@ const styles: Record<string, CSSProperties> = {
     display: 'flex',
     justifyContent: 'space-between',
     gap: '0.5rem',
+    alignItems: 'flex-start',
     padding: '0.45rem 0.55rem',
     borderRadius: 'var(--radius-md)',
     border: '1px solid #7c3aed',
     background: 'rgba(124, 58, 237, 0.08)',
     fontSize: '0.85rem',
   },
+  itemMain: { display: 'grid', gap: '0.15rem', minWidth: 0 },
+  itemName: { fontWeight: 600 },
+  itemClaimNote: {
+    fontSize: '0.72rem',
+    fontWeight: 700,
+    color: '#5b21b6',
+    lineHeight: 1.3,
+  },
+  itemPrice: { whiteSpace: 'nowrap', fontWeight: 800 },
 };

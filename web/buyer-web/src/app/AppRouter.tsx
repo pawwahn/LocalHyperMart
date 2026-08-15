@@ -4,6 +4,7 @@ import { AuthProvider, useAuth } from '@/shared/auth/AuthContext';
 import { TownProvider } from '@/shared/town/TownContext';
 import { RequireAuth } from '@/shared/routing/RequireAuth';
 import { LoginPage } from '@/features/auth/pages/LoginPage';
+import { LocalWelcomePage } from '@/features/auth/pages/LocalWelcomePage';
 import { ShopPage } from '@/features/shop/pages/ShopPage';
 import { CartPage } from '@/features/shop/pages/CartPage';
 import { OrdersPage } from '@/features/shop/pages/OrdersPage';
@@ -40,6 +41,7 @@ export function AppRouter() {
                   <Route path="/login" element={<LoginPage />} />
                   <Route path="/shop" element={<ShopPage />} />
                   <Route element={<RequireAuth />}>
+                    <Route path="/welcome" element={<LocalWelcomePage />} />
                     <Route path="/cart" element={<CartPage />} />
                     <Route path="/orders" element={<OrdersPage />} />
                     <Route path="/orders/:orderId" element={<OrderDetailPage />} />

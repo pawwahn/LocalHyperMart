@@ -77,9 +77,7 @@ public class TownAdService {
             ad.setShopName(trimTo(item.getShopName(), 120));
             ad.setHeadline(trimTo(item.getHeadline(), 160));
             ad.setBodyText(trimTo(item.getBodyText(), 240));
-            ad.setCtaLabel(StringUtils.hasText(item.getCtaLabel())
-                    ? trimTo(item.getCtaLabel(), 60)
-                    : "Shop now");
+            ad.setCtaLabel(trimTo(item.getCtaLabel(), 60));
             applyImages(ad, item);
             boolean enabled = Boolean.TRUE.equals(item.getEnabled());
             if (enabled && !isRenderable(ad)) {

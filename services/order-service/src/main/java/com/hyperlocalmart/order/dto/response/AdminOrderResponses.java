@@ -31,10 +31,23 @@ public final class AdminOrderResponses {
         PaymentStatus paymentStatus;
         BigDecimal totalAmount;
         Instant placedAt;
+        /** Active shop bags (excludes shop-rejected). */
         int subOrderCount;
+        /** Shop bags rejected by vendor (still on the order, not for pickup). */
+        int rejectedSubOrderCount;
         int readySubOrderCount;
         /** Sub-orders already brought to hub (vendor leg complete). */
         int atHubSubOrderCount;
+        /** Lightweight assignment status so list badges match detail actions. */
+        List<AdminAssignmentHintResponse> assignments;
+    }
+
+    @Value
+    @Builder
+    public static class AdminAssignmentHintResponse {
+        String legType;
+        String status;
+        String subOrderNumber;
     }
 
     @Value
@@ -61,6 +74,18 @@ public final class AdminOrderResponses {
         Instant readyForPickupAt;
         int itemCount;
         List<AdminSubOrderItemResponse> items;
+        /** Latest hub reminder for this shop bag, if any. */
+        AdminVendorAlertResponse vendorAlert;
+    }
+
+    @Value
+    @Builder
+    public static class AdminVendorAlertResponse {
+        UUID alertId;
+        String status;
+        String message;
+        Instant createdAt;
+        Instant acknowledgedAt;
     }
 
     @Value

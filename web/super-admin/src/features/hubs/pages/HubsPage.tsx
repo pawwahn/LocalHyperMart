@@ -4,7 +4,15 @@ import { useAuth } from '@/shared/auth/AuthContext';
 import { ApiError } from '@/shared/api/http';
 import { Banner, Button, Card, TextField } from '@/shared/ui';
 import { listTowns, type TownVm } from '@/features/towns/api/townsApi';
-import { createHub, listHubs, type AdminHubVm } from '../api/hubsApi';
+import { createHub, listHubs, type AdminHubVm, type GovtIdType } from '../api/hubsApi';
+
+const GOVT_ID_OPTIONS: Array<{ value: GovtIdType; label: string }> = [
+  { value: 'AADHAAR', label: 'Aadhaar card' },
+  { value: 'VOTER_ID', label: 'Voter ID' },
+  { value: 'DRIVING_LICENSE', label: 'Driving licence' },
+  { value: 'PAN', label: 'PAN card' },
+  { value: 'OTHER', label: 'Other government proof' },
+];
 
 export function HubsPage() {
   const { session } = useAuth();
@@ -24,6 +32,12 @@ export function HubsPage() {
   const [adminPhone, setAdminPhone] = useState('');
   const [adminFirstName, setAdminFirstName] = useState('');
   const [adminPassword, setAdminPassword] = useState('');
+  const [govtIdType, setGovtIdType] = useState<GovtIdType>('AADHAAR');
+  const [govtIdNumber, setGovtIdNumber] = useState('');
+  const [reference1Name, setReference1Name] = useState('');
+  const [reference1Phone, setReference1Phone] = useState('');
+  const [reference2Name, setReference2Name] = useState('');
+  const [reference2Phone, setReference2Phone] = useState('');
 
   const townById = useMemo(() => {
     const map = new Map<string, TownVm>();
@@ -64,6 +78,21 @@ export function HubsPage() {
     }
   }, [townsWithoutHub, townId]);
 
+  function resetForm() {
+    setName('');
+    setAddress('');
+    setPhone('');
+    setAdminPhone('');
+    setAdminFirstName('');
+    setAdminPassword('');
+    setGovtIdType('AADHAAR');
+    setGovtIdNumber('');
+    setReference1Name('');
+    setReference1Phone('');
+    setReference2Name('');
+    setReference2Phone('');
+  }
+
   async function onCreate() {
     setBusy(true);
     setError(null);
@@ -83,6 +112,40 @@ export function HubsPage() {
       setBusy(false);
       return;
     }
+    const loginPhone = adminPhone.trim() || phone.trim();
+    const r1 = reference1Phone.trim();
+    const r2 = reference2Phone.trim();
+    if (!/^[6-9]\d{9}$/.test(r1) || !/^[6-9]\d{9}$/.test(r2)) {
+      setError('Enter valid 10-digit reference phones');
+      setBusy(false);
+      return;
+    }
+    if (r1 === loginPhone || r2 === loginPhone) {
+      setError('Reference phones must be different from the admin login phone');
+      setBusy(false);
+      return;
+    }
+    if (r1 === r2) {
+      setError('Reference 1 and reference 2 must use different phone numbers');
+      setBusy(false);
+      return;
+    }
+    const idDigits = govtIdNumber.replace(/\s/g, '').trim();
+    if (govtIdType === 'AADHAAR' && !/^\d{12}$/.test(idDigits)) {
+      setError('Aadhaar number must be 12 digits');
+      setBusy(false);
+      return;
+    }
+    if (!idDigits || idDigits.length < 4) {
+      setError('Enter government ID number');
+      setBusy(false);
+      return;
+    }
+    if (!reference1Name.trim() || !reference2Name.trim()) {
+      setError('Both references need a name');
+      setBusy(false);
+      return;
+    }
     try {
       const created = await createHub(token, {
         townId,
@@ -92,6 +155,12 @@ export function HubsPage() {
         adminPhone: adminPhone.trim() || undefined,
         adminFirstName: adminFirstName.trim() || undefined,
         adminPassword: adminPassword.trim() || undefined,
+        govtIdType,
+        govtIdNumber: idDigits,
+        reference1Name: reference1Name.trim(),
+        reference1Phone: r1,
+        reference2Name: reference2Name.trim(),
+        reference2Phone: r2,
       });
       const townLabel = townById.get(created.townId)?.displayName ?? 'town';
       const pwd = created.temporaryPassword?.trim();
@@ -101,12 +170,7 @@ export function HubsPage() {
           : `Hub created for ${townLabel}`,
       );
       setShowAdd(false);
-      setName('');
-      setAddress('');
-      setPhone('');
-      setAdminPhone('');
-      setAdminFirstName('');
-      setAdminPassword('');
+      resetForm();
       await reload();
     } catch (err) {
       setError(err instanceof ApiError || err instanceof Error ? err.message : 'Create failed');
@@ -114,6 +178,15 @@ export function HubsPage() {
       setBusy(false);
     }
   }
+
+  const canSubmit =
+    !!name.trim() &&
+    !!phone.trim() &&
+    !!govtIdNumber.trim() &&
+    !!reference1Name.trim() &&
+    !!reference1Phone.trim() &&
+    !!reference2Name.trim() &&
+    !!reference2Phone.trim();
 
   return (
     <PortalShell title="Delivery hubs" onRefresh={() => void reload()}>
@@ -125,7 +198,7 @@ export function HubsPage() {
           <div>
             <p style={styles.hint}>
               One hub per town. Creating a hub also creates the hub-admin login for the delivery portal.
-              Works the same for 2 or 10 towns — no SQL seeds.
+              Govt ID and 2 references required (same as delivery agents).
             </p>
           </div>
           <Button
@@ -148,64 +221,134 @@ export function HubsPage() {
 
         {showAdd ? (
           <div style={styles.form}>
-            <label style={styles.label}>
-              Town
-              <select
-                style={styles.select}
-                value={townId}
-                onChange={(e) => setTownId(e.target.value)}
-                disabled={busy}
-              >
-                {townsWithoutHub.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.displayName} ({t.townCode})
-                  </option>
-                ))}
-              </select>
-            </label>
-            <TextField
-              label="Hub name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Chirala Hub"
-            />
-            <TextField
-              label="Address (optional)"
-              value={address}
-              onChange={(e) => setAddress(e.target.value)}
-              placeholder="Main road, near bus stand"
-            />
-            <TextField
-              label="Hub contact phone"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              placeholder="9876511111"
-              inputMode="numeric"
-            />
-            <TextField
-              label="Admin login phone (optional)"
-              value={adminPhone}
-              onChange={(e) => setAdminPhone(e.target.value)}
-              placeholder="Same as hub phone if blank"
-              inputMode="numeric"
-            />
-            <TextField
-              label="Admin first name (optional)"
-              value={adminFirstName}
-              onChange={(e) => setAdminFirstName(e.target.value)}
-              placeholder="Defaults to hub name"
-            />
-            <TextField
-              label="Admin password (optional)"
-              type="password"
-              value={adminPassword}
-              onChange={(e) => setAdminPassword(e.target.value)}
-              placeholder="Blank → HlM@ + last 4 digits"
-              autoComplete="new-password"
-            />
-            <Button disabled={busy || !name.trim() || !phone.trim()} onClick={() => void onCreate()}>
-              {busy ? 'Creating…' : 'Create hub + admin'}
-            </Button>
+            <div style={styles.formGrid}>
+              <label style={styles.label}>
+                Town
+                <select
+                  style={styles.select}
+                  value={townId}
+                  onChange={(e) => setTownId(e.target.value)}
+                  disabled={busy}
+                >
+                  {townsWithoutHub.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.displayName} ({t.townCode})
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <TextField
+                label="Hub name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Chirala Hub"
+              />
+              <div style={styles.span2}>
+                <TextField
+                  label="Address (optional)"
+                  value={address}
+                  onChange={(e) => setAddress(e.target.value)}
+                  placeholder="Main road, near bus stand"
+                />
+              </div>
+              <TextField
+                label="Hub contact phone"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                placeholder="9876511111"
+                inputMode="numeric"
+              />
+              <TextField
+                label="Admin login phone (optional)"
+                value={adminPhone}
+                onChange={(e) => setAdminPhone(e.target.value)}
+                placeholder="Same as hub phone if blank"
+                inputMode="numeric"
+              />
+              <TextField
+                label="Admin first name (optional)"
+                value={adminFirstName}
+                onChange={(e) => setAdminFirstName(e.target.value)}
+                placeholder="Defaults to hub name"
+              />
+              <TextField
+                label="Admin password (optional)"
+                type="password"
+                value={adminPassword}
+                onChange={(e) => setAdminPassword(e.target.value)}
+                placeholder="Blank → HlM@ + last 4 digits"
+                autoComplete="new-password"
+              />
+            </div>
+
+            <p style={styles.sectionTitle}>Government proof (hub admin)</p>
+            <div style={styles.formGrid}>
+              <label style={styles.label}>
+                ID type
+                <select
+                  style={styles.select}
+                  value={govtIdType}
+                  onChange={(e) => setGovtIdType(e.target.value as GovtIdType)}
+                  disabled={busy}
+                >
+                  {GOVT_ID_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <TextField
+                label={govtIdType === 'AADHAAR' ? 'Aadhaar (12 digits)' : 'ID number'}
+                value={govtIdNumber}
+                onChange={(e) => setGovtIdNumber(e.target.value)}
+                inputMode="numeric"
+                maxLength={govtIdType === 'AADHAAR' ? 12 : 40}
+                placeholder={govtIdType === 'AADHAAR' ? 'XXXXXXXXXXXX' : 'ID number'}
+              />
+            </div>
+
+            <p style={styles.sectionTitle}>Reference 1</p>
+            <div style={styles.formGrid}>
+              <TextField
+                label="Name"
+                value={reference1Name}
+                onChange={(e) => setReference1Name(e.target.value)}
+                placeholder="Relative / neighbour"
+              />
+              <TextField
+                label="Phone"
+                value={reference1Phone}
+                onChange={(e) => setReference1Phone(e.target.value)}
+                inputMode="numeric"
+                maxLength={10}
+                placeholder="10-digit mobile"
+              />
+            </div>
+
+            <p style={styles.sectionTitle}>Reference 2</p>
+            <div style={styles.formGrid}>
+              <TextField
+                label="Name"
+                value={reference2Name}
+                onChange={(e) => setReference2Name(e.target.value)}
+                placeholder="Relative / neighbour"
+              />
+              <TextField
+                label="Phone"
+                value={reference2Phone}
+                onChange={(e) => setReference2Phone(e.target.value)}
+                inputMode="numeric"
+                maxLength={10}
+                placeholder="10-digit mobile"
+              />
+            </div>
+
+            <div style={styles.submitRow}>
+              <Button disabled={busy || !canSubmit} onClick={() => void onCreate()}>
+                {busy ? 'Creating…' : 'Create hub + admin'}
+              </Button>
+            </div>
           </div>
         ) : null}
 
@@ -222,6 +365,7 @@ export function HubsPage() {
                   <th style={styles.th}>Town</th>
                   <th style={styles.th}>Phone</th>
                   <th style={styles.th}>Admin user</th>
+                  <th style={styles.th}>Govt proof</th>
                   <th style={styles.th}>Status</th>
                 </tr>
               </thead>
@@ -235,6 +379,22 @@ export function HubsPage() {
                     <td style={styles.td}>{townById.get(h.townId)?.displayName ?? h.townId.slice(0, 8)}</td>
                     <td style={styles.td}>{h.phone}</td>
                     <td style={styles.tdMuted}>{h.adminPhone ?? h.adminUserId?.slice(0, 8) ?? '—'}</td>
+                    <td style={styles.tdMuted}>
+                      {h.govtIdType ? (
+                        <>
+                          <div>
+                            {h.govtIdType} {h.govtIdNumber ?? ''}
+                          </div>
+                          {h.reference1Phone || h.reference2Phone ? (
+                            <div style={styles.sub}>
+                              Refs: {[h.reference1Phone, h.reference2Phone].filter(Boolean).join(' · ')}
+                            </div>
+                          ) : null}
+                        </>
+                      ) : (
+                        '—'
+                      )}
+                    </td>
                     <td style={styles.td}>{h.status}</td>
                   </tr>
                 ))}
@@ -260,19 +420,44 @@ const styles: Record<string, CSSProperties> = {
   muted: { margin: 0, color: 'var(--text-muted)' },
   form: {
     display: 'grid',
-    gap: '0.75rem',
-    maxWidth: 420,
-    padding: '0.85rem',
+    gap: '0.55rem',
+    width: '100%',
+    padding: '0.75rem',
     border: '1px solid var(--border)',
     borderRadius: 'var(--radius-md)',
     background: 'var(--bg-muted, #fafafa)',
+    boxSizing: 'border-box',
+  },
+  formGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 16rem), 1fr))',
+    gap: '0.45rem 0.75rem',
+    alignItems: 'start',
+  },
+  span2: {
+    gridColumn: '1 / -1',
+    minWidth: 0,
+  },
+  sectionTitle: {
+    margin: '0.35rem 0 0',
+    fontSize: '0.78rem',
+    fontWeight: 800,
+    letterSpacing: '0.04em',
+    textTransform: 'uppercase',
+    color: 'var(--text-muted)',
+  },
+  submitRow: {
+    display: 'flex',
+    justifyContent: 'flex-start',
+    marginTop: '0.15rem',
   },
   label: {
     display: 'grid',
-    gap: '0.35rem',
+    gap: '0.25rem',
     fontSize: '0.8rem',
     fontWeight: 700,
     color: 'var(--text-muted)',
+    minWidth: 0,
   },
   select: {
     padding: '0.55rem 0.65rem',
@@ -280,6 +465,8 @@ const styles: Record<string, CSSProperties> = {
     border: '1px solid var(--border)',
     font: 'inherit',
     background: 'var(--bg-elevated)',
+    width: '100%',
+    boxSizing: 'border-box',
   },
   tableWrap: { overflowX: 'auto' },
   table: { width: '100%', borderCollapse: 'collapse', fontSize: '0.9rem' },

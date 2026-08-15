@@ -47,7 +47,7 @@ export function useAuthForms() {
       }
       const session = await loginBuyer(phone.trim(), password);
       setSession(session);
-      navigate('/shop', { replace: true });
+      navigate('/welcome', { replace: true });
     } catch (err) {
       setError(err instanceof ApiError || err instanceof Error ? err.message : 'Auth failed');
     } finally {

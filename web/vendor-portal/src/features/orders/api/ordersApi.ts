@@ -68,6 +68,7 @@ export type SubOrderItemView = {
   name: string;
   quantity: number;
   unitCode?: string;
+  lineTotal: number;
   lineTotalLabel: string;
   status: string;
   cancelled: boolean;
@@ -149,6 +150,7 @@ function toItemView(item: SubOrderItemDto, subOrderStatus: SubOrderStatus): SubO
     name: item.name ?? 'Item',
     quantity: item.quantity ?? 1,
     unitCode: item.unitCode || undefined,
+    lineTotal: Number(item.lineTotal ?? 0),
     lineTotalLabel: money(item.lineTotal),
     status,
     cancelled,
@@ -250,6 +252,40 @@ export async function fetchSubOrder(
     vendorId,
   });
   return toSubOrderView(data);
+}
+
+export type VendorOrderAlertDto = {
+  alertId: string;
+  orderId: string;
+  orderNumber?: string | null;
+  subOrderId: string;
+  subOrderNumber?: string | null;
+  shopName?: string | null;
+  status: string;
+  message?: string | null;
+  createdAt?: string | null;
+};
+
+export async function fetchPendingVendorAlerts(
+  token: string,
+  vendorId: string,
+): Promise<VendorOrderAlertDto[]> {
+  const data = await apiRequest<VendorOrderAlertDto[]>(
+    '/api/v1/orders/vendor/alerts?status=PENDING',
+    { token, vendorId },
+  );
+  return data ?? [];
+}
+
+export async function acknowledgeVendorAlert(
+  token: string,
+  vendorId: string,
+  alertId: string,
+): Promise<VendorOrderAlertDto> {
+  return apiRequest<VendorOrderAlertDto>(
+    `/api/v1/orders/vendor/alerts/${alertId}/acknowledge`,
+    { method: 'POST', token, vendorId },
+  );
 }
 
 export async function markSubOrderReady(

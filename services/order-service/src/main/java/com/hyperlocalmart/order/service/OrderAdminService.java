@@ -5,18 +5,22 @@ import com.hyperlocalmart.common.exception.BusinessException;
 import com.hyperlocalmart.common.exception.ErrorCode;
 import com.hyperlocalmart.order.client.DeliveryClient;
 import com.hyperlocalmart.order.dto.response.AdminOrderResponses.AdminAssignmentEventResponse;
+import com.hyperlocalmart.order.dto.response.AdminOrderResponses.AdminAssignmentHintResponse;
 import com.hyperlocalmart.order.dto.response.AdminOrderResponses.AdminAssignmentResponse;
 import com.hyperlocalmart.order.dto.response.AdminOrderResponses.AdminOrderDetailResponse;
 import com.hyperlocalmart.order.dto.response.AdminOrderResponses.AdminOrderSummaryResponse;
 import com.hyperlocalmart.order.dto.response.AdminOrderResponses.AdminSubOrderItemResponse;
 import com.hyperlocalmart.order.dto.response.AdminOrderResponses.AdminSubOrderResponse;
+import com.hyperlocalmart.order.dto.response.AdminOrderResponses.AdminVendorAlertResponse;
 import com.hyperlocalmart.order.entity.Order;
 import com.hyperlocalmart.order.entity.OrderItem;
 import com.hyperlocalmart.order.entity.OrderItemStatus;
 import com.hyperlocalmart.order.entity.OrderStatus;
+import com.hyperlocalmart.order.entity.VendorOrderAlert;
 import com.hyperlocalmart.order.entity.VendorSubOrder;
 import com.hyperlocalmart.order.entity.VendorSubOrderStatus;
 import com.hyperlocalmart.order.repository.OrderRepository;
+import com.hyperlocalmart.order.repository.VendorOrderAlertRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -24,6 +28,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -34,6 +39,7 @@ public class OrderAdminService {
 
     private final OrderRepository orderRepository;
     private final DeliveryClient deliveryClient;
+    private final VendorOrderAlertRepository vendorOrderAlertRepository;
 
     @Transactional(readOnly = true)
     public PageResponse<AdminOrderSummaryResponse> listAdminOrders(
@@ -98,8 +104,12 @@ public class OrderAdminService {
                 .filter(o -> o.getTownId().equals(townId))
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Order not found"));
 
-        List<AdminSubOrderResponse> subOrders = order.getVendorSubOrders().stream()
-                .map(this::toSubOrder)
+        List<VendorSubOrder> bags = order.getVendorSubOrders() == null
+                ? List.of()
+                : order.getVendorSubOrders();
+        Map<UUID, VendorOrderAlert> latestAlertBySub = latestAlertsBySubOrder(bags);
+        List<AdminSubOrderResponse> subOrders = bags.stream()
+                .map(sub -> toSubOrder(sub, latestAlertBySub.get(sub.getId())))
                 .toList();
 
         List<AdminAssignmentResponse> assignments = deliveryClient.getAssignmentsForOrder(orderId).stream()
@@ -190,12 +200,44 @@ public class OrderAdminService {
     }
 
     private AdminOrderSummaryResponse toSummary(Order order) {
-        int readySubOrderCount = (int) order.getVendorSubOrders().stream()
+        List<VendorSubOrder> allSubs = order.getVendorSubOrders() == null
+                ? List.of()
+                : order.getVendorSubOrders();
+        List<VendorSubOrder> activeSubs = allSubs.stream()
+                .filter(sub -> sub.getStatus() != VendorSubOrderStatus.VENDOR_REJECTED)
+                .toList();
+        int rejectedSubOrderCount = allSubs.size() - activeSubs.size();
+        int readySubOrderCount = (int) activeSubs.stream()
                 .filter(sub -> sub.getStatus() == VendorSubOrderStatus.READY_FOR_PICKUP)
                 .count();
-        int atHubSubOrderCount = (int) order.getVendorSubOrders().stream()
+        int atHubFromStatus = (int) activeSubs.stream()
                 .filter(sub -> sub.getStatus() == VendorSubOrderStatus.DELIVERED)
                 .count();
+        List<DeliveryClient.OrderAssignment> assignments = order.getStatus() == OrderStatus.PLACED
+                ? deliveryClient.getAssignmentsForOrder(order.getId())
+                : List.of();
+        int atHubSubOrderCount = atHubFromStatus;
+        if (order.getStatus() == OrderStatus.PLACED && atHubFromStatus < activeSubs.size() && !activeSubs.isEmpty()) {
+            var activeNumbers = activeSubs.stream()
+                    .map(VendorSubOrder::getSubOrderNumber)
+                    .filter(n -> n != null && !n.isBlank())
+                    .collect(java.util.stream.Collectors.toSet());
+            long completedPickups = assignments.stream()
+                    .filter(a -> "PICKUP".equalsIgnoreCase(a.legType())
+                            && "COMPLETED".equalsIgnoreCase(a.status())
+                            && a.subOrderNumber() != null
+                            && activeNumbers.contains(a.subOrderNumber()))
+                    .count();
+            atHubSubOrderCount = (int) Math.max(atHubFromStatus, Math.min(completedPickups, activeSubs.size()));
+            readySubOrderCount = Math.max(0, readySubOrderCount - Math.min(readySubOrderCount, atHubSubOrderCount));
+        }
+        List<AdminAssignmentHintResponse> assignmentHints = assignments.stream()
+                .map(a -> AdminAssignmentHintResponse.builder()
+                        .legType(a.legType())
+                        .status(a.status())
+                        .subOrderNumber(a.subOrderNumber())
+                        .build())
+                .toList();
         return AdminOrderSummaryResponse.builder()
                 .orderId(order.getId())
                 .orderNumber(order.getOrderNumber())
@@ -207,13 +249,27 @@ public class OrderAdminService {
                 .paymentStatus(order.getPaymentStatus())
                 .totalAmount(order.getTotalAmount())
                 .placedAt(order.getPlacedAt())
-                .subOrderCount(order.getVendorSubOrders().size())
+                .subOrderCount(activeSubs.size())
+                .rejectedSubOrderCount(rejectedSubOrderCount)
                 .readySubOrderCount(readySubOrderCount)
                 .atHubSubOrderCount(atHubSubOrderCount)
+                .assignments(assignmentHints)
                 .build();
     }
 
-    private AdminSubOrderResponse toSubOrder(VendorSubOrder subOrder) {
+    private Map<UUID, VendorOrderAlert> latestAlertsBySubOrder(List<VendorSubOrder> subs) {
+        if (subs == null || subs.isEmpty()) {
+            return Map.of();
+        }
+        List<UUID> ids = subs.stream().map(VendorSubOrder::getId).toList();
+        Map<UUID, VendorOrderAlert> latest = new HashMap<>();
+        for (VendorOrderAlert alert : vendorOrderAlertRepository.findByVendorSubOrderIdInOrderByCreatedAtDesc(ids)) {
+            latest.putIfAbsent(alert.getVendorSubOrderId(), alert);
+        }
+        return latest;
+    }
+
+    private AdminSubOrderResponse toSubOrder(VendorSubOrder subOrder, VendorOrderAlert alert) {
         // Admin needs full picture — include cancelled/restored lines.
         List<OrderItem> items = subOrder.getItems() == null ? List.of() : subOrder.getItems();
         int itemCount = items.stream().mapToInt(OrderItem::getQuantity).sum();
@@ -227,6 +283,13 @@ public class OrderAdminService {
                         .status(item.getStatus() == null ? OrderItemStatus.ACTIVE.name() : item.getStatus().name())
                         .build())
                 .toList();
+        AdminVendorAlertResponse vendorAlert = alert == null ? null : AdminVendorAlertResponse.builder()
+                .alertId(alert.getId())
+                .status(alert.getStatus() == null ? null : alert.getStatus().name())
+                .message(alert.getMessage())
+                .createdAt(alert.getCreatedAt())
+                .acknowledgedAt(alert.getAcknowledgedAt())
+                .build();
         return AdminSubOrderResponse.builder()
                 .subOrderId(subOrder.getId())
                 .subOrderNumber(subOrder.getSubOrderNumber())
@@ -238,6 +301,7 @@ public class OrderAdminService {
                 .readyForPickupAt(subOrder.getReadyForPickupAt())
                 .itemCount(itemCount)
                 .items(itemResponses)
+                .vendorAlert(vendorAlert)
                 .build();
     }
 }

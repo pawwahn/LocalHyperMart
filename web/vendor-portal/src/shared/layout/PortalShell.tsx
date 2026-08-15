@@ -35,7 +35,7 @@ export function PortalShell({ title, children, onRefresh, shopPause }: Props) {
   const { hub, townName: shopTownName } = useVendorShop();
   const location = useLocation();
   const navigate = useNavigate();
-  const { alertMessage, pendingCount, clearAlert } = useOrderAlert();
+  const { alertMessage, pendingCount, clearAlert, soundReady, enableSound } = useOrderAlert();
   const narrow = useIsNarrow(767);
   const shopName = session?.shopName ?? 'Vendor shop';
   const phone = session?.phone;
@@ -131,6 +131,25 @@ export function PortalShell({ title, children, onRefresh, shopPause }: Props) {
           </HeaderIconButton>
         </div>
       </header>
+
+      {!soundReady ? (
+        <Banner tone="warning" style={styles.alertBanner}>
+          <span style={styles.alertText}>
+            Order sound didn’t unlock after sign-in — tap Enable once (browser rule).
+          </span>
+          <span style={styles.alertActions}>
+            <button
+              type="button"
+              style={styles.alertLinkBtn}
+              onClick={() => {
+                void enableSound();
+              }}
+            >
+              Enable sound
+            </button>
+          </span>
+        </Banner>
+      ) : null}
 
       {alertMessage ? (
         <Banner tone="brand" style={styles.alertBanner}>
@@ -312,6 +331,16 @@ const styles: Record<string, CSSProperties> = {
     color: 'inherit',
     fontWeight: 800,
     textDecoration: 'underline',
+  },
+  alertLinkBtn: {
+    background: 'transparent',
+    border: 'none',
+    color: 'inherit',
+    fontWeight: 800,
+    textDecoration: 'underline',
+    cursor: 'pointer',
+    padding: '0.45rem 0.25rem',
+    minHeight: 'var(--touch-min)',
   },
   alertDismiss: {
     background: 'transparent',

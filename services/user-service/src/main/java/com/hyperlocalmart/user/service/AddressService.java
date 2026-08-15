@@ -70,6 +70,22 @@ public class AddressService {
         return toResponse(addressRepository.save(address));
     }
 
+    @Transactional
+    public void deleteAddress(UUID userId, UUID addressId) {
+        Address address = addressRepository.findByIdAndUserId(addressId, userId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Address not found"));
+        boolean wasDefault = address.isDefault();
+        addressRepository.delete(address);
+        if (wasDefault) {
+            addressRepository.findByUserIdOrderByIsDefaultDescCreatedAtDesc(userId).stream()
+                    .findFirst()
+                    .ifPresent(next -> {
+                        next.setDefault(true);
+                        addressRepository.save(next);
+                    });
+        }
+    }
+
     private static String blankToNull(String value) {
         if (value == null) {
             return null;

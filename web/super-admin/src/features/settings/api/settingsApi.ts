@@ -10,6 +10,8 @@ export type PlatformSettingsVm = {
   supportPhone: string;
   /** Platform-wide buyer delivery fee in ₹ (not town-specific). */
   deliveryFee: number;
+  /** Spoken and displayed for every vendor's new-order alert. */
+  vendorOrderAlertMessage: string;
 };
 
 type SettingsDto = Record<string, unknown>;
@@ -41,6 +43,7 @@ function mapSettings(data: SettingsDto): PlatformSettingsVm {
     grievanceOfficer: asString(data.grievanceOfficer),
     supportPhone: asString(data.supportPhone),
     deliveryFee: asNumber(data.deliveryFee, 40),
+    vendorOrderAlertMessage: asString(data.vendorOrderAlertMessage, 'Order received'),
   };
 }
 

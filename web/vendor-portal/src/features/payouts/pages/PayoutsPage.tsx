@@ -43,6 +43,61 @@ function isoMonthStart(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
 }
 
+/** Parse YYYY-MM-DD (or ISO datetime) as a local calendar day — avoid UTC day-shift. */
+function parseDay(value?: string | null): Date | null {
+  if (!value) return null;
+  const day = value.trim().slice(0, 10);
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day);
+  if (!m) {
+    const d = new Date(value);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+  return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+}
+
+function formatDay(value?: string | null): string {
+  const d = parseDay(value);
+  if (!d) return '—';
+  return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+/** e.g. 1–10 Jul 2026 or 28 Jun – 5 Aug 2026 */
+function formatPeriodRange(start?: string | null, end?: string | null): string {
+  const a = parseDay(start);
+  const b = parseDay(end ?? start);
+  if (!a && !b) return '—';
+  if (!a) return formatDay(end);
+  if (!b) return formatDay(start);
+  const sameYear = a.getFullYear() === b.getFullYear();
+  const sameMonth = sameYear && a.getMonth() === b.getMonth();
+  if (sameMonth && a.getDate() === b.getDate()) {
+    return formatDay(start);
+  }
+  if (sameMonth) {
+    const monthYear = a.toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
+    return `${a.getDate()}–${b.getDate()} ${monthYear}`;
+  }
+  if (sameYear) {
+    const left = a.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+    const right = b.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+    return `${left} – ${right}`;
+  }
+  return `${formatDay(start)} – ${formatDay(end)}`;
+}
+
+function formatPaidAt(iso?: string | null): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleString(undefined, {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
+
 /** Settlement overlaps [from, to] when its payout period intersects the filter range. */
 function settlementOverlapsRange(
   s: VendorSettlement,
@@ -405,8 +460,13 @@ export function PayoutsPage() {
           </div>
           <p style={styles.formulaHint}>
             Net paid = Gross − Commission − Claim deductions − Other charges (penalties set by hub).
+            {' '}
+            <strong style={styles.hintStrong}>Orders window</strong> = which sales were included;
+            {' '}
+            <strong style={styles.hintStrong}>Paid on</strong> = when money was sent (can be days later).
+            Windows can overlap when hub picks different orders in each batch.
             {periodFrom || periodTo
-              ? ` Showing periods overlapping ${periodFrom || '…'} → ${periodTo || '…'}.`
+              ? ` Showing windows overlapping ${formatDay(periodFrom || null)} → ${formatDay(periodTo || null)}.`
               : ''}
           </p>
 
@@ -427,14 +487,14 @@ export function PayoutsPage() {
                 <table style={styles.table}>
                   <thead>
                     <tr>
-                      <SortableTh label="Period" column="period" sort={sort} onSort={(c) => setSort((p) => toggleSort(p, c))} style={styles.th} />
+                      <SortableTh label="Orders window" column="period" sort={sort} onSort={(c) => setSort((p) => toggleSort(p, c))} style={styles.th} />
                       <SortableTh label="Gross" column="gross" sort={sort} onSort={(c) => setSort((p) => toggleSort(p, c))} align="right" style={styles.th} />
                       <SortableTh label="Commission" column="fee" sort={sort} onSort={(c) => setSort((p) => toggleSort(p, c))} align="right" style={styles.th} />
                       <SortableTh label="Claims" column="claims" sort={sort} onSort={(c) => setSort((p) => toggleSort(p, c))} align="right" style={styles.th} />
                       <SortableTh label="Other" column="other" sort={sort} onSort={(c) => setSort((p) => toggleSort(p, c))} align="right" style={styles.th} />
                       <SortableTh label="Net" column="net" sort={sort} onSort={(c) => setSort((p) => toggleSort(p, c))} align="right" style={styles.th} />
                       <SortableTh label="Status" column="status" sort={sort} onSort={(c) => setSort((p) => toggleSort(p, c))} style={styles.th} />
-                      <SortableTh label="Paid at" column="paidAt" sort={sort} onSort={(c) => setSort((p) => toggleSort(p, c))} style={styles.th} />
+                      <SortableTh label="Paid on" column="paidAt" sort={sort} onSort={(c) => setSort((p) => toggleSort(p, c))} style={styles.th} />
                       <th style={styles.thPlain}>Mode / txn</th>
                     </tr>
                   </thead>
@@ -452,8 +512,13 @@ export function PayoutsPage() {
                       return (
                       <tr key={s.id}>
                         <td style={styles.td}>
-                          {s.periodStart ?? '—'} → {s.periodEnd ?? '—'}
-                          {s.periodType ? <div style={styles.sub}>{s.periodType}</div> : null}
+                          <div style={styles.periodMain}>
+                            {formatPeriodRange(s.periodStart, s.periodEnd)}
+                          </div>
+                          <div style={styles.sub}>
+                            Orders included
+                            {s.periodType ? ` · ${s.periodType}` : ''}
+                          </div>
                           {claims > 0 || other > 0 ? (
                             <div style={styles.breakdown}>
                               {formatMoney(s.grossAmount)} − {formatMoney(s.commissionAmount)} fee
@@ -488,7 +553,14 @@ export function PayoutsPage() {
                           <span style={s.status === 'PAID' ? styles.paid : styles.open}>{s.status}</span>
                         </td>
                         <td style={styles.tdMuted}>
-                          {s.paidAt ? new Date(s.paidAt).toLocaleString() : '—'}
+                          {s.paidAt ? (
+                            <>
+                              <div>{formatPaidAt(s.paidAt)}</div>
+                              <div style={styles.sub}>Money sent</div>
+                            </>
+                          ) : (
+                            '—'
+                          )}
                         </td>
                         <td style={styles.td}>
                           {s.status === 'PAID' ? (
@@ -569,6 +641,8 @@ const styles: Record<string, CSSProperties> = {
     lineHeight: 1.35,
     fontWeight: 600,
   },
+  hintStrong: { color: 'var(--text)', fontWeight: 800 },
+  periodMain: { fontWeight: 700 },
   breakdown: {
     marginTop: '0.2rem',
     fontSize: '0.7rem',

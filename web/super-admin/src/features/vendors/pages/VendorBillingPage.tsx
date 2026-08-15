@@ -24,6 +24,18 @@ function isoToday(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+/** One-line date for history table (avoids wrapping YYYY-MM-DD). */
+function formatHistoryDate(iso?: string | null): string {
+  if (!iso) return '—';
+  const d = new Date(`${iso}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString('en-IN', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  });
+}
+
 function feeLabel(model: VendorFeeModel | undefined): string {
   return FEE_MODEL_OPTIONS.find((m) => m.id === model)?.label ?? model ?? '—';
 }
@@ -144,6 +156,22 @@ export function VendorBillingPage() {
   );
 
   const modelHelp = FEE_MODEL_OPTIONS.find((m) => m.id === feeModel)?.help ?? '';
+
+  /** Always show + highlight the active terms (API may omit them when today falls in a gap). */
+  const historyDisplay = useMemo(() => {
+    const rows = history.map((row) => ({
+      ...row,
+      current: Boolean(row.current || (current?.id && row.id === current.id)),
+    }));
+    const currentInList = current?.id
+      ? rows.some((r) => r.id === current.id)
+      : rows.some((r) => r.current);
+    if (current && !currentInList) {
+      rows.unshift({ ...current, current: true });
+    }
+    rows.sort((a, b) => Number(Boolean(b.current)) - Number(Boolean(a.current)));
+    return rows;
+  }, [history, current]);
 
   const loadTerms = useCallback(
     async (id: string) => {
@@ -289,7 +317,9 @@ export function VendorBillingPage() {
               <div style={styles.activeBar}>
                 <span style={styles.activeBadge}>Active</span>
                 <strong>{feeLabel(current.feeModel)}</strong>
-                <span style={styles.activeMeta}>{periodLabel(current)}</span>
+                <span style={styles.activeMeta}>
+                  {formatHistoryDate(current.effectiveFrom)} → {formatHistoryDate(current.effectiveTo)}
+                </span>
                 <span style={styles.activeMeta}>{termsDetail(current)}</span>
               </div>
             ) : null}
@@ -506,33 +536,27 @@ export function VendorBillingPage() {
 
           <Card padding="sm" style={styles.card}>
             <h2 style={styles.h2}>History</h2>
-            {history.length === 0 ? (
+            {historyDisplay.length === 0 ? (
               <p style={styles.muted}>No versions yet.</p>
             ) : (
-              <div style={styles.histWrap}>
-                <table style={styles.table}>
-                  <thead>
-                    <tr>
-                      <th style={styles.th}>From</th>
-                      <th style={styles.th}>To</th>
-                      <th style={styles.th}>Model</th>
-                      <th style={styles.th}>Details</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {history.map((row) => (
-                      <tr key={row.id ?? `${row.effectiveFrom}-${row.feeModel}`}>
-                        <td style={styles.td}>{row.effectiveFrom ?? '—'}</td>
-                        <td style={styles.td}>{row.effectiveTo ?? '—'}</td>
-                        <td style={styles.td}>
-                          {feeLabel(row.feeModel)}
-                          {row.current ? <span style={styles.pill}>now</span> : null}
-                        </td>
-                        <td style={styles.tdMuted}>{termsDetail(row)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div style={styles.histList}>
+                {historyDisplay.map((row, index) => (
+                  <div
+                    key={row.id ?? `${row.effectiveFrom}-${row.feeModel}-${index}`}
+                    style={row.current ? styles.histItemCurrent : styles.histItem}
+                  >
+                    <div style={styles.histTop}>
+                      <span style={styles.histPeriod}>
+                        {formatHistoryDate(row.effectiveFrom)} → {formatHistoryDate(row.effectiveTo)}
+                      </span>
+                      <span style={styles.histModel}>
+                        {feeLabel(row.feeModel)}
+                        {row.current ? <span style={styles.pill}>current</span> : null}
+                      </span>
+                    </div>
+                    <p style={styles.histDetail}>{termsDetail(row)}</p>
+                  </div>
+                ))}
               </div>
             )}
           </Card>
@@ -725,33 +749,57 @@ const styles: Record<string, CSSProperties> = {
     alignItems: 'center',
     gap: '0.55rem',
   },
-  histWrap: {
-    overflowX: 'auto',
+  histList: {
+    display: 'grid',
+    gap: '0.45rem',
+    minWidth: 0,
+  },
+  histItem: {
     border: '1px solid var(--border)',
     borderRadius: 'var(--radius-md)',
+    padding: '0.5rem 0.6rem',
+    background: 'var(--bg)',
+    display: 'grid',
+    gap: '0.25rem',
+    minWidth: 0,
   },
-  table: { width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' },
-  th: {
-    textAlign: 'left',
-    padding: '0.35rem 0.45rem',
-    background: 'var(--bg-muted)',
-    borderBottom: '1px solid var(--border)',
-    color: 'var(--text-muted)',
+  histItemCurrent: {
+    border: `2px solid ${GREEN}`,
+    borderRadius: 'var(--radius-md)',
+    padding: '0.5rem 0.6rem',
+    background: GREEN_BG,
+    boxShadow: `0 0 0 1px ${GREEN_BG}`,
+    display: 'grid',
+    gap: '0.25rem',
+    minWidth: 0,
+  },
+  histTop: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: '0.35rem 0.75rem',
+    minWidth: 0,
+  },
+  histPeriod: {
     fontWeight: 700,
+    fontSize: '0.8rem',
     whiteSpace: 'nowrap',
   },
-  td: {
-    padding: '0.35rem 0.45rem',
-    borderBottom: '1px solid var(--border)',
-    verticalAlign: 'top',
-    fontWeight: 600,
+  histModel: {
+    fontWeight: 800,
+    fontSize: '0.78rem',
+    color: 'var(--text)',
+    whiteSpace: 'nowrap',
   },
-  tdMuted: {
-    padding: '0.35rem 0.45rem',
-    borderBottom: '1px solid var(--border)',
+  histDetail: {
+    margin: 0,
     color: 'var(--text-muted)',
     fontSize: '0.75rem',
     fontWeight: 600,
+    lineHeight: 1.4,
+    overflowWrap: 'anywhere',
+    wordBreak: 'break-word',
   },
   pill: {
     marginLeft: '0.35rem',

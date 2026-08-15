@@ -1,40 +1,59 @@
 const SOUND_URL = '/sounds/order-received.wav';
 
-let sharedAudio: HTMLAudioElement | null = null;
+let unlockAudio: HTMLAudioElement | null = null;
 let audioUnlocked = false;
+const unlockListeners = new Set<(ready: boolean) => void>();
 
-function getAudio(): HTMLAudioElement {
-  if (!sharedAudio) {
-    sharedAudio = new Audio(SOUND_URL);
-    sharedAudio.preload = 'auto';
-    sharedAudio.volume = 1;
+function getUnlockAudio(): HTMLAudioElement {
+  if (!unlockAudio) {
+    unlockAudio = new Audio(SOUND_URL);
+    unlockAudio.preload = 'auto';
+    unlockAudio.volume = 1;
   }
-  return sharedAudio;
+  return unlockAudio;
+}
+
+export function subscribeOrderAlertAudio(listener: (ready: boolean) => void): () => void {
+  unlockListeners.add(listener);
+  listener(audioUnlocked);
+  return () => {
+    unlockListeners.delete(listener);
+  };
+}
+
+function setUnlocked(ready: boolean) {
+  audioUnlocked = ready;
+  unlockListeners.forEach((fn) => fn(ready));
 }
 
 /** Call from a click so the browser allows later autoplay. */
 export async function unlockOrderAlertAudio(): Promise<boolean> {
   try {
-    const audio = getAudio();
+    const audio = getUnlockAudio();
     audio.muted = true;
     await audio.play();
     audio.pause();
     audio.currentTime = 0;
     audio.muted = false;
-    audioUnlocked = true;
+    setUnlocked(true);
     return true;
   } catch {
+    setUnlocked(false);
     return false;
   }
 }
 
-function speakFallback() {
+function normalizedMessage(message?: string): string {
+  return message?.trim() || 'Order received';
+}
+
+function speakFallback(message = 'Order received') {
   try {
     if (!window.speechSynthesis) return;
     const synth = window.speechSynthesis;
     synth.cancel();
     synth.resume();
-    const utter = new SpeechSynthesisUtterance('Order received');
+    const utter = new SpeechSynthesisUtterance(normalizedMessage(message));
     utter.lang = 'en-IN';
     utter.rate = 1;
     utter.volume = 1;
@@ -49,24 +68,92 @@ function speakFallback() {
 }
 
 /** Play recorded “Order received” (falls back to browser speech). Works in background tabs after unlock. */
-export function playOrderReceivedVoice() {
+export function playOrderReceivedVoice(message = 'Order received') {
+  const phrase = normalizedMessage(message);
+  if (phrase.toLocaleLowerCase() !== 'order received') {
+    speakFallback(phrase);
+    return;
+  }
   try {
-    const audio = getAudio();
-    audio.pause();
-    audio.currentTime = 0;
-    audio.volume = 1;
-    // Clone so overlapping alerts still sound if a previous clip is mid-play.
-    const clip = audio.cloneNode(true) as HTMLAudioElement;
+    // Fresh Audio each time — cloneNode of constructor-created Audio often has empty src.
+    const clip = new Audio(SOUND_URL);
     clip.volume = 1;
     const playPromise = clip.play();
     if (playPromise) {
-      void playPromise.catch(() => {
-        // Autoplay blocked (no user gesture yet) — try speech, then give up.
-        speakFallback();
-      });
+      void playPromise
+        .then(() => {
+          if (!audioUnlocked) setUnlocked(true);
+        })
+        .catch(() => {
+          // Autoplay blocked (no user gesture yet) — try speech, then give up.
+          speakFallback(phrase);
+        });
     }
   } catch {
-    speakFallback();
+    speakFallback(phrase);
+  }
+}
+
+let loopClip: HTMLAudioElement | null = null;
+let speechTimer: number | null = null;
+let loopMessage: string | null = null;
+
+function startSpeechLoop(message: string) {
+  speakFallback(message);
+  if (speechTimer != null) window.clearInterval(speechTimer);
+  speechTimer = window.setInterval(() => speakFallback(message), 4000);
+}
+
+/** Loop the order-received clip until stopOrderAlertLoop(). One loop only. */
+export function startOrderAlertLoop(message = 'Order received') {
+  const phrase = normalizedMessage(message);
+  if (loopMessage === phrase && ((loopClip && !loopClip.paused) || speechTimer != null)) return;
+  stopOrderAlertLoop();
+  loopMessage = phrase;
+  if (phrase.toLocaleLowerCase() !== 'order received') {
+    startSpeechLoop(phrase);
+    return;
+  }
+  try {
+    loopClip = new Audio(SOUND_URL);
+    loopClip.loop = true;
+    loopClip.volume = 1;
+    const playPromise = loopClip.play();
+    if (playPromise) {
+      void playPromise
+        .then(() => {
+          if (!audioUnlocked) setUnlocked(true);
+        })
+        .catch(() => {
+          startSpeechLoop(phrase);
+        });
+    }
+  } catch {
+    startSpeechLoop(phrase);
+  }
+}
+
+export function stopOrderAlertLoop() {
+  if (loopClip) {
+    try {
+      loopClip.pause();
+      loopClip.loop = false;
+      loopClip.removeAttribute('src');
+      loopClip.load();
+    } catch {
+      /* ignore */
+    }
+    loopClip = null;
+  }
+  if (speechTimer != null) {
+    window.clearInterval(speechTimer);
+    speechTimer = null;
+  }
+  loopMessage = null;
+  try {
+    window.speechSynthesis?.cancel();
+  } catch {
+    /* ignore */
   }
 }
 

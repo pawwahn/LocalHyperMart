@@ -344,9 +344,13 @@ public class SettlementService {
         if (payoutMethod == null || payoutMethod.isBlank()) {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, "payoutMethod is required when marking paid");
         }
+        if (transactionReference == null || transactionReference.isBlank()) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR,
+                    "Txn ref is required when marking paid (UTR / UPI / cheque number)");
+        }
         settlement.setStatus(SettlementStatus.PAID);
         settlement.setPayoutMethod(payoutMethod.trim().toUpperCase(Locale.ROOT));
-        settlement.setTransactionReference(transactionReference);
+        settlement.setTransactionReference(transactionReference.trim());
         settlement.setTransactionNotes(transactionNotes);
         settlement.setPaidAt(paidAt == null ? Instant.now() : paidAt);
         settlement.setPaidBy(actorId);

@@ -4,15 +4,18 @@ import com.hyperlocalmart.common.api.ApiResponse;
 import com.hyperlocalmart.common.api.PageResponse;
 import com.hyperlocalmart.common.exception.BusinessException;
 import com.hyperlocalmart.common.exception.ErrorCode;
+import com.hyperlocalmart.order.dto.request.CreateVendorOrderAlertRequest;
 import com.hyperlocalmart.order.dto.request.ResolveClaimRequest;
 import com.hyperlocalmart.order.dto.response.AdminOrderResponses.AdminOrderDetailResponse;
 import com.hyperlocalmart.order.dto.response.AdminOrderResponses.AdminOrderSummaryResponse;
 import com.hyperlocalmart.order.dto.response.ClaimResponse;
+import com.hyperlocalmart.order.dto.response.VendorOrderAlertResponse;
 import com.hyperlocalmart.order.entity.ClaimStatus;
 import com.hyperlocalmart.order.entity.OrderStatus;
 import com.hyperlocalmart.order.security.AuthUserPrincipal;
 import com.hyperlocalmart.order.service.OrderAdminService;
 import com.hyperlocalmart.order.service.OrderClaimService;
+import com.hyperlocalmart.order.service.VendorOrderAlertService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -29,6 +32,7 @@ public class OrderAdminController {
 
     private final OrderAdminService orderAdminService;
     private final OrderClaimService orderClaimService;
+    private final VendorOrderAlertService vendorOrderAlertService;
 
     @GetMapping
     public ResponseEntity<ApiResponse<PageResponse<AdminOrderSummaryResponse>>> listOrders(
@@ -71,6 +75,20 @@ public class OrderAdminController {
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
                 orderClaimService.resolveClaim(
                         principal.getUserId(), principal.getRoles(), claimId, townId, request)));
+    }
+
+    @PostMapping("/sub-orders/{subOrderId}/alerts")
+    public ResponseEntity<ApiResponse<VendorOrderAlertResponse>> createVendorAlert(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @PathVariable UUID subOrderId,
+            @RequestParam UUID townId,
+            @RequestBody(required = false) @Valid CreateVendorOrderAlertRequest request,
+            HttpServletRequest httpRequest) {
+        requireHubOrSuperAdmin(principal);
+        CreateVendorOrderAlertRequest body = request == null ? new CreateVendorOrderAlertRequest() : request;
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                vendorOrderAlertService.createAlert(
+                        principal.getUserId(), principal.getRoles(), subOrderId, townId, body)));
     }
 
     @GetMapping("/{orderId}")

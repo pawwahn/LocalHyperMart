@@ -108,7 +108,6 @@ export function useAgentWorkspace(options: Options = {}) {
     setNotice(null);
     try {
       await pickFromVendor(session.accessToken, id, 'Verified qty');
-      setNotice('Bag taken. Now take it to hub.');
       await reload();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not confirm pickup');

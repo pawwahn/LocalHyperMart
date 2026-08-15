@@ -3,6 +3,7 @@ package com.hyperlocalmart.order.service;
 import com.hyperlocalmart.order.client.DeliveryClient;
 import com.hyperlocalmart.order.entity.*;
 import com.hyperlocalmart.order.repository.OrderRepository;
+import com.hyperlocalmart.order.repository.VendorOrderAlertRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -25,6 +26,7 @@ class OrderAdminServiceTest {
 
     @Mock private OrderRepository orderRepository;
     @Mock private DeliveryClient deliveryClient;
+    @Mock private VendorOrderAlertRepository vendorOrderAlertRepository;
 
     @InjectMocks
     private OrderAdminService orderAdminService;
