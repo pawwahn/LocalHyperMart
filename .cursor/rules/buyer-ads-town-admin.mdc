@@ -20,6 +20,6 @@ alwaysApply: true
 
 ## Current
 
-- Super-admin **Ads** screen manages **3** town slots: `HOME_HERO`, `HOME_MID_GRID`, `CART_UPSELL` (buyer: `home_hero`, `home_mid_grid`, `cart_upsell`).
+- Super-admin **Ads** screen manages **7** town ads: `HOME_HERO` (1), `HOME_MID_GRID` (5 carousel slides), `CART_UPSELL` (1).
 - `home_search_strip` remains reserved for later.
 - Buyer `AdSlot` loads live town ads from town-service; pilot inventory is fallback.

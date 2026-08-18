@@ -3,7 +3,7 @@ import type { CSSProperties } from 'react';
 import { PortalShell } from '@/shared/layout/PortalShell';
 import { useAuth } from '@/shared/auth/AuthContext';
 import { ApiError } from '@/shared/api/http';
-import { Banner, Button, Card, TextField, SearchSelect } from '@/shared/ui';
+import { Banner, Button, Card, TextField, SearchSelect, ConfirmDialog } from '@/shared/ui';
 import { listTowns, type TownVm } from '@/features/towns/api/townsApi';
 import {
   approveRegistration,
@@ -67,6 +67,7 @@ export function VendorsPage() {
   const [disableId, setDisableId] = useState<string | null>(null);
   const [disableReason, setDisableReason] = useState('');
   const [statusBusyId, setStatusBusyId] = useState<string | null>(null);
+  const [pendingEnable, setPendingEnable] = useState<VendorVm | null>(null);
   const [editId, setEditId] = useState<string | null>(null);
   const [editBusinessName, setEditBusinessName] = useState('');
   const [editOwnerName, setEditOwnerName] = useState('');
@@ -316,16 +317,20 @@ export function VendorsPage() {
     }
   }
 
-  async function onEnable(vendor: VendorVm) {
-    if (!window.confirm(`Re-enable ${vendor.shopName ?? vendor.businessName}? Buyers will see this shop again.`)) {
-      return;
-    }
+  function requestEnable(vendor: VendorVm) {
+    setPendingEnable(vendor);
+  }
+
+  async function onEnableConfirm() {
+    if (!pendingEnable) return;
+    const vendor = pendingEnable;
     setStatusBusyId(vendor.id);
     setError(null);
     setNotice(null);
     try {
       const updated = await updateVendorStatus(token, vendor.id, 'ACTIVE');
       setNotice(`${updated.shopName ?? updated.businessName} re-enabled`);
+      setPendingEnable(null);
       await reload();
     } catch (err) {
       setError(err instanceof ApiError || err instanceof Error ? err.message : 'Enable failed');
@@ -697,7 +702,7 @@ export function VendorsPage() {
                             Edit
                           </Button>
                           {disabled ? (
-                            <Button size="sm" disabled={statusBusy || busy} onClick={() => void onEnable(v)}>
+                            <Button size="sm" disabled={statusBusy || busy} onClick={() => requestEnable(v)}>
                               {statusBusy ? '…' : 'Enable'}
                             </Button>
                           ) : (
@@ -725,6 +730,20 @@ export function VendorsPage() {
           </div>
         )}
       </Card>
+
+      <ConfirmDialog
+        open={Boolean(pendingEnable)}
+        title={`Re-enable ${pendingEnable?.shopName ?? pendingEnable?.businessName}?`}
+        description="Buyers will see this shop again in the town catalog."
+        confirmLabel="Enable shop"
+        cancelLabel="Cancel"
+        danger={false}
+        busy={Boolean(statusBusyId)}
+        onConfirm={() => void onEnableConfirm()}
+        onClose={() => {
+          if (!statusBusyId) setPendingEnable(null);
+        }}
+      />
     </PortalShell>
   );
 }

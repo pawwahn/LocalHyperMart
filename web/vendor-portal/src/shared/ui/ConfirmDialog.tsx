@@ -1,7 +1,7 @@
 import { useEffect, useId, type CSSProperties } from 'react';
 import { Button } from './Button';
 
-type Props = {
+export type ConfirmDialogProps = {
   open: boolean;
   title: string;
   description: string;
@@ -9,24 +9,25 @@ type Props = {
   cancelLabel?: string;
   danger?: boolean;
   busy?: boolean;
-  /** Single OK button — use for errors after a failed action. */
+  /** Single OK button for post-action alerts (not yes/no). */
   alertOnly?: boolean;
   onConfirm: () => void;
   onClose: () => void;
 };
 
+/** Themed yes/no dialog — never use window.alert / window.confirm in portal UI. */
 export function ConfirmDialog({
   open,
   title,
   description,
-  confirmLabel = 'Delete',
-  cancelLabel = 'Cancel',
-  danger = true,
+  confirmLabel = 'Confirm',
+  cancelLabel = 'Go back',
+  danger,
   busy,
   alertOnly,
   onConfirm,
   onClose,
-}: Props) {
+}: ConfirmDialogProps) {
   const titleId = useId();
 
   useEffect(() => {
@@ -67,11 +68,11 @@ export function ConfirmDialog({
           )}
           <Button
             type="button"
-            variant={alertOnly ? 'primary' : danger ? 'danger' : 'primary'}
+            variant={danger ? 'danger' : 'primary'}
             disabled={busy}
-            onClick={alertOnly ? onClose : onConfirm}
+            onClick={onConfirm}
           >
-            {busy ? `${(confirmLabel ?? 'Confirm').replace(/\?+$/, '')}…` : alertOnly ? confirmLabel || 'OK' : confirmLabel}
+            {busy ? '…' : alertOnly ? confirmLabel || 'OK' : confirmLabel}
           </Button>
         </div>
       </div>
@@ -91,26 +92,32 @@ const styles: Record<string, CSSProperties> = {
     backdropFilter: 'blur(2px)',
   },
   dialog: {
-    width: 'min(26rem, 100%)',
+    width: 'min(28rem, 100%)',
     background: 'var(--bg-elevated)',
     border: '1px solid var(--border)',
     borderRadius: 'var(--radius-lg)',
     boxShadow: 'var(--shadow-elevated)',
-    padding: '1.1rem 1.15rem',
+    padding: '1.25rem',
     display: 'grid',
-    gap: '0.7rem',
+    gap: '0.85rem',
   },
   title: {
     margin: 0,
     fontFamily: 'var(--font-display)',
     fontWeight: 800,
-    fontSize: '1.12rem',
+    fontSize: '1.2rem',
+    color: 'var(--text)',
   },
   description: {
     margin: 0,
     color: 'var(--text-muted)',
-    fontSize: '0.88rem',
-    lineHeight: 1.4,
+    fontSize: '0.92rem',
+    lineHeight: 1.45,
   },
-  actions: { display: 'flex', justifyContent: 'flex-end', gap: '0.45rem', flexWrap: 'wrap' },
+  actions: {
+    display: 'flex',
+    justifyContent: 'flex-end',
+    gap: '0.55rem',
+    flexWrap: 'wrap',
+  },
 };

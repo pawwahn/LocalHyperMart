@@ -10,9 +10,13 @@ import java.util.UUID;
 
 public interface TownAdRepository extends JpaRepository<TownAd, UUID> {
 
-    List<TownAd> findByTownIdOrderBySlotAsc(UUID townId);
+    List<TownAd> findByTownIdOrderBySlotAscSlotIndexAsc(UUID townId);
 
-    List<TownAd> findByTownIdAndEnabledTrueOrderBySlotAsc(UUID townId);
+    List<TownAd> findByTownIdAndEnabledTrueOrderBySlotAscSlotIndexAsc(UUID townId);
 
-    Optional<TownAd> findByTownIdAndSlot(UUID townId, TownAdSlot slot);
+    Optional<TownAd> findByTownIdAndSlotAndSlotIndex(UUID townId, TownAdSlot slot, int slotIndex);
+
+    List<TownAd> findByAllTownsTrueAndEnabledTrueOrderByUpdatedAtDesc();
+
+    List<TownAd> findByCampaignIdAndSlotAndSlotIndex(UUID campaignId, TownAdSlot slot, int slotIndex);
 }

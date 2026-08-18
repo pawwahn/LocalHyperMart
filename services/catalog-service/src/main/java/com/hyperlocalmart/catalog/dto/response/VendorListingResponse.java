@@ -14,6 +14,8 @@ public class VendorListingResponse {
 
     private UUID listingId;
     private UUID masterItemId;
+    private UUID categoryId;
+    private String category;
     private String name;
     private String unit;
     private UUID townId;

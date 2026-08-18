@@ -12,6 +12,7 @@ export type TownAdVm = {
   townId: string;
   slot: TownAdSlot;
   slotKey: string;
+  slotIndex: number;
   shopName: string;
   headline: string;
   bodyText: string;
@@ -20,6 +21,8 @@ export type TownAdVm = {
   imageUrl: string | null;
   imageMediaId: string | null;
   enabled: boolean;
+  allTowns: boolean;
+  targetTownIds: string[];
 };
 
 export type TownAdsVm = {
@@ -29,28 +32,62 @@ export type TownAdsVm = {
 
 export type UpsertTownAdInput = {
   slot: TownAdSlot;
+  slotIndex: number;
   shopName: string;
   headline: string;
   bodyText: string;
   ctaLabel: string;
   images: TownAdImage[];
   enabled: boolean;
+  allTowns: boolean;
+  targetTownIds: string[];
 };
 
 export const MAX_AD_IMAGES = 3;
+export const MID_GRID_COUNT = 5;
 
-export const ALL_AD_SLOTS: TownAdSlot[] = ['HOME_HERO', 'HOME_MID_GRID', 'CART_UPSELL'];
+export type AdEditorSection = 'hero' | 'mid' | 'cart';
+
+export type AdEditorItem = {
+  slot: TownAdSlot;
+  slotIndex: number;
+  section: AdEditorSection;
+  title: string;
+  label: string;
+};
+
+export function adEditorKey(slot: TownAdSlot, slotIndex: number): string {
+  return `${slot}:${slotIndex}`;
+}
+
+export const AD_EDITOR_ITEMS: AdEditorItem[] = [
+  {
+    slot: 'HOME_HERO',
+    slotIndex: 0,
+    section: 'hero',
+    title: 'Ad 1',
+    label: 'Home strip · top of shop',
+  },
+  ...Array.from({ length: MID_GRID_COUNT }, (_, i) => ({
+    slot: 'HOME_MID_GRID' as const,
+    slotIndex: i + 1,
+    section: 'mid' as const,
+    title: `Slide ${i + 1}`,
+    label: 'Mid-grid carousel · after category row 4',
+  })),
+  {
+    slot: 'CART_UPSELL',
+    slotIndex: 0,
+    section: 'cart',
+    title: 'Ad 3',
+    label: 'Cart / checkout upsell',
+  },
+];
 
 export const SLOT_LABELS: Record<TownAdSlot, string> = {
   HOME_HERO: 'Home strip (top)',
-  HOME_MID_GRID: 'Mid-grid (between products)',
+  HOME_MID_GRID: 'Mid-grid carousel',
   CART_UPSELL: 'Cart / checkout',
-};
-
-export const SLOT_TITLES: Record<TownAdSlot, string> = {
-  HOME_HERO: 'Ad 1',
-  HOME_MID_GRID: 'Ad 2',
-  CART_UPSELL: 'Ad 3',
 };
 
 export async function fetchTownAdsEditor(token: string, townId: string): Promise<TownAdsVm> {
@@ -113,4 +150,8 @@ export function normalizeAdImages(ad: TownAdVm): TownAdImage[] {
     return [{ url: ad.imageUrl, mediaId: ad.imageMediaId }];
   }
   return [];
+}
+
+export function matchEditorAd(ad: TownAdVm, item: AdEditorItem): boolean {
+  return ad.slot === item.slot && (ad.slotIndex ?? 0) === item.slotIndex;
 }

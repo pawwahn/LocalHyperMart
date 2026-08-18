@@ -3,7 +3,7 @@ import type { CSSProperties } from 'react';
 import { PortalShell } from '@/shared/layout/PortalShell';
 import { useAuth } from '@/shared/auth/AuthContext';
 import { ApiError } from '@/shared/api/http';
-import { Banner, Button, Card, TextField } from '@/shared/ui';
+import { Banner, Button, Card, ConfirmDialog, TextField } from '@/shared/ui';
 import {
   createTown,
   listCountries,
@@ -46,6 +46,7 @@ export function TownsPage() {
   const [pincodes, setPincodes] = useState('');
   const [radius, setRadius] = useState('10');
   const [configTown, setConfigTown] = useState<TownVm | null>(null);
+  const [pendingDisableTown, setPendingDisableTown] = useState<TownVm | null>(null);
   const [platformDeliveryFee, setPlatformDeliveryFee] = useState(40);
 
   const selectedCountry = useMemo(
@@ -170,11 +171,7 @@ export function TownsPage() {
     }
   }
 
-  async function toggleStatus(town: TownVm) {
-    const next = town.status === 'ENABLED' ? 'DISABLED' : 'ENABLED';
-    if (next === 'DISABLED' && !window.confirm(`Disable ${town.displayName}? Buyers and vendors in this town will stop.`)) {
-      return;
-    }
+  async function applyStatus(town: TownVm, next: 'ENABLED' | 'DISABLED') {
     setBusyId(town.id);
     setError(null);
     setNotice(null);
@@ -182,12 +179,22 @@ export function TownsPage() {
       await updateTownStatus(token, town.id, next, next === 'DISABLED' ? 'Paused by super admin' : undefined);
       setNotice(`${town.displayName} ${next === 'ENABLED' ? 'enabled' : 'disabled'}`);
       if (next === 'DISABLED') setFilter('all');
+      setPendingDisableTown(null);
       await reload();
     } catch (err) {
       setError(err instanceof ApiError || err instanceof Error ? err.message : 'Status update failed');
     } finally {
       setBusyId(null);
     }
+  }
+
+  async function toggleStatus(town: TownVm) {
+    const next = town.status === 'ENABLED' ? 'DISABLED' : 'ENABLED';
+    if (next === 'DISABLED') {
+      setPendingDisableTown(town);
+      return;
+    }
+    await applyStatus(town, next);
   }
 
   return (
@@ -445,6 +452,22 @@ export function TownsPage() {
           }}
         />
       ) : null}
+
+      <ConfirmDialog
+        open={Boolean(pendingDisableTown)}
+        title={`Disable ${pendingDisableTown?.displayName}?`}
+        description="Buyers and vendors in this town will stop until you enable it again."
+        confirmLabel="Disable town"
+        cancelLabel="Cancel"
+        danger
+        busy={Boolean(busyId)}
+        onConfirm={() => {
+          if (pendingDisableTown) void applyStatus(pendingDisableTown, 'DISABLED');
+        }}
+        onClose={() => {
+          if (!busyId) setPendingDisableTown(null);
+        }}
+      />
     </PortalShell>
   );
 }

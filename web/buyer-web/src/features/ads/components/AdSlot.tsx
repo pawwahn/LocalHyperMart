@@ -6,7 +6,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from 'react';
 import { useTown } from '@/shared/town/TownContext';
-import { resolveCreative, fetchTownAds, type TownAdDto } from '../api/townAdsApi';
+import { resolveCreative, resolveCreatives, fetchTownAds, type TownAdDto } from '../api/townAdsApi';
 import { ADS_ENABLED, type AdCreative, type AdSlotId } from '../adsInventory';
 
 type Props = {
@@ -53,6 +53,13 @@ export function AdSlot({ slot, variant = 'strip', onCta }: Props) {
   }, [tid]);
 
   if (!ADS_ENABLED) return null;
+
+  if (slot === 'home_mid_grid') {
+    const ads = resolveCreatives(slot, tid, live);
+    if (!ads.length) return null;
+    return <MidGridAdCarousel ads={ads} townId={tid} onCta={onCta} />;
+  }
+
   const ad = resolveCreative(slot, tid, live);
   if (!ad) return null;
 
@@ -161,6 +168,158 @@ function ImageCarousel({
         </div>
       ) : null}
     </div>
+  );
+}
+
+function MidGridAdCarousel({
+  ads,
+  townId,
+  onCta,
+}: {
+  ads: AdCreative[];
+  townId: string | null;
+  onCta?: () => void;
+}) {
+  const count = ads.length;
+  const adsKey = ads.map((a) => a.id).join('|');
+  const slides = count > 1 ? [...ads, ads[0]] : ads;
+  const [index, setIndex] = useState(0);
+  const [enableTransition, setEnableTransition] = useState(true);
+  const pausedRef = useRef(false);
+  const dragging = useRef(false);
+  const startX = useRef<number | null>(null);
+
+  const activeDot = count > 1 && index >= count ? 0 : index;
+
+  useEffect(() => {
+    setIndex(0);
+    setEnableTransition(true);
+  }, [adsKey, townId]);
+
+  useEffect(() => {
+    if (count <= 1) return;
+    const timer = window.setInterval(() => {
+      if (pausedRef.current || dragging.current || document.hidden) return;
+      setEnableTransition(true);
+      setIndex((i) => i + 1);
+    }, 4500);
+    return () => window.clearInterval(timer);
+  }, [count, adsKey]);
+
+  useEffect(() => {
+    if (!enableTransition && index === 0) {
+      const frame = requestAnimationFrame(() => {
+        requestAnimationFrame(() => setEnableTransition(true));
+      });
+      return () => cancelAnimationFrame(frame);
+    }
+  }, [enableTransition, index]);
+
+  function handleTransitionEnd() {
+    if (count <= 1 || index !== count) return;
+    setEnableTransition(false);
+    setIndex(0);
+  }
+
+  function go(dir: -1 | 1) {
+    if (count <= 1) return;
+    setEnableTransition(true);
+    setIndex((i) => {
+      if (dir === 1) return i >= count ? 0 : i + 1;
+      if (i <= 0) return count - 1;
+      if (i === count) return count - 1;
+      return i - 1;
+    });
+  }
+
+  function onPointerDown(e: ReactPointerEvent) {
+    pausedRef.current = true;
+    startX.current = e.clientX;
+    dragging.current = true;
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+  }
+
+  function onPointerUp(e: ReactPointerEvent) {
+    if (!dragging.current || startX.current == null) {
+      dragging.current = false;
+      pausedRef.current = false;
+      return;
+    }
+    const dx = e.clientX - startX.current;
+    dragging.current = false;
+    startX.current = null;
+    window.setTimeout(() => {
+      pausedRef.current = false;
+    }, 1200);
+    if (Math.abs(dx) < 36) return;
+    go(dx < 0 ? 1 : -1);
+  }
+
+  return (
+    <aside style={styles.midCarousel} aria-label="Sponsored offers carousel">
+      <div
+        style={styles.midCarouselViewport}
+        onMouseEnter={() => {
+          pausedRef.current = true;
+        }}
+        onMouseLeave={() => {
+          pausedRef.current = false;
+        }}
+        onPointerDown={onPointerDown}
+        onPointerUp={onPointerUp}
+        onPointerCancel={() => {
+          dragging.current = false;
+          startX.current = null;
+          pausedRef.current = false;
+        }}
+        role="group"
+        aria-roledescription="carousel"
+        aria-label={`Sponsored ${activeDot + 1} of ${count}`}
+      >
+        <div
+          style={{
+            ...styles.midCarouselSlides,
+            transform: `translateX(-${index * 100}%)`,
+            transition: enableTransition ? 'transform 520ms ease' : 'none',
+          }}
+          onTransitionEnd={handleTransitionEnd}
+        >
+          {slides.map((ad, slideIndex) => (
+            <div key={`${ad.id}-${slideIndex}`} style={styles.midCarouselSlide}>
+              <SoftAd ad={ad} townId={townId} isCard={false} onCta={onCta} />
+            </div>
+          ))}
+        </div>
+      </div>
+      {count > 1 ? (
+        <div style={styles.midCarouselMeta}>
+          <span style={styles.midCarouselCount}>
+            {activeDot + 1}/{count}
+          </span>
+          <div style={styles.dots}>
+            {ads.map((item, i) => (
+              <button
+                key={item.id}
+                type="button"
+                aria-label={`Go to sponsored slide ${i + 1}`}
+                style={{
+                  ...styles.dot,
+                  ...(i === activeDot ? styles.dotActive : null),
+                }}
+                onClick={() => {
+                  pausedRef.current = true;
+                  setEnableTransition(true);
+                  setIndex(i);
+                  window.setTimeout(() => {
+                    pausedRef.current = false;
+                  }, 4500);
+                }}
+              />
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </aside>
   );
 }
 
@@ -568,5 +727,41 @@ const styles: Record<string, CSSProperties> = {
     fontSize: '0.72rem',
     cursor: 'pointer',
     whiteSpace: 'nowrap',
+  },
+  midCarousel: {
+    display: 'grid',
+    gap: '0.35rem',
+    minWidth: 0,
+    maxWidth: '100%',
+  },
+  midCarouselViewport: {
+    overflow: 'hidden',
+    width: '100%',
+    touchAction: 'pan-y',
+    cursor: 'grab',
+    userSelect: 'none',
+  },
+  midCarouselSlides: {
+    display: 'flex',
+    width: '100%',
+    willChange: 'transform',
+  },
+  midCarouselSlide: {
+    flex: '0 0 100%',
+    minWidth: 0,
+  },
+  midCarouselMeta: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: '0.45rem',
+    padding: '0 0.1rem',
+  },
+  midCarouselCount: {
+    fontSize: '0.62rem',
+    fontWeight: 800,
+    color: 'var(--text-muted)',
+    letterSpacing: '0.04em',
+    textTransform: 'uppercase',
   },
 };

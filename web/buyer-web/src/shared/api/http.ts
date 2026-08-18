@@ -66,6 +66,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
       headers,
       body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
       signal: controller.signal,
+      cache: 'no-store',
     });
   } catch (err) {
     const aborted =

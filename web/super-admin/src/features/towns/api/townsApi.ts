@@ -12,7 +12,7 @@ export type TownVm = {
   acceptingOrders: boolean;
 };
 
-type TownListResponse = { items: TownVm[] };
+type TownListResponse = { items: TownVm[]; total?: number; hasMore?: boolean };
 
 type TownDetailDto = {
   id: string;
@@ -52,6 +52,35 @@ export type GeoCountryVm = {
 export async function listTowns(token: string): Promise<TownVm[]> {
   const data = await apiRequest<TownListResponse>('/api/v1/towns?includeDisabled=true', { token });
   return data.items ?? [];
+}
+
+export async function searchTowns(
+  token: string,
+  opts: { q?: string; page?: number; size?: number } = {},
+): Promise<{ items: TownVm[]; total: number; hasMore: boolean }> {
+  const params = new URLSearchParams({ includeDisabled: 'true', size: String(opts.size ?? 80) });
+  if (opts.q?.trim()) params.set('q', opts.q.trim());
+  if (opts.page != null) params.set('page', String(opts.page));
+  const data = await apiRequest<TownListResponse>(`/api/v1/towns?${params}`, { token });
+  return {
+    items: data.items ?? [],
+    total: data.total ?? data.items?.length ?? 0,
+    hasMore: Boolean(data.hasMore),
+  };
+}
+
+export async function listTownsByIds(token: string, ids: string[]): Promise<TownVm[]> {
+  const unique = [...new Set(ids.filter(Boolean))];
+  if (unique.length === 0) return [];
+  const out: TownVm[] = [];
+  for (let i = 0; i < unique.length; i += 200) {
+    const chunk = unique.slice(i, i + 200);
+    const params = new URLSearchParams({ includeDisabled: 'true' });
+    chunk.forEach((id) => params.append('ids', id));
+    const data = await apiRequest<TownListResponse>(`/api/v1/towns?${params}`, { token });
+    out.push(...(data.items ?? []));
+  }
+  return out;
 }
 
 export async function listCountries(token?: string | null): Promise<GeoCountryVm[]> {

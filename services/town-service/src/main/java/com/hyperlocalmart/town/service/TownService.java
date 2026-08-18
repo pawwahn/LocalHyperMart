@@ -16,9 +16,15 @@ import com.hyperlocalmart.town.entity.TownStatus;
 import com.hyperlocalmart.town.repository.TownPincodeRepository;
 import com.hyperlocalmart.town.repository.TownRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Collection;
+import java.util.Comparator;
 import java.util.List;
 import java.util.UUID;
 
@@ -33,15 +39,66 @@ public class TownService {
 
     @Transactional(readOnly = true)
     public TownListResponse listTowns(TownStatus status, boolean includeDisabled) {
-        List<Town> towns;
-        if (includeDisabled && status == null) {
-            towns = townRepository.findAllByOrderByDisplayNameAsc();
-        } else {
-            TownStatus effectiveStatus = status != null ? status : TownStatus.ENABLED;
-            towns = townRepository.findByStatusOrderByDisplayNameAsc(effectiveStatus);
+        return listTowns(status, includeDisabled, null, null, null, null);
+    }
+
+    @Transactional(readOnly = true)
+    public TownListResponse listTowns(
+            TownStatus status,
+            boolean includeDisabled,
+            String q,
+            Integer page,
+            Integer size,
+            Collection<UUID> ids) {
+        if (ids != null && !ids.isEmpty()) {
+            List<UUID> wanted = ids.stream().distinct().limit(200).toList();
+            TownStatus required = includeDisabled ? status : (status != null ? status : TownStatus.ENABLED);
+            List<TownListItemResponse> items = townRepository.findByIdIn(wanted).stream()
+                    .filter(town -> required == null || town.getStatus() == required)
+                    .sorted(Comparator.comparing(Town::getDisplayName, String.CASE_INSENSITIVE_ORDER))
+                    .map(this::toListItem)
+                    .toList();
+            return TownListResponse.builder()
+                    .items(items)
+                    .total((long) items.size())
+                    .hasMore(false)
+                    .build();
         }
-        List<TownListItemResponse> items = towns.stream().map(this::toListItem).toList();
-        return TownListResponse.builder().items(items).build();
+
+        String needle = q == null || q.isBlank() ? null : q.trim();
+        if (size == null && needle == null) {
+            List<Town> towns;
+            if (includeDisabled && status == null) {
+                towns = townRepository.findAllByOrderByDisplayNameAsc();
+            } else {
+                TownStatus effectiveStatus = status != null ? status : TownStatus.ENABLED;
+                towns = townRepository.findByStatusOrderByDisplayNameAsc(effectiveStatus);
+            }
+            List<TownListItemResponse> items = towns.stream().map(this::toListItem).toList();
+            return TownListResponse.builder()
+                    .items(items)
+                    .total((long) items.size())
+                    .hasMore(false)
+                    .build();
+        }
+
+        TownStatus filterStatus = includeDisabled ? status : (status != null ? status : TownStatus.ENABLED);
+        int safeSize = Math.min(Math.max(size == null ? 80 : size, 1), 100);
+        int safePage = page == null || page < 0 ? 0 : page;
+        Pageable pageable = PageRequest.of(safePage, safeSize, Sort.by("displayName"));
+        Page<Town> result;
+        if (needle == null) {
+            result = filterStatus == null
+                    ? townRepository.findAllByOrderByDisplayNameAsc(pageable)
+                    : townRepository.findByStatusOrderByDisplayNameAsc(filterStatus, pageable);
+        } else {
+            result = townRepository.search(filterStatus, needle, pageable);
+        }
+        return TownListResponse.builder()
+                .items(result.getContent().stream().map(this::toListItem).toList())
+                .total(result.getTotalElements())
+                .hasMore(result.hasNext())
+                .build();
     }
 
     @Transactional(readOnly = true)

@@ -1,6 +1,5 @@
 import { apiRequest } from '@/shared/api/http';
 import type { AdCreative, AdSlotId } from '../adsInventory';
-import { getAdForSlot } from '../adsInventory';
 
 export type TownAdImageDto = {
   url: string;
@@ -12,6 +11,7 @@ export type TownAdDto = {
   townId: string;
   slot: 'HOME_HERO' | 'HOME_MID_GRID' | 'CART_UPSELL';
   slotKey: string;
+  slotIndex: number;
   shopName: string;
   headline: string;
   bodyText: string;
@@ -62,18 +62,35 @@ export function apiAdToCreative(ad: TownAdDto): AdCreative {
   };
 }
 
-/** Prefer live town ads; fall back to pilot inventory for empty slots. */
+/** Prefer live town ads. Do not substitute dummy/pilot ads once the town feed has loaded. */
 export function resolveCreative(
   slot: AdSlotId,
   townId: string | null | undefined,
   live: TownAdDto[] | null,
 ): AdCreative | null {
-  if (live && townId) {
-    const match = live.find((a) => a.slotKey === slot && a.enabled);
-    const urls = match ? imageUrlsFromAd(match) : [];
-    if (match?.shopName && match.headline && urls.length) {
-      return apiAdToCreative(match);
-    }
-  }
-  return getAdForSlot(slot, townId);
+  const list = resolveCreatives(slot, townId, live);
+  return list[0] ?? null;
+}
+
+function matchesSlot(ad: TownAdDto, slot: AdSlotId): boolean {
+  if (ad.slotKey === slot) return true;
+  return (ad.slot ?? '').toLowerCase() === slot;
+}
+
+function isLiveRenderable(ad: TownAdDto): boolean {
+  return Boolean(ad.enabled && ad.shopName && ad.headline && imageUrlsFromAd(ad).length);
+}
+
+/** All enabled creatives for a slot (mid-grid returns up to 5 carousel slides). */
+export function resolveCreatives(
+  slot: AdSlotId,
+  townId: string | null | undefined,
+  live: TownAdDto[] | null,
+): AdCreative[] {
+  if (!townId || live == null) return [];
+  return live
+    .filter((a) => matchesSlot(a, slot))
+    .filter(isLiveRenderable)
+    .sort((a, b) => (a.slotIndex ?? 0) - (b.slotIndex ?? 0))
+    .map(apiAdToCreative);
 }

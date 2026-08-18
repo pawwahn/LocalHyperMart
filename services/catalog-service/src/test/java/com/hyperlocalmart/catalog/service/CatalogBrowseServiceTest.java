@@ -40,7 +40,7 @@ class CatalogBrowseServiceTest {
         UUID townId = UUID.fromString("a1111111-1111-4111-8111-111111111111");
         UUID shopId = UUID.fromString("c1111111-1111-4111-8111-111111111111");
         VendorListing listing = sampleListing(shopId);
-        when(vendorListingRepository.browseActive(eq(townId), isNull(), isNull(), any(PageRequest.class)))
+        when(vendorListingRepository.browseActive(eq(townId), isNull(), any(PageRequest.class)))
                 .thenReturn(new PageImpl<>(List.of(listing)));
         when(vendorShopClient.getShopsByIds(anyList())).thenReturn(Map.of(
                 shopId, new VendorShopClient.ShopInfo(shopId, listing.getVendorId(), "Ravi Kirana")
@@ -56,6 +56,25 @@ class CatalogBrowseServiceTest {
         assertThat(response.getItems().getFirst().getName()).isEqualTo("Tomato");
         assertThat(response.getItems().getFirst().getShopName()).isEqualTo("Ravi Kirana");
         assertThat(response.getItems().getFirst().getUnit()).isEqualTo("KG");
+    }
+
+    @Test
+    void browse_keepsItemsWhenShopLookupFails() {
+        UUID townId = UUID.fromString("a1111111-1111-4111-8111-111111111111");
+        UUID shopId = UUID.fromString("c1111111-1111-4111-8111-111111111111");
+        VendorListing listing = sampleListing(shopId);
+        when(vendorListingRepository.browseActive(eq(townId), isNull(), any(PageRequest.class)))
+                .thenReturn(new PageImpl<>(List.of(listing)));
+        when(vendorShopClient.getShopsByIds(anyList())).thenReturn(Map.of());
+        when(vendorListingImageRepository.findByListingIdInOrderByListingIdAscSortOrderAsc(any()))
+                .thenReturn(List.of());
+        when(masterItemImageRepository.findByMasterItemIdInOrderByMasterItemIdAscSortOrderAsc(any()))
+                .thenReturn(List.of());
+
+        PageResponse<CatalogItemResponse> response = catalogBrowseService.browse(townId, null, null, 0, 24, "name", "asc");
+
+        assertThat(response.getItems()).hasSize(1);
+        assertThat(response.getItems().getFirst().getShopName()).isEqualTo("Local shop");
     }
 
     private VendorListing sampleListing(UUID shopId) {

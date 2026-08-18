@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type CSSProperties } from 'react';
-import { Button, Card } from '@/shared/ui';
+import { Button, Card, ConfirmDialog } from '@/shared/ui';
 import type { CategoryView, DraftPricing, ListingView, MasterItemView } from '../api/listingsApi';
+import type { PublishResult } from '../hooks/useVendorListings';
 import { TableScrollShell } from './TableScrollShell';
 import { SortableTh } from './SortableTh';
 import { TablePager } from './TablePager';
@@ -36,7 +37,7 @@ type Props = {
   inMyListing: number;
   onToggle: (masterItemId: string, checked: boolean) => void;
   onDraftChange: (masterItemId: string, patch: Partial<DraftPricing>) => void;
-  onPublish: () => void;
+  onPublish: () => Promise<PublishResult>;
 };
 
 const STATUS_FILTERS: Array<{ id: CatalogStatusFilter; label: string }> = [
@@ -75,6 +76,16 @@ export function CatalogPicker({
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(25);
   const [sort, setSort] = useState<SortState<CatalogSortKey>>({ key: 'name', dir: 'asc' });
+  const [publishConfirmOpen, setPublishConfirmOpen] = useState(false);
+  const [publishSuccessCount, setPublishSuccessCount] = useState<number | null>(null);
+
+  async function handlePublishConfirm() {
+    const result = await onPublish();
+    setPublishConfirmOpen(false);
+    if (result.ok) {
+      setPublishSuccessCount(result.count);
+    }
+  }
 
   useEffect(() => {
     setPage(0);
@@ -145,6 +156,7 @@ export function CatalogPicker({
   }
 
   return (
+    <>
     <Card elevated style={styles.card}>
       <div style={styles.head}>
         <div>
@@ -368,7 +380,7 @@ export function CatalogPicker({
       {selectedCount > 0 ? (
         <div style={styles.publishBar}>
           <span style={styles.publishText}>{selectedCount} selected for publish</span>
-          <Button size="sm" disabled={saving} onClick={onPublish}>
+          <Button size="sm" disabled={saving} onClick={() => setPublishConfirmOpen(true)}>
             {saving ? 'Publishing…' : 'Publish to town'}
           </Button>
         </div>
@@ -386,6 +398,38 @@ export function CatalogPicker({
         />
       ) : null}
     </Card>
+
+    <ConfirmDialog
+      open={publishConfirmOpen}
+      title={`Publish ${selectedCount} to town?`}
+      description={
+        selectedCount === 1
+          ? 'This product will be added to your town listing for buyers.'
+          : `These ${selectedCount} products will be added to your town listing for buyers.`
+      }
+      confirmLabel="Publish to town"
+      cancelLabel="Cancel"
+      busy={saving}
+      onConfirm={() => void handlePublishConfirm()}
+      onClose={() => {
+        if (!saving) setPublishConfirmOpen(false);
+      }}
+    />
+
+    <ConfirmDialog
+      open={publishSuccessCount != null}
+      title="Published to town"
+      description={
+        publishSuccessCount === 1
+          ? '1 product is now in your town listing. Check My listings to review or hide it.'
+          : `${publishSuccessCount} products are now in your town listing. Check My listings to review or hide them.`
+      }
+      confirmLabel="OK"
+      alertOnly
+      onConfirm={() => setPublishSuccessCount(null)}
+      onClose={() => setPublishSuccessCount(null)}
+    />
+  </>
   );
 }
 

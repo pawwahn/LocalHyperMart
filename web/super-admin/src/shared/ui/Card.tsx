@@ -5,13 +5,15 @@ type Props = {
   padding?: 'sm' | 'md' | 'lg';
   elevated?: boolean;
   style?: CSSProperties;
+  className?: string;
 };
 
 const pads = { sm: '0.75rem', md: '1rem', lg: '1.25rem' } as const;
 
-export function Card({ children, padding = 'md', elevated, style }: Props) {
+export function Card({ children, padding = 'md', elevated, style, className }: Props) {
   return (
     <div
+      className={className}
       style={{
         background: 'var(--bg-elevated)',
         border: '1px solid var(--border)',

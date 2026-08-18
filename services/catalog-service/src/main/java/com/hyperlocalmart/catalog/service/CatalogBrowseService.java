@@ -38,8 +38,9 @@ public class CatalogBrowseService {
             UUID townId, UUID categoryId, String query, int page, int size, String sort, String dir) {
         String normalizedQuery = query == null || query.isBlank() ? null : query.trim();
         PageRequest pageable = PageRequest.of(page, size, browseSort(sort, dir));
-        Page<VendorListing> listings = vendorListingRepository.browseActive(
-                townId, categoryId, normalizedQuery, pageable);
+        Page<VendorListing> listings = normalizedQuery == null
+                ? vendorListingRepository.browseActive(townId, categoryId, pageable)
+                : vendorListingRepository.searchActive(townId, categoryId, normalizedQuery, pageable);
 
         List<UUID> shopIds = listings.getContent().stream().map(VendorListing::getShopId).distinct().toList();
         Map<UUID, VendorShopClient.ShopInfo> shops = vendorShopClient.getShopsByIds(shopIds);
@@ -53,12 +54,12 @@ public class CatalogBrowseService {
         Map<UUID, List<String>> imagesByMaster = imageUrlsByMaster(masterIds);
 
         List<CatalogItemResponse> items = listings.getContent().stream()
-                .filter(listing -> shops.containsKey(listing.getShopId()))
                 .map(listing -> {
                     List<String> custom = imagesByListing.getOrDefault(listing.getId(), List.of());
                     List<String> master = imagesByMaster.getOrDefault(listing.getMasterItem().getId(), List.of());
                     List<String> effective = custom.isEmpty() ? master : custom;
-                    return toItem(listing, shops.get(listing.getShopId()), effective);
+                    VendorShopClient.ShopInfo shop = shops.get(listing.getShopId());
+                    return toItem(listing, shop, effective);
                 })
                 .toList();
 
@@ -121,6 +122,10 @@ public class CatalogBrowseService {
                 now);
         List<String> urls = imageUrls == null ? List.of() : List.copyOf(imageUrls);
         String primary = urls.isEmpty() ? null : urls.get(0);
+        String shopName = shop == null || shop.shopName() == null || shop.shopName().isBlank()
+                ? "Local shop"
+                : shop.shopName();
+        UUID vendorId = shop == null ? listing.getVendorId() : shop.vendorId();
 
         return CatalogItemResponse.builder()
                 .listingId(listing.getId())
@@ -133,8 +138,8 @@ public class CatalogBrowseService {
                         : listing.getMasterItem().getCategory().getName())
                 .name(listing.getMasterItem().getName())
                 .unit(listing.getMasterItem().getUnit().getCode())
-                .shopName(shop.shopName())
-                .vendorId(shop.vendorId())
+                .shopName(shopName)
+                .vendorId(vendorId)
                 .mrp(mrp)
                 .price(listing.getPrice())
                 .discountPrice(listing.getDiscountPrice())

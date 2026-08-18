@@ -3,6 +3,7 @@ import { useAuth } from '@/shared/auth/AuthContext';
 import { ApiError } from '@/shared/api/http';
 import {
   bulkPublishListings,
+  enrichListingsWithCategory,
   emptyDraft,
   fetchCategories,
   fetchMasterItems,
@@ -27,6 +28,8 @@ type ListingsCache = {
   drafts: Record<string, DraftPricing>;
   selected: Record<string, boolean>;
 };
+
+export type PublishResult = { ok: true; count: number } | { ok: false };
 
 let listingsCache: ListingsCache | null = null;
 
@@ -81,8 +84,8 @@ export function useVendorListings() {
         throw mastersResult.reason;
       }
 
-      const list = listResult.value;
       const masters = mastersResult.value;
+      const list = enrichListingsWithCategory(listResult.value, masters);
       setListings(list);
       setMasterItems(masters);
 
@@ -180,6 +183,7 @@ export function useVendorListings() {
       if (!q) return true;
       return (
         listing.name.toLowerCase().includes(q) ||
+        listing.category.toLowerCase().includes(q) ||
         listing.unit.toLowerCase().includes(q) ||
         listing.note.toLowerCase().includes(q)
       );
@@ -228,15 +232,15 @@ export function useVendorListings() {
     });
   }
 
-  async function publishSelected() {
-    if (!session) return;
+  async function publishSelected(): Promise<PublishResult> {
+    if (!session) return { ok: false };
     const ids = Object.entries(selected)
       .filter(([, on]) => on)
       .map(([id]) => id);
     if (ids.length === 0) {
       setError('Check at least one product as available');
       setRowErrors({});
-      return;
+      return { ok: false };
     }
 
     setSaving(true);
@@ -282,13 +286,13 @@ export function useVendorListings() {
           : `${count} products need fixing. First: ${first}`,
       );
       setSaving(false);
-      return;
+      return { ok: false };
     }
 
     try {
       await bulkPublishListings(session.accessToken, session.vendorId, payload);
-      setNotice(`${payload.length} item(s) published to your town listing.`);
       await reload();
+      return { ok: true, count: payload.length };
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Could not publish listings';
       setError(message);
@@ -297,6 +301,7 @@ export function useVendorListings() {
       if (matched) {
         setRowErrors({ [matched.id]: message });
       }
+      return { ok: false };
     } finally {
       setSaving(false);
     }

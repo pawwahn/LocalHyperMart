@@ -13,14 +13,45 @@ import {
 import { CategoryTile } from '../components/CategoryTile';
 import { ProductCard } from '../components/ProductCard';
 import { ProductQuickView } from '../components/ProductQuickView';
-import { emojiForCategory } from '../lib/aisles';
+import { groupCategoriesIntoAisles } from '../lib/aisles';
 import { useBrowserVoiceSearch } from '../hooks/useBrowserVoiceSearch';
 import { useShop } from '../hooks/useShop';
 
 const SEARCH_HINTS = ['Egg', 'Bread', 'Milk', 'Rice', 'Maggi', 'Tomato'];
 const PAGE_SIZE = 24;
+const CATEGORY_COLS = 4;
+/** Insert sponsored mid-grid ad after this many full category rows on home. */
+const MID_AD_AFTER_ROW = 4;
 
-type CatSort = 'az' | 'za';
+type HomeBlock =
+  | { type: 'aisle-start'; title: string }
+  | { type: 'category'; cat: CategoryView }
+  | { type: 'mid-ad' };
+
+function buildCategoryHomeBlocks(aisles: ReturnType<typeof groupCategoriesIntoAisles>): HomeBlock[] {
+  const blocks: HomeBlock[] = [];
+  let tileIndex = 0;
+  let midAdInserted = false;
+
+  for (const aisle of aisles) {
+    if (aisle.categories.length === 0) continue;
+    blocks.push({ type: 'aisle-start', title: aisle.title });
+    for (const cat of aisle.categories) {
+      tileIndex += 1;
+      blocks.push({ type: 'category', cat });
+      if (
+        !midAdInserted &&
+        tileIndex % CATEGORY_COLS === 0 &&
+        tileIndex / CATEGORY_COLS === MID_AD_AFTER_ROW
+      ) {
+        blocks.push({ type: 'mid-ad' });
+        midAdInserted = true;
+      }
+    }
+  }
+  return blocks;
+}
+
 type ItemSort = 'name-az' | 'name-za' | 'price-asc' | 'price-desc' | 'rating';
 
 type Props = {
@@ -50,8 +81,8 @@ export function ShopPage({ browseOnly = false }: Props) {
     doDecrease,
   } = useShop();
   const [categoryId, setCategoryId] = useState<string | null>(null);
+  const [categoryName, setCategoryName] = useState<string>('');
   const [categories, setCategories] = useState<CategoryView[]>([]);
-  const [catSort, setCatSort] = useState<CatSort>('az');
   const [itemSort, setItemSort] = useState<ItemSort>('name-az');
   const [query, setQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
@@ -66,6 +97,7 @@ export function ShopPage({ browseOnly = false }: Props) {
   const [quickView, setQuickView] = useState<CatalogItemView | null>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const loadingMoreRef = useRef(false);
+  const fetchGenRef = useRef(0);
   const { listening, supported, error: voiceError, toggle: toggleVoice } = useBrowserVoiceSearch(
     (transcript) => setQuery(transcript),
   );
@@ -84,9 +116,25 @@ export function ShopPage({ browseOnly = false }: Props) {
 
   useEffect(() => {
     let cancelled = false;
-    void fetchCategories()
+    if (!townId) {
+      setCategories([]);
+      setCategoryId(null);
+      setCategoryName('');
+      return () => {
+        cancelled = true;
+      };
+    }
+    void fetchCategories(townId)
       .then((next) => {
-        if (!cancelled) setCategories(next);
+        if (cancelled) return;
+        setCategories(next);
+        setCategoryId((prev) => {
+          if (prev && !next.some((c) => c.id === prev)) {
+            setCategoryName('');
+            return null;
+          }
+          return prev;
+        });
       })
       .catch(() => {
         if (!cancelled) setCategories([]);
@@ -94,66 +142,77 @@ export function ShopPage({ browseOnly = false }: Props) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [townId]);
 
   const searching = debouncedQuery.length > 0;
   const selected = categories.find((c) => c.id === categoryId) ?? null;
-  const inCategory = Boolean(selected);
+  const inCategory = Boolean(categoryId);
   const showFeed = inCategory || searching;
+  const categoryTitle = selected?.name || categoryName || 'Category';
 
-  const visibleCategories = useMemo(() => {
+  const aisles = useMemo(() => {
     const needle = query.trim().toLowerCase();
     const list = needle
       ? categories.filter((c) => c.name.toLowerCase().includes(needle))
       : categories;
-    return [...list].sort((a, b) => {
-      const cmp = a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
-      return catSort === 'za' ? -cmp : cmp;
-    });
-  }, [categories, query, catSort]);
+    return groupCategoriesIntoAisles(list);
+  }, [categories, query]);
+
+  const categoryHomeBlocks = useMemo(
+    () => (searching ? [] : buildCategoryHomeBlocks(aisles)),
+    [aisles, searching],
+  );
 
   const loadPage = useCallback(
     async (nextPage: number, append: boolean) => {
       if (!townId || (!inCategory && !searching)) {
+        fetchGenRef.current += 1;
         setProducts([]);
         setPage(0);
         setTotal(0);
         setHasMore(false);
         setCatalogError(null);
+        setCatalogLoading(false);
         return;
       }
+      const gen = append ? fetchGenRef.current : ++fetchGenRef.current;
       if (append) {
         if (loadingMoreRef.current) return;
         loadingMoreRef.current = true;
         setLoadingMore(true);
       } else {
         setCatalogLoading(true);
+        setProducts([]);
       }
       setCatalogError(null);
       try {
         const data = await fetchCatalogPage({
           townId,
-          categoryId: selected?.id,
+          categoryId: categoryId ?? undefined,
           q: searching ? debouncedQuery : undefined,
           page: nextPage,
           size: PAGE_SIZE,
           ...sortParams(itemSort),
         });
+        if (gen !== fetchGenRef.current) return;
         setProducts((prev) => (append ? [...prev, ...data.items] : data.items));
         rememberItems(data.items, append ? 'append' : 'replace');
         setPage(data.page);
         setTotal(data.totalElements);
         setHasMore(data.page + 1 < data.totalPages);
       } catch (err) {
+        if (gen !== fetchGenRef.current) return;
         if (!append) setProducts([]);
         setCatalogError(err instanceof Error ? err.message : 'Failed to load items');
       } finally {
-        setCatalogLoading(false);
-        setLoadingMore(false);
-        loadingMoreRef.current = false;
+        if (gen === fetchGenRef.current) {
+          setCatalogLoading(false);
+          setLoadingMore(false);
+          loadingMoreRef.current = false;
+        }
       }
     },
-    [townId, inCategory, searching, selected?.id, debouncedQuery, itemSort, rememberItems],
+    [townId, inCategory, searching, categoryId, debouncedQuery, itemSort, rememberItems],
   );
 
   useEffect(() => {
@@ -179,9 +238,24 @@ export function ShopPage({ browseOnly = false }: Props) {
   }, [products, quickView]);
 
   function goHome() {
+    fetchGenRef.current += 1;
     setCategoryId(null);
+    setCategoryName('');
     setQuery('');
     setDebouncedQuery('');
+    setCatalogLoading(false);
+    setProducts([]);
+  }
+
+  function openCategory(cat: CategoryView) {
+    fetchGenRef.current += 1;
+    setCategoryId(cat.id);
+    setCategoryName(cat.name);
+    setQuery('');
+    setDebouncedQuery('');
+    setProducts([]);
+    setCatalogLoading(true);
+    setCatalogError(null);
   }
 
   return (
@@ -193,7 +267,20 @@ export function ShopPage({ browseOnly = false }: Props) {
       cartTotalLabel={cart?.payableLabel}
       onRefresh={() => {
         void reload();
-        void fetchCategories().then(setCategories).catch(() => setCategories([]));
+        if (townId) {
+          void fetchCategories(townId)
+            .then((next) => {
+              setCategories(next);
+              setCategoryId((prev) => {
+                if (prev && !next.some((c) => c.id === prev)) {
+                  setCategoryName('');
+                  return null;
+                }
+                return prev;
+              });
+            })
+            .catch(() => setCategories([]));
+        }
         if (showFeed) void loadPage(0, false);
       }}
     >
@@ -237,45 +324,40 @@ export function ShopPage({ browseOnly = false }: Props) {
       {!inCategory ? (
         <>
           {browseOnly || searching ? null : <AdSlot slot="home_hero" variant="strip" />}
-          {!searching || visibleCategories.length > 0 ? (
-            <>
-              <div style={styles.sectionHead}>
-                <h2 style={styles.h2}>{searching ? 'Categories' : 'Shop by category'}</h2>
-                {searching ? null : (
-                  <SortSelect
-                    ariaLabel="Sort categories"
-                    value={catSort}
-                    onChange={(v) => setCatSort(v as CatSort)}
-                    options={[
-                      { value: 'az', label: 'A–Z' },
-                      { value: 'za', label: 'Z–A' },
-                    ]}
-                  />
-                )}
-              </div>
-              {visibleCategories.length === 0 ? (
-                <EmptyState
-                  icon="🛒"
-                  title="No categories yet"
-                  description="Catalog categories will show up here."
-                />
-              ) : (
-                <div style={searching ? styles.catRow : styles.catGrid}>
-                  {visibleCategories.map((cat) => (
+          {!searching || aisles.length > 0 ? (
+            aisles.length === 0 ? (
+              <EmptyState
+                icon="🛒"
+                title="No categories yet"
+                description="Catalog categories will show up here."
+              />
+            ) : (
+              <div style={styles.homeDirectory}>
+                {categoryHomeBlocks.map((block, index) => {
+                  if (block.type === 'aisle-start') {
+                    return (
+                      <h2 key={`aisle-${block.title}-${index}`} style={styles.aisleHeading}>
+                        {block.title}
+                      </h2>
+                    );
+                  }
+                  if (block.type === 'mid-ad') {
+                    return browseOnly ? null : (
+                      <div key="home-mid-grid-ad" style={styles.midAdWrap}>
+                        <AdSlot slot="home_mid_grid" variant="strip" />
+                      </div>
+                    );
+                  }
+                  return (
                     <CategoryTile
-                      key={cat.id}
-                      label={cat.name}
-                      emoji={emojiForCategory(cat.name)}
-                      onClick={() => {
-                        setCategoryId(cat.id);
-                        setQuery('');
-                        setDebouncedQuery('');
-                      }}
+                      key={block.cat.id}
+                      label={block.cat.name}
+                      onClick={() => openCategory(block.cat)}
                     />
-                  ))}
-                </div>
-              )}
-            </>
+                  );
+                })}
+              </div>
+            )
           ) : null}
         </>
       ) : null}
@@ -285,7 +367,7 @@ export function ShopPage({ browseOnly = false }: Props) {
           <div style={styles.sectionHead}>
             {inCategory ? (
               <button type="button" style={styles.back} onClick={goHome}>
-                ← {selected?.name}
+                ← {categoryTitle}
               </button>
             ) : (
               <h2 style={styles.h2}>Results</h2>
@@ -473,7 +555,7 @@ const styles: Record<string, CSSProperties> = {
   h2: {
     margin: 0,
     fontFamily: 'var(--font-display)',
-    fontSize: '1.15rem',
+    fontSize: '1.02rem',
     fontWeight: 800,
     letterSpacing: '-0.03em',
     color: 'var(--text)',
@@ -505,15 +587,31 @@ const styles: Record<string, CSSProperties> = {
     fontWeight: 700,
     minHeight: 32,
   },
+  aisles: { display: 'grid', gap: '1.05rem' },
+  aisle: { display: 'grid', gap: '0.55rem' },
+  homeDirectory: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
+    gap: '0.75rem 0.4rem',
+    alignContent: 'start',
+  },
+  aisleHeading: {
+    gridColumn: '1 / -1',
+    margin: '0.15rem 0 0',
+    fontFamily: 'var(--font-display)',
+    fontSize: '1.02rem',
+    fontWeight: 800,
+    letterSpacing: '-0.03em',
+    color: 'var(--text)',
+  },
+  midAdWrap: {
+    gridColumn: '1 / -1',
+    margin: '0.1rem 0',
+  },
   catGrid: {
     display: 'grid',
     gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
-    gap: '0.7rem 0.45rem',
-  },
-  catRow: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
-    gap: '0.45rem',
+    gap: '0.75rem 0.4rem',
   },
   grid: {
     display: 'grid',

@@ -12,4 +12,9 @@ public class CategoryResponse {
     private UUID id;
     private String name;
     private String description;
+    private String status;
+    /** Hide-overrides while globally ACTIVE. */
+    private long hiddenTownCount;
+    /** Show-overrides while globally INACTIVE. */
+    private long liveTownCount;
 }

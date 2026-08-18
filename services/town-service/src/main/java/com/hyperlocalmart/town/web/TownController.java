@@ -20,6 +20,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -35,9 +36,14 @@ public class TownController {
     public ResponseEntity<ApiResponse<TownListResponse>> listTowns(
             @RequestParam(required = false) TownStatus status,
             @RequestParam(defaultValue = "false") boolean includeDisabled,
+            @RequestParam(required = false) String q,
+            @RequestParam(required = false) Integer page,
+            @RequestParam(required = false) Integer size,
+            @RequestParam(required = false) List<UUID> ids,
             HttpServletRequest httpRequest) {
         boolean adminAll = includeDisabled && AdminAuth.isSuperAdmin(httpRequest);
-        return ResponseEntity.ok(ApiResponses.ok(httpRequest, townService.listTowns(status, adminAll)));
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                townService.listTowns(status, adminAll, q, page, size, ids)));
     }
 
     @GetMapping("/api/v1/towns/{townId}")

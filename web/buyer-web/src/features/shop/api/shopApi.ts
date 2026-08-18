@@ -306,7 +306,9 @@ export async function fetchCatalogPage(opts: {
   });
   if (opts.q?.trim()) params.set('q', opts.q.trim());
   if (opts.categoryId) params.set('categoryId', opts.categoryId);
-  const data = await apiRequest<PageData<CatalogItemDto>>(`/api/v1/catalog/items?${params}`);
+  const data = await apiRequest<PageData<CatalogItemDto>>(`/api/v1/catalog/items?${params}`, {
+    timeoutMs: 8_000,
+  });
   return {
     items: (data.items ?? []).map(toCatalogItem),
     page: data.page ?? 0,
@@ -322,8 +324,9 @@ export type CategoryView = {
   description?: string | null;
 };
 
-export async function fetchCategories(): Promise<CategoryView[]> {
-  const data = await apiRequest<{ items: CategoryView[] }>('/api/v1/catalog/categories');
+export async function fetchCategories(townId?: string): Promise<CategoryView[]> {
+  const q = townId ? `?townId=${encodeURIComponent(townId)}` : '';
+  const data = await apiRequest<{ items: CategoryView[] }>(`/api/v1/catalog/categories${q}`);
   return data.items ?? [];
 }
 

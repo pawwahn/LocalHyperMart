@@ -25,17 +25,118 @@ public interface VendorListingRepository extends JpaRepository<VendorListing, UU
 
     long countByMasterItem_Id(UUID masterItemId);
 
-    @Query("""
-            SELECT vl FROM VendorListing vl
-            JOIN vl.masterItem mi
-            JOIN mi.category cat
-            WHERE vl.townId = :townId
-              AND vl.active = true
-              AND mi.status = com.hyperlocalmart.catalog.entity.CatalogItemStatus.ACTIVE
-              AND (:#{#categoryId == null} = true OR cat.id = :categoryId)
-              AND (:#{#q == null || #q.isBlank()} = true OR LOWER(mi.name) LIKE LOWER(CONCAT('%', :q, '%')))
-            """)
+    @Query(
+            value = """
+                    SELECT vl FROM VendorListing vl
+                    JOIN FETCH vl.masterItem mi
+                    JOIN FETCH mi.category cat
+                    JOIN FETCH mi.unit u
+                    WHERE vl.townId = :townId
+                      AND vl.active = true
+                      AND mi.status = com.hyperlocalmart.catalog.entity.CatalogItemStatus.ACTIVE
+                      AND (
+                            (
+                              cat.status = com.hyperlocalmart.catalog.entity.CatalogItemStatus.ACTIVE
+                              AND NOT EXISTS (
+                                SELECT 1 FROM CategoryTownOverride o
+                                WHERE o.categoryId = cat.id AND o.townId = :townId AND o.visible = false
+                              )
+                            )
+                            OR (
+                              cat.status = com.hyperlocalmart.catalog.entity.CatalogItemStatus.INACTIVE
+                              AND EXISTS (
+                                SELECT 1 FROM CategoryTownOverride o
+                                WHERE o.categoryId = cat.id AND o.townId = :townId AND o.visible = true
+                              )
+                            )
+                          )
+                      AND (:categoryId IS NULL OR cat.id = :categoryId)
+                    """,
+            countQuery = """
+                    SELECT count(vl) FROM VendorListing vl
+                    JOIN vl.masterItem mi
+                    JOIN mi.category cat
+                    WHERE vl.townId = :townId
+                      AND vl.active = true
+                      AND mi.status = com.hyperlocalmart.catalog.entity.CatalogItemStatus.ACTIVE
+                      AND (
+                            (
+                              cat.status = com.hyperlocalmart.catalog.entity.CatalogItemStatus.ACTIVE
+                              AND NOT EXISTS (
+                                SELECT 1 FROM CategoryTownOverride o
+                                WHERE o.categoryId = cat.id AND o.townId = :townId AND o.visible = false
+                              )
+                            )
+                            OR (
+                              cat.status = com.hyperlocalmart.catalog.entity.CatalogItemStatus.INACTIVE
+                              AND EXISTS (
+                                SELECT 1 FROM CategoryTownOverride o
+                                WHERE o.categoryId = cat.id AND o.townId = :townId AND o.visible = true
+                              )
+                            )
+                          )
+                      AND (:categoryId IS NULL OR cat.id = :categoryId)
+                    """)
     Page<VendorListing> browseActive(
+            @Param("townId") UUID townId,
+            @Param("categoryId") UUID categoryId,
+            Pageable pageable);
+
+    @Query(
+            value = """
+                    SELECT vl FROM VendorListing vl
+                    JOIN FETCH vl.masterItem mi
+                    JOIN FETCH mi.category cat
+                    JOIN FETCH mi.unit u
+                    WHERE vl.townId = :townId
+                      AND vl.active = true
+                      AND mi.status = com.hyperlocalmart.catalog.entity.CatalogItemStatus.ACTIVE
+                      AND (
+                            (
+                              cat.status = com.hyperlocalmart.catalog.entity.CatalogItemStatus.ACTIVE
+                              AND NOT EXISTS (
+                                SELECT 1 FROM CategoryTownOverride o
+                                WHERE o.categoryId = cat.id AND o.townId = :townId AND o.visible = false
+                              )
+                            )
+                            OR (
+                              cat.status = com.hyperlocalmart.catalog.entity.CatalogItemStatus.INACTIVE
+                              AND EXISTS (
+                                SELECT 1 FROM CategoryTownOverride o
+                                WHERE o.categoryId = cat.id AND o.townId = :townId AND o.visible = true
+                              )
+                            )
+                          )
+                      AND (:categoryId IS NULL OR cat.id = :categoryId)
+                      AND LOWER(mi.name) LIKE LOWER(CONCAT('%', :q, '%'))
+                    """,
+            countQuery = """
+                    SELECT count(vl) FROM VendorListing vl
+                    JOIN vl.masterItem mi
+                    JOIN mi.category cat
+                    WHERE vl.townId = :townId
+                      AND vl.active = true
+                      AND mi.status = com.hyperlocalmart.catalog.entity.CatalogItemStatus.ACTIVE
+                      AND (
+                            (
+                              cat.status = com.hyperlocalmart.catalog.entity.CatalogItemStatus.ACTIVE
+                              AND NOT EXISTS (
+                                SELECT 1 FROM CategoryTownOverride o
+                                WHERE o.categoryId = cat.id AND o.townId = :townId AND o.visible = false
+                              )
+                            )
+                            OR (
+                              cat.status = com.hyperlocalmart.catalog.entity.CatalogItemStatus.INACTIVE
+                              AND EXISTS (
+                                SELECT 1 FROM CategoryTownOverride o
+                                WHERE o.categoryId = cat.id AND o.townId = :townId AND o.visible = true
+                              )
+                            )
+                          )
+                      AND (:categoryId IS NULL OR cat.id = :categoryId)
+                      AND LOWER(mi.name) LIKE LOWER(CONCAT('%', :q, '%'))
+                    """)
+    Page<VendorListing> searchActive(
             @Param("townId") UUID townId,
             @Param("categoryId") UUID categoryId,
             @Param("q") String q,

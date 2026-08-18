@@ -110,7 +110,7 @@ export function ListingsPage({ active = true }: { active?: boolean }) {
               inMyListing={catalogStats.inMyListing}
               onToggle={toggleItem}
               onDraftChange={updateDraft}
-              onPublish={() => void publishSelected()}
+              onPublish={publishSelected}
             />
           ) : (
             <PublishedListings

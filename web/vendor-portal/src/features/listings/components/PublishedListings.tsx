@@ -249,7 +249,7 @@ export function PublishedListings({
           style={styles.search}
           value={query}
           onChange={(e) => onQueryChange(e.target.value)}
-          placeholder="Search listings…"
+          placeholder="Search name, category…"
           aria-label="Search town listings"
         />
         <select
@@ -341,8 +341,13 @@ export function PublishedListings({
                         {listing.customImages ? <span style={styles.customDot} /> : null}
                       </button>
                     </td>
-                    <td style={{ ...styles.tdProduct, ...cellBg }} title={listing.name}>
-                      <strong style={styles.name}>{listing.name}</strong>
+                    <td style={{ ...styles.tdProduct, ...cellBg }} title={`${listing.name}${listing.category ? ` · ${listing.category}` : ''}`}>
+                      <div style={styles.productCell}>
+                        <strong style={styles.name}>{listing.name}</strong>
+                        {listing.category ? (
+                          <span style={styles.category}>{listing.category}</span>
+                        ) : null}
+                      </div>
                     </td>
                     <td style={{ ...styles.tdMuted, ...cellBg }}>{listing.unit}</td>
                     <td style={{ ...styles.td, ...cellBg }}>
@@ -631,7 +636,7 @@ const styles: Record<string, CSSProperties> = {
     minWidth: 88,
     boxShadow: '-4px 0 8px -4px rgba(15, 23, 42, 0.18)',
   },
-  tr: { height: 48 },
+  tr: { minHeight: 48 },
   tdProduct: {
     position: 'sticky',
     left: 0,
@@ -641,9 +646,14 @@ const styles: Record<string, CSSProperties> = {
     verticalAlign: 'middle',
     minWidth: 160,
     maxWidth: 200,
-    height: 48,
+    minHeight: 48,
     boxSizing: 'border-box',
     boxShadow: '4px 0 8px -4px rgba(15, 23, 42, 0.18)',
+  },
+  productCell: {
+    display: 'grid',
+    gap: '0.1rem',
+    minWidth: 0,
   },
   name: {
     display: 'block',
@@ -651,6 +661,18 @@ const styles: Record<string, CSSProperties> = {
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     maxWidth: 184,
+    lineHeight: 1.25,
+  },
+  category: {
+    display: 'block',
+    fontSize: '0.72rem',
+    fontWeight: 600,
+    color: 'var(--text-muted)',
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    maxWidth: 184,
+    lineHeight: 1.2,
   },
   td: {
     padding: '0.4rem 0.5rem',

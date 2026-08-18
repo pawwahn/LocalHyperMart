@@ -143,7 +143,7 @@ public class VendorListingService {
     @Transactional(readOnly = true)
     public List<CategoryResponse> listCategories() {
         return categoryRepository.findByStatusOrderByNameAsc(CatalogItemStatus.ACTIVE).stream()
-                .map(this::toCategory)
+                .map(category -> CategoryVisibilityService.toCategory(category, 0, 0))
                 .toList();
     }
 
@@ -172,7 +172,7 @@ public class VendorListingService {
                 .build();
         category.setCreatedBy(actorUserId);
         category.setUpdatedBy(actorUserId);
-        return toCategory(categoryRepository.save(category));
+        return CategoryVisibilityService.toCategory(categoryRepository.save(category), 0, 0);
     }
 
     @Transactional
@@ -331,9 +331,6 @@ public class VendorListingService {
     public MasterItemSummaryResponse createMasterItem(CreateMasterItemRequest request, UUID actorUserId) {
         Category category = categoryRepository.findById(request.getCategoryId())
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Category not found"));
-        if (category.getStatus() != CatalogItemStatus.ACTIVE) {
-            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Category is not active");
-        }
         Unit unit = unitRepository.findById(request.getUnitId())
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Unit not found"));
         if (unit.getStatus() != CatalogItemStatus.ACTIVE) {
@@ -365,9 +362,6 @@ public class VendorListingService {
         }
         Category category = categoryRepository.findById(request.getCategoryId())
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Category not found"));
-        if (category.getStatus() != CatalogItemStatus.ACTIVE) {
-            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Category is not active");
-        }
         Unit unit = unitRepository.findById(request.getUnitId())
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Unit not found"));
         if (unit.getStatus() != CatalogItemStatus.ACTIVE) {
@@ -536,11 +530,7 @@ public class VendorListingService {
     }
 
     private CategoryResponse toCategory(Category category) {
-        return CategoryResponse.builder()
-                .id(category.getId())
-                .name(category.getName())
-                .description(category.getDescription())
-                .build();
+        return CategoryVisibilityService.toCategory(category, 0, 0);
     }
 
     private UnitResponse toUnit(Unit unit) {
@@ -609,11 +599,16 @@ public class VendorListingService {
                 listing.getSpecialDiscountValidTo(),
                 now);
 
+        var masterItem = listing.getMasterItem();
+        var category = masterItem.getCategory();
+
         return VendorListingResponse.builder()
                 .listingId(listing.getId())
-                .masterItemId(listing.getMasterItem().getId())
-                .name(listing.getMasterItem().getName())
-                .unit(listing.getMasterItem().getUnit().getCode())
+                .masterItemId(masterItem.getId())
+                .categoryId(category != null ? category.getId() : null)
+                .category(category != null ? category.getName() : null)
+                .name(masterItem.getName())
+                .unit(masterItem.getUnit().getCode())
                 .townId(listing.getTownId())
                 .vendorId(listing.getVendorId())
                 .shopId(listing.getShopId())

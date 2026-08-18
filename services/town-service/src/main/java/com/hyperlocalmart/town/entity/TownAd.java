@@ -3,11 +3,15 @@ package com.hyperlocalmart.town.entity;
 import com.hyperlocalmart.common.domain.BaseAuditEntity;
 import jakarta.persistence.*;
 import lombok.*;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.util.UUID;
 
 @Entity
-@Table(name = "town_ads", uniqueConstraints = @UniqueConstraint(columnNames = {"town_id", "slot"}))
+@Table(
+        name = "town_ads",
+        uniqueConstraints = @UniqueConstraint(columnNames = {"town_id", "slot", "slot_index"}))
 @Getter
 @Setter
 @NoArgsConstructor
@@ -25,6 +29,12 @@ public class TownAd extends BaseAuditEntity {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 40)
     private TownAdSlot slot;
+
+    /** 0 for hero/cart; 1–5 for mid-grid carousel slides. */
+    @Column(name = "slot_index", nullable = false)
+    @JdbcTypeCode(SqlTypes.SMALLINT)
+    @Builder.Default
+    private int slotIndex = 0;
 
     @Column(name = "shop_name", nullable = false, length = 120)
     @Builder.Default
@@ -56,4 +66,13 @@ public class TownAd extends BaseAuditEntity {
     @Column(nullable = false)
     @Builder.Default
     private boolean enabled = false;
+
+    /** When true, buyers in every town see this ad unless that town has its own live slot. */
+    @Column(name = "all_towns", nullable = false)
+    @Builder.Default
+    private boolean allTowns = false;
+
+    /** Links the same creative across multiple selected towns. */
+    @Column(name = "campaign_id")
+    private UUID campaignId;
 }

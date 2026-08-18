@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties, type FormEvent } from 'react';
 import { PortalShell } from '@/shared/layout/PortalShell';
 import { useAuth } from '@/shared/auth/AuthContext';
-import { Banner, Button, ConfirmDialog, SearchSelect, TextField } from '@/shared/ui';
+import { Banner, Button, ConfirmDialog, SearchSelect, TextField, Toast } from '@/shared/ui';
 import {
   createCategory,
   createMasterItem,
@@ -14,11 +14,14 @@ import {
   updateCategory,
   updateMasterItem,
   uploadCatalogImage,
+  setCategoryPaused,
+  setAllCategoriesPaused,
   type CategoryVm,
   type MasterItemVm,
   type UnitVm,
   type UploadedMedia,
 } from '../api/catalogApi';
+import { CategoryTownVisibilityDialog } from '../components/CategoryTownVisibilityDialog';
 
 const PAGE_SIZE = 25;
 const CAT_PAGE_SIZE = 15;
@@ -51,6 +54,7 @@ export function CatalogPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [itemCreateToast, setItemCreateToast] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const [itemName, setItemName] = useState('');
@@ -65,6 +69,9 @@ export function CatalogPage() {
   const [pendingItemDelete, setPendingItemDelete] = useState<MasterItemVm | null>(null);
   const [itemDeleteAlert, setItemDeleteAlert] = useState<string | null>(null);
   const [editing, setEditing] = useState<CategoryVm | null>(null);
+  const [townsCategory, setTownsCategory] = useState<CategoryVm | null>(null);
+  const [pendingPause, setPendingPause] = useState<CategoryVm | null>(null);
+  const [pendingPauseAll, setPendingPauseAll] = useState<boolean | null>(null);
   const [editName, setEditName] = useState('');
   const [editDesc, setEditDesc] = useState('');
   const [editingItem, setEditingItem] = useState<MasterItemVm | null>(null);
@@ -113,6 +120,21 @@ export function CatalogPage() {
     safeCatPage * CAT_PAGE_SIZE,
     (safeCatPage + 1) * CAT_PAGE_SIZE,
   );
+  const bulkVisibility = useMemo(() => {
+    if (categories.length === 0) {
+      return { canPauseAll: false, canResumeAll: false };
+    }
+    const allCleanLive = categories.every(
+      (c) =>
+        c.status !== 'INACTIVE' &&
+        !(c.hiddenTownCount ?? 0) &&
+        !(c.liveTownCount ?? 0),
+    );
+    const allCleanPaused = categories.every(
+      (c) => c.status === 'INACTIVE' && !(c.liveTownCount ?? 0),
+    );
+    return { canPauseAll: !allCleanPaused, canResumeAll: !allCleanLive };
+  }, [categories]);
   const categoryOptions = useMemo(
     () =>
       [...categories]
@@ -239,14 +261,16 @@ export function CatalogPage() {
     setBusy(true);
     setError(null);
     setNotice(null);
+    setItemCreateToast(null);
+    const createdName = itemName.trim();
     try {
       await createMasterItem(token, {
-        name: itemName.trim(),
+        name: createdName,
         categoryId: itemCategoryId,
         unitId: itemUnitId,
         mrp: itemMrp ? Number(itemMrp) : undefined,
       });
-      setNotice('Master item created');
+      setItemCreateToast(`${createdName} created in master table`);
       setItemName('');
       setItemMrp('');
       setPage(0);
@@ -337,6 +361,61 @@ export function CatalogPage() {
       await loadItems();
     } catch (err) {
       setItemDeleteAlert(err instanceof Error ? err.message : 'Delete item failed');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function visibilityLabel(cat: CategoryVm) {
+    const paused = cat.status === 'INACTIVE';
+    const hidden = cat.hiddenTownCount ?? 0;
+    const live = cat.liveTownCount ?? 0;
+    if (paused && live === 0) return 'Paused';
+    if (paused) return `Live in ${live} town${live === 1 ? '' : 's'}`;
+    if (hidden === 0) return 'Live';
+    return `Hidden in ${hidden}`;
+  }
+
+  function upsertCategory(next: CategoryVm) {
+    setCategories((prev) => prev.map((c) => (c.id === next.id ? { ...c, ...next } : c)));
+  }
+
+  async function onConfirmPause() {
+    if (!pendingPause || !token) return;
+    const pause = pendingPause.status !== 'INACTIVE';
+    setBusy(true);
+    setError(null);
+    try {
+      const next = await setCategoryPaused(token, pendingPause.id, pause);
+      upsertCategory(next);
+      setNotice(
+        pause
+          ? `“${pendingPause.name}” paused in all towns`
+          : `“${pendingPause.name}” live in all towns`,
+      );
+      setPendingPause(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not update visibility');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onConfirmPauseAll() {
+    if (pendingPauseAll === null || !token) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await setAllCategoriesPaused(token, pendingPauseAll);
+      await loadLookups();
+      setNotice(
+        pendingPauseAll
+          ? `Paused ${result.updatedCount} categories in all towns`
+          : `Resumed ${result.updatedCount} categories in all towns`,
+      );
+      setPendingPauseAll(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not update all categories');
     } finally {
       setBusy(false);
     }
@@ -777,6 +856,25 @@ export function CatalogPage() {
                   <option value="description-desc">Description Z–A</option>
                 </select>
               </label>
+              <div style={styles.bulkActions}>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  disabled={busy || !bulkVisibility.canPauseAll}
+                  onClick={() => setPendingPauseAll(true)}
+                >
+                  Pause all
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={busy || !bulkVisibility.canResumeAll}
+                  onClick={() => setPendingPauseAll(false)}
+                >
+                  Resume all
+                </Button>
+              </div>
             </div>
             <label style={styles.searchLead}>
               <span style={styles.searchGlyph} aria-hidden>
@@ -809,13 +907,14 @@ export function CatalogPage() {
                     dir={catDir}
                     onSort={toggleCatSort}
                   />
+                  <th style={styles.th}>Status</th>
                   <th style={styles.thRight}> </th>
                 </tr>
               </thead>
               <tbody>
                 {pagedCategories.length === 0 ? (
                   <tr>
-                    <td colSpan={3} style={styles.empty}>
+                    <td colSpan={4} style={styles.empty}>
                       {catQuery.trim() ? 'No categories match.' : 'No categories yet.'}
                     </td>
                   </tr>
@@ -826,6 +925,7 @@ export function CatalogPage() {
                         <strong>{c.name}</strong>
                       </td>
                       <td style={styles.tdMuted}>{c.description || '—'}</td>
+                      <td style={styles.tdMuted}>{visibilityLabel(c)}</td>
                       <td style={styles.tdRight}>
                         <div style={styles.rowActions}>
                           <button
@@ -835,6 +935,22 @@ export function CatalogPage() {
                             onClick={() => openEdit(c)}
                           >
                             Edit
+                          </button>
+                          <button
+                            type="button"
+                            style={styles.pauseLink}
+                            disabled={busy}
+                            onClick={() => setPendingPause(c)}
+                          >
+                            {c.status === 'INACTIVE' ? 'Resume' : 'Pause'}
+                          </button>
+                          <button
+                            type="button"
+                            style={styles.editLink}
+                            disabled={busy}
+                            onClick={() => setTownsCategory(c)}
+                          >
+                            Towns
                           </button>
                           <button
                             type="button"
@@ -1052,6 +1168,56 @@ export function CatalogPage() {
         </div>
       ) : null}
 
+      {townsCategory ? (
+        <CategoryTownVisibilityDialog
+          token={token}
+          category={townsCategory}
+          busy={busy}
+          onClose={() => setTownsCategory(null)}
+          onSaved={(next) => {
+            upsertCategory(next);
+            setNotice(`Town visibility updated for “${next.name}”`);
+          }}
+          onError={(message) => setError(message)}
+        />
+      ) : null}
+
+      <ConfirmDialog
+        open={pendingPauseAll !== null}
+        title={pendingPauseAll ? 'Pause all categories?' : 'Resume all categories?'}
+        description={
+          pendingPauseAll
+            ? `All ${categories.length} categories will be hidden from buyers in every town, including towns launched later. Town exceptions are cleared. Listings stay in the catalog.`
+            : `All ${categories.length} categories will show in every town, including towns launched later. Town exceptions are cleared.`
+        }
+        confirmLabel={pendingPauseAll ? 'Pause all' : 'Resume all'}
+        cancelLabel="Cancel"
+        danger={pendingPauseAll === true}
+        busy={busy}
+        onConfirm={() => void onConfirmPauseAll()}
+        onClose={() => {
+          if (!busy) setPendingPauseAll(null);
+        }}
+      />
+
+      <ConfirmDialog
+        open={Boolean(pendingPause)}
+        title={pendingPause?.status === 'INACTIVE' ? 'Resume everywhere?' : 'Pause everywhere?'}
+        description={
+          pendingPause?.status === 'INACTIVE'
+            ? `“${pendingPause.name}” will show in all towns, including towns launched later.`
+            : `“${pendingPause?.name}” will be hidden from buyers in all towns, including towns launched later. Listings stay in the catalog.`
+        }
+        confirmLabel={pendingPause?.status === 'INACTIVE' ? 'Resume' : 'Pause'}
+        cancelLabel="Cancel"
+        danger={pendingPause?.status !== 'INACTIVE'}
+        busy={busy}
+        onConfirm={() => void onConfirmPause()}
+        onClose={() => {
+          if (!busy) setPendingPause(null);
+        }}
+      />
+
       <ConfirmDialog
         open={Boolean(pendingDelete)}
         title={deleteAlert ? 'Cannot delete' : 'Delete category?'}
@@ -1097,6 +1263,11 @@ export function CatalogPage() {
             setItemDeleteAlert(null);
           }
         }}
+      />
+      <Toast
+        open={Boolean(itemCreateToast)}
+        message={itemCreateToast ?? ''}
+        onClose={() => setItemCreateToast(null)}
       />
     </PortalShell>
   );
@@ -1422,6 +1593,12 @@ const styles: Record<string, CSSProperties> = {
     color: 'var(--text-muted)',
     minHeight: 44,
   },
+  bulkActions: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '0.35rem',
+    flexWrap: 'wrap',
+  },
   sortSelect: {
     border: '1px solid var(--border)',
     background: 'var(--bg)',
@@ -1549,7 +1726,7 @@ const styles: Record<string, CSSProperties> = {
     borderBottom: '1px solid var(--border)',
     textAlign: 'right',
     verticalAlign: 'middle',
-    width: 120,
+    width: 220,
   },
   rowActions: {
     display: 'inline-flex',
@@ -1561,6 +1738,16 @@ const styles: Record<string, CSSProperties> = {
     border: 'none',
     background: 'transparent',
     color: 'var(--accent)',
+    fontWeight: 800,
+    fontSize: '0.8rem',
+    cursor: 'pointer',
+    minHeight: 44,
+    padding: '0.35rem 0.45rem',
+  },
+  pauseLink: {
+    border: 'none',
+    background: 'transparent',
+    color: 'var(--text)',
     fontWeight: 800,
     fontSize: '0.8rem',
     cursor: 'pointer',

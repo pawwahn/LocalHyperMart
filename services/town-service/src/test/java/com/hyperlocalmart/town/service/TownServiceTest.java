@@ -21,6 +21,8 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -44,6 +46,20 @@ class TownServiceTest {
         assertThat(response.getItems().getFirst().getDisplayName()).isEqualTo("Narsaraopet (Andhra Pradesh)");
         assertThat(response.getItems().getFirst().isAcceptingOrders()).isTrue();
         assertThat(response.getItems().getFirst().getCountryCode()).isEqualTo("IN");
+        assertThat(response.getHasMore()).isFalse();
+    }
+
+    @Test
+    void listTowns_paginatedSearchDoesNotLoadEveryTown() {
+        Town town = pilotTown();
+        when(townRepository.findByStatusOrderByDisplayNameAsc(eq(TownStatus.ENABLED), any()))
+                .thenReturn(new org.springframework.data.domain.PageImpl<>(List.of(town)));
+
+        TownListResponse response = townService.listTowns(TownStatus.ENABLED, false, null, 0, 80, null);
+
+        assertThat(response.getItems()).hasSize(1);
+        assertThat(response.getTotal()).isEqualTo(1);
+        assertThat(response.getHasMore()).isFalse();
     }
 
     @Test

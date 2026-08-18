@@ -17,6 +17,9 @@ export type CategoryVm = {
   name: string;
   description?: string | null;
   parentId?: string | null;
+  status?: string;
+  hiddenTownCount?: number;
+  liveTownCount?: number;
 };
 
 export type UnitVm = { id: string; code: string; displayName?: string; label?: string };
@@ -182,6 +185,75 @@ export async function updateCategory(
     token,
     body: input,
   });
+}
+
+export async function setCategoryPaused(
+  token: string,
+  categoryId: string,
+  paused: boolean,
+): Promise<CategoryVm> {
+  return apiRequest<CategoryVm>(`/api/v1/catalog/categories/${categoryId}/visibility`, {
+    method: 'PATCH',
+    token,
+    body: { paused },
+  });
+}
+
+export async function setAllCategoriesPaused(
+  token: string,
+  paused: boolean,
+): Promise<{ paused: boolean; updatedCount: number }> {
+  const data = await apiRequest<{ paused: boolean; updatedCount: number }>(
+    '/api/v1/catalog/categories/visibility',
+    {
+      method: 'PATCH',
+      token,
+      body: { paused },
+    },
+  );
+  return { paused: Boolean(data.paused), updatedCount: data.updatedCount ?? 0 };
+}
+
+export type CategoryTownVisibilityVm = {
+  categoryId: string;
+  paused: boolean;
+  hiddenTownIds: string[];
+  liveTownIds: string[];
+};
+
+export async function getCategoryTownVisibility(
+  token: string,
+  categoryId: string,
+): Promise<CategoryTownVisibilityVm> {
+  const data = await apiRequest<CategoryTownVisibilityVm>(
+    `/api/v1/catalog/categories/${categoryId}/town-visibility`,
+    { token },
+  );
+  return {
+    categoryId: data.categoryId,
+    paused: Boolean(data.paused),
+    hiddenTownIds: data.hiddenTownIds ?? [],
+    liveTownIds: data.liveTownIds ?? [],
+  };
+}
+
+export async function setCategoryTownVisibility(
+  token: string,
+  categoryId: string,
+  visible: boolean,
+  townIds: string[],
+): Promise<CategoryVm> {
+  const unique = [...new Set(townIds)];
+  let last: CategoryVm | null = null;
+  for (let i = 0; i < unique.length; i += 2000) {
+    last = await apiRequest<CategoryVm>(`/api/v1/catalog/categories/${categoryId}/town-visibility`, {
+      method: 'PUT',
+      token,
+      body: { visible, townIds: unique.slice(i, i + 2000) },
+    });
+  }
+  if (!last) throw new Error('Select at least one town');
+  return last;
 }
 
 export async function uploadCatalogImage(token: string, file: File): Promise<UploadedMedia> {

@@ -17,6 +17,7 @@ import java.util.UUID;
 public class ListingLookupService {
 
     private final VendorListingRepository vendorListingRepository;
+    private final CategoryVisibilityService categoryVisibilityService;
 
     @Transactional(readOnly = true)
     public ListingSnapshotResponse getActiveListing(UUID listingId, UUID townId) {
@@ -40,6 +41,12 @@ public class ListingLookupService {
         }
         if (requireActive && (!listing.isActive() || listing.getMasterItem().getStatus() != CatalogItemStatus.ACTIVE)) {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Listing is not available");
+        }
+        if (requireActive) {
+            var category = listing.getMasterItem().getCategory();
+            if (category == null || !categoryVisibilityService.isVisibleInTown(category, townId)) {
+                throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Listing is not available");
+            }
         }
 
         return ListingSnapshotResponse.builder()

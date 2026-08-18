@@ -17,6 +17,8 @@ public class TownAdResponse {
     private TownAdSlot slot;
     /** Buyer-facing slot id (home_hero / home_mid_grid). */
     private String slotKey;
+    /** 1–5 for mid-grid carousel ordering. */
+    private int slotIndex;
     private String shopName;
     private String headline;
     private String bodyText;
@@ -27,4 +29,7 @@ public class TownAdResponse {
     private String imageUrl;
     private UUID imageMediaId;
     private boolean enabled;
+    private boolean allTowns;
+    /** Towns that share this ad creative (includes townId when part of a multi-town campaign). */
+    private List<UUID> targetTownIds;
 }

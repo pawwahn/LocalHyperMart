@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'r
 import { PortalShell } from '@/shared/layout/PortalShell';
 import { useAuth } from '@/shared/auth/AuthContext';
 import { ApiError } from '@/shared/api/http';
-import { Banner, Button, Card } from '@/shared/ui';
+import { Banner, Button, Card, ConfirmDialog } from '@/shared/ui';
 import {
   listAllAgents,
   permanentlyDisableAgent,
@@ -18,6 +18,7 @@ export function AgentsPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [pending, setPending] = useState<{ type: 'disable' | 'restore'; agent: AdminAgentVm } | null>(null);
 
   const reload = useCallback(async () => {
     if (!token) return;
@@ -46,33 +47,32 @@ export function AgentsPage() {
     [agents],
   );
 
-  async function onDisable(agent: AdminAgentVm) {
-    if (!window.confirm(`Permanently disable ${agent.name}? Hub admin cannot undo this.`)) return;
-    setBusyId(agent.agentId);
-    setError(null);
-    setNotice(null);
-    try {
-      await permanentlyDisableAgent(token, agent.agentId);
-      setNotice(`${agent.name} permanently disabled.`);
-      await reload();
-    } catch (err) {
-      setError(err instanceof ApiError || err instanceof Error ? err.message : 'Disable failed');
-    } finally {
-      setBusyId(null);
-    }
+  function requestDisable(agent: AdminAgentVm) {
+    setPending({ type: 'disable', agent });
   }
 
-  async function onRestore(agent: AdminAgentVm) {
-    if (!window.confirm(`Restore ${agent.name} to ACTIVE?`)) return;
+  function requestRestore(agent: AdminAgentVm) {
+    setPending({ type: 'restore', agent });
+  }
+
+  async function onConfirmPending() {
+    if (!pending) return;
+    const { type, agent } = pending;
     setBusyId(agent.agentId);
     setError(null);
     setNotice(null);
     try {
-      await restoreAgent(token, agent.agentId);
-      setNotice(`${agent.name} restored to ACTIVE.`);
+      if (type === 'disable') {
+        await permanentlyDisableAgent(token, agent.agentId);
+        setNotice(`${agent.name} permanently disabled.`);
+      } else {
+        await restoreAgent(token, agent.agentId);
+        setNotice(`${agent.name} restored to ACTIVE.`);
+      }
+      setPending(null);
       await reload();
     } catch (err) {
-      setError(err instanceof ApiError || err instanceof Error ? err.message : 'Restore failed');
+      setError(err instanceof ApiError || err instanceof Error ? err.message : type === 'disable' ? 'Disable failed' : 'Restore failed');
     } finally {
       setBusyId(null);
     }
@@ -129,7 +129,7 @@ export function AgentsPage() {
                       </td>
                       <td style={styles.tdRight}>
                         {agent.status === 'DISABLED' ? (
-                          <Button size="sm" disabled={busy} onClick={() => void onRestore(agent)}>
+                          <Button size="sm" disabled={busy} onClick={() => requestRestore(agent)}>
                             {busy ? '…' : 'Restore'}
                           </Button>
                         ) : (
@@ -137,7 +137,7 @@ export function AgentsPage() {
                             size="sm"
                             variant="danger"
                             disabled={busy}
-                            onClick={() => void onDisable(agent)}
+                            onClick={() => requestDisable(agent)}
                           >
                             {busy ? '…' : 'Disable permanently'}
                           </Button>
@@ -151,6 +151,24 @@ export function AgentsPage() {
           </div>
         )}
       </Card>
+
+      <ConfirmDialog
+        open={Boolean(pending)}
+        title={pending?.type === 'restore' ? `Restore ${pending.agent.name}?` : `Disable ${pending?.agent.name}?`}
+        description={
+          pending?.type === 'restore'
+            ? `“${pending.agent.name}” will be set back to ACTIVE and can take jobs again.`
+            : `“${pending?.agent.name}” will be permanently disabled. Hub admin cannot undo this — only super admin can restore later.`
+        }
+        confirmLabel={pending?.type === 'restore' ? 'Restore' : 'Disable permanently'}
+        cancelLabel="Cancel"
+        danger={pending?.type !== 'restore'}
+        busy={Boolean(busyId)}
+        onConfirm={() => void onConfirmPending()}
+        onClose={() => {
+          if (!busyId) setPending(null);
+        }}
+      />
     </PortalShell>
   );
 }

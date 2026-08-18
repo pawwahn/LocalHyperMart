@@ -10,4 +10,6 @@ import java.util.List;
 public class TownListResponse {
 
     private List<TownListItemResponse> items;
+    private Long total;
+    private Boolean hasMore;
 }

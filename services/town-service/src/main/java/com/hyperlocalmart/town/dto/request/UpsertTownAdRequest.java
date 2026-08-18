@@ -16,6 +16,9 @@ public class UpsertTownAdRequest {
     @NotNull
     private TownAdSlot slot;
 
+    /** 0 for hero/cart; 1–5 for HOME_MID_GRID carousel slides. */
+    private Integer slotIndex;
+
     @Size(max = 120)
     private String shopName;
 
@@ -39,4 +42,10 @@ public class UpsertTownAdRequest {
     private UUID imageMediaId;
 
     private Boolean enabled;
+
+    /** When true, this live ad is shown in every town that has no local ad in this slot. */
+    private Boolean allTowns;
+
+    /** When set (and allTowns is false), replicate this ad to these towns. Current town is always included. */
+    private List<UUID> targetTownIds;
 }

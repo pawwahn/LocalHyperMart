@@ -3,6 +3,8 @@ import { apiRequest, type PageData } from '@/shared/api/http';
 export type ListingDto = {
   listingId: string;
   masterItemId: string;
+  categoryId?: string;
+  category?: string;
   name: string;
   unit: string;
   townId: string;
@@ -43,6 +45,8 @@ export type CategoryDto = {
 export type ListingView = {
   id: string;
   masterItemId: string;
+  categoryId: string;
+  category: string;
   name: string;
   unit: string;
   mrpLabel: string | null;
@@ -110,6 +114,8 @@ export function toListingView(dto: ListingDto): ListingView {
   return {
     id: dto.listingId,
     masterItemId: dto.masterItemId,
+    categoryId: dto.categoryId ?? '',
+    category: dto.category ?? '',
     name: dto.name,
     unit: dto.unit,
     mrpLabel: mrp != null ? money(mrp) : null,
@@ -127,6 +133,20 @@ export function toListingView(dto: ListingDto): ListingView {
     masterImageUrls,
     customImages: Boolean(dto.customImages) || listingImageUrls.length > 0,
   };
+}
+
+/** Fill category from master catalog when listing API omits it (older backend). */
+export function enrichListingsWithCategory(
+  listings: ListingView[],
+  masters: MasterItemView[],
+): ListingView[] {
+  const byMaster = new Map(masters.map((m) => [m.id, m]));
+  return listings.map((listing) => {
+    if (listing.category) return listing;
+    const master = byMaster.get(listing.masterItemId);
+    if (!master) return listing;
+    return { ...listing, categoryId: master.categoryId, category: master.category };
+  });
 }
 
 export function toMasterItemView(dto: MasterItemDto): MasterItemView {
