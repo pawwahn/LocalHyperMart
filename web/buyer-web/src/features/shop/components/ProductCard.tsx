@@ -101,7 +101,7 @@ const styles: Record<string, CSSProperties> = {
     display: 'grid',
     gridTemplateRows: 'auto 1fr',
     minWidth: 0,
-    boxShadow: '0 2px 14px rgba(27, 30, 36, 0.07)',
+    boxShadow: 'none',
     animation: 'hlm-fade-up 260ms ease both',
   },
   media: {
@@ -276,7 +276,7 @@ const styles: Record<string, CSSProperties> = {
     fontWeight: 800,
     fontSize: '1.05rem',
     letterSpacing: '-0.03em',
-    color: 'var(--accent)',
+    color: 'var(--text)',
   },
   mrp: {
     fontSize: '0.72rem',

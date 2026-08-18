@@ -32,6 +32,7 @@ import com.hyperlocalmart.common.exception.ErrorCode;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -155,9 +156,12 @@ public class VendorListingService {
 
     @Transactional
     public CategoryResponse createCategory(CreateCategoryRequest request, UUID actorUserId) {
-        String name = request.getName().trim();
+        String name = normalizeCategoryName(request.getName());
+        if (name.isEmpty()) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Category name is required");
+        }
         if (categoryRepository.existsByNameIgnoreCase(name)) {
-            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Category already exists");
+            throw new BusinessException(ErrorCode.CONFLICT, "Category “" + name + "” already exists");
         }
         Category category = Category.builder()
                 .name(name)
@@ -171,24 +175,54 @@ public class VendorListingService {
         return toCategory(categoryRepository.save(category));
     }
 
+    @Transactional
+    public void deleteCategory(UUID categoryId) {
+        Category category = categoryRepository.findById(categoryId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Category not found"));
+        long itemCount = masterItemRepository.countByCategory_Id(categoryId);
+        if (itemCount > 0) {
+            throw new BusinessException(
+                    ErrorCode.CONFLICT,
+                    "Cannot delete “" + category.getName() + "” — " + itemCount
+                            + (itemCount == 1 ? " item uses" : " items use")
+                            + " this category. Move or delete those items first.");
+        }
+        categoryRepository.delete(category);
+    }
+
+    @Transactional
+    public CategoryResponse updateCategory(UUID categoryId, CreateCategoryRequest request, UUID actorUserId) {
+        Category category = categoryRepository.findById(categoryId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Category not found"));
+        String name = normalizeCategoryName(request.getName());
+        if (name.isEmpty()) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Category name is required");
+        }
+        if (categoryRepository.existsByNameIgnoreCaseAndIdNot(name, categoryId)) {
+            throw new BusinessException(ErrorCode.CONFLICT, "Category “" + name + "” already exists");
+        }
+        category.setName(name);
+        category.setDescription(request.getDescription() == null || request.getDescription().isBlank()
+                ? null
+                : request.getDescription().trim());
+        category.setUpdatedBy(actorUserId);
+        return toCategory(categoryRepository.save(category));
+    }
+
+    static String normalizeCategoryName(String raw) {
+        if (raw == null) {
+            return "";
+        }
+        return raw.trim().replaceAll("\\s+", " ");
+    }
+
     @Transactional(readOnly = true)
     public PageResponse<MasterItemSummaryResponse> listMasterItems(
-            UUID categoryId, String q, int page, int size) {
-        PageRequest pageable = PageRequest.of(page, size);
+            UUID categoryId, UUID unitId, String q, int page, int size, String sort, String dir) {
+        PageRequest pageable = PageRequest.of(page, size, masterItemSort(sort, dir));
         String query = q == null ? "" : q.trim();
-        Page<MasterItem> items;
-        if (query.isEmpty()) {
-            items = categoryId == null
-                    ? masterItemRepository.findByStatusOrderByNameAsc(CatalogItemStatus.ACTIVE, pageable)
-                    : masterItemRepository.findByStatusAndCategoryIdOrderByNameAsc(
-                            CatalogItemStatus.ACTIVE, categoryId, pageable);
-        } else if (categoryId == null) {
-            items = masterItemRepository.findByStatusAndNameContainingIgnoreCaseOrderByNameAsc(
-                    CatalogItemStatus.ACTIVE, query, pageable);
-        } else {
-            items = masterItemRepository.findByStatusAndCategoryIdAndNameContainingIgnoreCaseOrderByNameAsc(
-                    CatalogItemStatus.ACTIVE, categoryId, query, pageable);
-        }
+        Page<MasterItem> items = masterItemRepository.searchActive(
+                CatalogItemStatus.ACTIVE, categoryId, unitId, query, pageable);
         List<MasterItemSummaryResponse> summaries = items.getContent().stream()
                 .map(this::toMasterSummary)
                 .toList();
@@ -200,6 +234,17 @@ public class VendorListingService {
                 .totalElements(items.getTotalElements())
                 .totalPages(items.getTotalPages())
                 .build();
+    }
+
+    private static Sort masterItemSort(String sort, String dir) {
+        String field = switch (sort == null ? "name" : sort.toLowerCase(Locale.ROOT)) {
+            case "mrp" -> "mrp";
+            case "category" -> "category.name";
+            case "unit" -> "unit.code";
+            default -> "name";
+        };
+        Sort.Direction direction = "desc".equalsIgnoreCase(dir) ? Sort.Direction.DESC : Sort.Direction.ASC;
+        return Sort.by(direction, field);
     }
 
     @Transactional(readOnly = true)
@@ -308,6 +353,51 @@ public class VendorListingService {
         MasterItemSummaryResponse created = toMasterSummary(masterItemRepository.save(item));
         created.setImageUrls(List.of());
         return created;
+    }
+
+    @Transactional
+    public MasterItemSummaryResponse updateMasterItem(
+            UUID masterItemId, CreateMasterItemRequest request, UUID actorUserId) {
+        MasterItem item = masterItemRepository.findById(masterItemId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Master item not found"));
+        if (item.getStatus() != CatalogItemStatus.ACTIVE) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Master item is not active");
+        }
+        Category category = categoryRepository.findById(request.getCategoryId())
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Category not found"));
+        if (category.getStatus() != CatalogItemStatus.ACTIVE) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Category is not active");
+        }
+        Unit unit = unitRepository.findById(request.getUnitId())
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Unit not found"));
+        if (unit.getStatus() != CatalogItemStatus.ACTIVE) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Unit is not active");
+        }
+        item.setCategory(category);
+        item.setUnit(unit);
+        item.setName(request.getName().trim());
+        item.setDescription(blankToNull(request.getDescription()));
+        item.setMrp(request.getMrp());
+        item.setUpdatedBy(actorUserId);
+        MasterItemSummaryResponse updated = toMasterSummary(masterItemRepository.save(item));
+        attachImageUrls(List.of(updated));
+        return updated;
+    }
+
+    @Transactional
+    public void deleteMasterItem(UUID masterItemId) {
+        MasterItem item = masterItemRepository.findById(masterItemId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Master item not found"));
+        long listingCount = vendorListingRepository.countByMasterItem_Id(masterItemId);
+        if (listingCount > 0) {
+            throw new BusinessException(
+                    ErrorCode.CONFLICT,
+                    "Cannot delete “" + item.getName() + "” — " + listingCount
+                            + (listingCount == 1 ? " vendor listing uses" : " vendor listings use")
+                            + " this item. Remove those listings first.");
+        }
+        masterItemImageRepository.deleteByMasterItemId(masterItemId);
+        masterItemRepository.delete(item);
     }
 
     private String blankToNull(String value) {
@@ -466,6 +556,7 @@ public class VendorListingService {
         return MasterItemSummaryResponse.builder()
                 .masterItemId(item.getId())
                 .categoryId(item.getCategory().getId())
+                .unitId(item.getUnit().getId())
                 .name(item.getName())
                 .unit(item.getUnit().getCode())
                 .category(item.getCategory().getName())

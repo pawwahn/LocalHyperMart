@@ -112,12 +112,12 @@ export const MODE_PRESETS: Record<
     textInverse: '#FFFFFF',
   },
   dark: {
-    bg: '#0F1412',
-    bgElevated: '#1A211E',
-    bgMuted: '#242C28',
-    border: '#2F3A34',
-    text: '#F3F4F6',
-    textMuted: '#9CA3AF',
+    bg: '#000000',
+    bgElevated: '#161616',
+    bgMuted: '#1C1C1C',
+    border: '#2A2A2A',
+    text: '#FFFFFF',
+    textMuted: '#A3A3A3',
     textInverse: '#FFFFFF',
   },
 };

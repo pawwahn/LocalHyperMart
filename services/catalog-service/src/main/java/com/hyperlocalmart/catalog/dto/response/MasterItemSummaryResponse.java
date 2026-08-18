@@ -13,6 +13,7 @@ public class MasterItemSummaryResponse {
 
     private UUID masterItemId;
     private UUID categoryId;
+    private UUID unitId;
     private String name;
     private String unit;
     private String category;

@@ -1,12 +1,19 @@
 import type { CSSProperties, ReactNode } from 'react';
 import { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { HeaderIconButton, ThemePicker } from '@hlm-theme';
+import { HeaderIconButton } from '@hlm-theme';
 import { useAuth } from '@/shared/auth/AuthContext';
 import { useTown } from '@/shared/town/TownContext';
 import { StickyCartBar } from '@/features/shop/components/StickyCartBar';
 import { AdSlot } from '@/features/ads/components/AdSlot';
 import { TownPickerSheet } from '@/features/towns/components/TownPickerSheet';
+import {
+  IconBasket,
+  IconGrid,
+  IconHome,
+  IconMore,
+  IconWallet,
+} from '@/features/shop/components/NavIcons';
 
 type Props = {
   title?: string;
@@ -20,6 +27,8 @@ type Props = {
   showTownPicker?: boolean;
   showStickyCart?: boolean;
   hideTitle?: boolean;
+  /** Shop home: location + search chrome, no brand lockup. */
+  shopChrome?: boolean;
   footerSlot?: ReactNode;
 };
 
@@ -34,6 +43,7 @@ export function PortalShell({
   showTownPicker = true,
   showStickyCart = true,
   hideTitle = false,
+  shopChrome = false,
   footerSlot,
 }: Props) {
   const { session, logout } = useAuth();
@@ -65,57 +75,58 @@ export function PortalShell({
       }}
     >
       <TownPickerSheet />
-      <header style={styles.header}>
-        <div style={styles.brandRow}>
-          <div style={styles.brandLockup}>
-            <p style={styles.brandMark}>HyperLocalMart</p>
-            <span className="hlm-brand-tagline" style={styles.brandTagline}>
-              <span style={styles.brandDash} aria-hidden>
-                —
+      <header style={shopChrome ? styles.headerShop : styles.header}>
+        {shopChrome ? null : (
+          <div style={styles.brandRow}>
+            <div style={styles.brandLockup}>
+              <p style={styles.brandMark}>HyperLocalMart</p>
+              <span className="hlm-brand-tagline" style={styles.brandTagline}>
+                <span style={styles.brandDash} aria-hidden>
+                  —
+                </span>
+                Supporting your home town
               </span>
-              Supporting your home town
-            </span>
+            </div>
+            <div style={styles.headerActions}>
+              {session ? (
+                <HeaderIconButton
+                  label="Order alerts"
+                  onClick={() => navigate('/alerts')}
+                  style={styles.headerIcon}
+                >
+                  🔔
+                </HeaderIconButton>
+              ) : null}
+              {onRefresh ? (
+                <HeaderIconButton
+                  label={refreshing ? 'Refreshing…' : 'Refresh'}
+                  onClick={() => void handleRefresh()}
+                  disabled={refreshing}
+                  style={{
+                    ...styles.headerIcon,
+                    ...(refreshing ? { opacity: 0.65 } : null),
+                  }}
+                >
+                  {refreshing ? '…' : '↻'}
+                </HeaderIconButton>
+              ) : null}
+              {session ? (
+                <HeaderIconButton label="Sign out" onClick={logout} style={styles.headerIcon}>
+                  <span style={{ fontSize: '0.58rem', fontWeight: 800, letterSpacing: '0.02em' }}>OUT</span>
+                </HeaderIconButton>
+              ) : (
+                <Link to="/login" style={styles.signIn}>
+                  Login
+                </Link>
+              )}
+            </div>
           </div>
-          <div style={styles.headerActions}>
-            {session ? (
-              <HeaderIconButton
-                label="Order alerts"
-                onClick={() => navigate('/alerts')}
-                style={styles.headerIcon}
-              >
-                🔔
-              </HeaderIconButton>
-            ) : null}
-            <ThemePicker />
-            {onRefresh ? (
-              <HeaderIconButton
-                label={refreshing ? 'Refreshing…' : 'Refresh'}
-                onClick={() => void handleRefresh()}
-                disabled={refreshing}
-                style={{
-                  ...styles.headerIcon,
-                  ...(refreshing ? { opacity: 0.65 } : null),
-                }}
-              >
-                {refreshing ? '…' : '↻'}
-              </HeaderIconButton>
-            ) : null}
-            {session ? (
-              <HeaderIconButton label="Sign out" onClick={logout} style={styles.headerIcon}>
-                <span style={{ fontSize: '0.58rem', fontWeight: 800, letterSpacing: '0.02em' }}>OUT</span>
-              </HeaderIconButton>
-            ) : (
-              <Link to="/login" style={styles.signIn}>
-                Login
-              </Link>
-            )}
-          </div>
-        </div>
+        )}
 
         {showTownPicker ? (
           <button
             type="button"
-            style={styles.locationBtn}
+            style={shopChrome ? styles.locationBtnShop : styles.locationBtn}
             aria-label={`Change town. Currently ${townLabel}`}
             title="Tap to change town"
             onClick={openPicker}
@@ -152,10 +163,27 @@ export function PortalShell({
       ) : null}
 
       <nav style={styles.tabbar} aria-label="Primary">
-        <Tab to="/shop" current={location.pathname} icon="🏠" label="Home" />
-        <Tab to="/cart" current={location.pathname} icon="🛒" label="Cart" badge={cartCount} />
-        <Tab to="/orders" current={location.pathname} icon="📦" label="Orders" />
-        <Tab to="/wallet" current={location.pathname} icon="👛" label="Wallet" />
+        <Tab to="/shop" current={location.pathname} label="Home" icon={(active) => <IconHome active={active} />} />
+        <Tab
+          to="/categories"
+          current={location.pathname}
+          label="Categories"
+          icon={(active) => <IconGrid active={active} />}
+        />
+        <Tab
+          to="/cart"
+          current={location.pathname}
+          label="Basket"
+          badge={cartCount}
+          icon={(active) => <IconBasket active={active} />}
+        />
+        <Tab
+          to="/wallet"
+          current={location.pathname}
+          label="Wallet"
+          icon={(active) => <IconWallet active={active} />}
+        />
+        <Tab to="/more" current={location.pathname} label="More" icon={(active) => <IconMore active={active} />} />
       </nav>
     </div>
   );
@@ -170,7 +198,7 @@ function Tab({
 }: {
   to: string;
   current: string;
-  icon: string;
+  icon: (active: boolean) => ReactNode;
   label: string;
   badge?: number;
 }) {
@@ -181,7 +209,7 @@ function Tab({
   return (
     <Link to={to} style={active ? styles.tabActive : styles.tab}>
       <span style={styles.tabIcon} aria-hidden>
-        {icon}
+        {icon(active)}
         {badge > 0 ? <span style={styles.tabBadge}>{badge}</span> : null}
       </span>
       <span>{label}</span>
@@ -194,10 +222,10 @@ const styles: Record<string, CSSProperties> = {
     maxWidth: 'var(--shell-max)',
     width: '100%',
     margin: '0 auto',
-    padding: '0.35rem 0.75rem 0',
+    padding: '0.35rem 0.85rem 0',
     minHeight: '100vh',
     display: 'grid',
-    gap: '0.45rem',
+    gap: '0.55rem',
     alignContent: 'start',
     background: 'var(--bg)',
     overflowX: 'hidden',
@@ -207,14 +235,24 @@ const styles: Record<string, CSSProperties> = {
     position: 'sticky',
     top: 0,
     zIndex: 40,
-    margin: '0 -0.75rem',
-    padding: '0.35rem 0.75rem 0.4rem',
-    background: 'color-mix(in srgb, var(--bg-elevated) 96%, transparent)',
-    backdropFilter: 'blur(10px)',
-    WebkitBackdropFilter: 'blur(10px)',
-    borderBottom: '1px solid var(--border)',
+    margin: '0 -0.85rem',
+    padding: '0.35rem 0.85rem 0.4rem',
+    background: 'color-mix(in srgb, var(--bg) 92%, transparent)',
+    backdropFilter: 'blur(12px)',
+    WebkitBackdropFilter: 'blur(12px)',
     display: 'grid',
     gap: '0.3rem',
+    minWidth: 0,
+  },
+  headerShop: {
+    position: 'sticky',
+    top: 0,
+    zIndex: 40,
+    margin: '0 -0.85rem',
+    padding: '0.4rem 0.85rem 0.15rem',
+    background: 'var(--bg)',
+    display: 'grid',
+    gap: '0.2rem',
     minWidth: 0,
   },
   brandRow: {
@@ -237,7 +275,7 @@ const styles: Record<string, CSSProperties> = {
     fontSize: '1.02rem',
     fontWeight: 800,
     letterSpacing: '-0.04em',
-    color: 'var(--accent)',
+    color: 'var(--text)',
     flexShrink: 0,
   },
   brandTagline: {
@@ -254,7 +292,7 @@ const styles: Record<string, CSSProperties> = {
   },
   brandDash: {
     marginRight: '0.22rem',
-    color: 'color-mix(in srgb, var(--accent) 55%, var(--text-muted))',
+    color: 'var(--text-muted)',
     fontStyle: 'normal',
     fontWeight: 700,
   },
@@ -286,6 +324,20 @@ const styles: Record<string, CSSProperties> = {
     boxSizing: 'border-box',
     minWidth: 0,
   },
+  locationBtnShop: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.3rem',
+    width: '100%',
+    border: 'none',
+    background: 'transparent',
+    padding: '0.15rem 0',
+    minHeight: 32,
+    textAlign: 'left',
+    cursor: 'pointer',
+    boxSizing: 'border-box',
+    minWidth: 0,
+  },
   locationEyebrow: {
     fontWeight: 600,
     color: 'var(--text-muted)',
@@ -302,7 +354,7 @@ const styles: Record<string, CSSProperties> = {
     margin: 0,
     fontFamily: 'var(--font-display)',
     fontWeight: 700,
-    fontSize: '0.88rem',
+    fontSize: '0.92rem',
     color: 'var(--text)',
     lineHeight: 1.2,
     letterSpacing: '-0.015em',
@@ -313,7 +365,7 @@ const styles: Record<string, CSSProperties> = {
     minWidth: 0,
   },
   chevron: {
-    color: 'var(--accent)',
+    color: 'var(--text)',
     fontWeight: 800,
     fontSize: '0.85rem',
     flexShrink: 0,
@@ -324,7 +376,7 @@ const styles: Record<string, CSSProperties> = {
     padding: '0.3rem 0.7rem',
     borderRadius: 10,
     background: 'var(--text)',
-    color: 'var(--bg-elevated)',
+    color: 'var(--bg)',
     textDecoration: 'none',
     fontWeight: 800,
     fontSize: '0.75rem',
@@ -339,7 +391,7 @@ const styles: Record<string, CSSProperties> = {
     letterSpacing: '-0.02em',
   },
   sub: { margin: 0, color: 'var(--text-muted)', fontSize: '0.82rem' },
-  main: { display: 'grid', gap: '0.5rem', minWidth: 0, width: '100%', overflowX: 'hidden' },
+  main: { display: 'grid', gap: '0.65rem', minWidth: 0, width: '100%', overflowX: 'hidden' },
   tabbar: {
     position: 'fixed',
     left: '50%',
@@ -350,36 +402,35 @@ const styles: Record<string, CSSProperties> = {
     height: 'calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px))',
     paddingBottom: 'env(safe-area-inset-bottom, 0px)',
     display: 'grid',
-    gridTemplateColumns: 'repeat(4, 1fr)',
-    background: 'color-mix(in srgb, var(--bg-elevated) 97%, transparent)',
+    gridTemplateColumns: 'repeat(5, 1fr)',
+    background: 'var(--bg)',
     borderTop: '1px solid var(--border)',
     zIndex: 50,
-    boxShadow: '0 -6px 24px rgba(2, 6, 12, 0.06)',
     boxSizing: 'border-box',
   },
   tab: {
     display: 'grid',
     placeItems: 'center',
-    gap: '0.1rem',
+    gap: '0.12rem',
     textDecoration: 'none',
     color: 'var(--text-muted)',
-    fontSize: '0.68rem',
-    fontWeight: 700,
-    padding: '0.45rem 0.25rem',
+    fontSize: '0.62rem',
+    fontWeight: 600,
+    padding: '0.4rem 0.1rem',
     minHeight: 'var(--touch-min)',
   },
   tabActive: {
     display: 'grid',
     placeItems: 'center',
-    gap: '0.1rem',
+    gap: '0.12rem',
     textDecoration: 'none',
     color: 'var(--accent)',
-    fontSize: '0.68rem',
-    fontWeight: 800,
-    padding: '0.45rem 0.25rem',
+    fontSize: '0.62rem',
+    fontWeight: 700,
+    padding: '0.4rem 0.1rem',
     minHeight: 'var(--touch-min)',
   },
-  tabIcon: { position: 'relative', fontSize: '1.15rem', lineHeight: 1 },
+  tabIcon: { position: 'relative', lineHeight: 1 },
   tabBadge: {
     position: 'absolute',
     top: -6,
@@ -389,7 +440,7 @@ const styles: Record<string, CSSProperties> = {
     padding: '0 4px',
     borderRadius: 'var(--radius-full)',
     background: 'var(--accent)',
-    color: 'var(--text-inverse)',
+    color: '#fff',
     fontSize: '0.62rem',
     fontWeight: 800,
     display: 'inline-grid',

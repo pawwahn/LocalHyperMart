@@ -1,4 +1,4 @@
-import { getAccent, MODE_PRESETS, type ThemePreference } from './presets';
+import { getAccent, MODE_PRESETS, type ThemeMode, type ThemePreference } from './presets';
 import { loadThemePreference } from './storage';
 import type { AccentId } from './presets';
 
@@ -41,10 +41,13 @@ export function applyTheme(preference: ThemePreference): void {
       color-scheme: ${preference.mode};
     }
     body {
-      background:
-        radial-gradient(ellipse at 12% -10%, rgba(${accent.rgb}, ${preference.mode === 'dark' ? '0.22' : '0.11'}), transparent 42%),
-        radial-gradient(ellipse at 90% 10%, rgba(${accent.rgb}, ${preference.mode === 'dark' ? '0.12' : '0.06'}), transparent 38%),
-        var(--bg) !important;
+      background: ${
+        preference.mode === 'dark'
+          ? 'var(--bg)'
+          : `radial-gradient(ellipse at 12% -10%, rgba(${accent.rgb}, 0.11), transparent 42%),
+        radial-gradient(ellipse at 90% 10%, rgba(${accent.rgb}, 0.06), transparent 38%),
+        var(--bg)`
+      } !important;
       color: var(--text);
     }
   `;
@@ -60,8 +63,12 @@ export function applyTheme(preference: ThemePreference): void {
   document.documentElement.dataset.themeAccent = preference.accent;
 }
 
-export function applyStoredTheme(storageKey: string, defaultAccent: AccentId): ThemePreference {
-  const preference = loadThemePreference(storageKey, defaultAccent);
+export function applyStoredTheme(
+  storageKey: string,
+  defaultAccent: AccentId,
+  defaultMode: ThemeMode = 'light',
+): ThemePreference {
+  const preference = loadThemePreference(storageKey, defaultAccent, defaultMode);
   applyTheme(preference);
   return preference;
 }

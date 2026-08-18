@@ -170,8 +170,7 @@ const styles: Record<string, CSSProperties> = {
     alignItems: 'stretch',
   },
   hero: {
-    background:
-      'linear-gradient(155deg, var(--accent) 0%, #146B3A 55%, #0f5132 100%)',
+    background: 'linear-gradient(155deg, var(--accent) 0%, var(--accent-hover) 100%)',
     color: 'var(--text-inverse)',
     borderRadius: 'var(--radius-xl)',
     padding: '2rem 1.75rem',

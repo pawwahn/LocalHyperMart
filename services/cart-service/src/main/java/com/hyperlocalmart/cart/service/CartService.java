@@ -1,7 +1,6 @@
 package com.hyperlocalmart.cart.service;
 
 import com.hyperlocalmart.cart.client.CatalogListingClient;
-import com.hyperlocalmart.cart.client.TownConfigClient;
 import com.hyperlocalmart.cart.client.VendorShopClient;
 import com.hyperlocalmart.cart.dto.request.AddCartItemRequest;
 import com.hyperlocalmart.cart.dto.request.ApplyPromoRequest;
@@ -24,6 +23,7 @@ import com.hyperlocalmart.cart.repository.PromoCodeRepository;
 import com.hyperlocalmart.common.exception.BusinessException;
 import com.hyperlocalmart.common.exception.ErrorCode;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -43,7 +43,6 @@ public class CartService {
     private final PromoCodeRepository promoCodeRepository;
     private final CatalogListingClient catalogListingClient;
     private final VendorShopClient vendorShopClient;
-    private final TownConfigClient townConfigClient;
 
     @Transactional(readOnly = true)
     public CartResponse getCart(UUID userId, UUID townId) {
@@ -150,11 +149,16 @@ public class CartService {
         }
 
         for (Cart cart : activeCarts) {
-            if (!cart.getTownId().equals(request.getNewTownId())) {
-                cart.getItems().clear();
-                clearPromo(cart);
-                cart.setStatus(CartStatus.ABANDONED);
-                cartRepository.save(cart);
+            if (cart.getTownId().equals(request.getNewTownId())) {
+                continue;
+            }
+            try {
+                // Bulk SQL — do not clear() the EAGER collection (orphanRemoval races
+                // with a concurrent change-town and throws StaleObjectStateException).
+                cartItemRepository.deleteByCartId(cart.getId());
+                cartRepository.abandonIfActive(cart.getId(), CartStatus.ABANDONED, CartStatus.ACTIVE);
+            } catch (OptimisticLockingFailureException ignored) {
+                // Concurrent switch already abandoned this cart.
             }
         }
 
@@ -371,7 +375,6 @@ public class CartService {
     private CartResponse toResponse(Cart cart) {
         List<UUID> shopIds = cart.getItems().stream().map(CartItem::getShopId).distinct().toList();
         Map<UUID, String> shopNames = vendorShopClient.getShopNames(shopIds);
-        BigDecimal minOrderValue = townConfigClient.getMinOrderValue(cart.getTownId());
 
         List<CartItemResponse> items = cart.getItems().stream()
                 .map(item -> CartItemResponse.builder()
@@ -408,13 +411,12 @@ public class CartService {
                 .payableSubtotal(payable)
                 .itemCount(itemCount)
                 .items(items)
-                .minOrderValue(minOrderValue)
-                .minOrderMet(subtotal.compareTo(minOrderValue) >= 0)
+                .minOrderValue(BigDecimal.ZERO)
+                .minOrderMet(itemCount > 0)
                 .build();
     }
 
     private CartResponse emptyCartResponse(UUID townId) {
-        BigDecimal minOrderValue = townConfigClient.getMinOrderValue(townId);
         return CartResponse.builder()
                 .cartId(null)
                 .townId(townId)
@@ -425,7 +427,7 @@ public class CartService {
                 .payableSubtotal(BigDecimal.ZERO)
                 .itemCount(0)
                 .items(List.of())
-                .minOrderValue(minOrderValue)
+                .minOrderValue(BigDecimal.ZERO)
                 .minOrderMet(false)
                 .build();
     }

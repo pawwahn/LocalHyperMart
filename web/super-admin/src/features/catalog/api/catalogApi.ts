@@ -5,6 +5,7 @@ export type MasterItemVm = {
   name: string;
   categoryId?: string | null;
   categoryName?: string | null;
+  unitId?: string | null;
   unitName?: string | null;
   mrp?: number | null;
   status: string;
@@ -38,6 +39,7 @@ type MasterItemDto = {
   id?: string;
   masterItemId?: string;
   categoryId?: string | null;
+  unitId?: string | null;
   name: string;
   category?: string | null;
   categoryName?: string | null;
@@ -68,6 +70,7 @@ function mapMaster(i: MasterItemDto): MasterItemVm {
     name: i.name,
     categoryId: i.categoryId ?? null,
     categoryName: i.categoryName ?? i.category,
+    unitId: i.unitId ?? null,
     unitName: i.unitName ?? i.unit ?? i.unitCode,
     mrp: i.mrp,
     status: i.status ?? 'ACTIVE',
@@ -77,14 +80,25 @@ function mapMaster(i: MasterItemDto): MasterItemVm {
 
 export async function listMasterItemsPage(
   token: string,
-  opts: { page?: number; size?: number; q?: string; categoryId?: string } = {},
+  opts: {
+    page?: number;
+    size?: number;
+    q?: string;
+    categoryId?: string;
+    unitId?: string;
+    sort?: string;
+    dir?: string;
+  } = {},
 ): Promise<MasterItemPage> {
   const params = new URLSearchParams({
     page: String(opts.page ?? 0),
     size: String(opts.size ?? 25),
+    sort: opts.sort ?? 'name',
+    dir: opts.dir ?? 'asc',
   });
   if (opts.q?.trim()) params.set('q', opts.q.trim());
   if (opts.categoryId) params.set('categoryId', opts.categoryId);
+  if (opts.unitId) params.set('unitId', opts.unitId);
   const data = await apiRequest<PageData<MasterItemDto>>(
     `/api/v1/catalog/master-items?${params}`,
     { token },
@@ -120,12 +134,51 @@ export async function createMasterItem(
   return mapMaster(created);
 }
 
+export async function updateMasterItem(
+  token: string,
+  masterItemId: string,
+  input: CreateMasterItemInput,
+): Promise<MasterItemVm> {
+  const updated = await apiRequest<MasterItemDto>(`/api/v1/catalog/master-items/${masterItemId}`, {
+    method: 'PATCH',
+    token,
+    body: input,
+  });
+  return mapMaster(updated);
+}
+
+export async function deleteMasterItem(token: string, masterItemId: string): Promise<void> {
+  await apiRequest<{ deleted: boolean }>(`/api/v1/catalog/master-items/${masterItemId}`, {
+    method: 'DELETE',
+    token,
+  });
+}
+
 export async function createCategory(
   token: string,
   input: CreateCategoryInput,
 ): Promise<CategoryVm> {
   return apiRequest<CategoryVm>('/api/v1/catalog/categories', {
     method: 'POST',
+    token,
+    body: input,
+  });
+}
+
+export async function deleteCategory(token: string, categoryId: string): Promise<void> {
+  await apiRequest<{ deleted: boolean }>(`/api/v1/catalog/categories/${categoryId}`, {
+    method: 'DELETE',
+    token,
+  });
+}
+
+export async function updateCategory(
+  token: string,
+  categoryId: string,
+  input: CreateCategoryInput,
+): Promise<CategoryVm> {
+  return apiRequest<CategoryVm>(`/api/v1/catalog/categories/${categoryId}`, {
+    method: 'PATCH',
     token,
     body: input,
   });

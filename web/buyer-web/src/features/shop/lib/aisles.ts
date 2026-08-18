@@ -1,44 +1,48 @@
-export type Aisle = {
-  id: string;
-  label: string;
-  emoji: string;
-  match?: RegExp;
-};
-
-/** Client-side aisle chips until catalog browse exposes categories. */
-export const AISLES: Aisle[] = [
-  { id: 'all', label: 'All', emoji: '🛒' },
-  {
-    id: 'veg',
-    label: 'Vegetables',
-    emoji: '🥦',
-    match:
-      /tomato|onion|potato|carrot|spinach|cucumber|chilli|lemon|veg|cabbage|beans|gourd|capsicum|brinjal|cauliflower|coriander|ladies|bhindi|cluster/i,
-  },
-  {
-    id: 'dairy',
-    label: 'Dairy',
-    emoji: '🥛',
-    match: /milk|curd|paneer|butter|cheese|dairy|ghee|buttermilk|yogurt|yoghurt/i,
-  },
-  { id: 'staples', label: 'Staples', emoji: '🌾', match: /rice|atta|flour|dal|pulse|wheat|grain|basmati|oil|sugar/i },
-  {
-    id: 'snacks',
-    label: 'Snacks',
-    emoji: '🍪',
-    match: /biscuit|snack|chips|namkeen|cookie|chocolate|parle|lays|kurkure|maggi|noodle|chikki|wafer|murukku|murruku|mixture/i,
-  },
-  {
-    id: 'drinks',
-    label: 'Drinks',
-    emoji: '🧃',
-    match: /tea|coffee|juice|cola|soda|water|drink|thums|bisleri|sprite|boost|horlicks|fanta/i,
-  },
-  { id: 'home', label: 'Home care', emoji: '🧴', match: /soap|detergent|clean|shampoo|toothpaste/i },
+const EMOJI_RULES: Array<[RegExp, string]> = [
+  [/vegetab/i, '🥦'],
+  [/fruit/i, '🍎'],
+  [/dairy|bread|egg/i, '🥚'],
+  [/munchie|snack/i, '🍿'],
+  [/sweet|chocolate|ice cream/i, '🍫'],
+  [/biscuit|cake/i, '🍪'],
+  [/drink|juice|soda/i, '🧃'],
+  [/instant|frozen|noodle/i, '🍜'],
+  [/masala|dry fruit/i, '🥜'],
+  [/cereal|breakfast/i, '🥣'],
+  [/sauce|spread/i, '🍅'],
+  [/tea|coffee/i, '☕'],
+  [/rice|atta|dal/i, '🌾'],
+  [/oil|ghee/i, '🫙'],
+  [/meat|seafood|fish/i, '🍗'],
+  [/baby/i, '🍼'],
+  [/beauty|grooming/i, '💄'],
+  [/bath|hair|body/i, '🧼'],
+  [/pharma|hygiene/i, '💊'],
+  [/clean/i, '🧹'],
+  [/home|kitchen/i, '🍽️'],
+  [/office|electric/i, '💡'],
+  [/pet/i, '🐾'],
+  [/paan|smok/i, '🍃'],
+  [/groc/i, '🛒'],
 ];
 
-export function matchesAisle(name: string, aisleId: string): boolean {
-  if (aisleId === 'all') return true;
-  const aisle = AISLES.find((a) => a.id === aisleId);
-  return aisle?.match ? aisle.match.test(name) : true;
+export function emojiForCategory(name: string): string {
+  for (const [pattern, emoji] of EMOJI_RULES) {
+    if (pattern.test(name)) return emoji;
+  }
+  return '🛒';
+}
+
+export function coverImageForCategory(
+  categoryId: string,
+  categoryName: string,
+  items: Array<{ categoryId?: string | null; category?: string | null; imageUrl?: string | null }>,
+): string | null {
+  const hit = items.find(
+    (item) =>
+      Boolean(item.imageUrl) &&
+      (item.categoryId === categoryId ||
+        (item.category ?? '').toLowerCase() === categoryName.toLowerCase()),
+  );
+  return hit?.imageUrl ?? null;
 }

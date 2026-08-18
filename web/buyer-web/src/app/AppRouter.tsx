@@ -11,6 +11,8 @@ import { OrdersPage } from '@/features/shop/pages/OrdersPage';
 import { OrderDetailPage } from '@/features/shop/pages/OrderDetailPage';
 import { WalletPage } from '@/features/shop/pages/WalletPage';
 import { AlertsPage } from '@/features/shop/pages/AlertsPage';
+import { MorePage } from '@/features/shop/pages/MorePage';
+import { AddressesPage } from '@/features/shop/pages/AddressesPage';
 import { WalletProvider } from '@/features/shop/hooks/useWallet';
 import { ShopProvider } from '@/features/shop/hooks/useShop';
 import type { ReactNode } from 'react';
@@ -20,8 +22,9 @@ function AuthBoundTheme({ children }: { children: ReactNode }) {
   const { isAuthenticated } = useAuth();
   return (
     <ThemeProvider
-      storageKey="hlm.buyer.theme"
-      defaultAccent="forest"
+      storageKey="hlm.buyer.theme.v2"
+      defaultAccent="ocean"
+      defaultMode="dark"
       personalized={isAuthenticated}
     >
       {children}
@@ -40,9 +43,12 @@ export function AppRouter() {
                 <Routes>
                   <Route path="/login" element={<LoginPage />} />
                   <Route path="/shop" element={<ShopPage />} />
+                  <Route path="/categories" element={<ShopPage browseOnly />} />
+                  <Route path="/more" element={<MorePage />} />
                   <Route element={<RequireAuth />}>
                     <Route path="/welcome" element={<LocalWelcomePage />} />
                     <Route path="/cart" element={<CartPage />} />
+                    <Route path="/addresses" element={<AddressesPage />} />
                     <Route path="/orders" element={<OrdersPage />} />
                     <Route path="/orders/:orderId" element={<OrderDetailPage />} />
                     <Route path="/alerts" element={<AlertsPage />} />

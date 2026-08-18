@@ -13,6 +13,8 @@ public class CatalogItemResponse {
 
     private UUID listingId;
     private UUID masterItemId;
+    private UUID categoryId;
+    private String category;
     private String name;
     private String unit;
     private String shopName;

@@ -118,29 +118,79 @@ public class TownConfigService {
         if (MODE_SLAB.equalsIgnoreCase(config.getDeliveryMode())
                 && config.getDeliverySlabs() != null
                 && !config.getDeliverySlabs().isEmpty()) {
+            BigDecimal currentFee = platformFee;
+            boolean matched = false;
             for (TownOperationalConfigResponse.DeliverySlabResponse slab : config.getDeliverySlabs()) {
                 BigDecimal min = slab.getMinOrderValue() == null ? BigDecimal.ZERO : slab.getMinOrderValue();
                 BigDecimal max = slab.getMaxOrderValue();
                 boolean geMin = value.compareTo(min) >= 0;
                 boolean ltMax = max == null || value.compareTo(max) <= 0;
                 if (geMin && ltMax) {
-                    BigDecimal fee = slab.getDeliveryFee() == null ? platformFee : slab.getDeliveryFee();
-                    return Map.of(
-                            "deliveryFee", fee,
-                            "deliveryMode", MODE_SLAB,
-                            "source", "TOWN_SLAB");
+                    currentFee = slab.getDeliveryFee() == null ? platformFee : slab.getDeliveryFee();
+                    matched = true;
+                    break;
                 }
             }
-            return Map.of(
-                    "deliveryFee", platformFee,
-                    "deliveryMode", MODE_SLAB,
-                    "source", "PLATFORM_FALLBACK");
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put("deliveryFee", currentFee);
+            result.put("deliveryMode", MODE_SLAB);
+            result.put("source", matched ? "TOWN_SLAB" : "PLATFORM_FALLBACK");
+            putCheaperDeliveryHint(result, config.getDeliverySlabs(), value, currentFee, platformFee);
+            return result;
         }
 
-        return Map.of(
-                "deliveryFee", platformFee,
-                "deliveryMode", MODE_DEFAULT,
-                "source", "PLATFORM_DEFAULT");
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("deliveryFee", platformFee);
+        result.put("deliveryMode", MODE_DEFAULT);
+        result.put("source", "PLATFORM_DEFAULT");
+        return result;
+    }
+
+    /**
+     * Buyer nudge: how much more cart value to reach the cheapest cheaper slab (₹0 / ₹1 when configured).
+     */
+    private static void putCheaperDeliveryHint(
+            Map<String, Object> result,
+            List<TownOperationalConfigResponse.DeliverySlabResponse> slabs,
+            BigDecimal cartValue,
+            BigDecimal currentFee,
+            BigDecimal platformFee) {
+        TownOperationalConfigResponse.DeliverySlabResponse target = null;
+        for (TownOperationalConfigResponse.DeliverySlabResponse slab : slabs) {
+            BigDecimal min = slab.getMinOrderValue() == null ? BigDecimal.ZERO : slab.getMinOrderValue();
+            BigDecimal fee = slab.getDeliveryFee() == null ? platformFee : slab.getDeliveryFee();
+            if (fee.compareTo(BigDecimal.ONE) > 0) {
+                continue;
+            }
+            if (fee.compareTo(currentFee) >= 0) {
+                continue;
+            }
+            if (cartValue.compareTo(min) >= 0) {
+                continue;
+            }
+            if (target == null) {
+                target = slab;
+                continue;
+            }
+            BigDecimal targetFee = target.getDeliveryFee() == null ? platformFee : target.getDeliveryFee();
+            BigDecimal targetMin = target.getMinOrderValue() == null ? BigDecimal.ZERO : target.getMinOrderValue();
+            int closer = min.compareTo(targetMin);
+            if (closer < 0 || (closer == 0 && fee.compareTo(targetFee) < 0)) {
+                target = slab;
+            }
+        }
+        if (target == null) {
+            return;
+        }
+        BigDecimal min = target.getMinOrderValue() == null ? BigDecimal.ZERO : target.getMinOrderValue();
+        BigDecimal fee = target.getDeliveryFee() == null ? platformFee : target.getDeliveryFee();
+        BigDecimal addMore = min.subtract(cartValue).max(BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP);
+        if (addMore.compareTo(BigDecimal.ZERO) <= 0) {
+            return;
+        }
+        result.put("addMoreForCheaperDelivery", addMore);
+        result.put("nextDeliveryFee", fee.setScale(2, RoundingMode.HALF_UP));
+        result.put("nextDeliveryAtOrderValue", min.setScale(2, RoundingMode.HALF_UP));
     }
 
     private List<Map<String, Object>> normalizeSlabs(

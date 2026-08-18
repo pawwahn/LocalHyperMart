@@ -1,14 +1,18 @@
-import { useCallback, useEffect, useState, type CSSProperties, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useState, type CSSProperties, type FormEvent } from 'react';
 import { PortalShell } from '@/shared/layout/PortalShell';
 import { useAuth } from '@/shared/auth/AuthContext';
-import { Banner, Button, TextField } from '@/shared/ui';
+import { Banner, Button, ConfirmDialog, SearchSelect, TextField } from '@/shared/ui';
 import {
   createCategory,
   createMasterItem,
+  deleteCategory,
+  deleteMasterItem,
   listCategories,
   listMasterItemsPage,
   listUnits,
   setMasterItemImages,
+  updateCategory,
+  updateMasterItem,
   uploadCatalogImage,
   type CategoryVm,
   type MasterItemVm,
@@ -17,8 +21,12 @@ import {
 } from '../api/catalogApi';
 
 const PAGE_SIZE = 25;
+const CAT_PAGE_SIZE = 15;
 
 type Tab = 'items' | 'categories';
+type ItemSortKey = 'name' | 'category' | 'unit' | 'mrp';
+type CatSortKey = 'name' | 'description';
+type SortDir = 'asc' | 'desc';
 
 export function CatalogPage() {
   const { session } = useAuth();
@@ -34,6 +42,12 @@ export function CatalogPage() {
   const [q, setQ] = useState('');
   const [qDraft, setQDraft] = useState('');
   const [filterCategoryId, setFilterCategoryId] = useState('');
+  const [filterUnitId, setFilterUnitId] = useState('');
+  const [itemSort, setItemSort] = useState<ItemSortKey>('name');
+  const [itemDir, setItemDir] = useState<SortDir>('asc');
+  const [catQuery, setCatQuery] = useState('');
+  const [catSort, setCatSort] = useState<CatSortKey>('name');
+  const [catDir, setCatDir] = useState<SortDir>('asc');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -46,10 +60,87 @@ export function CatalogPage() {
 
   const [catName, setCatName] = useState('');
   const [catDesc, setCatDesc] = useState('');
+  const [pendingDelete, setPendingDelete] = useState<CategoryVm | null>(null);
+  const [deleteAlert, setDeleteAlert] = useState<string | null>(null);
+  const [pendingItemDelete, setPendingItemDelete] = useState<MasterItemVm | null>(null);
+  const [itemDeleteAlert, setItemDeleteAlert] = useState<string | null>(null);
+  const [editing, setEditing] = useState<CategoryVm | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editDesc, setEditDesc] = useState('');
+  const [editingItem, setEditingItem] = useState<MasterItemVm | null>(null);
+  const [editItemName, setEditItemName] = useState('');
+  const [editItemCategoryId, setEditItemCategoryId] = useState('');
+  const [editItemUnitId, setEditItemUnitId] = useState('');
+  const [editItemMrp, setEditItemMrp] = useState('');
+  const [catPage, setCatPage] = useState(0);
   const [imageItemId, setImageItemId] = useState<string | null>(null);
   const [imageBusy, setImageBusy] = useState(false);
 
   const imageItem = items.find((i) => i.id === imageItemId) ?? null;
+  const catNameNormalized = catName.trim().replace(/\s+/g, ' ');
+  const catNameTaken = categories.some(
+    (c) => c.name.trim().toLowerCase() === catNameNormalized.toLowerCase(),
+  );
+  const editNameNormalized = editName.trim().replace(/\s+/g, ' ');
+  const editNameTaken = Boolean(
+    editing &&
+      editNameNormalized &&
+      categories.some(
+        (c) =>
+          c.id !== editing.id &&
+          c.name.trim().toLowerCase() === editNameNormalized.toLowerCase(),
+      ),
+  );
+  const filteredCategories = useMemo(() => {
+    const needle = catQuery.trim().toLowerCase();
+    const list = needle
+      ? categories.filter(
+          (c) =>
+            c.name.toLowerCase().includes(needle) ||
+            (c.description ?? '').toLowerCase().includes(needle),
+        )
+      : categories;
+    return [...list].sort((a, b) => {
+      const av = catSort === 'description' ? (a.description ?? '') : a.name;
+      const bv = catSort === 'description' ? (b.description ?? '') : b.name;
+      const cmp = av.localeCompare(bv, undefined, { sensitivity: 'base' });
+      return catDir === 'desc' ? -cmp : cmp;
+    });
+  }, [categories, catQuery, catSort, catDir]);
+  const catTotalPages = Math.max(1, Math.ceil(filteredCategories.length / CAT_PAGE_SIZE));
+  const safeCatPage = Math.min(catPage, catTotalPages - 1);
+  const pagedCategories = filteredCategories.slice(
+    safeCatPage * CAT_PAGE_SIZE,
+    (safeCatPage + 1) * CAT_PAGE_SIZE,
+  );
+  const categoryOptions = useMemo(
+    () =>
+      [...categories]
+        .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
+        .map((c) => ({
+          value: c.id,
+          label: c.name,
+          searchText: `${c.name} ${c.description ?? ''}`,
+        })),
+    [categories],
+  );
+  const unitOptions = useMemo(
+    () =>
+      units.map((u) => ({
+        value: u.id,
+        label: u.displayName || u.label || u.code,
+        searchText: `${u.displayName ?? ''} ${u.label ?? ''} ${u.code}`,
+      })),
+    [units],
+  );
+
+  useEffect(() => {
+    if (catPage > catTotalPages - 1) setCatPage(Math.max(0, catTotalPages - 1));
+  }, [catPage, catTotalPages]);
+
+  useEffect(() => {
+    setCatPage(0);
+  }, [catQuery]);
 
   const loadLookups = useCallback(async () => {
     if (!token) return;
@@ -81,6 +172,9 @@ export function CatalogPage() {
         size: PAGE_SIZE,
         q,
         categoryId: filterCategoryId || undefined,
+        unitId: filterUnitId || undefined,
+        sort: itemSort,
+        dir: itemDir,
       });
       setItems(data.items);
       setTotalPages(data.totalPages);
@@ -93,7 +187,7 @@ export function CatalogPage() {
     } finally {
       setLoading(false);
     }
-  }, [token, page, q, filterCategoryId]);
+  }, [token, page, q, filterCategoryId, filterUnitId, itemSort, itemDir]);
 
   useEffect(() => {
     void loadLookups();
@@ -103,10 +197,41 @@ export function CatalogPage() {
     void loadItems();
   }, [loadItems]);
 
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const next = qDraft.trim();
+      setQ((prev) => {
+        if (prev !== next) setPage(0);
+        return next;
+      });
+    }, 280);
+    return () => window.clearTimeout(timer);
+  }, [qDraft]);
+
   function onSearch(e: FormEvent) {
     e.preventDefault();
     setPage(0);
     setQ(qDraft.trim());
+  }
+
+  function toggleItemSort(column: ItemSortKey) {
+    if (itemSort === column) {
+      setItemDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setItemSort(column);
+      setItemDir('asc');
+    }
+    setPage(0);
+  }
+
+  function toggleCatSort(column: CatSortKey) {
+    if (catSort === column) {
+      setCatDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setCatSort(column);
+      setCatDir('asc');
+    }
+    setCatPage(0);
   }
 
   async function onCreateItem(e: FormEvent) {
@@ -132,6 +257,9 @@ export function CatalogPage() {
           size: PAGE_SIZE,
           q,
           categoryId: filterCategoryId || undefined,
+          unitId: filterUnitId || undefined,
+          sort: itemSort,
+          dir: itemDir,
         });
         setItems(data.items);
         setTotalPages(data.totalPages);
@@ -148,21 +276,131 @@ export function CatalogPage() {
 
   async function onCreateCategory(e: FormEvent) {
     e.preventDefault();
+    const name = catName.trim().replace(/\s+/g, ' ');
+    if (!name) return;
+    const duplicate = categories.some((c) => c.name.trim().toLowerCase() === name.toLowerCase());
+    if (duplicate) {
+      setError(`Category “${name}” already exists`);
+      setNotice(null);
+      return;
+    }
     setBusy(true);
     setError(null);
     setNotice(null);
     try {
       const created = await createCategory(token, {
-        name: catName.trim(),
+        name,
         description: catDesc.trim() || undefined,
       });
       setNotice(`Category “${created.name}” created`);
       setCatName('');
       setCatDesc('');
+      setCatPage(0);
       await loadLookups();
       setItemCategoryId(created.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Create category failed');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onConfirmDelete() {
+    if (!pendingDelete || !token) return;
+    setBusy(true);
+    setNotice(null);
+    try {
+      await deleteCategory(token, pendingDelete.id);
+      setNotice(`Category “${pendingDelete.name}” deleted`);
+      setFilterCategoryId((prev) => (prev === pendingDelete.id ? '' : prev));
+      setItemCategoryId((prev) => (prev === pendingDelete.id ? '' : prev));
+      setPendingDelete(null);
+      setDeleteAlert(null);
+      await loadLookups();
+    } catch (err) {
+      setDeleteAlert(err instanceof Error ? err.message : 'Delete category failed');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onConfirmDeleteItem() {
+    if (!pendingItemDelete || !token) return;
+    setBusy(true);
+    setNotice(null);
+    try {
+      await deleteMasterItem(token, pendingItemDelete.id);
+      setNotice(`Item “${pendingItemDelete.name}” deleted`);
+      if (imageItemId === pendingItemDelete.id) setImageItemId(null);
+      setPendingItemDelete(null);
+      setItemDeleteAlert(null);
+      await loadItems();
+    } catch (err) {
+      setItemDeleteAlert(err instanceof Error ? err.message : 'Delete item failed');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function openEdit(cat: CategoryVm) {
+    setEditing(cat);
+    setEditName(cat.name);
+    setEditDesc(cat.description ?? '');
+    setError(null);
+  }
+
+  async function onSaveEdit(e: FormEvent) {
+    e.preventDefault();
+    if (!editing || !token) return;
+    const name = editNameNormalized;
+    if (!name || editNameTaken) return;
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const updated = await updateCategory(token, editing.id, {
+        name,
+        description: editDesc.trim() || undefined,
+      });
+      setNotice(`Category “${updated.name}” updated`);
+      setEditing(null);
+      await loadLookups();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Update category failed');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function openEditItem(item: MasterItemVm) {
+    setEditingItem(item);
+    setEditItemName(item.name);
+    setEditItemCategoryId(item.categoryId ?? itemCategoryId);
+    setEditItemUnitId(item.unitId ?? itemUnitId);
+    setEditItemMrp(item.mrp != null ? String(item.mrp) : '');
+    setError(null);
+  }
+
+  async function onSaveEditItem(e: FormEvent) {
+    e.preventDefault();
+    if (!editingItem || !token) return;
+    const name = editItemName.trim();
+    if (!name || !editItemCategoryId || !editItemUnitId) return;
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const updated = await updateMasterItem(token, editingItem.id, {
+        name,
+        categoryId: editItemCategoryId,
+        unitId: editItemUnitId,
+        mrp: editItemMrp ? Number(editItemMrp) : undefined,
+      });
+      setNotice(`Item “${updated.name}” updated`);
+      setEditingItem(null);
+      await loadItems();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Update item failed');
     } finally {
       setBusy(false);
     }
@@ -275,34 +513,24 @@ export function CatalogPage() {
                 onChange={(e) => setItemName(e.target.value)}
                 placeholder="e.g. Tomato"
               />
-              <label style={styles.label}>
-                Category
-                <select
-                  style={styles.select}
-                  value={itemCategoryId}
-                  onChange={(e) => setItemCategoryId(e.target.value)}
-                >
-                  {categories.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label style={styles.label}>
-                Unit
-                <select
-                  style={styles.select}
-                  value={itemUnitId}
-                  onChange={(e) => setItemUnitId(e.target.value)}
-                >
-                  {units.map((u) => (
-                    <option key={u.id} value={u.id}>
-                      {u.displayName || u.label || u.code}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <SearchSelect
+                compact
+                label="Category"
+                noun="categories"
+                value={itemCategoryId}
+                options={categoryOptions}
+                onChange={setItemCategoryId}
+                placeholder="Search category"
+              />
+              <SearchSelect
+                compact
+                label="Unit"
+                noun="units"
+                value={itemUnitId}
+                options={unitOptions}
+                onChange={setItemUnitId}
+                placeholder="Search unit"
+              />
               <TextField
                 label="MRP"
                 value={itemMrp}
@@ -323,41 +551,72 @@ export function CatalogPage() {
 
           <section style={styles.panel}>
             <div style={styles.toolbar}>
-              <div>
-                <h2 style={styles.h2}>Master items</h2>
-                <p style={styles.meta}>
-                  {loading ? 'Loading…' : `${totalElements} total`}
-                </p>
-              </div>
-              <form style={styles.searchRow} onSubmit={onSearch}>
-                <label style={styles.labelCompact}>
-                  Category
+              <div style={styles.toolbarTop}>
+                <h2 style={styles.h2}>
+                  Master items
+                  <span style={styles.countInline}>
+                    {loading ? 'Loading…' : `${totalElements}`}
+                  </span>
+                </h2>
+                <label style={styles.sortInline}>
+                  Sort
                   <select
-                    style={styles.selectCompact}
-                    value={filterCategoryId}
+                    style={styles.sortSelect}
+                    value={`${itemSort}-${itemDir}`}
+                    aria-label="Sort items"
                     onChange={(e) => {
-                      setFilterCategoryId(e.target.value);
+                      const [col, dir] = e.target.value.split('-') as [ItemSortKey, SortDir];
+                      setItemSort(col);
+                      setItemDir(dir);
                       setPage(0);
                     }}
                   >
-                    <option value="">All</option>
-                    {categories.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name}
-                      </option>
-                    ))}
+                    <option value="name-asc">Name A–Z</option>
+                    <option value="name-desc">Name Z–A</option>
+                    <option value="category-asc">Category A–Z</option>
+                    <option value="category-desc">Category Z–A</option>
+                    <option value="unit-asc">Unit A–Z</option>
+                    <option value="unit-desc">Unit Z–A</option>
+                    <option value="mrp-asc">MRP low–high</option>
+                    <option value="mrp-desc">MRP high–low</option>
                   </select>
                 </label>
-                <input
-                  style={styles.search}
-                  value={qDraft}
-                  onChange={(e) => setQDraft(e.target.value)}
-                  placeholder="Search by name"
-                  aria-label="Search master items"
+              </div>
+              <form style={styles.filterBar} onSubmit={onSearch}>
+                <label style={styles.searchLead}>
+                  <span style={styles.searchGlyph} aria-hidden>
+                    ⌕
+                  </span>
+                  <input
+                    style={styles.searchInput}
+                    value={qDraft}
+                    onChange={(e) => setQDraft(e.target.value)}
+                    placeholder="Search items"
+                    aria-label="Search master items"
+                  />
+                </label>
+                <SearchSelect
+                  compact
+                  noun="categories"
+                  value={filterCategoryId}
+                  options={[{ value: '', label: 'All categories' }, ...categoryOptions]}
+                  onChange={(id) => {
+                    setFilterCategoryId(id);
+                    setPage(0);
+                  }}
+                  placeholder="Category"
                 />
-                <Button type="submit" variant="ghost" disabled={loading}>
-                  Search
-                </Button>
+                <SearchSelect
+                  compact
+                  noun="units"
+                  value={filterUnitId}
+                  options={[{ value: '', label: 'All units' }, ...unitOptions]}
+                  onChange={(id) => {
+                    setFilterUnitId(id);
+                    setPage(0);
+                  }}
+                  placeholder="Unit"
+                />
               </form>
             </div>
 
@@ -365,16 +624,42 @@ export function CatalogPage() {
               <table style={styles.table}>
                 <thead>
                   <tr>
-                    <th style={styles.th}>Item</th>
-                    <th style={styles.th}>Category</th>
-                    <th style={styles.th}>Unit</th>
-                    <th style={{ ...styles.th, textAlign: 'right' }}>MRP</th>
+                    <SortTh
+                      label="Item"
+                      column="name"
+                      active={itemSort}
+                      dir={itemDir}
+                      onSort={toggleItemSort}
+                    />
+                    <SortTh
+                      label="Category"
+                      column="category"
+                      active={itemSort}
+                      dir={itemDir}
+                      onSort={toggleItemSort}
+                    />
+                    <SortTh
+                      label="Unit"
+                      column="unit"
+                      active={itemSort}
+                      dir={itemDir}
+                      onSort={toggleItemSort}
+                    />
+                    <SortTh
+                      label="MRP"
+                      column="mrp"
+                      active={itemSort}
+                      dir={itemDir}
+                      onSort={toggleItemSort}
+                      align="right"
+                    />
+                    <th style={styles.thRight}> </th>
                   </tr>
                 </thead>
                 <tbody>
                   {items.length === 0 && !loading ? (
                     <tr>
-                      <td colSpan={4} style={styles.empty}>
+                      <td colSpan={5} style={styles.empty}>
                         No master items match.
                       </td>
                     </tr>
@@ -399,6 +684,29 @@ export function CatalogPage() {
                         <td style={styles.tdMuted}>{item.unitName ?? '—'}</td>
                         <td style={{ ...styles.td, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
                           {item.mrp != null ? `₹${Number(item.mrp).toFixed(0)}` : '—'}
+                        </td>
+                        <td style={styles.tdRight}>
+                          <div style={styles.rowActions}>
+                            <button
+                              type="button"
+                              style={styles.editLink}
+                              disabled={busy}
+                              onClick={() => openEditItem(item)}
+                            >
+                              Edit
+                            </button>
+                            <button
+                              type="button"
+                              style={styles.deleteLink}
+                              disabled={busy}
+                              onClick={() => {
+                                setItemDeleteAlert(null);
+                                setPendingItemDelete(item);
+                              }}
+                            >
+                              Delete
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))
@@ -435,43 +743,126 @@ export function CatalogPage() {
               placeholder="Optional"
             />
             <div style={styles.formAction}>
-              <Button type="submit" disabled={busy || !catName.trim()}>
+              <Button type="submit" disabled={busy || !catNameNormalized || catNameTaken}>
                 Create category
               </Button>
+              {catNameTaken ? (
+                <span style={styles.dupHint}>“{catNameNormalized}” already exists</span>
+              ) : null}
             </div>
           </form>
 
-          <h2 style={{ ...styles.h2, marginTop: '1.25rem' }}>
-            Categories ({categories.length})
-          </h2>
+          <div style={styles.toolbar}>
+            <div style={styles.toolbarTop}>
+              <h2 style={styles.h2}>
+                Categories
+                <span style={styles.countInline}>{filteredCategories.length}</span>
+              </h2>
+              <label style={styles.sortInline}>
+                Sort
+                <select
+                  style={styles.sortSelect}
+                  value={`${catSort}-${catDir}`}
+                  aria-label="Sort categories"
+                  onChange={(e) => {
+                    const [col, dir] = e.target.value.split('-') as [CatSortKey, SortDir];
+                    setCatSort(col);
+                    setCatDir(dir);
+                    setCatPage(0);
+                  }}
+                >
+                  <option value="name-asc">Name A–Z</option>
+                  <option value="name-desc">Name Z–A</option>
+                  <option value="description-asc">Description A–Z</option>
+                  <option value="description-desc">Description Z–A</option>
+                </select>
+              </label>
+            </div>
+            <label style={styles.searchLead}>
+              <span style={styles.searchGlyph} aria-hidden>
+                ⌕
+              </span>
+              <input
+                style={styles.searchInput}
+                value={catQuery}
+                onChange={(e) => setCatQuery(e.target.value)}
+                placeholder="Search categories"
+                aria-label="Search categories"
+              />
+            </label>
+          </div>
           <div style={styles.tableWrap}>
             <table style={styles.table}>
               <thead>
                 <tr>
-                  <th style={styles.th}>Name</th>
-                  <th style={styles.th}>Description</th>
+                  <SortTh
+                    label="Name"
+                    column="name"
+                    active={catSort}
+                    dir={catDir}
+                    onSort={toggleCatSort}
+                  />
+                  <SortTh
+                    label="Description"
+                    column="description"
+                    active={catSort}
+                    dir={catDir}
+                    onSort={toggleCatSort}
+                  />
+                  <th style={styles.thRight}> </th>
                 </tr>
               </thead>
               <tbody>
-                {categories.length === 0 ? (
+                {pagedCategories.length === 0 ? (
                   <tr>
-                    <td colSpan={2} style={styles.empty}>
-                      No categories yet.
+                    <td colSpan={3} style={styles.empty}>
+                      {catQuery.trim() ? 'No categories match.' : 'No categories yet.'}
                     </td>
                   </tr>
                 ) : (
-                  categories.map((c) => (
+                  pagedCategories.map((c) => (
                     <tr key={c.id}>
                       <td style={styles.td}>
                         <strong>{c.name}</strong>
                       </td>
                       <td style={styles.tdMuted}>{c.description || '—'}</td>
+                      <td style={styles.tdRight}>
+                        <div style={styles.rowActions}>
+                          <button
+                            type="button"
+                            style={styles.editLink}
+                            disabled={busy}
+                            onClick={() => openEdit(c)}
+                          >
+                            Edit
+                          </button>
+                          <button
+                            type="button"
+                            style={styles.deleteLink}
+                            disabled={busy}
+                            onClick={() => {
+                              setDeleteAlert(null);
+                              setPendingDelete(c);
+                            }}
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </td>
                     </tr>
                   ))
                 )}
               </tbody>
             </table>
           </div>
+          <Pager
+            page={safeCatPage}
+            totalPages={filteredCategories.length === 0 ? 0 : catTotalPages}
+            total={filteredCategories.length}
+            noun="categories"
+            onPrev={() => setCatPage((p) => Math.max(0, p - 1))}
+            onNext={() => setCatPage((p) => p + 1)}
+          />
         </section>
       )}
 
@@ -545,7 +936,203 @@ export function CatalogPage() {
           </div>
         </div>
       ) : null}
+
+      {editingItem ? (
+        <div
+          style={styles.modalBackdrop}
+          role="presentation"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget && !busy) setEditingItem(null);
+          }}
+        >
+          <form
+            style={styles.editDialog}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="edit-item-title"
+            onSubmit={(e) => void onSaveEditItem(e)}
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <h2 id="edit-item-title" style={styles.editTitle}>
+              Edit item
+            </h2>
+            <div style={styles.editRow}>
+              <TextField
+                label="Name"
+                value={editItemName}
+                onChange={(e) => setEditItemName(e.target.value)}
+              />
+              <SearchSelect
+                compact
+                label="Category"
+                noun="categories"
+                value={editItemCategoryId}
+                options={categoryOptions}
+                onChange={setEditItemCategoryId}
+                placeholder="Search category"
+                disabled={busy}
+              />
+              <SearchSelect
+                compact
+                label="Unit"
+                noun="units"
+                value={editItemUnitId}
+                options={unitOptions}
+                onChange={setEditItemUnitId}
+                placeholder="Search unit"
+                disabled={busy}
+              />
+              <TextField
+                label="MRP"
+                value={editItemMrp}
+                onChange={(e) => setEditItemMrp(e.target.value)}
+                inputMode="decimal"
+                placeholder="Optional"
+              />
+            </div>
+            <div style={styles.editActions}>
+              <Button type="button" variant="ghost" disabled={busy} onClick={() => setEditingItem(null)}>
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                disabled={busy || !editItemName.trim() || !editItemCategoryId || !editItemUnitId}
+              >
+                {busy ? 'Saving…' : 'Save'}
+              </Button>
+            </div>
+          </form>
+        </div>
+      ) : null}
+
+      {editing ? (
+        <div
+          style={styles.modalBackdrop}
+          role="presentation"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget && !busy) setEditing(null);
+          }}
+        >
+          <form
+            style={styles.editDialog}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="edit-category-title"
+            onSubmit={(e) => void onSaveEdit(e)}
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <h2 id="edit-category-title" style={styles.editTitle}>
+              Edit category
+            </h2>
+            <div style={styles.editRow}>
+              <TextField
+                label="Name"
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+              />
+              <TextField
+                label="Description"
+                value={editDesc}
+                onChange={(e) => setEditDesc(e.target.value)}
+                placeholder="Optional"
+              />
+            </div>
+            {editNameTaken ? (
+              <p style={styles.dupHint}>“{editNameNormalized}” already exists</p>
+            ) : null}
+            <div style={styles.editActions}>
+              <Button type="button" variant="ghost" disabled={busy} onClick={() => setEditing(null)}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={busy || !editNameNormalized || editNameTaken}>
+                {busy ? 'Saving…' : 'Save'}
+              </Button>
+            </div>
+          </form>
+        </div>
+      ) : null}
+
+      <ConfirmDialog
+        open={Boolean(pendingDelete)}
+        title={deleteAlert ? 'Cannot delete' : 'Delete category?'}
+        description={
+          deleteAlert
+            ? deleteAlert
+            : pendingDelete
+              ? `“${pendingDelete.name}” will be removed. Items already in this category must be moved first.`
+              : ''
+        }
+        confirmLabel={deleteAlert ? 'OK' : 'Delete'}
+        cancelLabel="Cancel"
+        danger={!deleteAlert}
+        alertOnly={Boolean(deleteAlert)}
+        busy={busy}
+        onConfirm={() => void onConfirmDelete()}
+        onClose={() => {
+          if (!busy) {
+            setPendingDelete(null);
+            setDeleteAlert(null);
+          }
+        }}
+      />
+      <ConfirmDialog
+        open={Boolean(pendingItemDelete)}
+        title={itemDeleteAlert ? 'Cannot delete' : 'Delete item?'}
+        description={
+          itemDeleteAlert
+            ? itemDeleteAlert
+            : pendingItemDelete
+              ? `“${pendingItemDelete.name}” will be removed from the master catalog.`
+              : ''
+        }
+        confirmLabel={itemDeleteAlert ? 'OK' : 'Delete'}
+        cancelLabel="Cancel"
+        danger={!itemDeleteAlert}
+        alertOnly={Boolean(itemDeleteAlert)}
+        busy={busy}
+        onConfirm={() => void onConfirmDeleteItem()}
+        onClose={() => {
+          if (!busy) {
+            setPendingItemDelete(null);
+            setItemDeleteAlert(null);
+          }
+        }}
+      />
     </PortalShell>
+  );
+}
+
+function SortTh<T extends string>({
+  label,
+  column,
+  active,
+  dir,
+  onSort,
+  align = 'left',
+}: {
+  label: string;
+  column: T;
+  active: T;
+  dir: SortDir;
+  onSort: (column: T) => void;
+  align?: 'left' | 'right';
+}) {
+  const isActive = active === column;
+  return (
+    <th style={{ ...styles.th, textAlign: align }}>
+      <button
+        type="button"
+        style={{
+          ...styles.sortThBtn,
+          justifyContent: align === 'right' ? 'flex-end' : 'flex-start',
+          color: isActive ? 'var(--text)' : 'var(--text-muted)',
+        }}
+        onClick={() => onSort(column)}
+      >
+        {label}
+        <span aria-hidden>{isActive ? (dir === 'asc' ? ' ↑' : ' ↓') : ' ↕'}</span>
+      </button>
+    </th>
   );
 }
 
@@ -562,6 +1149,7 @@ function Pager({
   totalPages,
   total,
   loading,
+  noun = 'items',
   onPrev,
   onNext,
 }: {
@@ -569,6 +1157,7 @@ function Pager({
   totalPages: number;
   total: number;
   loading?: boolean;
+  noun?: string;
   onPrev: () => void;
   onNext: () => void;
 }) {
@@ -587,7 +1176,7 @@ function Pager({
       <span style={styles.pagerMeta}>
         Page {page + 1}
         {totalPages > 0 ? ` / ${totalPages}` : ''}
-        {` · ${total} items`}
+        {` · ${total} ${noun}`}
       </span>
       <button
         type="button"
@@ -699,6 +1288,28 @@ const styles: Record<string, CSSProperties> = {
     padding: '1rem',
     zIndex: 1000,
   },
+  editDialog: {
+    width: 'min(440px, 100%)',
+    background: 'var(--bg-elevated)',
+    borderRadius: 16,
+    border: '1px solid var(--border)',
+    boxShadow: 'var(--shadow-elevated)',
+    padding: '1rem 1.1rem',
+    display: 'grid',
+    gap: '0.65rem',
+  },
+  editTitle: {
+    margin: 0,
+    fontFamily: 'var(--font-display)',
+    fontWeight: 800,
+    fontSize: '1.12rem',
+  },
+  editRow: {
+    display: 'grid',
+    gridTemplateColumns: '1fr 1fr',
+    gap: '0.5rem',
+  },
+  editActions: { display: 'flex', justifyContent: 'flex-end', gap: '0.45rem' },
   modal: {
     width: 'min(440px, 100%)',
     background: 'var(--bg-elevated)',
@@ -753,7 +1364,8 @@ const styles: Record<string, CSSProperties> = {
     gap: '0.65rem',
     alignItems: 'end',
   },
-  formAction: { display: 'flex', alignItems: 'end' },
+  formAction: { display: 'flex', alignItems: 'center', gap: '0.55rem', flexWrap: 'wrap' },
+  dupHint: { fontSize: '0.8rem', fontWeight: 700, color: 'var(--danger)' },
   label: {
     display: 'grid',
     gap: '0.3rem',
@@ -784,22 +1396,87 @@ const styles: Record<string, CSSProperties> = {
     minWidth: 120,
   },
   toolbar: {
+    display: 'grid',
+    gap: '0.45rem',
+  },
+  toolbarTop: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: '0.5rem',
+    flexWrap: 'wrap',
+  },
+  countInline: {
+    marginLeft: '0.45rem',
+    fontFamily: 'var(--font-body)',
+    fontSize: '0.82rem',
+    fontWeight: 700,
+    color: 'var(--text-muted)',
+  },
+  sortInline: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '0.35rem',
+    fontSize: '0.75rem',
+    fontWeight: 700,
+    color: 'var(--text-muted)',
+    minHeight: 44,
+  },
+  sortSelect: {
+    border: '1px solid var(--border)',
+    background: 'var(--bg)',
+    color: 'var(--text)',
+    borderRadius: 8,
+    padding: '0.3rem 0.45rem',
+    fontSize: '0.8rem',
+    fontWeight: 700,
+    minHeight: 32,
+  },
+  filterBar: {
     display: 'flex',
     flexWrap: 'wrap',
-    justifyContent: 'space-between',
-    gap: '0.75rem',
-    alignItems: 'flex-end',
+    gap: '0.4rem',
+    alignItems: 'stretch',
+  },
+  searchLead: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.35rem',
+    minHeight: 36,
+    padding: '0 0.55rem',
+    borderRadius: 8,
+    border: '1px solid var(--border)',
+    background: 'var(--bg)',
+    flex: '2 1 200px',
+    minWidth: 180,
+  },
+  searchGlyph: {
+    color: 'var(--text-muted)',
+    fontWeight: 700,
+    flexShrink: 0,
+  },
+  searchInput: {
+    flex: 1,
+    minWidth: 0,
+    border: 'none',
+    outline: 'none',
+    background: 'transparent',
+    color: 'var(--text)',
+    padding: '0.45rem 0',
+    fontSize: '0.88rem',
   },
   searchRow: {
     display: 'flex',
     flexWrap: 'wrap',
     gap: '0.45rem',
     alignItems: 'end',
+    flex: '1 1 360px',
   },
   search: {
-    minWidth: 160,
-    flex: '1 1 160px',
-    padding: '0.55rem 0.75rem',
+    minWidth: 140,
+    width: '100%',
+    boxSizing: 'border-box',
+    padding: '0.45rem 0.6rem',
     borderRadius: 8,
     border: '1px solid var(--border)',
     background: 'var(--bg)',
@@ -822,11 +1499,37 @@ const styles: Record<string, CSSProperties> = {
     letterSpacing: '0.04em',
     textTransform: 'uppercase',
     color: 'var(--text-muted)',
-    padding: '0.65rem 0.75rem',
+    padding: '0.45rem 0.75rem',
     background: 'var(--bg-muted)',
     borderBottom: '1px solid var(--border)',
     position: 'sticky',
     top: 0,
+  },
+  sortThBtn: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '0.15rem',
+    width: '100%',
+    border: 'none',
+    background: 'transparent',
+    padding: 0,
+    margin: 0,
+    minHeight: 44,
+    cursor: 'pointer',
+    font: 'inherit',
+    fontWeight: 800,
+    letterSpacing: '0.04em',
+    textTransform: 'uppercase',
+    color: 'inherit',
+  },
+  thRight: {
+    textAlign: 'right',
+    fontSize: '0.72rem',
+    fontWeight: 800,
+    padding: '0.65rem 0.75rem',
+    background: 'var(--bg-muted)',
+    borderBottom: '1px solid var(--border)',
+    width: 120,
   },
   td: {
     padding: '0.7rem 0.75rem',
@@ -840,6 +1543,39 @@ const styles: Record<string, CSSProperties> = {
     fontSize: '0.88rem',
     color: 'var(--text-muted)',
     verticalAlign: 'middle',
+  },
+  tdRight: {
+    padding: '0.35rem 0.55rem',
+    borderBottom: '1px solid var(--border)',
+    textAlign: 'right',
+    verticalAlign: 'middle',
+    width: 120,
+  },
+  rowActions: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '0.1rem',
+    justifyContent: 'flex-end',
+  },
+  editLink: {
+    border: 'none',
+    background: 'transparent',
+    color: 'var(--accent)',
+    fontWeight: 800,
+    fontSize: '0.8rem',
+    cursor: 'pointer',
+    minHeight: 44,
+    padding: '0.35rem 0.45rem',
+  },
+  deleteLink: {
+    border: 'none',
+    background: 'transparent',
+    color: 'var(--danger)',
+    fontWeight: 800,
+    fontSize: '0.8rem',
+    cursor: 'pointer',
+    minHeight: 44,
+    padding: '0.35rem 0.45rem',
   },
   empty: {
     padding: '1.25rem 0.75rem',

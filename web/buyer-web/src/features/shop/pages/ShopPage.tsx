@@ -1,79 +1,216 @@
 import type { CSSProperties } from 'react';
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AdSlot } from '@/features/ads/components/AdSlot';
 import { PortalShell } from '@/shared/layout/PortalShell';
+import { useTown } from '@/shared/town/TownContext';
 import { Banner, EmptyState, LoadingBlock } from '@/shared/ui';
-import type { CatalogItemView } from '../api/shopApi';
+import {
+  fetchCatalogPage,
+  fetchCategories,
+  type CatalogItemView,
+  type CategoryView,
+} from '../api/shopApi';
+import { CategoryTile } from '../components/CategoryTile';
 import { ProductCard } from '../components/ProductCard';
 import { ProductQuickView } from '../components/ProductQuickView';
-import { AISLES, matchesAisle } from '../lib/aisles';
+import { emojiForCategory } from '../lib/aisles';
 import { useBrowserVoiceSearch } from '../hooks/useBrowserVoiceSearch';
 import { useShop } from '../hooks/useShop';
 
-/** Insert a sponsored mid-grid ad after this many product cards (1 full row at 4-up). */
-const MID_GRID_AFTER = 4;
+const SEARCH_HINTS = ['Egg', 'Bread', 'Milk', 'Rice', 'Maggi', 'Tomato'];
+const PAGE_SIZE = 24;
 
-const AISLE_TINTS: Record<string, string> = {
-  all: '#E7F6EC',
-  veg: '#E4F8E6',
-  dairy: '#E6F3FF',
-  staples: '#FFF4D9',
-  snacks: '#FFE9DE',
-  drinks: '#DFF8F5',
-  home: '#E8F0F4',
+type CatSort = 'az' | 'za';
+type ItemSort = 'name-az' | 'name-za' | 'price-asc' | 'price-desc' | 'rating';
+
+type Props = {
+  /** Categories tab: skip promo banners, keep the directory. */
+  browseOnly?: boolean;
 };
 
-export function ShopPage() {
+function sortParams(sort: ItemSort): { sort: string; dir: string } {
+  if (sort === 'name-za') return { sort: 'name', dir: 'desc' };
+  if (sort === 'price-asc') return { sort: 'price', dir: 'asc' };
+  if (sort === 'price-desc') return { sort: 'price', dir: 'desc' };
+  if (sort === 'rating') return { sort: 'rating', dir: 'desc' };
+  return { sort: 'name', dir: 'asc' };
+}
+
+export function ShopPage({ browseOnly = false }: Props) {
+  const { townId } = useTown();
   const {
-    items,
     cart,
-    query,
-    setQuery,
-    loading,
     busyKey,
     error,
     notice,
     reload,
+    rememberItems,
     quantityFor,
     doIncrease,
     doDecrease,
   } = useShop();
-  const [aisleId, setAisleId] = useState('all');
+  const [categoryId, setCategoryId] = useState<string | null>(null);
+  const [categories, setCategories] = useState<CategoryView[]>([]);
+  const [catSort, setCatSort] = useState<CatSort>('az');
+  const [itemSort, setItemSort] = useState<ItemSort>('name-az');
+  const [query, setQuery] = useState('');
+  const [debouncedQuery, setDebouncedQuery] = useState('');
+  const [products, setProducts] = useState<CatalogItemView[]>([]);
+  const [page, setPage] = useState(0);
+  const [total, setTotal] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
+  const [catalogLoading, setCatalogLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [catalogError, setCatalogError] = useState<string | null>(null);
+  const [hintIndex, setHintIndex] = useState(0);
   const [quickView, setQuickView] = useState<CatalogItemView | null>(null);
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  const loadingMoreRef = useRef(false);
   const { listening, supported, error: voiceError, toggle: toggleVoice } = useBrowserVoiceSearch(
     (transcript) => setQuery(transcript),
   );
 
-  const visible = useMemo(
-    () => items.filter((item) => matchesAisle(item.name, aisleId)),
-    [items, aisleId],
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setHintIndex((i) => (i + 1) % SEARCH_HINTS.length);
+    }, 2800);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedQuery(query.trim()), 300);
+    return () => window.clearTimeout(timer);
+  }, [query]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetchCategories()
+      .then((next) => {
+        if (!cancelled) setCategories(next);
+      })
+      .catch(() => {
+        if (!cancelled) setCategories([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const searching = debouncedQuery.length > 0;
+  const selected = categories.find((c) => c.id === categoryId) ?? null;
+  const inCategory = Boolean(selected);
+  const showFeed = inCategory || searching;
+
+  const visibleCategories = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    const list = needle
+      ? categories.filter((c) => c.name.toLowerCase().includes(needle))
+      : categories;
+    return [...list].sort((a, b) => {
+      const cmp = a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+      return catSort === 'za' ? -cmp : cmp;
+    });
+  }, [categories, query, catSort]);
+
+  const loadPage = useCallback(
+    async (nextPage: number, append: boolean) => {
+      if (!townId || (!inCategory && !searching)) {
+        setProducts([]);
+        setPage(0);
+        setTotal(0);
+        setHasMore(false);
+        setCatalogError(null);
+        return;
+      }
+      if (append) {
+        if (loadingMoreRef.current) return;
+        loadingMoreRef.current = true;
+        setLoadingMore(true);
+      } else {
+        setCatalogLoading(true);
+      }
+      setCatalogError(null);
+      try {
+        const data = await fetchCatalogPage({
+          townId,
+          categoryId: selected?.id,
+          q: searching ? debouncedQuery : undefined,
+          page: nextPage,
+          size: PAGE_SIZE,
+          ...sortParams(itemSort),
+        });
+        setProducts((prev) => (append ? [...prev, ...data.items] : data.items));
+        rememberItems(data.items, append ? 'append' : 'replace');
+        setPage(data.page);
+        setTotal(data.totalElements);
+        setHasMore(data.page + 1 < data.totalPages);
+      } catch (err) {
+        if (!append) setProducts([]);
+        setCatalogError(err instanceof Error ? err.message : 'Failed to load items');
+      } finally {
+        setCatalogLoading(false);
+        setLoadingMore(false);
+        loadingMoreRef.current = false;
+      }
+    },
+    [townId, inCategory, searching, selected?.id, debouncedQuery, itemSort, rememberItems],
   );
+
+  useEffect(() => {
+    void loadPage(0, false);
+  }, [loadPage]);
+
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el || !hasMore || catalogLoading) return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) void loadPage(page + 1, true);
+      },
+      { rootMargin: '240px' },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [hasMore, catalogLoading, page, loadPage]);
 
   const quickViewLive = useMemo(() => {
     if (!quickView) return null;
-    return items.find((i) => i.listingId === quickView.listingId) ?? quickView;
-  }, [items, quickView]);
+    return products.find((i) => i.listingId === quickView.listingId) ?? quickView;
+  }, [products, quickView]);
+
+  function goHome() {
+    setCategoryId(null);
+    setQuery('');
+    setDebouncedQuery('');
+  }
 
   return (
     <PortalShell
       hideTitle
+      shopChrome
       showDeliveryBanner={false}
       cartCount={cart?.itemCount ?? 0}
       cartTotalLabel={cart?.payableLabel}
-      onRefresh={() => reload()}
+      onRefresh={() => {
+        void reload();
+        void fetchCategories().then(setCategories).catch(() => setCategories([]));
+        if (showFeed) void loadPage(0, false);
+      }}
     >
-      <p style={styles.promise} aria-label="Delivery promise">
-        <span style={styles.promiseBadge}>Same-day</span>
-        <span style={styles.promiseText}>Groceries from your town · usually 30–45 min</span>
-      </p>
-
       <div style={styles.searchShell}>
         <span style={styles.searchIcon} aria-hidden>
           ⌕
         </span>
         <input
-          aria-label="Search products"
-          placeholder={listening ? 'Listening… say a product' : 'Search milk, maggi, mango…'}
+          className="hlm-search-input"
+          aria-label={inCategory ? `Search in ${selected?.name}` : 'Search products'}
+          placeholder={
+            listening
+              ? 'Listening… say a product'
+              : inCategory
+                ? `Search in ${selected?.name}`
+                : `Search for "${SEARCH_HINTS[hintIndex]}"`
+          }
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           style={styles.search}
@@ -93,92 +230,132 @@ export function ShopPage() {
       {voiceError ? <Banner tone="warning">{voiceError}</Banner> : null}
       {listening ? <Banner tone="info">Listening… say something like “milk” or “rice”</Banner> : null}
 
-      <div className="hlm-hide-scrollbar" style={styles.aisles} role="tablist" aria-label="Categories">
-        {AISLES.map((aisle) => {
-          const active = aisle.id === aisleId;
-          const tint = AISLE_TINTS[aisle.id] ?? '#F4F6F8';
-          return (
-            <button
-              key={aisle.id}
-              type="button"
-              role="tab"
-              aria-selected={active}
-              style={active ? styles.aisleActive : styles.aisle}
-              onClick={() => setAisleId(aisle.id)}
-            >
-              <span
-                className="hlm-aisle-tile"
-                style={{
-                  ...styles.aisleEmoji,
-                  background: tint,
-                  ...(active ? styles.aisleEmojiActive : null),
-                }}
-                aria-hidden
-              >
-                {aisle.emoji}
-              </span>
-              <span style={styles.aisleLabel}>{aisle.label}</span>
-            </button>
-          );
-        })}
-      </div>
-
-      <AdSlot slot="home_hero" variant="strip" />
-
       {error ? <Banner tone="danger">{error}</Banner> : null}
+      {catalogError ? <Banner tone="danger">{catalogError}</Banner> : null}
       {notice ? <Banner tone="success">{notice}</Banner> : null}
 
-      <div style={styles.sectionHead}>
-        <h2 style={styles.h2}>
-          {aisleId === 'all' ? 'For you rn' : AISLES.find((a) => a.id === aisleId)?.label}
-        </h2>
-        <p style={styles.count}>{visible.length} items</p>
-      </div>
+      {!inCategory ? (
+        <>
+          {browseOnly || searching ? null : <AdSlot slot="home_hero" variant="strip" />}
+          {!searching || visibleCategories.length > 0 ? (
+            <>
+              <div style={styles.sectionHead}>
+                <h2 style={styles.h2}>{searching ? 'Categories' : 'Shop by category'}</h2>
+                {searching ? null : (
+                  <SortSelect
+                    ariaLabel="Sort categories"
+                    value={catSort}
+                    onChange={(v) => setCatSort(v as CatSort)}
+                    options={[
+                      { value: 'az', label: 'A–Z' },
+                      { value: 'za', label: 'Z–A' },
+                    ]}
+                  />
+                )}
+              </div>
+              {visibleCategories.length === 0 ? (
+                <EmptyState
+                  icon="🛒"
+                  title="No categories yet"
+                  description="Catalog categories will show up here."
+                />
+              ) : (
+                <div style={searching ? styles.catRow : styles.catGrid}>
+                  {visibleCategories.map((cat) => (
+                    <CategoryTile
+                      key={cat.id}
+                      label={cat.name}
+                      emoji={emojiForCategory(cat.name)}
+                      onClick={() => {
+                        setCategoryId(cat.id);
+                        setQuery('');
+                        setDebouncedQuery('');
+                      }}
+                    />
+                  ))}
+                </div>
+              )}
+            </>
+          ) : null}
+        </>
+      ) : null}
 
-      {loading && items.length === 0 ? (
-        <LoadingBlock label="Loading fresh catalog…" />
-      ) : visible.length === 0 ? (
-        <EmptyState
-          icon="🥬"
-          title="No items in this aisle"
-          description={
-            aisleId === 'all'
-              ? 'Confirm catalog-service is up, then refresh. Vendors can publish listings from the vendor portal.'
-              : 'Try another category or clear search.'
-          }
-          actionLabel={aisleId === 'all' ? 'Refresh' : 'Show all'}
-          onAction={() => (aisleId === 'all' ? void reload() : setAisleId('all'))}
-        />
-      ) : (
-        <div style={styles.grid}>
-          {visible.flatMap((item, index) => {
-            const card = (
-              <ProductCard
-                key={item.listingId}
-                name={item.name}
-                shopName={item.shopName}
-                unit={item.unit}
-                priceLabel={item.priceLabel}
-                mrpLabel={item.mrpLabel}
-                discountPercent={item.discountPercent}
-                vendorNote={item.vendorNote}
-                specialOfferActive={item.specialOfferActive}
-                avgRating={item.avgRating}
-                ratingCount={item.ratingCount}
-                imageUrl={item.imageUrl}
-                imageCount={item.imageUrls.length}
-                quantity={quantityFor(item.listingId)}
-                busy={busyKey === item.listingId}
-                onOpen={() => setQuickView(item)}
-                onIncrease={() => void doIncrease(item.listingId)}
-                onDecrease={() => void doDecrease(item.listingId)}
+      {showFeed ? (
+        <>
+          <div style={styles.sectionHead}>
+            {inCategory ? (
+              <button type="button" style={styles.back} onClick={goHome}>
+                ← {selected?.name}
+              </button>
+            ) : (
+              <h2 style={styles.h2}>Results</h2>
+            )}
+            <div style={styles.headMeta}>
+              <p style={styles.count}>{total}</p>
+              <SortSelect
+                ariaLabel="Sort items"
+                value={itemSort}
+                onChange={(v) => setItemSort(v as ItemSort)}
+                options={[
+                  { value: 'name-az', label: 'Name A–Z' },
+                  { value: 'name-za', label: 'Name Z–A' },
+                  { value: 'price-asc', label: 'Price ↑' },
+                  { value: 'price-desc', label: 'Price ↓' },
+                  { value: 'rating', label: 'Rating' },
+                ]}
               />
-            );
-            if (index !== MID_GRID_AFTER - 1) return [card];
-            return [card, <AdSlot key="ad-home-mid-grid" slot="home_mid_grid" variant="card" />];
-          })}
-        </div>
-      )}
+            </div>
+          </div>
+
+          {catalogLoading && products.length === 0 ? (
+            <LoadingBlock label="Loading items…" />
+          ) : products.length === 0 ? (
+            <EmptyState
+              icon="🥬"
+              title="No items here"
+              description={
+                inCategory
+                  ? 'Nothing listed in this category yet.'
+                  : 'Try another search or pick a category.'
+              }
+              actionLabel="Back to categories"
+              onAction={goHome}
+            />
+          ) : (
+            <>
+              <div style={styles.grid}>
+                {products.map((item) => (
+                  <ProductCard
+                    key={item.listingId}
+                    name={item.name}
+                    shopName={item.shopName}
+                    unit={item.unit}
+                    priceLabel={item.priceLabel}
+                    mrpLabel={item.mrpLabel}
+                    discountPercent={item.discountPercent}
+                    vendorNote={item.vendorNote}
+                    specialOfferActive={item.specialOfferActive}
+                    avgRating={item.avgRating}
+                    ratingCount={item.ratingCount}
+                    imageUrl={item.imageUrl}
+                    imageCount={item.imageUrls.length}
+                    quantity={quantityFor(item.listingId)}
+                    busy={busyKey === item.listingId}
+                    onOpen={() => setQuickView(item)}
+                    onIncrease={() => void doIncrease(item.listingId)}
+                    onDecrease={() => void doDecrease(item.listingId)}
+                  />
+                ))}
+              </div>
+              <div ref={sentinelRef} style={styles.sentinel} />
+              {loadingMore ? <p style={styles.moreHint}>Loading more…</p> : null}
+              {!hasMore && products.length > 0 ? (
+                <p style={styles.moreHint}>That’s all in this list</p>
+              ) : null}
+            </>
+          )}
+        </>
+      ) : null}
 
       {quickViewLive ? (
         <ProductQuickView
@@ -194,153 +371,149 @@ export function ShopPage() {
   );
 }
 
+function SortSelect({
+  value,
+  onChange,
+  options,
+  ariaLabel,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  options: Array<{ value: string; label: string }>;
+  ariaLabel: string;
+}) {
+  return (
+    <label style={styles.sortWrap}>
+      <span style={styles.sortLabel}>Sort</span>
+      <select
+        aria-label={ariaLabel}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        style={styles.sortSelect}
+      >
+        {options.map((opt) => (
+          <option key={opt.value} value={opt.value}>
+            {opt.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
 const styles: Record<string, CSSProperties> = {
-  promise: {
-    margin: 0,
-    display: 'flex',
-    alignItems: 'center',
-    flexWrap: 'wrap',
-    gap: '0.4rem 0.55rem',
-  },
-  promiseBadge: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    padding: '0.2rem 0.5rem',
-    borderRadius: 8,
-    background: 'var(--accent)',
-    color: '#fff',
-    fontSize: '0.72rem',
-    fontWeight: 800,
-    letterSpacing: '0.02em',
-  },
-  promiseText: {
-    fontSize: '0.8rem',
-    fontWeight: 650,
-    color: 'var(--text)',
-    lineHeight: 1.3,
-  },
   searchShell: {
     display: 'flex',
     alignItems: 'center',
-    gap: '0.4rem',
-    background: 'var(--bg-elevated)',
-    border: '1.5px solid color-mix(in srgb, var(--accent) 22%, var(--border))',
+    gap: '0.45rem',
+    background: 'var(--bg-muted)',
+    border: 'none',
     borderRadius: 14,
-    padding: '0 0.7rem',
-    boxShadow: '0 3px 12px rgba(12, 131, 31, 0.08)',
+    padding: '0 0.85rem',
     minHeight: 44,
   },
-  searchIcon: { color: 'var(--accent)', fontSize: '1.05rem', fontWeight: 700 },
+  searchIcon: { color: '#9a9a9a', fontSize: '1.15rem', fontWeight: 700 },
   search: {
     flex: 1,
     border: 'none',
     outline: 'none',
     background: 'transparent',
-    padding: '0.55rem 0',
-    fontSize: '0.92rem',
+    padding: '0.7rem 0',
+    fontSize: '0.95rem',
     color: 'var(--text)',
     letterSpacing: '-0.015em',
   },
   mic: {
     border: 'none',
-    background: 'var(--highlight-soft)',
-    width: 30,
-    height: 30,
+    background: 'transparent',
+    width: 32,
+    height: 32,
     borderRadius: 'var(--radius-full)',
     cursor: 'pointer',
-    fontSize: '0.85rem',
+    fontSize: '0.9rem',
     lineHeight: 1,
+    color: 'var(--text)',
   },
   micActive: {
     border: 'none',
     background: 'var(--accent)',
-    color: 'var(--text-inverse)',
-    width: 30,
-    height: 30,
+    color: '#fff',
+    width: 32,
+    height: 32,
     borderRadius: 'var(--radius-full)',
     cursor: 'pointer',
     fontSize: '0.75rem',
     lineHeight: 1,
     fontWeight: 800,
   },
-  aisles: {
-    display: 'flex',
-    gap: '0.45rem',
-    overflowX: 'auto',
-    overflowY: 'hidden',
-    padding: '0.1rem 0.05rem 0.15rem',
-    width: '100%',
-    maxWidth: '100%',
-    minWidth: 0,
-    WebkitOverflowScrolling: 'touch',
-  },
-  aisle: {
-    flex: '0 0 auto',
-    display: 'grid',
-    justifyItems: 'center',
-    gap: '0.22rem',
-    minWidth: 56,
-    border: 'none',
-    background: 'transparent',
-    color: 'var(--text-muted)',
-    cursor: 'pointer',
-    padding: '0.1rem',
-  },
-  aisleActive: {
-    flex: '0 0 auto',
-    display: 'grid',
-    justifyItems: 'center',
-    gap: '0.22rem',
-    minWidth: 56,
-    border: 'none',
-    background: 'transparent',
-    color: 'var(--accent)',
-    cursor: 'pointer',
-    padding: '0.1rem',
-  },
-  aisleEmoji: {
-    width: 50,
-    height: 50,
-    borderRadius: 16,
-    border: '1.5px solid transparent',
-    display: 'grid',
-    placeItems: 'center',
-    fontSize: '1.3rem',
-    boxShadow: '0 2px 8px rgba(27, 30, 36, 0.06)',
-  },
-  aisleEmojiActive: {
-    borderColor: 'var(--accent)',
-    boxShadow: '0 4px 14px rgba(12, 131, 31, 0.2)',
-    transform: 'translateY(-2px)',
-  },
-  aisleLabel: {
-    fontSize: '0.65rem',
-    fontWeight: 700,
-    letterSpacing: '-0.01em',
-    textAlign: 'center',
-    maxWidth: 64,
-    lineHeight: 1.15,
-  },
   sectionHead: {
     display: 'flex',
     justifyContent: 'space-between',
-    alignItems: 'baseline',
-    gap: '0.5rem',
-    marginTop: 0,
+    alignItems: 'center',
+    gap: '0.45rem',
+  },
+  headMeta: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.4rem',
+    flexShrink: 0,
+  },
+  back: {
+    border: 'none',
+    background: 'transparent',
+    color: 'var(--text)',
+    fontFamily: 'var(--font-display)',
+    fontSize: '1.05rem',
+    fontWeight: 800,
+    letterSpacing: '-0.03em',
+    padding: 0,
+    cursor: 'pointer',
+    textAlign: 'left',
   },
   h2: {
     margin: 0,
     fontFamily: 'var(--font-display)',
-    fontSize: '1.12rem',
+    fontSize: '1.15rem',
     fontWeight: 800,
     letterSpacing: '-0.03em',
+    color: 'var(--text)',
   },
   count: {
     margin: 0,
     color: 'var(--text-muted)',
     fontSize: '0.72rem',
     fontWeight: 700,
-    letterSpacing: '-0.01em',
+  },
+  sortWrap: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '0.3rem',
+    minHeight: 44,
+  },
+  sortLabel: {
+    fontSize: '0.7rem',
+    fontWeight: 700,
+    color: 'var(--text-muted)',
+  },
+  sortSelect: {
+    border: '1px solid var(--border)',
+    background: 'var(--bg-muted)',
+    color: 'var(--text)',
+    borderRadius: 8,
+    padding: '0.25rem 0.4rem',
+    fontSize: '0.75rem',
+    fontWeight: 700,
+    minHeight: 32,
+  },
+  catGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
+    gap: '0.7rem 0.45rem',
+  },
+  catRow: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
+    gap: '0.45rem',
   },
   grid: {
     display: 'grid',
@@ -348,5 +521,13 @@ const styles: Record<string, CSSProperties> = {
     gap: '0.55rem',
     width: '100%',
     minWidth: 0,
+  },
+  sentinel: { height: 1 },
+  moreHint: {
+    margin: 0,
+    textAlign: 'center',
+    color: 'var(--text-muted)',
+    fontSize: '0.78rem',
+    fontWeight: 600,
   },
 };

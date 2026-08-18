@@ -24,6 +24,9 @@ type Props = {
   placeholder?: string;
   disabled?: boolean;
   emptyMessage?: string;
+  /** Shown in the open menu, e.g. “categories”. */
+  noun?: string;
+  compact?: boolean;
 };
 
 type MenuPos = { top: number; left: number; width: number };
@@ -57,6 +60,8 @@ export function SearchSelect({
   placeholder = 'Search…',
   disabled,
   emptyMessage = 'No matches',
+  noun = 'options',
+  compact,
 }: Props) {
   const listId = useId();
   const rootRef = useRef<HTMLDivElement>(null);
@@ -74,6 +79,8 @@ export function SearchSelect({
     const searching = raw.length > 0;
     if (!searching) {
       return [...options].sort((a, b) => {
+        if (!a.value && b.value) return -1;
+        if (a.value && !b.value) return 1;
         if (a.value === value) return -1;
         if (b.value === value) return 1;
         return a.label.localeCompare(b.label);
@@ -94,7 +101,7 @@ export function SearchSelect({
     const el = rootRef.current;
     if (!el) return;
     const rect = el.getBoundingClientRect();
-    const width = Math.max(rect.width, 280);
+    const width = Math.max(rect.width, compact ? 220 : 280);
     const left = Math.min(rect.left, window.innerWidth - width - 8);
     setMenuPos({
       top: rect.bottom + 4,
@@ -199,7 +206,7 @@ export function SearchSelect({
             <div style={styles.menuMeta}>
               {searching
                 ? `${filtered.length} match${filtered.length === 1 ? '' : 'es'}`
-                : `${filtered.length} town${filtered.length === 1 ? '' : 's'} · type to filter`}
+                : `${filtered.length} ${noun} · type to filter`}
             </div>
             <ul id={listId} role="listbox" style={styles.menuList}>
               {filtered.length === 0 ? (
@@ -235,12 +242,12 @@ export function SearchSelect({
       : null;
 
   return (
-    <div ref={rootRef} style={styles.root}>
-      {label ? <span style={styles.eyebrow}>{label}</span> : null}
+    <div ref={rootRef} style={compact ? styles.rootCompact : styles.root}>
+      {label ? <span style={compact ? styles.eyebrowCompact : styles.eyebrow}>{label}</span> : null}
       <div style={styles.control}>
         <input
           ref={inputRef}
-          style={styles.input}
+          style={compact ? styles.inputCompact : styles.input}
           value={displayValue}
           disabled={disabled}
           placeholder={open ? placeholder : selected ? selected.label : placeholder}
@@ -286,11 +293,24 @@ const styles: Record<string, CSSProperties> = {
     flex: '1 1 280px',
     zIndex: 1,
   },
+  rootCompact: {
+    position: 'relative',
+    display: 'grid',
+    gap: '0.2rem',
+    minWidth: 0,
+    flex: '1 1 148px',
+    zIndex: 1,
+  },
   eyebrow: {
     fontSize: '0.72rem',
     fontWeight: 700,
     letterSpacing: '0.06em',
     textTransform: 'uppercase',
+    color: 'var(--text-muted)',
+  },
+  eyebrowCompact: {
+    fontSize: '0.75rem',
+    fontWeight: 600,
     color: 'var(--text-muted)',
   },
   control: {
@@ -307,6 +327,17 @@ const styles: Record<string, CSSProperties> = {
     background: 'var(--bg)',
     color: 'var(--text)',
     fontWeight: 600,
+  },
+  inputCompact: {
+    width: '100%',
+    boxSizing: 'border-box',
+    padding: '0.45rem 1.85rem 0.45rem 0.6rem',
+    borderRadius: 8,
+    border: '1px solid var(--border)',
+    background: 'var(--bg)',
+    color: 'var(--text)',
+    fontWeight: 600,
+    fontSize: '0.88rem',
   },
   chevronBtn: {
     position: 'absolute',
@@ -348,7 +379,7 @@ const styles: Record<string, CSSProperties> = {
     margin: 0,
     padding: '0.3rem',
     listStyle: 'none',
-    maxHeight: 'min(50vh, 320px)',
+    maxHeight: 'min(40vh, 260px)',
     overflowY: 'auto',
   },
   option: {

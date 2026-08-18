@@ -5,8 +5,7 @@ import { injectGlobalStyles } from '@/shared/theme/globalStyles';
 import { AppRouter } from '@/app/AppRouter';
 
 injectGlobalStyles();
-// Shared default for guests; personal theme loads only after login.
-applyTheme({ mode: 'light', accent: 'forest' });
+applyTheme({ mode: 'dark', accent: 'ocean' });
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

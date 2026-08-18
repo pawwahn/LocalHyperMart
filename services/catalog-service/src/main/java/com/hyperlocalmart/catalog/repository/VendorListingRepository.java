@@ -23,6 +23,24 @@ public interface VendorListingRepository extends JpaRepository<VendorListing, UU
 
     Optional<VendorListing> findByVendorIdAndMasterItemId(UUID vendorId, UUID masterItemId);
 
+    long countByMasterItem_Id(UUID masterItemId);
+
+    @Query("""
+            SELECT vl FROM VendorListing vl
+            JOIN vl.masterItem mi
+            JOIN mi.category cat
+            WHERE vl.townId = :townId
+              AND vl.active = true
+              AND mi.status = com.hyperlocalmart.catalog.entity.CatalogItemStatus.ACTIVE
+              AND (:#{#categoryId == null} = true OR cat.id = :categoryId)
+              AND (:#{#q == null || #q.isBlank()} = true OR LOWER(mi.name) LIKE LOWER(CONCAT('%', :q, '%')))
+            """)
+    Page<VendorListing> browseActive(
+            @Param("townId") UUID townId,
+            @Param("categoryId") UUID categoryId,
+            @Param("q") String q,
+            Pageable pageable);
+
     @Query("""
             SELECT vl FROM VendorListing vl
             JOIN vl.masterItem mi

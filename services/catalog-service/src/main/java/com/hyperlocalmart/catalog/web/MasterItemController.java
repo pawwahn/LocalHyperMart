@@ -18,7 +18,9 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.validation.annotation.Validated;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -42,12 +44,15 @@ public class MasterItemController {
     @GetMapping("/master-items")
     public ResponseEntity<ApiResponse<PageResponse<MasterItemSummaryResponse>>> listMasterItems(
             @RequestParam(required = false) UUID categoryId,
+            @RequestParam(required = false) UUID unitId,
             @RequestParam(required = false) String q,
             @RequestParam(defaultValue = "0") @Min(0) int page,
             @RequestParam(defaultValue = "25") @Min(1) @Max(200) int size,
+            @RequestParam(defaultValue = "name") String sort,
+            @RequestParam(defaultValue = "asc") String dir,
             HttpServletRequest httpRequest) {
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
-                vendorListingService.listMasterItems(categoryId, q, page, size)));
+                vendorListingService.listMasterItems(categoryId, unitId, q, page, size, sort, dir)));
     }
 
     @PostMapping("/master-items")
@@ -58,6 +63,27 @@ public class MasterItemController {
         requireSuperAdmin(principal);
         MasterItemSummaryResponse created = vendorListingService.createMasterItem(request, principal.getUserId());
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponses.ok(httpRequest, created));
+    }
+
+    @PatchMapping("/master-items/{masterItemId}")
+    public ResponseEntity<ApiResponse<MasterItemSummaryResponse>> updateMasterItem(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @PathVariable UUID masterItemId,
+            @Valid @RequestBody CreateMasterItemRequest request,
+            HttpServletRequest httpRequest) {
+        requireSuperAdmin(principal);
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                vendorListingService.updateMasterItem(masterItemId, request, principal.getUserId())));
+    }
+
+    @DeleteMapping("/master-items/{masterItemId}")
+    public ResponseEntity<ApiResponse<Map<String, Boolean>>> deleteMasterItem(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @PathVariable UUID masterItemId,
+            HttpServletRequest httpRequest) {
+        requireSuperAdmin(principal);
+        vendorListingService.deleteMasterItem(masterItemId);
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest, Map.of("deleted", true)));
     }
 
     @GetMapping("/master-items/{masterItemId}/images")

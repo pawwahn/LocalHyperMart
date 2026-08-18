@@ -25,11 +25,15 @@ public class CatalogController {
     @GetMapping("/items")
     public ResponseEntity<ApiResponse<PageResponse<CatalogItemResponse>>> browseItems(
             @RequestParam UUID townId,
+            @RequestParam(required = false) UUID categoryId,
             @RequestParam(required = false) String q,
             @RequestParam(defaultValue = "0") @Min(0) int page,
-            @RequestParam(defaultValue = "20") @Min(1) @Max(100) int size,
+            @RequestParam(defaultValue = "24") @Min(1) @Max(48) int size,
+            @RequestParam(defaultValue = "name") String sort,
+            @RequestParam(defaultValue = "asc") String dir,
             HttpServletRequest httpRequest) {
-        PageResponse<CatalogItemResponse> result = catalogBrowseService.browse(townId, q, page, size);
+        PageResponse<CatalogItemResponse> result =
+                catalogBrowseService.browse(townId, categoryId, q, page, size, sort, dir);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, result));
     }
 }

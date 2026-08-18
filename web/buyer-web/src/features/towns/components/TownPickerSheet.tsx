@@ -64,7 +64,6 @@ export function TownPickerSheet() {
         aria-labelledby="town-picker-title"
         onClick={(e) => e.stopPropagation()}
       >
-        <div style={styles.handle} aria-hidden />
         <div style={styles.head}>
           <h2 id="town-picker-title" style={styles.title}>
             Choose town
@@ -185,27 +184,20 @@ const styles: Record<string, CSSProperties> = {
     background: 'rgba(15, 23, 42, 0.4)',
     zIndex: 80,
     display: 'grid',
-    alignItems: 'end',
-    justifyItems: 'center',
-    padding: '0.5rem',
+    placeItems: 'center',
+    padding: '1rem',
   },
   sheet: {
-    width: 'min(420px, 100%)',
+    width: 'min(400px, 100%)',
     background: 'var(--bg-elevated)',
-    borderRadius: '14px 14px 10px 10px',
-    padding: '0.45rem 0.65rem 0.7rem',
+    borderRadius: 16,
+    border: '1px solid var(--border)',
+    padding: '0.85rem 0.9rem 0.95rem',
     display: 'grid',
-    gap: '0.4rem',
+    gap: '0.45rem',
     boxShadow: 'var(--shadow-elevated)',
-    maxHeight: 'min(58vh, 420px)',
+    maxHeight: 'min(72vh, 480px)',
     overflow: 'hidden',
-  },
-  handle: {
-    width: 32,
-    height: 3,
-    borderRadius: 999,
-    background: 'var(--border)',
-    margin: '0 auto',
   },
   head: {
     display: 'flex',

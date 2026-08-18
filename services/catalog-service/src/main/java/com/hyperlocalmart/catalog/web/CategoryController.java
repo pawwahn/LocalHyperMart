@@ -13,7 +13,10 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -21,6 +24,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/v1/catalog/categories")
@@ -43,6 +47,27 @@ public class CategoryController {
         requireSuperAdmin(principal);
         CategoryResponse created = vendorListingService.createCategory(request, principal.getUserId());
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponses.ok(httpRequest, created));
+    }
+
+    @PatchMapping("/{categoryId}")
+    public ResponseEntity<ApiResponse<CategoryResponse>> updateCategory(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @PathVariable UUID categoryId,
+            @Valid @RequestBody CreateCategoryRequest request,
+            HttpServletRequest httpRequest) {
+        requireSuperAdmin(principal);
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                vendorListingService.updateCategory(categoryId, request, principal.getUserId())));
+    }
+
+    @DeleteMapping("/{categoryId}")
+    public ResponseEntity<ApiResponse<Map<String, Boolean>>> deleteCategory(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @PathVariable UUID categoryId,
+            HttpServletRequest httpRequest) {
+        requireSuperAdmin(principal);
+        vendorListingService.deleteCategory(categoryId);
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest, Map.of("deleted", true)));
     }
 
     private void requireSuperAdmin(AuthUserPrincipal principal) {

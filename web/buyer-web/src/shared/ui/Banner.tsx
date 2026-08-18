@@ -10,10 +10,14 @@ type Props = {
 
 const tones: Record<Tone, CSSProperties> = {
   brand: { background: 'var(--accent)', color: 'var(--text-inverse)' },
-  info: { background: 'var(--bg-tint)', color: 'var(--accent-hover)', border: '1px solid #c6e9d4' },
-  success: { background: 'var(--success-soft)', color: '#047857', border: '1px solid #a7f3d0' },
-  warning: { background: 'var(--warning-soft)', color: '#92400e', border: '1px solid #fde68a' },
-  danger: { background: 'var(--danger-soft)', color: '#b91c1c', border: '1px solid #fecaca' },
+  info: {
+    background: 'var(--accent-soft)',
+    color: 'var(--text)',
+    border: '1px solid color-mix(in srgb, var(--accent) 35%, var(--border))',
+  },
+  success: { background: 'var(--success-soft)', color: 'var(--success)', border: '1px solid color-mix(in srgb, var(--success) 35%, var(--border))' },
+  warning: { background: 'var(--warning-soft)', color: 'var(--warning)', border: '1px solid color-mix(in srgb, var(--warning) 35%, var(--border))' },
+  danger: { background: 'var(--danger-soft)', color: 'var(--danger)', border: '1px solid color-mix(in srgb, var(--danger) 35%, var(--border))' },
 };
 
 export function Banner({ tone = 'info', children, style }: Props) {

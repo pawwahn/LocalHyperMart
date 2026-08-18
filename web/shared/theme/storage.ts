@@ -13,13 +13,15 @@ const ACCENTS = new Set<AccentId>([
 export function loadThemePreference(
   storageKey: string,
   defaultAccent: AccentId,
+  defaultMode: ThemeMode = 'light',
 ): ThemePreference {
-  const fallback: ThemePreference = { mode: 'light', accent: defaultAccent };
+  const fallback: ThemePreference = { mode: defaultMode, accent: defaultAccent };
   try {
     const raw = localStorage.getItem(storageKey);
     if (!raw) return fallback;
     const parsed = JSON.parse(raw) as Partial<ThemePreference>;
-    const mode: ThemeMode = parsed.mode === 'dark' ? 'dark' : 'light';
+    const mode: ThemeMode =
+      parsed.mode === 'dark' || parsed.mode === 'light' ? parsed.mode : defaultMode;
     const accent =
       parsed.accent && ACCENTS.has(parsed.accent) ? parsed.accent : defaultAccent;
     return { mode, accent };

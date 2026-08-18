@@ -24,6 +24,7 @@ const ThemeContext = createContext<ThemeContextValue | null>(null);
 type Props = {
   storageKey: string;
   defaultAccent: AccentId;
+  defaultMode?: ThemeMode;
   /**
    * When false, everyone sees the shared default theme (no localStorage).
    * When true (after login), load/save the user's saved preference.
@@ -32,33 +33,34 @@ type Props = {
   children: ReactNode;
 };
 
-function defaultPreference(accent: AccentId): ThemePreference {
-  return { mode: 'light', accent };
+function defaultPreference(accent: AccentId, mode: ThemeMode = 'light'): ThemePreference {
+  return { mode, accent };
 }
 
 export function ThemeProvider({
   storageKey,
   defaultAccent,
+  defaultMode = 'light',
   personalized = true,
   children,
 }: Props) {
   const [preference, setPreferenceState] = useState<ThemePreference>(() =>
     personalized
-      ? loadThemePreference(storageKey, defaultAccent)
-      : defaultPreference(defaultAccent),
+      ? loadThemePreference(storageKey, defaultAccent, defaultMode)
+      : defaultPreference(defaultAccent, defaultMode),
   );
 
   useEffect(() => {
     if (personalized) {
-      const stored = loadThemePreference(storageKey, defaultAccent);
+      const stored = loadThemePreference(storageKey, defaultAccent, defaultMode);
       setPreferenceState(stored);
       applyTheme(stored);
       return;
     }
-    const fallback = defaultPreference(defaultAccent);
+    const fallback = defaultPreference(defaultAccent, defaultMode);
     setPreferenceState(fallback);
     applyTheme(fallback);
-  }, [personalized, storageKey, defaultAccent]);
+  }, [personalized, storageKey, defaultAccent, defaultMode]);
 
   const commit = useCallback(
     (next: ThemePreference) => {

@@ -1,7 +1,6 @@
 package com.hyperlocalmart.cart.service;
 
 import com.hyperlocalmart.cart.client.CatalogListingClient;
-import com.hyperlocalmart.cart.client.TownConfigClient;
 import com.hyperlocalmart.cart.client.VendorShopClient;
 import com.hyperlocalmart.cart.dto.request.AddCartItemRequest;
 import com.hyperlocalmart.cart.dto.response.CartResponse;
@@ -29,7 +28,6 @@ class CartServiceTest {
     @Mock private com.hyperlocalmart.cart.repository.CartItemRepository cartItemRepository;
     @Mock private CatalogListingClient catalogListingClient;
     @Mock private VendorShopClient vendorShopClient;
-    @Mock private TownConfigClient townConfigClient;
 
     @InjectMocks
     private CartService cartService;
@@ -66,7 +64,6 @@ class CartServiceTest {
             return cart;
         });
         when(vendorShopClient.getShopNames(any())).thenReturn(java.util.Map.of(shopId, "Ravi Kirana"));
-        when(townConfigClient.getMinOrderValue(townId)).thenReturn(new BigDecimal("199"));
 
         CartResponse response = cartService.addItem(userId, request);
 
@@ -74,7 +71,7 @@ class CartServiceTest {
         assertThat(response.getItemsSubtotal()).isEqualByComparingTo("56.00");
         assertThat(response.getItems()).hasSize(1);
         assertThat(response.getItems().getFirst().getShopName()).isEqualTo("Ravi Kirana");
-        assertThat(response.isMinOrderMet()).isFalse();
+        assertThat(response.isMinOrderMet()).isTrue();
     }
 
     @Test
@@ -82,12 +79,12 @@ class CartServiceTest {
         UUID userId = UUID.randomUUID();
         UUID townId = UUID.fromString("a1111111-1111-4111-8111-111111111111");
         when(cartRepository.findByUserIdAndTownIdAndStatus(userId, townId, CartStatus.ACTIVE)).thenReturn(java.util.Optional.empty());
-        when(townConfigClient.getMinOrderValue(townId)).thenReturn(new BigDecimal("199"));
 
         CartResponse response = cartService.getCart(userId, townId);
 
         assertThat(response.getCartId()).isNull();
         assertThat(response.getItemCount()).isZero();
-        assertThat(response.getMinOrderValue()).isEqualByComparingTo("199");
+        assertThat(response.getMinOrderValue()).isEqualByComparingTo("0");
+        assertThat(response.isMinOrderMet()).isFalse();
     }
 }

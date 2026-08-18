@@ -1,6 +1,7 @@
 package com.hyperlocalmart.catalog.service;
 
 import com.hyperlocalmart.catalog.client.VendorShopClient;
+import com.hyperlocalmart.catalog.dto.request.CreateCategoryRequest;
 import com.hyperlocalmart.catalog.dto.request.CreateVendorListingRequest;
 import com.hyperlocalmart.catalog.dto.response.VendorListingResponse;
 import com.hyperlocalmart.catalog.entity.CatalogItemStatus;
@@ -10,6 +11,8 @@ import com.hyperlocalmart.catalog.repository.CategoryRepository;
 import com.hyperlocalmart.catalog.repository.MasterItemRepository;
 import com.hyperlocalmart.catalog.repository.UnitRepository;
 import com.hyperlocalmart.catalog.repository.VendorListingRepository;
+import com.hyperlocalmart.common.exception.BusinessException;
+import com.hyperlocalmart.common.exception.ErrorCode;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -21,7 +24,10 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -79,5 +85,46 @@ class VendorListingServiceTest {
         assertThat(response.getPrice()).isEqualByComparingTo("45.00");
         assertThat(response.isActive()).isTrue();
         assertThat(response.getName()).isEqualTo("Rice");
+    }
+
+    @Test
+    void createCategory_rejectsDuplicateName() {
+        CreateCategoryRequest request = new CreateCategoryRequest();
+        request.setName("  Dairy  ");
+        when(categoryRepository.existsByNameIgnoreCase("Dairy")).thenReturn(true);
+
+        assertThatThrownBy(() -> vendorListingService.createCategory(request, UUID.randomUUID()))
+                .isInstanceOf(BusinessException.class)
+                .extracting(ex -> ((BusinessException) ex).getErrorCode())
+                .isEqualTo(ErrorCode.CONFLICT);
+
+        verify(categoryRepository, never()).save(any());
+    }
+
+    @Test
+    void deleteMasterItem_blockedWhenListingsExist() {
+        UUID id = UUID.randomUUID();
+        when(masterItemRepository.findById(id)).thenReturn(Optional.of(
+                MasterItem.builder().id(id).name("Apple").status(CatalogItemStatus.ACTIVE).build()));
+        when(vendorListingRepository.countByMasterItem_Id(id)).thenReturn(3L);
+
+        assertThatThrownBy(() -> vendorListingService.deleteMasterItem(id))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("3 vendor listings");
+
+        verify(masterItemRepository, never()).delete(any());
+    }
+
+    @Test
+    void deleteMasterItem_removesWhenUnused() {
+        UUID id = UUID.randomUUID();
+        MasterItem item = MasterItem.builder().id(id).name("Apple").status(CatalogItemStatus.ACTIVE).build();
+        when(masterItemRepository.findById(id)).thenReturn(Optional.of(item));
+        when(vendorListingRepository.countByMasterItem_Id(id)).thenReturn(0L);
+
+        vendorListingService.deleteMasterItem(id);
+
+        verify(masterItemImageRepository).deleteByMasterItemId(id);
+        verify(masterItemRepository).delete(item);
     }
 }

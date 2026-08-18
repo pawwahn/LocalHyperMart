@@ -60,22 +60,23 @@ export function injectGlobalStyles(): void {
     body {
       margin: 0;
       font-family: var(--font-body);
-      background:
-        radial-gradient(90% 55% at 100% -6%, rgba(200, 245, 66, 0.18), transparent 50%),
-        radial-gradient(70% 45% at 0% 6%, rgba(12, 131, 31, 0.1), transparent 48%),
-        var(--bg);
+      background: var(--bg);
       color: var(--text);
       line-height: 1.45;
       letter-spacing: -0.015em;
       -webkit-font-smoothing: antialiased;
       padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) 0 env(safe-area-inset-left, 0px);
     }
+    .hlm-search-input::placeholder {
+      color: #8a8a8a;
+      opacity: 1;
+    }
     .hlm-product-card {
       transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 180ms ease;
     }
     .hlm-product-card:hover {
       transform: translateY(-3px);
-      box-shadow: 0 12px 28px rgba(27, 30, 36, 0.12);
+      box-shadow: 0 12px 28px rgba(0, 0, 0, 0.35);
     }
     .hlm-product-card:active {
       transform: translateY(-1px) scale(0.99);
@@ -83,7 +84,7 @@ export function injectGlobalStyles(): void {
     @media (hover: none) {
       .hlm-product-card:hover {
         transform: none;
-        box-shadow: 0 2px 12px rgba(27, 30, 36, 0.07);
+        box-shadow: none;
       }
     }
     .hlm-add-btn {

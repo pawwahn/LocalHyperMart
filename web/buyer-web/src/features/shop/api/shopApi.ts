@@ -3,6 +3,8 @@ import { ApiError, apiRequest, type PageData } from '@/shared/api/http';
 export type CatalogItemDto = {
   listingId: string;
   masterItemId: string;
+  categoryId?: string | null;
+  category?: string | null;
   name: string;
   unit: string;
   shopName: string;
@@ -174,6 +176,8 @@ export type CreateOrderDto = {
 export type CatalogItemView = {
   listingId: string;
   name: string;
+  categoryId?: string | null;
+  category?: string | null;
   shopName: string;
   unit: string;
   priceLabel: string;
@@ -231,6 +235,8 @@ export function toCatalogItem(dto: CatalogItemDto): CatalogItemView {
   return {
     listingId: dto.listingId,
     name: dto.name,
+    categoryId: dto.categoryId ?? null,
+    category: dto.category ?? null,
     shopName: dto.shopName,
     unit: dto.unit,
     price: Number(price),
@@ -262,7 +268,7 @@ export function toCartView(dto: CartDto): CartView {
     payableLabel: money(payable),
     minOrderValue,
     minOrderLabel: money(minOrderValue),
-    minOrderMet: Boolean(dto.minOrderMet),
+    minOrderMet: true,
     items: (dto.items ?? []).map((i) => ({
       itemId: i.itemId,
       listingId: i.listingId,
@@ -274,15 +280,51 @@ export function toCartView(dto: CartDto): CartView {
   };
 }
 
-export async function fetchCatalog(townId: string, q?: string): Promise<CatalogItemView[]> {
+export type CatalogPage = {
+  items: CatalogItemView[];
+  page: number;
+  size: number;
+  totalElements: number;
+  totalPages: number;
+};
+
+export async function fetchCatalogPage(opts: {
+  townId: string;
+  q?: string;
+  categoryId?: string;
+  page?: number;
+  size?: number;
+  sort?: string;
+  dir?: string;
+}): Promise<CatalogPage> {
   const params = new URLSearchParams({
-    townId,
-    page: '0',
-    size: '100',
+    townId: opts.townId,
+    page: String(opts.page ?? 0),
+    size: String(opts.size ?? 24),
+    sort: opts.sort ?? 'name',
+    dir: opts.dir ?? 'asc',
   });
-  if (q?.trim()) params.set('q', q.trim());
+  if (opts.q?.trim()) params.set('q', opts.q.trim());
+  if (opts.categoryId) params.set('categoryId', opts.categoryId);
   const data = await apiRequest<PageData<CatalogItemDto>>(`/api/v1/catalog/items?${params}`);
-  return (data.items ?? []).map(toCatalogItem);
+  return {
+    items: (data.items ?? []).map(toCatalogItem),
+    page: data.page ?? 0,
+    size: data.size ?? opts.size ?? 24,
+    totalElements: data.totalElements ?? 0,
+    totalPages: data.totalPages ?? 0,
+  };
+}
+
+export type CategoryView = {
+  id: string;
+  name: string;
+  description?: string | null;
+};
+
+export async function fetchCategories(): Promise<CategoryView[]> {
+  const data = await apiRequest<{ items: CategoryView[] }>('/api/v1/catalog/categories');
+  return data.items ?? [];
 }
 
 export async function fetchCart(token: string, townId: string): Promise<CartView> {

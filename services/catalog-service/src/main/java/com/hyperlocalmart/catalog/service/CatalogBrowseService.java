@@ -12,6 +12,7 @@ import com.hyperlocalmart.common.api.PageResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -33,12 +34,12 @@ public class CatalogBrowseService {
     private final VendorShopClient vendorShopClient;
 
     @Transactional(readOnly = true)
-    public PageResponse<CatalogItemResponse> browse(UUID townId, String query, int page, int size) {
+    public PageResponse<CatalogItemResponse> browse(
+            UUID townId, UUID categoryId, String query, int page, int size, String sort, String dir) {
         String normalizedQuery = query == null || query.isBlank() ? null : query.trim();
-        PageRequest pageable = PageRequest.of(page, size);
-        Page<VendorListing> listings = normalizedQuery == null
-                ? vendorListingRepository.findActiveByTown(townId, pageable)
-                : vendorListingRepository.searchActiveByTown(townId, normalizedQuery, pageable);
+        PageRequest pageable = PageRequest.of(page, size, browseSort(sort, dir));
+        Page<VendorListing> listings = vendorListingRepository.browseActive(
+                townId, categoryId, normalizedQuery, pageable);
 
         List<UUID> shopIds = listings.getContent().stream().map(VendorListing::getShopId).distinct().toList();
         Map<UUID, VendorShopClient.ShopInfo> shops = vendorShopClient.getShopsByIds(shopIds);
@@ -68,6 +69,19 @@ public class CatalogBrowseService {
                 .totalElements(listings.getTotalElements())
                 .totalPages(listings.getTotalPages())
                 .build();
+    }
+
+    private static Sort browseSort(String sort, String dir) {
+        String field = switch (sort == null ? "name" : sort.toLowerCase()) {
+            case "price" -> "price";
+            case "rating" -> "avgRating";
+            default -> "masterItem.name";
+        };
+        Sort.Direction direction = "desc".equalsIgnoreCase(dir) ? Sort.Direction.DESC : Sort.Direction.ASC;
+        if ("avgRating".equals(field) && dir == null) {
+            direction = Sort.Direction.DESC;
+        }
+        return Sort.by(direction, field);
     }
 
     private Map<UUID, List<String>> imageUrlsByListing(List<UUID> listingIds) {
@@ -111,6 +125,12 @@ public class CatalogBrowseService {
         return CatalogItemResponse.builder()
                 .listingId(listing.getId())
                 .masterItemId(listing.getMasterItem().getId())
+                .categoryId(listing.getMasterItem().getCategory() == null
+                        ? null
+                        : listing.getMasterItem().getCategory().getId())
+                .category(listing.getMasterItem().getCategory() == null
+                        ? null
+                        : listing.getMasterItem().getCategory().getName())
                 .name(listing.getMasterItem().getName())
                 .unit(listing.getMasterItem().getUnit().getCode())
                 .shopName(shop.shopName())

@@ -40,7 +40,7 @@ class CatalogBrowseServiceTest {
         UUID townId = UUID.fromString("a1111111-1111-4111-8111-111111111111");
         UUID shopId = UUID.fromString("c1111111-1111-4111-8111-111111111111");
         VendorListing listing = sampleListing(shopId);
-        when(vendorListingRepository.findActiveByTown(eq(townId), any(PageRequest.class)))
+        when(vendorListingRepository.browseActive(eq(townId), isNull(), isNull(), any(PageRequest.class)))
                 .thenReturn(new PageImpl<>(List.of(listing)));
         when(vendorShopClient.getShopsByIds(anyList())).thenReturn(Map.of(
                 shopId, new VendorShopClient.ShopInfo(shopId, listing.getVendorId(), "Ravi Kirana")
@@ -50,7 +50,7 @@ class CatalogBrowseServiceTest {
         when(masterItemImageRepository.findByMasterItemIdInOrderByMasterItemIdAscSortOrderAsc(any()))
                 .thenReturn(List.of());
 
-        PageResponse<CatalogItemResponse> response = catalogBrowseService.browse(townId, null, 0, 20);
+        PageResponse<CatalogItemResponse> response = catalogBrowseService.browse(townId, null, null, 0, 24, "name", "asc");
 
         assertThat(response.getItems()).hasSize(1);
         assertThat(response.getItems().getFirst().getName()).isEqualTo("Tomato");
@@ -60,9 +60,15 @@ class CatalogBrowseServiceTest {
 
     private VendorListing sampleListing(UUID shopId) {
         Unit unit = Unit.builder().code("KG").label("Kilogram").status(CatalogItemStatus.ACTIVE).build();
+        Category category = Category.builder()
+                .id(UUID.fromString("c1111111-1111-4111-8111-111111111112"))
+                .name("Vegetables")
+                .status(CatalogItemStatus.ACTIVE)
+                .build();
         MasterItem masterItem = MasterItem.builder()
                 .id(UUID.fromString("f1111111-1111-4111-8111-111111111111"))
                 .name("Tomato")
+                .category(category)
                 .unit(unit)
                 .status(CatalogItemStatus.ACTIVE)
                 .build();

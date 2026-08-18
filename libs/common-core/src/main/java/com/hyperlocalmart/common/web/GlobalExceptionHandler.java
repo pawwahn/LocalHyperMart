@@ -50,7 +50,9 @@ public class GlobalExceptionHandler {
         String message = "Could not save — check for duplicates or values that are too long";
         if (raw != null) {
             String lower = raw.toLowerCase();
-            if (lower.contains("towns_name_state_key") || lower.contains("(name, state)")) {
+            if (lower.contains("ux_categories_name_lower")) {
+                message = "A category with this name already exists";
+            } else if (lower.contains("towns_name_state_key") || lower.contains("(name, state)")) {
                 message = "A town with this name already exists in this state";
             } else if (lower.contains("towns_town_code_state_code_key") || lower.contains("(town_code, state_code)")) {
                 message = "Town code already exists for this state";

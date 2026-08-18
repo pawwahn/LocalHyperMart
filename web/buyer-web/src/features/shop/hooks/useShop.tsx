@@ -18,7 +18,6 @@ import {
   createAddress,
   deleteAddress,
   fetchCart,
-  fetchCatalog,
   fetchWalletBalance,
   friendlyCartError,
   isCartTownConflict,
@@ -47,7 +46,6 @@ function useShopState() {
   const [cart, setCart] = useState<CartView | null>(null);
   const [addresses, setAddresses] = useState<AddressDto[]>([]);
   const [orders, setOrders] = useState<OrderSummaryDto[]>([]);
-  const [query, setQuery] = useState('');
   const [selectedAddressId, setSelectedAddressId] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -187,7 +185,7 @@ function useShopState() {
         subtotalLabel: moneyLabel(approxSubtotal),
         payableSubtotal,
         payableLabel: moneyLabel(payableSubtotal),
-        minOrderMet: approxSubtotal >= (base.minOrderValue ?? 0),
+        minOrderMet: true,
       };
       cartRef.current = next;
       return next;
@@ -326,18 +324,7 @@ function useShopState() {
     };
 
     try {
-      // Catalog must not block cart/orders (Orders page was stuck when catalog hung).
-      const catalogTask = fetchCatalog(townId, query || undefined)
-        .then((catalog) => {
-          setItems(catalog);
-        })
-        .catch((err) => {
-          setItems([]);
-          noteFailure(err, 'Failed to load catalog');
-        });
-
       if (!session) {
-        await catalogTask;
         resetCartState();
         setAddresses([]);
         setOrders([]);
@@ -349,13 +336,6 @@ function useShopState() {
       const pendingSyncs = [...syncChainRef.current.values()];
       if (pendingSyncs.length > 0) {
         await Promise.all(pendingSyncs.map((p) => p.catch(() => undefined)));
-      }
-
-      // Heal town mismatch before cart reads/writes (clears other-town carts).
-      try {
-        await changeCartTown(session.accessToken, townId, true);
-      } catch {
-        /* non-fatal — cart fetch / add will surface errors */
       }
 
       const cartTask = fetchCart(session.accessToken, townId)
@@ -398,7 +378,7 @@ function useShopState() {
           setStoreCreditBalance(0);
         });
 
-      await Promise.all([catalogTask, cartTask, addressTask, ordersTask, walletTask]);
+      await Promise.all([cartTask, addressTask, ordersTask, walletTask]);
     } catch (err) {
       if (err instanceof ApiError && err.isUnauthorized) {
         setError('Your sign-in expired. Please sign in again.');
@@ -417,7 +397,7 @@ function useShopState() {
       hasLoadedOnce.current = true;
       setLoading(false);
     }
-  }, [session, townId, hasTown, query]);
+  }, [session, townId, hasTown]);
 
   useEffect(() => {
     void reload();
@@ -703,10 +683,6 @@ function useShopState() {
       setError('Delivery address must be in the selected town. Add or select an address for this town.');
       return false;
     }
-    if (!cart.minOrderMet) {
-      setError(`Add more items — minimum order is ${cart.minOrderLabel}.`);
-      return false;
-    }
     setBusy(true);
     setError(null);
     setNotice(null);
@@ -722,9 +698,7 @@ function useShopState() {
       return true;
     } catch (err) {
       const raw = err instanceof Error ? err.message : 'Checkout failed';
-      if (/internal server error/i.test(raw) && cart && !cart.minOrderMet) {
-        setError(`Minimum order is ${cart.minOrderLabel}. Add more items, then try again.`);
-      } else if (/address must belong/i.test(raw)) {
+      if (/address must belong/i.test(raw)) {
         setError('Delivery address is for another town. Add or select an address in your current town, then retry.');
       } else if (/internal server error/i.test(raw)) {
         setError('Checkout failed. Check address and town match, then retry. If it keeps failing, refresh and try again.');
@@ -736,6 +710,14 @@ function useShopState() {
       setBusy(false);
     }
   }
+
+  const rememberItems = useCallback((next: CatalogItemView[], mode: 'replace' | 'append') => {
+    setItems((prev) => {
+      if (mode === 'replace') return next;
+      const seen = new Set(prev.map((i) => i.listingId));
+      return [...prev, ...next.filter((i) => !seen.has(i.listingId))];
+    });
+  }, []);
 
   const townAddresses = useMemo(
     () => (townId ? addresses.filter((a) => a.townId === townId) : []),
@@ -752,8 +734,6 @@ function useShopState() {
     openTownPicker: openPicker,
     orders,
     storeCreditBalance,
-    query,
-    setQuery,
     selectedAddressId,
     setSelectedAddressId,
     loading,
@@ -762,6 +742,7 @@ function useShopState() {
     error,
     notice,
     reload,
+    rememberItems,
     quantityFor,
     doAdd,
     doIncrease,

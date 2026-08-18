@@ -121,15 +121,6 @@ export function TownProvider({ children }: { children: ReactNode }) {
       setError(null);
 
       if (session) {
-        const updated = { ...session, townId: town.id };
-        setSession(updated);
-        void apiRequest('/api/v1/users/me', {
-          method: 'PATCH',
-          token: session.accessToken,
-          body: { defaultTownId: town.id },
-          timeoutMs: 8_000,
-        }).catch(() => undefined);
-
         if (previousTownId && previousTownId !== town.id) {
           try {
             await changeCartTown(session.accessToken, town.id, true);
@@ -141,6 +132,14 @@ export function TownProvider({ children }: { children: ReactNode }) {
             );
           }
         }
+        const updated = { ...session, townId: town.id };
+        setSession(updated);
+        void apiRequest('/api/v1/users/me', {
+          method: 'PATCH',
+          token: session.accessToken,
+          body: { defaultTownId: town.id },
+          timeoutMs: 8_000,
+        }).catch(() => undefined);
       }
     },
     [session, setSession, pref?.townId, towns],
