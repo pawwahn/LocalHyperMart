@@ -17,11 +17,15 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
@@ -70,6 +74,84 @@ public class CatalogBrowseService {
                 .totalElements(listings.getTotalElements())
                 .totalPages(listings.getTotalPages())
                 .build();
+    }
+
+    @Transactional(readOnly = true)
+    public List<CatalogItemResponse> topDiscountedInTown(UUID townId, Set<UUID> excluded, int limit) {
+        if (limit <= 0) {
+            return List.of();
+        }
+        Instant now = Instant.now();
+        Collection<UUID> excludedParam = excluded == null || excluded.isEmpty() ? null : excluded;
+        Page<VendorListing> page = vendorListingRepository.findDiscountedActiveInTown(
+                townId, excludedParam, now, PageRequest.of(0, Math.max(limit * 8, 40)));
+        List<VendorListing> sorted = page.getContent().stream()
+                .sorted(Comparator.comparingInt(CatalogBrowseService::discountPercent).reversed()
+                        .thenComparing(listing -> listing.getMasterItem().getName()))
+                .limit(limit)
+                .toList();
+        return mapListings(sorted);
+    }
+
+    @Transactional(readOnly = true)
+    public List<CatalogItemResponse> recentlyUpdatedInTown(UUID townId, Set<UUID> excluded, int limit) {
+        if (limit <= 0) {
+            return List.of();
+        }
+        Collection<UUID> excludedParam = excluded == null || excluded.isEmpty() ? null : excluded;
+        Page<VendorListing> page = vendorListingRepository.findRecentlyUpdatedActiveInTown(
+                townId, excludedParam, PageRequest.of(0, limit));
+        return mapListings(page.getContent());
+    }
+
+    @Transactional(readOnly = true)
+    public List<CatalogItemResponse> recentlyAddedInTown(UUID townId, Set<UUID> excluded, int limit) {
+        if (limit <= 0) {
+            return List.of();
+        }
+        Collection<UUID> excludedParam = excluded == null || excluded.isEmpty() ? null : excluded;
+        Page<VendorListing> page = vendorListingRepository.findRecentlyAddedActiveInTown(
+                townId, excludedParam, PageRequest.of(0, limit));
+        return mapListings(page.getContent());
+    }
+
+    @Transactional(readOnly = true)
+    public List<CatalogItemResponse> mapListings(List<VendorListing> listings) {
+        if (listings == null || listings.isEmpty()) {
+            return List.of();
+        }
+        List<UUID> shopIds = listings.stream().map(VendorListing::getShopId).distinct().toList();
+        Map<UUID, VendorShopClient.ShopInfo> shops = vendorShopClient.getShopsByIds(shopIds);
+
+        List<UUID> listingIds = listings.stream().map(VendorListing::getId).toList();
+        List<UUID> masterIds = listings.stream()
+                .map(listing -> listing.getMasterItem().getId())
+                .distinct()
+                .toList();
+        Map<UUID, List<String>> imagesByListing = imageUrlsByListing(listingIds);
+        Map<UUID, List<String>> imagesByMaster = imageUrlsByMaster(masterIds);
+
+        return listings.stream()
+                .map(listing -> {
+                    List<String> custom = imagesByListing.getOrDefault(listing.getId(), List.of());
+                    List<String> master = imagesByMaster.getOrDefault(listing.getMasterItem().getId(), List.of());
+                    List<String> effective = custom.isEmpty() ? master : custom;
+                    VendorShopClient.ShopInfo shop = shops.get(listing.getShopId());
+                    return toItem(listing, shop, effective);
+                })
+                .toList();
+    }
+
+    static int discountPercent(VendorListing listing) {
+        BigDecimal mrp = ListingPricing.resolveMrp(listing);
+        BigDecimal effective = ListingPricing.resolveEffectivePrice(listing);
+        if (mrp.compareTo(BigDecimal.ZERO) <= 0 || effective.compareTo(mrp) >= 0) {
+            return 0;
+        }
+        return mrp.subtract(effective)
+                .multiply(BigDecimal.valueOf(100))
+                .divide(mrp, 0, RoundingMode.HALF_UP)
+                .intValue();
     }
 
     private static Sort browseSort(String sort, String dir) {

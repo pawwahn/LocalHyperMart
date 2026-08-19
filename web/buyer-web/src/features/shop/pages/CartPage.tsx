@@ -1,7 +1,6 @@
 import type { CSSProperties } from 'react';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { AdSlot } from '@/features/ads/components/AdSlot';
 import { getPublicPlatformSettings } from '@/features/auth/api/platformSettingsApi';
 import { apiRequest } from '@/shared/api/http';
 import { PortalShell } from '@/shared/layout/PortalShell';
@@ -11,7 +10,9 @@ import { Banner, Button, Card, EmptyState, TextField } from '@/shared/ui';
 import { AddressPickerSheet } from '../components/AddressPickerSheet';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { OrderCelebration } from '../components/OrderCelebration';
+import { CartSuggestionStrip } from '../components/CartSuggestionStrip';
 import { QuantityStepper } from '../components/QuantityStepper';
+import { fetchCartSuggestions, type CatalogItemView } from '../api/shopApi';
 import { productVisual } from '../lib/productVisual';
 import { useShop } from '../hooks/useShop';
 
@@ -35,6 +36,10 @@ export function CartPage() {
     error,
     notice,
     reload,
+    rememberItems,
+    quantityFor,
+    doIncrease,
+    doDecrease,
     doSetLineQuantity,
     doApplyPromo,
     doRemovePromo,
@@ -49,7 +54,12 @@ export function CartPage() {
   const [deliveryNudge, setDeliveryNudge] = useState<{ addMore: number; nextFee: number } | null>(null);
   const [confirmCheckout, setConfirmCheckout] = useState(false);
   const [showCelebration, setShowCelebration] = useState(false);
+  const [suggestions, setSuggestions] = useState<CatalogItemView[]>([]);
+  const [suggestionsLoading, setSuggestionsLoading] = useState(false);
   const couponSectionRef = useRef<HTMLDivElement | null>(null);
+  const suggestionsRequestRef = useRef(0);
+  const rememberItemsRef = useRef(rememberItems);
+  rememberItemsRef.current = rememberItems;
 
   const hasCartItems = Boolean(cart?.cartId && cart.items.length > 0);
   const needsAddress = hasCartItems && !selectedAddressId;
@@ -62,6 +72,47 @@ export function CartPage() {
   const payOnDelivery = Math.max(0, orderGross - creditToApply);
   const payLabel = `₹${payOnDelivery.toFixed(2)}`;
   const selectedAddress = addresses.find((a) => a.id === selectedAddressId);
+  const cartFingerprint = useMemo(
+    () => cart?.items.map((item) => `${item.listingId}:${item.quantity}`).join('|') ?? '',
+    [cart?.items],
+  );
+
+  const loadSuggestions = useCallback(
+    async (opts?: { keepPrevious?: boolean }) => {
+      if (!session?.accessToken || !townId || !hasCartItems) {
+        if (!opts?.keepPrevious) {
+          setSuggestions([]);
+        }
+        setSuggestionsLoading(false);
+        return;
+      }
+      const requestId = ++suggestionsRequestRef.current;
+      setSuggestionsLoading(true);
+      try {
+        const items = await fetchCartSuggestions(session.accessToken, townId, 10);
+        if (requestId !== suggestionsRequestRef.current) return;
+        setSuggestions(items);
+        if (items.length > 0) {
+          rememberItemsRef.current(items, 'append');
+        }
+      } catch {
+        if (requestId !== suggestionsRequestRef.current) return;
+        if (!opts?.keepPrevious) {
+          setSuggestions([]);
+        }
+      } finally {
+        if (requestId === suggestionsRequestRef.current) {
+          setSuggestionsLoading(false);
+        }
+      }
+    },
+    [session?.accessToken, townId, hasCartItems],
+  );
+
+  async function handleRefresh() {
+    await reload();
+    await loadSuggestions({ keepPrevious: true });
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -108,6 +159,13 @@ export function CartPage() {
       cancelled = true;
     };
   }, [townId, itemsPayable, session?.accessToken, hasCartItems]);
+
+  useEffect(() => {
+    void loadSuggestions();
+    return () => {
+      suggestionsRequestRef.current += 1;
+    };
+  }, [cartFingerprint, loadSuggestions]);
 
   async function handleApplyCoupon() {
     const code = couponCode.trim();
@@ -157,7 +215,7 @@ export function CartPage() {
     <PortalShell
       title="Basket"
       cartCount={cart?.itemCount ?? 0}
-      onRefresh={() => void reload()}
+      onRefresh={() => void handleRefresh()}
       showDeliveryBanner={false}
       showStickyCart={false}
       footerSlot={
@@ -192,7 +250,7 @@ export function CartPage() {
         onClose={() => setPickerOpen(false)}
         onSelect={setSelectedAddressId}
         onNeedTown={openTownPicker}
-        onCreate={doCreateAddress}
+        onCreate={async (values) => Boolean(await doCreateAddress(values))}
       />
       <ConfirmDialog
         open={confirmCheckout}
@@ -268,7 +326,17 @@ export function CartPage() {
             })}
           </div>
 
-          <AdSlot slot="cart_upsell" variant="strip" />
+          {hasCartItems ? (
+            <CartSuggestionStrip
+              items={suggestions}
+              loading={suggestionsLoading}
+              busyKey={busyKey}
+              quantityFor={quantityFor}
+              onIncrease={(listingId) => void doIncrease(listingId)}
+              onDecrease={(listingId) => void doDecrease(listingId)}
+              onBrowseMore={() => navigate('/shop')}
+            />
+          ) : null}
 
           <Card padding="md" style={styles.billCard}>
             <div ref={couponSectionRef} style={styles.couponBlock}>
@@ -450,10 +518,10 @@ const styles: Record<string, CSSProperties> = {
   discount: { color: 'var(--accent)' },
   deliveryNudge: {
     margin: 0,
-    fontSize: '0.78rem',
+    fontSize: '0.9rem',
     fontWeight: 700,
     color: '#b45309',
-    lineHeight: 1.3,
+    lineHeight: 1.35,
   },
   payRow: {
     display: 'flex',

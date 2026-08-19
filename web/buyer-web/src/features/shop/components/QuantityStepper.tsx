@@ -5,8 +5,10 @@ type Props = {
   disabled?: boolean;
   onIncrease: () => void;
   onDecrease: () => void;
-  /** xs = 4-up product grid; sm/md for cart etc. */
+  /** xs = compact tiles; sm/md for cart etc. */
   size?: 'xs' | 'sm' | 'md';
+  /** icon = "+" only when qty is 0 (compact product tiles). */
+  addMode?: 'label' | 'icon';
 };
 
 /** ADD when qty is 0; otherwise filled green − qty + (Blinkit pattern). */
@@ -16,17 +18,28 @@ export function QuantityStepper({
   onIncrease,
   onDecrease,
   size = 'sm',
+  addMode = 'label',
 }: Props) {
   if (quantity <= 0) {
+    const iconOnly = addMode === 'icon' && size === 'xs';
     return (
       <button
         type="button"
         className="hlm-add-btn"
-        style={size === 'md' ? styles.addMd : size === 'xs' ? styles.addXs : styles.add}
+        style={
+          iconOnly
+            ? styles.addIconXs
+            : size === 'md'
+              ? styles.addMd
+              : size === 'xs'
+                ? styles.addXs
+                : styles.add
+        }
         disabled={disabled}
         onClick={onIncrease}
+        aria-label="Add to cart"
       >
-        ADD
+        {iconOnly ? '+' : 'ADD'}
       </button>
     );
   }
@@ -101,11 +114,28 @@ const styles: Record<string, CSSProperties> = {
     cursor: 'pointer',
     boxShadow: '0 2px 6px rgba(12, 131, 31, 0.14)',
   },
+  addIconXs: {
+    width: 28,
+    height: 28,
+    padding: 0,
+    border: '1.5px solid color-mix(in srgb, var(--accent) 70%, var(--border))',
+    borderRadius: 8,
+    background: 'var(--bg-elevated)',
+    color: 'var(--accent)',
+    fontWeight: 800,
+    fontSize: '1.05rem',
+    lineHeight: 1,
+    cursor: 'pointer',
+    boxShadow: '0 2px 8px rgba(0,0,0,0.12)',
+    display: 'grid',
+    placeItems: 'center',
+  },
   stepperXs: {
     display: 'inline-flex',
     alignItems: 'center',
-    minWidth: 52,
-    borderRadius: 5,
+    minWidth: 58,
+    height: 26,
+    borderRadius: 8,
     background: 'var(--accent)',
     color: 'var(--text-inverse)',
     overflow: 'hidden',

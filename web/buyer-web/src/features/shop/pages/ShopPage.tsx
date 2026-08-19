@@ -389,6 +389,8 @@ export function ShopPage({ browseOnly = false }: Props) {
             </div>
           </div>
 
+          {inCategory ? <AdSlot slot="home_hero" variant="strip" /> : null}
+
           {catalogLoading && products.length === 0 ? (
             <LoadingBlock label="Loading items…" />
           ) : products.length === 0 ? (

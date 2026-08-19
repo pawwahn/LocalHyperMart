@@ -1,6 +1,7 @@
 package com.hyperlocalmart.cart.service;
 
 import com.hyperlocalmart.cart.client.CatalogListingClient;
+import com.hyperlocalmart.cart.client.CatalogSuggestionClient;
 import com.hyperlocalmart.cart.client.VendorShopClient;
 import com.hyperlocalmart.cart.dto.request.AddCartItemRequest;
 import com.hyperlocalmart.cart.dto.request.ApplyPromoRequest;
@@ -12,6 +13,7 @@ import com.hyperlocalmart.cart.dto.response.CartInternalResponse;
 import com.hyperlocalmart.cart.dto.response.CartItemResponse;
 import com.hyperlocalmart.cart.dto.response.CartReorderResponse;
 import com.hyperlocalmart.cart.dto.response.CartResponse;
+import com.hyperlocalmart.cart.dto.response.CartSuggestionsResponse;
 import com.hyperlocalmart.cart.entity.Cart;
 import com.hyperlocalmart.cart.entity.CartItem;
 import com.hyperlocalmart.cart.entity.CartStatus;
@@ -42,7 +44,25 @@ public class CartService {
     private final CartItemRepository cartItemRepository;
     private final PromoCodeRepository promoCodeRepository;
     private final CatalogListingClient catalogListingClient;
+    private final CatalogSuggestionClient catalogSuggestionClient;
     private final VendorShopClient vendorShopClient;
+
+    @Transactional(readOnly = true)
+    public CartSuggestionsResponse getSuggestions(UUID userId, UUID townId, int limit) {
+        Cart cart = cartRepository.findByUserIdAndTownIdAndStatus(userId, townId, CartStatus.ACTIVE)
+                .orElse(null);
+        if (cart == null || cart.getItems().isEmpty()) {
+            return CartSuggestionsResponse.empty();
+        }
+        int capped = Math.min(Math.max(limit, 10), 20);
+        List<UUID> excludeListingIds = cart.getItems().stream().map(CartItem::getListingId).toList();
+        List<UUID> seedMasterItemIds = cart.getItems().stream().map(CartItem::getMasterItemId).distinct().toList();
+        List<String> seedNames = cart.getItems().stream().map(CartItem::getItemName).distinct().toList();
+        return CartSuggestionsResponse.builder()
+                .items(catalogSuggestionClient.suggest(
+                        townId, excludeListingIds, seedMasterItemIds, seedNames, capped))
+                .build();
+    }
 
     @Transactional(readOnly = true)
     public CartResponse getCart(UUID userId, UUID townId) {

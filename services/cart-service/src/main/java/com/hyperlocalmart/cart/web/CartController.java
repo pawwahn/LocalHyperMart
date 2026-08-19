@@ -5,6 +5,7 @@ import com.hyperlocalmart.cart.dto.request.ApplyPromoRequest;
 import com.hyperlocalmart.cart.dto.request.ChangeTownRequest;
 import com.hyperlocalmart.cart.dto.request.UpdateCartItemRequest;
 import com.hyperlocalmart.cart.dto.response.CartResponse;
+import com.hyperlocalmart.cart.dto.response.CartSuggestionsResponse;
 import com.hyperlocalmart.cart.security.AuthUserPrincipal;
 import com.hyperlocalmart.cart.service.CartService;
 import com.hyperlocalmart.common.api.ApiResponse;
@@ -23,6 +24,16 @@ import java.util.UUID;
 public class CartController {
 
     private final CartService cartService;
+
+    @GetMapping("/suggestions")
+    public ResponseEntity<ApiResponse<CartSuggestionsResponse>> getSuggestions(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @RequestParam UUID townId,
+            @RequestParam(defaultValue = "10") int limit,
+            HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                cartService.getSuggestions(principal.getUserId(), townId, limit)));
+    }
 
     @GetMapping
     public ResponseEntity<ApiResponse<CartResponse>> getCart(

@@ -7,6 +7,8 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -175,5 +177,195 @@ public interface VendorListingRepository extends JpaRepository<VendorListing, UU
             @Param("townId") UUID townId,
             @Param("vendorId") UUID vendorId,
             @Param("active") Boolean active,
+            Pageable pageable);
+
+    @Query(
+            value = """
+                    SELECT vl FROM VendorListing vl
+                    JOIN FETCH vl.masterItem mi
+                    JOIN FETCH mi.category cat
+                    JOIN FETCH mi.unit u
+                    WHERE vl.townId = :townId
+                      AND vl.active = true
+                      AND mi.status = com.hyperlocalmart.catalog.entity.CatalogItemStatus.ACTIVE
+                      AND (
+                            (
+                              cat.status = com.hyperlocalmart.catalog.entity.CatalogItemStatus.ACTIVE
+                              AND NOT EXISTS (
+                                SELECT 1 FROM CategoryTownOverride o
+                                WHERE o.categoryId = cat.id AND o.townId = :townId AND o.visible = false
+                              )
+                            )
+                            OR (
+                              cat.status = com.hyperlocalmart.catalog.entity.CatalogItemStatus.INACTIVE
+                              AND EXISTS (
+                                SELECT 1 FROM CategoryTownOverride o
+                                WHERE o.categoryId = cat.id AND o.townId = :townId AND o.visible = true
+                              )
+                            )
+                          )
+                      AND (:excluded IS NULL OR vl.id NOT IN :excluded)
+                      AND (
+                            (vl.discountPrice IS NOT NULL AND vl.discountPrice < vl.price)
+                            OR (
+                              vl.specialDiscountPrice IS NOT NULL
+                              AND (vl.specialDiscountValidFrom IS NULL OR vl.specialDiscountValidFrom <= :now)
+                              AND (vl.specialDiscountValidTo IS NULL OR vl.specialDiscountValidTo >= :now)
+                            )
+                          )
+                    """,
+            countQuery = """
+                    SELECT count(vl) FROM VendorListing vl
+                    JOIN vl.masterItem mi
+                    JOIN mi.category cat
+                    WHERE vl.townId = :townId
+                      AND vl.active = true
+                      AND mi.status = com.hyperlocalmart.catalog.entity.CatalogItemStatus.ACTIVE
+                      AND (
+                            (
+                              cat.status = com.hyperlocalmart.catalog.entity.CatalogItemStatus.ACTIVE
+                              AND NOT EXISTS (
+                                SELECT 1 FROM CategoryTownOverride o
+                                WHERE o.categoryId = cat.id AND o.townId = :townId AND o.visible = false
+                              )
+                            )
+                            OR (
+                              cat.status = com.hyperlocalmart.catalog.entity.CatalogItemStatus.INACTIVE
+                              AND EXISTS (
+                                SELECT 1 FROM CategoryTownOverride o
+                                WHERE o.categoryId = cat.id AND o.townId = :townId AND o.visible = true
+                              )
+                            )
+                          )
+                      AND (:excluded IS NULL OR vl.id NOT IN :excluded)
+                      AND (
+                            (vl.discountPrice IS NOT NULL AND vl.discountPrice < vl.price)
+                            OR (
+                              vl.specialDiscountPrice IS NOT NULL
+                              AND (vl.specialDiscountValidFrom IS NULL OR vl.specialDiscountValidFrom <= :now)
+                              AND (vl.specialDiscountValidTo IS NULL OR vl.specialDiscountValidTo >= :now)
+                            )
+                          )
+                    """)
+    Page<VendorListing> findDiscountedActiveInTown(
+            @Param("townId") UUID townId,
+            @Param("excluded") Collection<UUID> excluded,
+            @Param("now") Instant now,
+            Pageable pageable);
+
+    @Query(
+            value = """
+                    SELECT vl FROM VendorListing vl
+                    JOIN FETCH vl.masterItem mi
+                    JOIN FETCH mi.category cat
+                    JOIN FETCH mi.unit u
+                    WHERE vl.townId = :townId
+                      AND vl.active = true
+                      AND mi.status = com.hyperlocalmart.catalog.entity.CatalogItemStatus.ACTIVE
+                      AND (
+                            (
+                              cat.status = com.hyperlocalmart.catalog.entity.CatalogItemStatus.ACTIVE
+                              AND NOT EXISTS (
+                                SELECT 1 FROM CategoryTownOverride o
+                                WHERE o.categoryId = cat.id AND o.townId = :townId AND o.visible = false
+                              )
+                            )
+                            OR (
+                              cat.status = com.hyperlocalmart.catalog.entity.CatalogItemStatus.INACTIVE
+                              AND EXISTS (
+                                SELECT 1 FROM CategoryTownOverride o
+                                WHERE o.categoryId = cat.id AND o.townId = :townId AND o.visible = true
+                              )
+                            )
+                          )
+                      AND (:excluded IS NULL OR vl.id NOT IN :excluded)
+                    ORDER BY COALESCE(vl.priceUpdatedAt, vl.updatedAt) DESC
+                    """,
+            countQuery = """
+                    SELECT count(vl) FROM VendorListing vl
+                    JOIN vl.masterItem mi
+                    JOIN mi.category cat
+                    WHERE vl.townId = :townId
+                      AND vl.active = true
+                      AND mi.status = com.hyperlocalmart.catalog.entity.CatalogItemStatus.ACTIVE
+                      AND (
+                            (
+                              cat.status = com.hyperlocalmart.catalog.entity.CatalogItemStatus.ACTIVE
+                              AND NOT EXISTS (
+                                SELECT 1 FROM CategoryTownOverride o
+                                WHERE o.categoryId = cat.id AND o.townId = :townId AND o.visible = false
+                              )
+                            )
+                            OR (
+                              cat.status = com.hyperlocalmart.catalog.entity.CatalogItemStatus.INACTIVE
+                              AND EXISTS (
+                                SELECT 1 FROM CategoryTownOverride o
+                                WHERE o.categoryId = cat.id AND o.townId = :townId AND o.visible = true
+                              )
+                            )
+                          )
+                      AND (:excluded IS NULL OR vl.id NOT IN :excluded)
+                    """)
+    Page<VendorListing> findRecentlyUpdatedActiveInTown(
+            @Param("townId") UUID townId,
+            @Param("excluded") Collection<UUID> excluded,
+            Pageable pageable);
+
+    @Query(
+            value = """
+                    SELECT vl FROM VendorListing vl
+                    JOIN FETCH vl.masterItem mi
+                    JOIN FETCH mi.category cat
+                    JOIN FETCH mi.unit u
+                    WHERE vl.townId = :townId
+                      AND vl.active = true
+                      AND mi.status = com.hyperlocalmart.catalog.entity.CatalogItemStatus.ACTIVE
+                      AND (
+                            (
+                              cat.status = com.hyperlocalmart.catalog.entity.CatalogItemStatus.ACTIVE
+                              AND NOT EXISTS (
+                                SELECT 1 FROM CategoryTownOverride o
+                                WHERE o.categoryId = cat.id AND o.townId = :townId AND o.visible = false
+                              )
+                            )
+                            OR (
+                              cat.status = com.hyperlocalmart.catalog.entity.CatalogItemStatus.INACTIVE
+                              AND EXISTS (
+                                SELECT 1 FROM CategoryTownOverride o
+                                WHERE o.categoryId = cat.id AND o.townId = :townId AND o.visible = true
+                              )
+                            )
+                          )
+                      AND (:excluded IS NULL OR vl.id NOT IN :excluded)
+                    ORDER BY vl.createdAt DESC
+                    """,
+            countQuery = """
+                    SELECT count(vl) FROM VendorListing vl
+                    JOIN vl.masterItem mi
+                    JOIN mi.category cat
+                    WHERE vl.townId = :townId
+                      AND vl.active = true
+                      AND mi.status = com.hyperlocalmart.catalog.entity.CatalogItemStatus.ACTIVE
+                      AND (
+                            (
+                              cat.status = com.hyperlocalmart.catalog.entity.CatalogItemStatus.ACTIVE
+                              AND NOT EXISTS (
+                                SELECT 1 FROM CategoryTownOverride o
+                                WHERE o.categoryId = cat.id AND o.townId = :townId AND o.visible = false
+                              )
+                            )
+                            OR (
+                              cat.status = com.hyperlocalmart.catalog.entity.CatalogItemStatus.INACTIVE
+                              AND EXISTS (
+                                SELECT 1 FROM CategoryTownOverride o
+                                WHERE o.categoryId = cat.id AND o.townId = :townId AND o.visible = true
+                              )
+                            )
+                          )
+                      AND (:excluded IS NULL OR vl.id NOT IN :excluded)
+                    """)
+    Page<VendorListing> findRecentlyAddedActiveInTown(
+            @Param("townId") UUID townId,
+            @Param("excluded") Collection<UUID> excluded,
             Pageable pageable);
 }

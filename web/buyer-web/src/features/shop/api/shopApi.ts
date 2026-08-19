@@ -335,6 +335,18 @@ export async function fetchCart(token: string, townId: string): Promise<CartView
   return toCartView(data);
 }
 
+export async function fetchCartSuggestions(
+  token: string,
+  townId: string,
+  limit = 10,
+): Promise<CatalogItemView[]> {
+  const data = await apiRequest<{ items: CatalogItemDto[] }>(
+    `/api/v1/cart/suggestions?townId=${encodeURIComponent(townId)}&limit=${limit}`,
+    { token, timeoutMs: 8_000 },
+  );
+  return (data.items ?? []).map(toCatalogItem);
+}
+
 export async function addToCart(
   token: string,
   townId: string,

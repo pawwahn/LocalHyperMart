@@ -144,7 +144,7 @@ function aisleSlot(name: string): { aisle: number; order: number } | null {
 export function groupCategoriesIntoAisles(categories: CategoryView[]): AisleGroup[] {
   const buckets: CategoryView[][] = AISLE_KEYS.map(() => []);
   const more: CategoryView[] = [];
-  const hidden = new Set(['vegetables', 'groceries', 'dairy', 'snacks', 'drinks']);
+  const hidden = new Set(['vegetables', 'groceries', 'dairy', 'snacks']);
 
   for (const cat of categories) {
     if (hidden.has(norm(cat.name))) continue;
