@@ -222,17 +222,17 @@ export function OrdersPage() {
                       onClick={() => openOrder(o)}
                     >
                       <div style={styles.rowMain}>
-                        <div style={styles.rowTop}>
-                          <p style={styles.name}>{o.orderNumber}</p>
+                        <p style={styles.name}>{o.orderNumber}</p>
+                        <div style={styles.metaRow}>
+                          <p style={styles.meta}>
+                            {formatWhen(o.placedAt)}
+                            {' · '}
+                            {o.itemCount} item{o.itemCount === 1 ? '' : 's'}
+                            {' · '}
+                            {pay}
+                          </p>
                           <Badge tone={statusTone(status)}>{status}</Badge>
                         </div>
-                        <p style={styles.meta}>
-                          {formatWhen(o.placedAt)}
-                          {' · '}
-                          {o.itemCount} item{o.itemCount === 1 ? '' : 's'}
-                          {' · '}
-                          {pay}
-                        </p>
                       </div>
                       <div style={styles.rowSide}>
                         <p style={styles.amount}>₹{Number(o.totalAmount).toFixed(0)}</p>
@@ -319,22 +319,23 @@ const styles: Record<string, CSSProperties> = {
     textAlign: 'left',
     cursor: 'pointer',
   },
-  rowMain: { display: 'grid', gap: '0.15rem', minWidth: 0, flex: 1 },
-  rowTop: {
+  rowMain: { display: 'grid', gap: '0.2rem', minWidth: 0, flex: 1 },
+  metaRow: {
     display: 'flex',
     alignItems: 'center',
-    gap: '0.45rem',
+    gap: '0.4rem',
     minWidth: 0,
   },
   name: {
     margin: 0,
     fontWeight: 800,
     fontFamily: 'var(--font-display)',
-    fontSize: '0.82rem',
-    lineHeight: 1.25,
-    wordBreak: 'break-all',
+    fontSize: '0.8rem',
+    lineHeight: 1.2,
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
     minWidth: 0,
-    flex: 1,
   },
   meta: {
     margin: 0,
@@ -343,6 +344,8 @@ const styles: Record<string, CSSProperties> = {
     whiteSpace: 'nowrap',
     overflow: 'hidden',
     textOverflow: 'ellipsis',
+    minWidth: 0,
+    flex: 1,
   },
   rowSide: {
     display: 'flex',

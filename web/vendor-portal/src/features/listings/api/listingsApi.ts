@@ -210,11 +210,28 @@ export async function fetchCategories(token: string): Promise<CategoryView[]> {
 }
 
 export async function fetchMasterItems(token: string, categoryId?: string): Promise<MasterItemView[]> {
-  const q = categoryId
-    ? `?categoryId=${encodeURIComponent(categoryId)}&page=0&size=200`
-    : '?page=0&size=200';
-  const data = await apiRequest<PageData<MasterItemDto>>(`/api/v1/catalog/master-items${q}`, { token });
-  return (data.items ?? []).map(toMasterItemView);
+  const pageSize = 200;
+  const all: MasterItemView[] = [];
+  let page = 0;
+  let totalPages = 1;
+  while (page < totalPages) {
+    const params = new URLSearchParams({
+      page: String(page),
+      size: String(pageSize),
+      sort: 'name',
+      dir: 'asc',
+    });
+    if (categoryId) params.set('categoryId', categoryId);
+    const data = await apiRequest<PageData<MasterItemDto>>(
+      `/api/v1/catalog/master-items?${params}`,
+      { token },
+    );
+    all.push(...(data.items ?? []).map(toMasterItemView));
+    totalPages = Math.max(1, data.totalPages ?? 1);
+    page += 1;
+    if ((data.items ?? []).length === 0) break;
+  }
+  return all;
 }
 
 export async function fetchMyListings(token: string, vendorId: string): Promise<ListingView[]> {
