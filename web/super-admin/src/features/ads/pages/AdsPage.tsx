@@ -96,6 +96,13 @@ const PAGE_CSS = `
     z-index: 20;
     backdrop-filter: blur(10px);
   }
+  .ads-enable-row:hover:not(:disabled) {
+    border-color: color-mix(in srgb, var(--success) 35%, var(--border));
+  }
+  .ads-enable-row:disabled {
+    opacity: 0.65;
+    cursor: not-allowed;
+  }
 `;
 
 type DraftAd = {
@@ -146,6 +153,32 @@ function toDraft(item: AdEditorItem, ad: TownAdVm): DraftAd {
 
 function isDraftReady(draft: DraftAd): boolean {
   return Boolean(draft.shopName.trim() && draft.headline.trim() && draft.images.length > 0);
+}
+
+function shownPatch(next: boolean): Partial<DraftAd> {
+  return next ? { enabled: true } : { enabled: false, allTowns: false };
+}
+
+function enableCopy(section: AdEditorItem['section']): { title: string; onHint: string; offHint: string } {
+  if (section === 'hero') {
+    return {
+      title: 'Show on buyer home',
+      onHint: 'Appears below search on shop home',
+      offHint: 'Hidden on shop home — no empty gap',
+    };
+  }
+  if (section === 'cart') {
+    return {
+      title: 'Show in cart',
+      onHint: 'Appears on cart / checkout',
+      offHint: 'Hidden in cart — no empty gap',
+    };
+  }
+  return {
+    title: 'Show this slide',
+    onHint: 'Included in the mid-grid carousel',
+    offHint: 'Left out of the carousel',
+  };
 }
 
 function TogglePill({
@@ -342,8 +375,8 @@ function AdTargetTownsPicker({
 function BuyerPreview({ draft }: { draft: DraftAd }) {
   const ready = isDraftReady(draft);
   return (
-    <div style={styles.previewWrap}>
-      <p style={styles.previewLabel}>Buyer preview</p>
+    <div style={{ ...styles.previewWrap, ...(draft.enabled ? {} : styles.previewDim) }}>
+      <p style={styles.previewLabel}>Buyer preview{draft.enabled ? '' : ' · hidden'}</p>
       <div style={{ ...styles.preview, ...(ready ? styles.previewReady : {}) }}>
         <div style={styles.previewMedia}>
           {draft.images[0] ? (
@@ -392,6 +425,7 @@ function AdEditorCard({
   onRemoveImage: (index: number) => void;
 }) {
   const ready = isDraftReady(draft);
+  const shown = enableCopy(meta.section);
   const cardClass = [
     'ads-card',
     draft.enabled ? 'ads-card--live' : '',
@@ -415,15 +449,15 @@ function AdEditorCard({
           </div>
         </div>
         <div style={styles.toggles}>
-          <TogglePill
-            active={draft.enabled}
-            label="Live"
-            tone="live"
-            disabled={busy}
-            onClick={() =>
-              onChange(draft.enabled ? { enabled: false, allTowns: false } : { enabled: true })
-            }
-          />
+          {meta.section === 'mid' ? (
+            <TogglePill
+              active={draft.enabled}
+              label={draft.enabled ? 'Shown' : 'Hidden'}
+              tone="live"
+              disabled={busy}
+              onClick={() => onChange(shownPatch(!draft.enabled))}
+            />
+          ) : null}
           <TogglePill
             active={draft.allTowns}
             label="All towns"
@@ -513,6 +547,27 @@ function AdEditorCard({
         />
       </div>
 
+      {meta.section !== 'mid' ? (
+        <button
+          type="button"
+          role="switch"
+          aria-checked={draft.enabled}
+          aria-label={shown.title}
+          disabled={busy}
+          className="ads-enable-row"
+          style={styles.enableRow}
+          onClick={() => onChange(shownPatch(!draft.enabled))}
+        >
+          <span>
+            <strong style={styles.enableTitle}>{shown.title}</strong>
+            <span style={styles.enableHint}>{draft.enabled ? shown.onHint : shown.offHint}</span>
+          </span>
+          <span style={draft.enabled ? styles.switchOn : styles.switchOff} aria-hidden>
+            <span style={draft.enabled ? styles.knobOn : styles.knobOff} />
+          </span>
+        </button>
+      ) : null}
+
       <div style={styles.cardFooter}>
         <span
           style={{
@@ -526,14 +581,14 @@ function AdEditorCard({
         >
           {draft.enabled && ready
             ? draft.allTowns
-              ? 'Live · all towns'
-              : 'Live · ready'
+              ? 'Shown · all towns'
+              : 'Shown · ready'
             : draft.enabled
-              ? 'Live · missing content'
-              : 'Draft'}
+              ? 'On · missing content'
+              : 'Hidden'}
         </span>
         <span style={styles.hint}>
-          {draft.images.length}/{MAX_AD_IMAGES} images
+          {draft.images.length}/{MAX_AD_IMAGES} images · save to publish
         </span>
       </div>
     </Card>
@@ -995,6 +1050,7 @@ const styles: Record<string, CSSProperties> = {
     padding: '0.35rem 0.5rem',
   },
   previewWrap: { display: 'grid', gap: '0.28rem' },
+  previewDim: { opacity: 0.55 },
   previewLabel: {
     margin: 0,
     fontSize: '0.62rem',
@@ -1109,6 +1165,64 @@ const styles: Record<string, CSSProperties> = {
   },
   fieldsCompact: {
     gridTemplateColumns: '1fr',
+  },
+  enableRow: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: '0.7rem',
+    padding: '0.42rem 0.5rem',
+    borderRadius: 10,
+    border: '1px solid var(--border)',
+    background: 'var(--bg-elevated)',
+    cursor: 'pointer',
+    textAlign: 'left',
+    width: '100%',
+    font: 'inherit',
+    color: 'inherit',
+    appearance: 'none',
+  },
+  enableTitle: { display: 'block', fontSize: '0.86rem', fontWeight: 800 },
+  enableHint: {
+    display: 'block',
+    marginTop: 2,
+    fontSize: '0.72rem',
+    color: 'var(--text-muted)',
+    fontWeight: 600,
+    lineHeight: 1.3,
+  },
+  switchOn: {
+    width: 42,
+    height: 24,
+    border: 'none',
+    borderRadius: 999,
+    background: 'var(--success)',
+    padding: 2,
+    flexShrink: 0,
+  },
+  switchOff: {
+    width: 42,
+    height: 24,
+    border: 'none',
+    borderRadius: 999,
+    background: 'var(--border)',
+    padding: 2,
+    flexShrink: 0,
+  },
+  knobOn: {
+    display: 'block',
+    width: 20,
+    height: 20,
+    borderRadius: 999,
+    background: '#fff',
+    marginLeft: 'auto',
+  },
+  knobOff: {
+    display: 'block',
+    width: 20,
+    height: 20,
+    borderRadius: 999,
+    background: '#fff',
   },
   cardFooter: {
     display: 'flex',

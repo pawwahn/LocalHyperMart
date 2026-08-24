@@ -235,11 +235,21 @@ export async function fetchMasterItems(token: string, categoryId?: string): Prom
 }
 
 export async function fetchMyListings(token: string, vendorId: string): Promise<ListingView[]> {
-  const data = await apiRequest<PageData<ListingDto>>(
-    '/api/v1/catalog/vendors/me/listings?page=0&size=100',
-    { token, vendorId },
-  );
-  return (data.items ?? []).map(toListingView);
+  const pageSize = 200;
+  const all: ListingView[] = [];
+  let page = 0;
+  let totalPages = 1;
+  while (page < totalPages) {
+    const data = await apiRequest<PageData<ListingDto>>(
+      `/api/v1/catalog/vendors/me/listings?page=${page}&size=${pageSize}`,
+      { token, vendorId },
+    );
+    all.push(...(data.items ?? []).map(toListingView));
+    totalPages = Math.max(1, data.totalPages ?? 1);
+    page += 1;
+    if ((data.items ?? []).length === 0) break;
+  }
+  return all;
 }
 
 export async function bulkPublishListings(

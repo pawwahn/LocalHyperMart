@@ -14,6 +14,7 @@ import com.hyperlocalmart.order.dto.response.SubOrderInternalSnapshotResponse;
 import com.hyperlocalmart.order.dto.response.SubOrderPickupManifestResponse;
 import com.hyperlocalmart.order.service.CodDeliveredService;
 import com.hyperlocalmart.order.service.HubOrderStatsService;
+import com.hyperlocalmart.order.service.OrderHistorySuggestionService;
 import com.hyperlocalmart.order.service.OrderService;
 import com.hyperlocalmart.order.service.SettlementCandidateService;
 import jakarta.servlet.http.HttpServletRequest;
@@ -35,6 +36,17 @@ public class OrderInternalController {
     private final HubOrderStatsService hubOrderStatsService;
     private final SettlementCandidateService settlementCandidateService;
     private final CodDeliveredService codDeliveredService;
+    private final OrderHistorySuggestionService orderHistorySuggestionService;
+
+    @GetMapping("/api/v1/internal/buyers/{buyerId}/recent-listing-ids")
+    public ResponseEntity<ApiResponse<List<UUID>>> recentListingIds(
+            @PathVariable UUID buyerId,
+            @RequestParam UUID townId,
+            @RequestParam(defaultValue = "12") int limit,
+            HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                orderHistorySuggestionService.recentListingIds(buyerId, townId, limit)));
+    }
 
     @GetMapping("/api/v1/internal/orders/{orderId}")
     public ResponseEntity<ApiResponse<OrderInternalSnapshotResponse>> getOrderSnapshot(

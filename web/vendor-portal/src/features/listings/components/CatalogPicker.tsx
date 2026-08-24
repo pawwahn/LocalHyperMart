@@ -38,6 +38,7 @@ type Props = {
   onToggle: (masterItemId: string, checked: boolean) => void;
   onDraftChange: (masterItemId: string, patch: Partial<DraftPricing>) => void;
   onPublish: () => Promise<PublishResult>;
+  onRefresh: () => Promise<void>;
 };
 
 const STATUS_FILTERS: Array<{ id: CatalogStatusFilter; label: string }> = [
@@ -72,18 +73,34 @@ export function CatalogPicker({
   onToggle,
   onDraftChange,
   onPublish,
+  onRefresh,
 }: Props) {
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(25);
   const [sort, setSort] = useState<SortState<CatalogSortKey>>({ key: 'name', dir: 'asc' });
   const [publishConfirmOpen, setPublishConfirmOpen] = useState(false);
   const [publishSuccessCount, setPublishSuccessCount] = useState<number | null>(null);
+  const [publishFailedCount, setPublishFailedCount] = useState(0);
+  const [refreshing, setRefreshing] = useState(false);
 
   async function handlePublishConfirm() {
     const result = await onPublish();
     setPublishConfirmOpen(false);
     if (result.ok) {
       setPublishSuccessCount(result.count);
+      setPublishFailedCount(result.failed);
+    }
+  }
+
+  async function handlePublishAcknowledged() {
+    setRefreshing(true);
+    try {
+      await onRefresh();
+      setPage(0);
+    } finally {
+      setRefreshing(false);
+      setPublishSuccessCount(null);
+      setPublishFailedCount(0);
     }
   }
 
@@ -404,8 +421,8 @@ export function CatalogPicker({
       title={`Publish ${selectedCount} to town?`}
       description={
         selectedCount === 1
-          ? 'This product will be added to your town listing for buyers.'
-          : `These ${selectedCount} products will be added to your town listing for buyers.`
+          ? 'This product will be added to your town listing for buyers if MRP and selling price are valid.'
+          : `Valid products among these ${selectedCount} will be listed. Any with missing or invalid MRP / selling price are skipped so you can fix them.`
       }
       confirmLabel="Publish to town"
       cancelLabel="Cancel"
@@ -418,16 +435,21 @@ export function CatalogPicker({
 
     <ConfirmDialog
       open={publishSuccessCount != null}
-      title="Published to town"
+      title={publishFailedCount > 0 ? 'Some products listed' : 'Published to town'}
       description={
-        publishSuccessCount === 1
-          ? '1 product is now in your town listing. Check My listings to review or hide it.'
-          : `${publishSuccessCount} products are now in your town listing. Check My listings to review or hide them.`
+        publishFailedCount > 0
+          ? `${publishSuccessCount} listed. ${publishFailedCount} still need a valid MRP or selling price — those rows stay selected.`
+          : publishSuccessCount === 1
+            ? '1 product is now in your town listing. Check My listings to review or hide it.'
+            : `${publishSuccessCount} products are now in your town listing. Check My listings to review or hide them.`
       }
       confirmLabel="OK"
       alertOnly
-      onConfirm={() => setPublishSuccessCount(null)}
-      onClose={() => setPublishSuccessCount(null)}
+      busy={refreshing}
+      onConfirm={() => void handlePublishAcknowledged()}
+      onClose={() => {
+        if (!refreshing) void handlePublishAcknowledged();
+      }}
     />
   </>
   );

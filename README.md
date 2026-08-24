@@ -26,15 +26,16 @@ Town-based hyperlocal marketplace for Tier-2/3 India. Monorepo with Java 21 micr
 docker compose up -d
 ```
 
-Or on Windows (starts infra + build + all services):
+Or on Windows (Docker + all Java services + web apps). Repeat runs skip Maven:
 
 ```powershell
 cd LocalHyperMart
 .\scripts\start-dev.ps1
-.\scripts\health-check.ps1
 ```
 
-**Prerequisites:** Docker Desktop, Java 21, Maven 3.9+ on PATH.
+After Java code changes: `.\scripts\start-dev.ps1 -Rebuild`. Stop apps: `.\scripts\stop-dev.ps1`.
+
+**Prerequisites:** Docker Desktop, Java 21, Maven 3.9+ (first build / `-Rebuild` only), Node for web apps.
 
 This starts:
 

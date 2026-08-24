@@ -24,6 +24,12 @@ public class Category extends BaseAuditEntity {
 
     private String description;
 
+    @Column(name = "image_media_id")
+    private UUID imageMediaId;
+
+    @Column(name = "image_url", length = 500)
+    private String imageUrl;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 30)
     private CatalogItemStatus status;

@@ -25,6 +25,7 @@ logs/
 # Env
 .env
 .env.local
+.env.qa
 *.local.yml
 
 # Flutter (future apps/)
@@ -32,7 +33,7 @@ apps/**/.dart_tool/
 apps/**/build/
 apps/**/.flutter-plugins-dependencies
 
-# Node (future web/)
+# Node (web portals)
 web/**/node_modules/
 web/**/dist/
 

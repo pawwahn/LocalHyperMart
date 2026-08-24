@@ -51,16 +51,25 @@ public class TownAdService {
     public TownAdsResponse listPublicAds(UUID townId) {
         requireTown(townId);
         Map<AdKey, TownAd> merged = new LinkedHashMap<>();
-        for (TownAd ad : townAdRepository.findByTownIdAndEnabledTrueOrderBySlotAscSlotIndexAsc(townId)) {
-            if (isRenderable(ad)) {
-                merged.put(new AdKey(ad.getSlot(), ad.getSlotIndex()), ad);
+        Set<AdKey> locallyHidden = new HashSet<>();
+        for (TownAd ad : townAdRepository.findByTownIdOrderBySlotAscSlotIndexAsc(townId)) {
+            AdKey key = new AdKey(ad.getSlot(), ad.getSlotIndex());
+            if (ad.isEnabled() && isRenderable(ad)) {
+                merged.put(key, ad);
+            } else if (!ad.isEnabled() && isRenderable(ad)) {
+                // Super-admin turned this slot off for the town — do not fill from all-towns.
+                locallyHidden.add(key);
             }
         }
         for (TownAd ad : townAdRepository.findByAllTownsTrueAndEnabledTrueOrderByUpdatedAtDesc()) {
             if (!isRenderable(ad) || ad.getTownId().equals(townId)) {
                 continue;
             }
-            merged.putIfAbsent(new AdKey(ad.getSlot(), ad.getSlotIndex()), ad);
+            AdKey key = new AdKey(ad.getSlot(), ad.getSlotIndex());
+            if (locallyHidden.contains(key)) {
+                continue;
+            }
+            merged.putIfAbsent(key, ad);
         }
         List<TownAdResponse> items = merged.values().stream().map(ad -> toResponse(ad, List.of(ad.getTownId()))).toList();
         return TownAdsResponse.builder().townId(townId).items(items).build();

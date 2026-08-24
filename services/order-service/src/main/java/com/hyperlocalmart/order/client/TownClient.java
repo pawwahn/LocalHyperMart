@@ -30,8 +30,8 @@ public class TownClient {
         return response.getData();
     }
 
-    /** Resolve town delivery fee (DEFAULT/platform or SLAB). Falls back to null on failure. */
-    public BigDecimal resolveTownDeliveryFee(UUID townId, BigDecimal orderValue) {
+    /** Town delivery + buyer platform fee. Nulls mean “use caller fallback”. */
+    public CheckoutFees resolveTownCheckoutFees(UUID townId, BigDecimal orderValue) {
         try {
             RestClient client = restClientBuilder.baseUrl(townServiceProperties.getBaseUrl()).build();
             String uri = orderValue == null
@@ -43,19 +43,21 @@ public class TownClient {
                     .retrieve()
                     .body(new ParameterizedTypeReference<ApiResponse<Map<String, Object>>>() {});
             if (response == null || response.getData() == null) {
-                return null;
+                return new CheckoutFees(null, BigDecimal.ZERO);
             }
-            Object raw = response.getData().get("deliveryFee");
-            if (raw instanceof Number n) {
-                return BigDecimal.valueOf(n.doubleValue()).setScale(2, java.math.RoundingMode.HALF_UP);
-            }
-            if (raw instanceof String s && !s.isBlank()) {
-                return new BigDecimal(s.trim()).setScale(2, java.math.RoundingMode.HALF_UP);
-            }
-            return null;
+            Map<String, Object> data = response.getData();
+            BigDecimal platformFee = money(data.get("platformFee"));
+            return new CheckoutFees(
+                    money(data.get("deliveryFee")),
+                    platformFee == null ? BigDecimal.ZERO : platformFee.max(BigDecimal.ZERO));
         } catch (Exception ex) {
-            return null;
+            return new CheckoutFees(null, BigDecimal.ZERO);
         }
+    }
+
+    /** Resolve town delivery fee (DEFAULT/platform or SLAB). Falls back to null on failure. */
+    public BigDecimal resolveTownDeliveryFee(UUID townId, BigDecimal orderValue) {
+        return resolveTownCheckoutFees(townId, orderValue).deliveryFee();
     }
 
     /** Platform-wide delivery fee (independent of town). Falls back to null on failure. */
@@ -69,19 +71,25 @@ public class TownClient {
             if (response == null || response.getData() == null) {
                 return null;
             }
-            Object raw = response.getData().get("deliveryFee");
-            if (raw instanceof Number n) {
-                return BigDecimal.valueOf(n.doubleValue()).setScale(2, java.math.RoundingMode.HALF_UP);
-            }
-            if (raw instanceof String s && !s.isBlank()) {
-                return new BigDecimal(s.trim()).setScale(2, java.math.RoundingMode.HALF_UP);
-            }
-            return null;
+            return money(response.getData().get("deliveryFee"));
         } catch (Exception ex) {
             return null;
         }
     }
 
+    private static BigDecimal money(Object raw) {
+        if (raw instanceof Number n) {
+            return BigDecimal.valueOf(n.doubleValue()).setScale(2, java.math.RoundingMode.HALF_UP);
+        }
+        if (raw instanceof String s && !s.isBlank()) {
+            return new BigDecimal(s.trim()).setScale(2, java.math.RoundingMode.HALF_UP);
+        }
+        return null;
+    }
+
     public record TownSummary(String townCode, String stateCode, String displayName) {
+    }
+
+    public record CheckoutFees(BigDecimal deliveryFee, BigDecimal platformFee) {
     }
 }

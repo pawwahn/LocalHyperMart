@@ -377,12 +377,14 @@ public class OrderService {
         BigDecimal payableSubtotal = cart.payableSubtotal() != null
                 ? cart.payableSubtotal()
                 : cart.itemsSubtotal().subtract(promoDiscount).max(BigDecimal.ZERO);
-        BigDecimal configuredFee = townClient.resolveTownDeliveryFee(request.getTownId(), payableSubtotal);
+        TownClient.CheckoutFees fees = townClient.resolveTownCheckoutFees(request.getTownId(), payableSubtotal);
+        BigDecimal configuredFee = fees.deliveryFee();
         if (configuredFee == null) {
             configuredFee = townClient.getPlatformDeliveryFee();
         }
         BigDecimal deliveryFee = configuredFee != null ? configuredFee : checkoutProperties.getDeliveryFee();
-        BigDecimal grossTotal = payableSubtotal.add(deliveryFee);
+        BigDecimal platformFee = fees.platformFee() == null ? BigDecimal.ZERO : fees.platformFee();
+        BigDecimal grossTotal = payableSubtotal.add(deliveryFee).add(platformFee);
 
         BigDecimal walletBalance = request.isUseStoreCredit()
                 ? paymentClient.getWalletBalance(buyerId)
@@ -409,6 +411,7 @@ public class OrderService {
                 .promoCode(cart.promoCode())
                 .promoDiscount(promoDiscount)
                 .deliveryFee(deliveryFee)
+                .platformFee(platformFee)
                 .storeCreditApplied(storeCreditApplied)
                 .totalAmount(totalAmount)
                 .deliveryAddressSnapshot(addressSnapshot)
@@ -592,6 +595,7 @@ public class OrderService {
                 .placedAt(order.getPlacedAt())
                 .itemsSubtotal(order.getItemsSubtotal())
                 .deliveryFee(order.getDeliveryFee())
+                .platformFee(order.getPlatformFee() == null ? BigDecimal.ZERO : order.getPlatformFee())
                 .storeCreditApplied(order.getStoreCreditApplied() == null ? BigDecimal.ZERO : order.getStoreCreditApplied())
                 .totalAmount(order.getTotalAmount())
                 .paymentMethod(order.getPaymentMethod())

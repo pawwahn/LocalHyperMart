@@ -48,6 +48,12 @@ class PublicRouteMatcherTest {
     }
 
     @Test
+    void townShopSettings_isPublic() {
+        assertThat(PublicRouteMatcher.isPublic(
+                HttpMethod.GET, "/api/v1/towns/abc-123/shop-settings")).isTrue();
+    }
+
+    @Test
     void townDeliveryFeePreview_isPublic() {
         assertThat(PublicRouteMatcher.isPublic(
                 HttpMethod.GET, "/api/v1/towns/abc-123/delivery-fee")).isTrue();

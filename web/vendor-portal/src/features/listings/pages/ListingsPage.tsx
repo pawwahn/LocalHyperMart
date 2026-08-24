@@ -38,6 +38,7 @@ export function ListingsPage({ active = true }: { active?: boolean }) {
     toggleItem,
     updateDraft,
     publishSelected,
+    acknowledgePublish,
     toggleActive,
     saveListingPricing,
     saveListingPhotos,
@@ -111,6 +112,7 @@ export function ListingsPage({ active = true }: { active?: boolean }) {
               onToggle={toggleItem}
               onDraftChange={updateDraft}
               onPublish={publishSelected}
+              onRefresh={acknowledgePublish}
             />
           ) : (
             <PublishedListings

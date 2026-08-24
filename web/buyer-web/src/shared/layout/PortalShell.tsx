@@ -5,6 +5,7 @@ import { HeaderIconButton } from '@hlm-theme';
 import { useAuth } from '@/shared/auth/AuthContext';
 import { useTown } from '@/shared/town/TownContext';
 import { StickyCartBar } from '@/features/shop/components/StickyCartBar';
+import { useShop } from '@/features/shop/hooks/useShop';
 import { AdSlot } from '@/features/ads/components/AdSlot';
 import { TownPickerSheet } from '@/features/towns/components/TownPickerSheet';
 import {
@@ -37,7 +38,7 @@ export function PortalShell({
   subtitle,
   children,
   onRefresh,
-  cartCount = 0,
+  cartCount,
   cartTotalLabel,
   showDeliveryBanner = true,
   showTownPicker = true,
@@ -48,10 +49,13 @@ export function PortalShell({
 }: Props) {
   const { session, logout } = useAuth();
   const { townLabel, openPicker } = useTown();
+  const { cart } = useShop();
   const location = useLocation();
   const navigate = useNavigate();
   const onCart = location.pathname.startsWith('/cart');
-  const showFloatingCart = showStickyCart && !onCart && cartCount > 0;
+  const resolvedCount = cartCount ?? cart?.itemCount ?? 0;
+  const resolvedTotal = cartTotalLabel ?? cart?.payableLabel;
+  const showFloatingCart = showStickyCart && !onCart && resolvedCount > 0;
   const hasFooter = Boolean(footerSlot);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -70,8 +74,8 @@ export function PortalShell({
       style={{
         ...styles.page,
         paddingBottom: showFloatingCart || hasFooter
-          ? 'calc(var(--tabbar-h) + var(--sticky-cart-h) + 1.75rem)'
-          : 'calc(var(--tabbar-h) + 1.25rem)',
+          ? 'calc(var(--tabbar-h) + var(--sticky-cart-h) + env(safe-area-inset-bottom, 0px) + 0.4rem)'
+          : 'calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px) + 0.75rem)',
       }}
     >
       <TownPickerSheet />
@@ -159,7 +163,7 @@ export function PortalShell({
       {footerSlot}
 
       {showFloatingCart ? (
-        <StickyCartBar itemCount={cartCount} totalLabel={cartTotalLabel} />
+        <StickyCartBar itemCount={resolvedCount} totalLabel={resolvedTotal} />
       ) : null}
 
       <nav style={styles.tabbar} aria-label="Primary">
@@ -174,7 +178,7 @@ export function PortalShell({
           to="/cart"
           current={location.pathname}
           label="Basket"
-          badge={cartCount}
+          badge={resolvedCount}
           icon={(active) => <IconBasket active={active} />}
         />
         <Tab

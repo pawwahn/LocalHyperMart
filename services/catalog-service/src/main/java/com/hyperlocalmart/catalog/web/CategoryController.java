@@ -1,6 +1,7 @@
 package com.hyperlocalmart.catalog.web;
 
 import com.hyperlocalmart.catalog.dto.request.CreateCategoryRequest;
+import com.hyperlocalmart.catalog.dto.request.SetCategoryImageRequest;
 import com.hyperlocalmart.catalog.dto.request.SetCategoryPauseRequest;
 import com.hyperlocalmart.catalog.dto.request.SetCategoryTownVisibilityRequest;
 import com.hyperlocalmart.catalog.dto.response.BulkCategoryVisibilityResponse;
@@ -76,6 +77,17 @@ public class CategoryController {
         requireSuperAdmin(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
                 vendorListingService.updateCategory(categoryId, request, principal.getUserId())));
+    }
+
+    @PutMapping("/{categoryId}/image")
+    public ResponseEntity<ApiResponse<CategoryResponse>> setCategoryImage(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @PathVariable UUID categoryId,
+            @Valid @RequestBody SetCategoryImageRequest request,
+            HttpServletRequest httpRequest) {
+        requireSuperAdmin(principal);
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                vendorListingService.setCategoryImage(categoryId, request)));
     }
 
     @PatchMapping("/visibility")

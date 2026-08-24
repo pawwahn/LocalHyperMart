@@ -83,7 +83,6 @@ export function AlertsPage() {
       subtitle="Order updates sent to you (SMS / push stub until live providers)."
       onRefresh={reload}
       showDeliveryBanner={false}
-      showStickyCart={false}
     >
       {error ? <Banner tone="danger">{error}</Banner> : null}
       {loading && items.length === 0 ? (

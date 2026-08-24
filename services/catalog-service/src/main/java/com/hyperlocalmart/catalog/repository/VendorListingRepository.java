@@ -368,4 +368,34 @@ public interface VendorListingRepository extends JpaRepository<VendorListing, UU
             @Param("townId") UUID townId,
             @Param("excluded") Collection<UUID> excluded,
             Pageable pageable);
+
+    @Query("""
+            SELECT vl FROM VendorListing vl
+            JOIN FETCH vl.masterItem mi
+            JOIN FETCH mi.category cat
+            JOIN FETCH mi.unit u
+            WHERE vl.townId = :townId
+              AND vl.active = true
+              AND vl.id IN :ids
+              AND mi.status = com.hyperlocalmart.catalog.entity.CatalogItemStatus.ACTIVE
+              AND (
+                    (
+                      cat.status = com.hyperlocalmart.catalog.entity.CatalogItemStatus.ACTIVE
+                      AND NOT EXISTS (
+                        SELECT 1 FROM CategoryTownOverride o
+                        WHERE o.categoryId = cat.id AND o.townId = :townId AND o.visible = false
+                      )
+                    )
+                    OR (
+                      cat.status = com.hyperlocalmart.catalog.entity.CatalogItemStatus.INACTIVE
+                      AND EXISTS (
+                        SELECT 1 FROM CategoryTownOverride o
+                        WHERE o.categoryId = cat.id AND o.townId = :townId AND o.visible = true
+                      )
+                    )
+                  )
+            """)
+    List<VendorListing> findActiveByTownAndIdIn(
+            @Param("townId") UUID townId,
+            @Param("ids") Collection<UUID> ids);
 }

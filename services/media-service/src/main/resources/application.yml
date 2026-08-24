@@ -5,9 +5,9 @@ spring:
   application:
     name: media-service
   datasource:
-    url: jdbc:postgresql://localhost:5432/hyperlocalmart_media
-    username: hyperlocalmart
-    password: hyperlocalmart
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/hyperlocalmart_media}
+    username: ${SPRING_DATASOURCE_USERNAME:hyperlocalmart}
+    password: ${SPRING_DATASOURCE_PASSWORD:hyperlocalmart}
   jpa:
     hibernate:
       ddl-auto: validate
@@ -24,7 +24,7 @@ spring:
       max-file-size: 5MB
       max-request-size: 6MB
   kafka:
-    bootstrap-servers: localhost:9092
+    bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
 
 management:
   endpoints:

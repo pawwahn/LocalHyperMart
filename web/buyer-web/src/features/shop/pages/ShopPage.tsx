@@ -352,6 +352,7 @@ export function ShopPage({ browseOnly = false }: Props) {
                     <CategoryTile
                       key={block.cat.id}
                       label={block.cat.name}
+                      imageUrl={block.cat.imageUrl}
                       onClick={() => openCategory(block.cat)}
                     />
                   );

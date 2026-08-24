@@ -33,7 +33,10 @@ const STRIP_CSS = `
     overflow: hidden;
     margin-inline: -0.85rem;
     padding-inline: 0.85rem;
-    padding-bottom: 0.75rem;
+    padding-bottom: 0.35rem;
+  }
+  .cart-suggest-viewport.flush-bottom {
+    padding-bottom: 0.1rem;
   }
   .cart-suggest-track {
     display: flex;
@@ -52,6 +55,8 @@ const STRIP_CSS = `
 `;
 
 type Props = {
+  title?: string;
+  ariaLabel?: string;
   items: CatalogItemView[];
   loading: boolean;
   busyKey: string | null;
@@ -59,6 +64,7 @@ type Props = {
   onIncrease: (listingId: string) => void;
   onDecrease: (listingId: string) => void;
   onBrowseMore: () => void;
+  flushBottom?: boolean;
 };
 
 function SkeletonTiles() {
@@ -90,9 +96,17 @@ function SuggestionTile({ item, busyKey, quantityFor, onIncrease, onDecrease }: 
   const busy = busyKey === item.listingId;
 
   return (
-    <article style={styles.tile}>
+    <article
+      style={styles.tile}
+      aria-label={item.fromPreviousOrder ? `${item.name}, from your previous order` : undefined}
+    >
       <div style={styles.shelf}>
         {discount ? <span style={styles.discountPill}>{discount}% off</span> : null}
+        {item.fromPreviousOrder ? (
+          <span style={styles.prevOrderPill} title="From your previous order">
+            from prev. order
+          </span>
+        ) : null}
         <div style={styles.shelfInner}>
           {item.imageUrl ? (
             <img src={item.imageUrl} alt="" style={styles.photo} />
@@ -127,6 +141,8 @@ function SuggestionTile({ item, busyKey, quantityFor, onIncrease, onDecrease }: 
 }
 
 export function CartSuggestionStrip({
+  title = 'You may also need',
+  ariaLabel,
   items,
   loading,
   busyKey,
@@ -134,6 +150,7 @@ export function CartSuggestionStrip({
   onIncrease,
   onDecrease,
   onBrowseMore,
+  flushBottom = false,
 }: Props) {
   const marqueeItems = useMemo(
     () => (items.length > 1 ? [...items, ...items] : items),
@@ -158,12 +175,16 @@ export function CartSuggestionStrip({
     return null;
   }
 
+  const viewportClass = flushBottom
+    ? 'cart-suggest-viewport flush-bottom'
+    : 'cart-suggest-viewport';
+
   return (
-    <section style={styles.section} aria-label="Suggested for your basket">
+    <section style={styles.section} aria-label={ariaLabel ?? title}>
       <style>{STRIP_CSS}</style>
 
       <div style={styles.head}>
-        <h3 style={styles.title}>You may also need</h3>
+        <h3 style={styles.title}>{title}</h3>
         <button type="button" style={styles.seeAllBtn} onClick={onBrowseMore}>
           See all
           <span aria-hidden style={styles.chevron}>
@@ -173,11 +194,11 @@ export function CartSuggestionStrip({
       </div>
 
       {loading && items.length === 0 ? (
-        <div className="cart-suggest-viewport">
+        <div className={viewportClass}>
           <SkeletonTiles />
         </div>
       ) : items.length === 1 ? (
-        <div className="cart-suggest-viewport">
+        <div className={viewportClass}>
           <div style={styles.staticRow}>
             <SuggestionTile
               item={items[0]}
@@ -189,7 +210,7 @@ export function CartSuggestionStrip({
           </div>
         </div>
       ) : (
-        <div className="cart-suggest-viewport">
+        <div className={viewportClass}>
           <div className="cart-suggest-track" style={marqueeStyle}>
             {marqueeItems.map((item, i) => (
               <SuggestionTile
@@ -219,9 +240,9 @@ function formatUnit(unit: string): string {
 const styles: Record<string, CSSProperties> = {
   section: {
     display: 'grid',
-    gap: '0.55rem',
+    gap: '0.4rem',
     minWidth: 0,
-    paddingTop: '0.15rem',
+    paddingTop: '0.1rem',
     borderTop: '1px solid color-mix(in srgb, var(--border) 70%, transparent)',
   },
   head: {
@@ -314,6 +335,25 @@ const styles: Record<string, CSSProperties> = {
     letterSpacing: '0.01em',
     lineHeight: 1.2,
     textTransform: 'lowercase',
+  },
+  prevOrderPill: {
+    position: 'absolute',
+    left: 5,
+    right: 5,
+    bottom: 5,
+    zIndex: 2,
+    padding: '0.1rem 0.22rem',
+    borderRadius: 5,
+    background: 'color-mix(in srgb, var(--text) 78%, transparent)',
+    color: '#fff',
+    fontSize: '0.5rem',
+    fontWeight: 700,
+    letterSpacing: '0.01em',
+    lineHeight: 1.15,
+    textAlign: 'center',
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
   },
   stepperAdd: {
     position: 'absolute',

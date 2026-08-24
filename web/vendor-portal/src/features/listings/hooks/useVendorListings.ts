@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '@/shared/auth/AuthContext';
 import { ApiError } from '@/shared/api/http';
 import {
@@ -29,7 +29,9 @@ type ListingsCache = {
   selected: Record<string, boolean>;
 };
 
-export type PublishResult = { ok: true; count: number } | { ok: false };
+export type PublishResult =
+  | { ok: true; count: number; failed: number }
+  | { ok: false };
 
 let listingsCache: ListingsCache | null = null;
 
@@ -63,6 +65,11 @@ export function useVendorListings() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
+  const pendingRestoreRef = useRef<{
+    failedIds: string[];
+    drafts: Record<string, DraftPricing>;
+    errors: Record<string, string>;
+  } | null>(null);
 
   const reload = useCallback(async () => {
     if (!session) return;
@@ -276,10 +283,11 @@ export function useVendorListings() {
       }
     }
 
-    if (Object.keys(nextRowErrors).length > 0) {
+    const failedIds = Object.keys(nextRowErrors);
+    if (payload.length === 0) {
       setRowErrors(nextRowErrors);
       const first = Object.values(nextRowErrors)[0];
-      const count = Object.keys(nextRowErrors).length;
+      const count = failedIds.length;
       setError(
         count === 1
           ? first
@@ -289,22 +297,67 @@ export function useVendorListings() {
       return { ok: false };
     }
 
+    const failedDrafts: Record<string, DraftPricing> = {};
+    for (const id of failedIds) {
+      if (drafts[id]) failedDrafts[id] = drafts[id];
+    }
+
     try {
       await bulkPublishListings(session.accessToken, session.vendorId, payload);
-      await reload();
-      return { ok: true, count: payload.length };
+      pendingRestoreRef.current = {
+        failedIds,
+        drafts: failedDrafts,
+        errors: nextRowErrors,
+      };
+      if (failedIds.length > 0) {
+        setRowErrors(nextRowErrors);
+        const first = Object.values(nextRowErrors)[0];
+        setNotice(
+          payload.length === 1
+            ? '1 product listed in your town.'
+            : `${payload.length} products listed in your town.`,
+        );
+        setError(
+          failedIds.length === 1
+            ? `1 still needs fixing. ${first}`
+            : `${failedIds.length} still need fixing. First: ${first}`,
+        );
+      } else {
+        setNotice(
+          payload.length === 1
+            ? '1 product listed in your town.'
+            : `${payload.length} products listed in your town.`,
+        );
+      }
+      return { ok: true, count: payload.length, failed: failedIds.length };
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Could not publish listings';
       setError(message);
       // Backend may return "Rice: …" — attach to matching product row when possible.
       const matched = masterItems.find((m) => message.startsWith(`${m.name}:`));
-      if (matched) {
-        setRowErrors({ [matched.id]: message });
-      }
+      setRowErrors({
+        ...nextRowErrors,
+        ...(matched ? { [matched.id]: message } : {}),
+      });
       return { ok: false };
     } finally {
       setSaving(false);
     }
+  }
+
+  async function acknowledgePublish() {
+    listingsCache = null;
+    await reload();
+    const pending = pendingRestoreRef.current;
+    pendingRestoreRef.current = null;
+    if (!pending || pending.failedIds.length === 0) return;
+    setDrafts((prev) => ({ ...prev, ...pending.drafts }));
+    setSelected((prev) => {
+      const next = { ...prev };
+      for (const id of pending.failedIds) next[id] = true;
+      return next;
+    });
+    setRowErrors(pending.errors);
   }
 
   async function toggleActive(listing: ListingView) {
@@ -432,6 +485,7 @@ export function useVendorListings() {
     toggleItem,
     updateDraft,
     publishSelected,
+    acknowledgePublish,
     toggleActive,
     saveListingPricing,
     saveListingPhotos,

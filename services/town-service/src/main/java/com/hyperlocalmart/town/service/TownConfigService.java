@@ -4,6 +4,7 @@ import com.hyperlocalmart.common.exception.BusinessException;
 import com.hyperlocalmart.common.exception.ErrorCode;
 import com.hyperlocalmart.town.dto.request.UpdateTownConfigRequest;
 import com.hyperlocalmart.town.dto.response.TownOperationalConfigResponse;
+import com.hyperlocalmart.town.dto.response.TownShopSettingsResponse;
 import com.hyperlocalmart.town.entity.TownConfig;
 import com.hyperlocalmart.town.repository.TownConfigRepository;
 import com.hyperlocalmart.town.repository.TownRepository;
@@ -27,6 +28,7 @@ public class TownConfigService {
 
     private static final String OPERATIONAL_KEY = "operational";
     private static final BigDecimal DEFAULT_MIN_ORDER = new BigDecimal("199");
+    private static final String DEFAULT_THEME_COLOR = "#0C831F";
     private static final String MODE_DEFAULT = "DEFAULT";
     private static final String MODE_SLAB = "SLAB";
 
@@ -99,6 +101,19 @@ public class TownConfigService {
         List<Map<String, Object>> slabs = normalizeSlabs(request.getDeliverySlabs(), mode);
         value.put("deliverySlabs", slabs);
 
+        if (request.getThemeColor() != null) {
+            value.put("themeColor", normalizeThemeColor(request.getThemeColor()));
+        }
+        if (request.getBestDealsEnabled() != null) {
+            value.put("bestDealsEnabled", request.getBestDealsEnabled());
+        }
+        if (request.getDealPrices() != null) {
+            value.put("dealPrices", normalizeDealPrices(request.getDealPrices()));
+        }
+        if (request.getPlatformFee() != null) {
+            value.put("platformFee", normalizePlatformFee(request.getPlatformFee()));
+        }
+
         config.setConfigValue(value);
         config.setUpdatedAt(Instant.now());
         townConfigRepository.save(config);
@@ -112,13 +127,14 @@ public class TownConfigService {
     @Transactional(readOnly = true)
     public Map<String, Object> resolveDeliveryFee(UUID townId, BigDecimal orderValue) {
         TownOperationalConfigResponse config = getOperationalConfig(townId);
-        BigDecimal platformFee = platformSettingsService.resolveDeliveryFee();
+        BigDecimal platformDeliveryFee = platformSettingsService.resolveDeliveryFee();
+        BigDecimal buyerPlatformFee = config.getPlatformFee() == null ? BigDecimal.ZERO : config.getPlatformFee();
         BigDecimal value = orderValue == null ? BigDecimal.ZERO : orderValue.max(BigDecimal.ZERO);
 
         if (MODE_SLAB.equalsIgnoreCase(config.getDeliveryMode())
                 && config.getDeliverySlabs() != null
                 && !config.getDeliverySlabs().isEmpty()) {
-            BigDecimal currentFee = platformFee;
+            BigDecimal currentFee = platformDeliveryFee;
             boolean matched = false;
             for (TownOperationalConfigResponse.DeliverySlabResponse slab : config.getDeliverySlabs()) {
                 BigDecimal min = slab.getMinOrderValue() == null ? BigDecimal.ZERO : slab.getMinOrderValue();
@@ -126,21 +142,23 @@ public class TownConfigService {
                 boolean geMin = value.compareTo(min) >= 0;
                 boolean ltMax = max == null || value.compareTo(max) <= 0;
                 if (geMin && ltMax) {
-                    currentFee = slab.getDeliveryFee() == null ? platformFee : slab.getDeliveryFee();
+                    currentFee = slab.getDeliveryFee() == null ? platformDeliveryFee : slab.getDeliveryFee();
                     matched = true;
                     break;
                 }
             }
             Map<String, Object> result = new LinkedHashMap<>();
             result.put("deliveryFee", currentFee);
+            result.put("platformFee", buyerPlatformFee);
             result.put("deliveryMode", MODE_SLAB);
             result.put("source", matched ? "TOWN_SLAB" : "PLATFORM_FALLBACK");
-            putCheaperDeliveryHint(result, config.getDeliverySlabs(), value, currentFee, platformFee);
+            putCheaperDeliveryHint(result, config.getDeliverySlabs(), value, currentFee, platformDeliveryFee);
             return result;
         }
 
         Map<String, Object> result = new LinkedHashMap<>();
-        result.put("deliveryFee", platformFee);
+        result.put("deliveryFee", platformDeliveryFee);
+        result.put("platformFee", buyerPlatformFee);
         result.put("deliveryMode", MODE_DEFAULT);
         result.put("source", "PLATFORM_DEFAULT");
         return result;
@@ -154,11 +172,11 @@ public class TownConfigService {
             List<TownOperationalConfigResponse.DeliverySlabResponse> slabs,
             BigDecimal cartValue,
             BigDecimal currentFee,
-            BigDecimal platformFee) {
+            BigDecimal platformDeliveryFee) {
         TownOperationalConfigResponse.DeliverySlabResponse target = null;
         for (TownOperationalConfigResponse.DeliverySlabResponse slab : slabs) {
             BigDecimal min = slab.getMinOrderValue() == null ? BigDecimal.ZERO : slab.getMinOrderValue();
-            BigDecimal fee = slab.getDeliveryFee() == null ? platformFee : slab.getDeliveryFee();
+            BigDecimal fee = slab.getDeliveryFee() == null ? platformDeliveryFee : slab.getDeliveryFee();
             if (fee.compareTo(BigDecimal.ONE) > 0) {
                 continue;
             }
@@ -172,7 +190,7 @@ public class TownConfigService {
                 target = slab;
                 continue;
             }
-            BigDecimal targetFee = target.getDeliveryFee() == null ? platformFee : target.getDeliveryFee();
+            BigDecimal targetFee = target.getDeliveryFee() == null ? platformDeliveryFee : target.getDeliveryFee();
             BigDecimal targetMin = target.getMinOrderValue() == null ? BigDecimal.ZERO : target.getMinOrderValue();
             int closer = min.compareTo(targetMin);
             if (closer < 0 || (closer == 0 && fee.compareTo(targetFee) < 0)) {
@@ -183,7 +201,7 @@ public class TownConfigService {
             return;
         }
         BigDecimal min = target.getMinOrderValue() == null ? BigDecimal.ZERO : target.getMinOrderValue();
-        BigDecimal fee = target.getDeliveryFee() == null ? platformFee : target.getDeliveryFee();
+        BigDecimal fee = target.getDeliveryFee() == null ? platformDeliveryFee : target.getDeliveryFee();
         BigDecimal addMore = min.subtract(cartValue).max(BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP);
         if (addMore.compareTo(BigDecimal.ZERO) <= 0) {
             return;
@@ -248,6 +266,10 @@ public class TownConfigService {
                 .minOrderValue(DEFAULT_MIN_ORDER)
                 .deliveryMode(MODE_DEFAULT)
                 .deliverySlabs(List.of())
+                .themeColor(DEFAULT_THEME_COLOR)
+                .bestDealsEnabled(true)
+                .dealPrices(defaultDealPrices())
+                .platformFee(BigDecimal.ZERO)
                 .build();
     }
 
@@ -260,6 +282,10 @@ public class TownConfigService {
         value.put("refundWorkingDays", 5);
         value.put("maxSmsPerOrder", 6);
         value.put("quietHours", Map.of("start", "22:00", "end", "08:00"));
+        value.put("themeColor", DEFAULT_THEME_COLOR);
+        value.put("bestDealsEnabled", true);
+        value.put("dealPrices", defaultDealPrices());
+        value.put("platformFee", BigDecimal.ZERO);
         return value;
     }
 
@@ -294,7 +320,124 @@ public class TownConfigService {
                 .minOrderValue(minOrderValue)
                 .deliveryMode(mode)
                 .deliverySlabs(slabs)
+                .themeColor(readThemeColor(value))
+                .bestDealsEnabled(readBestDealsEnabled(value))
+                .dealPrices(readDealPrices(value))
+                .platformFee(readPlatformFee(value))
                 .build();
+    }
+
+    public TownShopSettingsResponse toShopSettings(UUID townId) {
+        if (!townRepository.existsById(townId)) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "Town not found");
+        }
+        TownOperationalConfigResponse cfg = getOperationalConfig(townId);
+        return TownShopSettingsResponse.builder()
+                .themeColor(cfg.getThemeColor())
+                .bestDealsEnabled(cfg.isBestDealsEnabled())
+                .dealPrices(cfg.getDealPrices())
+                .platformFee(cfg.getPlatformFee())
+                .build();
+    }
+
+    private static String readThemeColor(Map<String, Object> value) {
+        if (value == null || value.get("themeColor") == null) {
+            return DEFAULT_THEME_COLOR;
+        }
+        try {
+            return normalizeThemeColor(String.valueOf(value.get("themeColor")));
+        } catch (BusinessException ignored) {
+            return DEFAULT_THEME_COLOR;
+        }
+    }
+
+    private static boolean readBestDealsEnabled(Map<String, Object> value) {
+        if (value == null || value.get("bestDealsEnabled") == null) {
+            return true;
+        }
+        Object raw = value.get("bestDealsEnabled");
+        if (raw instanceof Boolean b) {
+            return b;
+        }
+        return !"false".equalsIgnoreCase(String.valueOf(raw).trim());
+    }
+
+    private static List<Integer> defaultDealPrices() {
+        return List.of(19, 29, 49, 99);
+    }
+
+    private static List<Integer> readDealPrices(Map<String, Object> value) {
+        if (value == null || !(value.get("dealPrices") instanceof List<?> raw)) {
+            return defaultDealPrices();
+        }
+        try {
+            return normalizeDealPrices(raw);
+        } catch (BusinessException ignored) {
+            return defaultDealPrices();
+        }
+    }
+
+    static List<Integer> normalizeDealPrices(List<?> raw) {
+        if (raw == null || raw.size() != 4) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Enter exactly 4 deal prices");
+        }
+        List<Integer> out = new ArrayList<>(4);
+        for (Object item : raw) {
+            Integer n = asWholeRupees(item);
+            if (n == null || n < 1) {
+                throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Each deal price must be a whole number ≥ 1");
+            }
+            out.add(n);
+        }
+        return List.copyOf(out);
+    }
+
+    private BigDecimal readPlatformFee(Map<String, Object> value) {
+        if (value == null) {
+            return BigDecimal.ZERO;
+        }
+        BigDecimal n = asDecimal(value.get("platformFee"));
+        if (n == null || n.compareTo(BigDecimal.ZERO) < 0) {
+            return BigDecimal.ZERO;
+        }
+        return n.setScale(2, RoundingMode.HALF_UP);
+    }
+
+    static BigDecimal normalizePlatformFee(BigDecimal raw) {
+        if (raw == null || raw.compareTo(BigDecimal.ZERO) < 0) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Platform fee must be ₹0 or more");
+        }
+        return raw.setScale(2, RoundingMode.HALF_UP);
+    }
+
+    private static Integer asWholeRupees(Object raw) {
+        if (raw == null) return null;
+        if (raw instanceof Number n) {
+            return n.intValue();
+        }
+        if (raw instanceof String s && !s.isBlank()) {
+            try {
+                return Integer.parseInt(s.trim());
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
+        return null;
+    }
+
+    static String normalizeThemeColor(String raw) {
+        if (raw == null || raw.isBlank()) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "themeColor is required");
+        }
+        String hex = raw.trim();
+        if (!hex.startsWith("#")) {
+            hex = "#" + hex;
+        }
+        hex = hex.toUpperCase();
+        if (!hex.matches("^#[0-9A-F]{6}$")) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "themeColor must be a hex color like #0C831F");
+        }
+        return hex;
     }
 
     private BigDecimal asDecimal(Object raw) {

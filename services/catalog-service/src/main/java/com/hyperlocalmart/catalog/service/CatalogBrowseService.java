@@ -23,6 +23,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -113,6 +114,29 @@ public class CatalogBrowseService {
         Page<VendorListing> page = vendorListingRepository.findRecentlyAddedActiveInTown(
                 townId, excludedParam, PageRequest.of(0, limit));
         return mapListings(page.getContent());
+    }
+
+    @Transactional(readOnly = true)
+    public List<CatalogItemResponse> activeByIdsInTown(UUID townId, List<UUID> listingIds) {
+        if (listingIds == null || listingIds.isEmpty()) {
+            return List.of();
+        }
+        List<UUID> distinct = listingIds.stream().filter(id -> id != null).distinct().toList();
+        if (distinct.isEmpty()) {
+            return List.of();
+        }
+        Map<UUID, VendorListing> byId = new LinkedHashMap<>();
+        for (VendorListing listing : vendorListingRepository.findActiveByTownAndIdIn(townId, distinct)) {
+            byId.putIfAbsent(listing.getId(), listing);
+        }
+        List<VendorListing> ordered = new ArrayList<>();
+        for (UUID id : distinct) {
+            VendorListing listing = byId.get(id);
+            if (listing != null) {
+                ordered.add(listing);
+            }
+        }
+        return mapListings(ordered);
     }
 
     @Transactional(readOnly = true)

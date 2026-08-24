@@ -1,8 +1,6 @@
 import type { CSSProperties } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { getPublicPlatformSettings } from '@/features/auth/api/platformSettingsApi';
-import { apiRequest } from '@/shared/api/http';
 import { PortalShell } from '@/shared/layout/PortalShell';
 import { useAuth } from '@/shared/auth/AuthContext';
 import { useTown } from '@/shared/town/TownContext';
@@ -10,18 +8,28 @@ import { Banner, Button, Card, EmptyState, TextField } from '@/shared/ui';
 import { AddressPickerSheet } from '../components/AddressPickerSheet';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { OrderCelebration } from '../components/OrderCelebration';
+import { BestDealsSheet } from '../components/BestDealsSheet';
 import { CartSuggestionStrip } from '../components/CartSuggestionStrip';
+import { DeliveryUnlockChip } from '../components/DeliveryUnlockChip';
 import { QuantityStepper } from '../components/QuantityStepper';
-import { fetchCartSuggestions, type CatalogItemView } from '../api/shopApi';
+import { fetchCartSuggestions, isPlaceholderListingId, placeholderBestDealsInTown, type CatalogItemView } from '../api/shopApi';
 import { productVisual } from '../lib/productVisual';
+import { useDeliveryQuote } from '../hooks/useDeliveryQuote';
 import { useShop } from '../hooks/useShop';
 
-const DEFAULT_DELIVERY_FEE = 40;
+const STICKY_CSS = `
+  @media (max-width: 400px) {
+    .cart-place-btn {
+      padding-left: 0.7rem !important;
+      padding-right: 0.7rem !important;
+    }
+  }
+`;
 
 export function CartPage() {
   const navigate = useNavigate();
   const { session } = useAuth();
-  const { townId } = useTown();
+  const { townId, bestDealsEnabled } = useTown();
   const {
     cart,
     addresses,
@@ -50,10 +58,9 @@ export function CartPage() {
   const [couponCode, setCouponCode] = useState('');
   const [couponError, setCouponError] = useState<string | null>(null);
   const [useStoreCredit, setUseStoreCredit] = useState(false);
-  const [deliveryFee, setDeliveryFee] = useState(DEFAULT_DELIVERY_FEE);
-  const [deliveryNudge, setDeliveryNudge] = useState<{ addMore: number; nextFee: number } | null>(null);
   const [confirmCheckout, setConfirmCheckout] = useState(false);
   const [showCelebration, setShowCelebration] = useState(false);
+  const [dealsOpen, setDealsOpen] = useState(false);
   const [suggestions, setSuggestions] = useState<CatalogItemView[]>([]);
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
   const couponSectionRef = useRef<HTMLDivElement | null>(null);
@@ -64,7 +71,12 @@ export function CartPage() {
   const hasCartItems = Boolean(cart?.cartId && cart.items.length > 0);
   const needsAddress = hasCartItems && !selectedAddressId;
   const itemsPayable = cart?.payableSubtotal ?? 0;
-  const orderGross = itemsPayable + (hasCartItems ? deliveryFee : 0);
+  const { deliveryFee, platformFee, nudge: deliveryNudge, progress: unlockProgress } = useDeliveryQuote(
+    itemsPayable,
+    hasCartItems,
+  );
+  const extras = hasCartItems ? deliveryFee + platformFee : 0;
+  const orderGross = itemsPayable + extras;
   const creditToApply =
     useStoreCredit && storeCreditBalance > 0
       ? Math.min(storeCreditBalance, orderGross)
@@ -76,6 +88,7 @@ export function CartPage() {
     () => cart?.items.map((item) => `${item.listingId}:${item.quantity}`).join('|') ?? '',
     [cart?.items],
   );
+  const bestDeals = useMemo(() => placeholderBestDealsInTown(), []);
 
   const loadSuggestions = useCallback(
     async (opts?: { keepPrevious?: boolean }) => {
@@ -115,57 +128,15 @@ export function CartPage() {
   }
 
   useEffect(() => {
-    let cancelled = false;
-    async function loadFee() {
-      try {
-        if (townId) {
-          const params = new URLSearchParams();
-          if (itemsPayable > 0) params.set('orderValue', String(itemsPayable));
-          const q = params.toString();
-          const data = await apiRequest<{
-            deliveryFee?: number;
-            addMoreForCheaperDelivery?: number;
-            nextDeliveryFee?: number;
-          }>(
-            `/api/v1/towns/${townId}/delivery-fee${q ? `?${q}` : ''}`,
-            { token: session?.accessToken },
-          );
-          if (!cancelled) {
-            setDeliveryFee(Math.max(0, Number(data?.deliveryFee) || DEFAULT_DELIVERY_FEE));
-            const addMore = Number(data?.addMoreForCheaperDelivery ?? 0);
-            const nextFee = Number(data?.nextDeliveryFee);
-            setDeliveryNudge(
-              hasCartItems && addMore > 0 && Number.isFinite(nextFee)
-                ? { addMore, nextFee }
-                : null,
-            );
-          }
-          return;
-        }
-        const s = await getPublicPlatformSettings();
-        if (!cancelled) {
-          setDeliveryFee(Math.max(0, Number(s.deliveryFee) || DEFAULT_DELIVERY_FEE));
-          setDeliveryNudge(null);
-        }
-      } catch {
-        if (!cancelled) {
-          setDeliveryFee(DEFAULT_DELIVERY_FEE);
-          setDeliveryNudge(null);
-        }
-      }
-    }
-    void loadFee();
-    return () => {
-      cancelled = true;
-    };
-  }, [townId, itemsPayable, session?.accessToken, hasCartItems]);
-
-  useEffect(() => {
     void loadSuggestions();
     return () => {
       suggestionsRequestRef.current += 1;
     };
   }, [cartFingerprint, loadSuggestions]);
+
+  useEffect(() => {
+    if (!bestDealsEnabled) setDealsOpen(false);
+  }, [bestDealsEnabled]);
 
   async function handleApplyCoupon() {
     const code = couponCode.trim();
@@ -221,13 +192,24 @@ export function CartPage() {
       footerSlot={
         hasCartItems ? (
           <div style={styles.stickyCheckout}>
+            <style>{STICKY_CSS}</style>
             <div style={styles.stickyInner}>
-              <div>
+              <div style={styles.payBlock}>
                 <p style={styles.payLabel}>Cash on delivery</p>
                 <p style={styles.payTotal}>{payLabel}</p>
               </div>
+              {deliveryNudge ? (
+                <DeliveryUnlockChip
+                  addMore={deliveryNudge.addMore}
+                  nextFee={deliveryNudge.nextFee}
+                  progress={unlockProgress}
+                />
+              ) : (
+                <span style={styles.unlockSpacer} />
+              )}
               <button
                 type="button"
+                className="cart-place-btn"
                 style={styles.placeBtn}
                 disabled={busy}
                 onClick={() => void handleCheckout()}
@@ -271,6 +253,22 @@ export function CartPage() {
           setShowCelebration(false);
           navigate('/orders');
         }}
+      />
+      <BestDealsSheet
+        open={dealsOpen && bestDealsEnabled}
+        busyKey={busyKey}
+        quantityFor={(listingId) =>
+          isPlaceholderListingId(listingId) ? 0 : quantityFor(listingId)
+        }
+        onIncrease={(listingId) => {
+          if (isPlaceholderListingId(listingId)) return;
+          void doIncrease(listingId);
+        }}
+        onDecrease={(listingId) => {
+          if (isPlaceholderListingId(listingId)) return;
+          void doDecrease(listingId);
+        }}
+        onClose={() => setDealsOpen(false)}
       />
 
       {error ? <Banner tone="danger">{error}</Banner> : null}
@@ -408,13 +406,10 @@ export function CartPage() {
               <span>Delivery fee</span>
               <strong>₹{deliveryFee.toFixed(2)}</strong>
             </div>
-            {deliveryNudge ? (
-              <p style={styles.deliveryNudge}>
-                {deliveryNudge.nextFee <= 0
-                  ? `Add ₹${deliveryNudge.addMore.toFixed(2)} more for free delivery`
-                  : `Add ₹${deliveryNudge.addMore.toFixed(2)} more to get delivery at ₹${deliveryNudge.nextFee.toFixed(2)}`}
-              </p>
-            ) : null}
+            <div style={styles.summaryRow}>
+              <span>Platform fee</span>
+              <strong>₹{platformFee.toFixed(2)}</strong>
+            </div>
             {creditToApply > 0 ? (
               <div style={styles.summaryRow}>
                 <span>Store credit</span>
@@ -446,6 +441,28 @@ export function CartPage() {
               </label>
             ) : null}
           </Card>
+
+          {bestDealsEnabled ? (
+          <CartSuggestionStrip
+            title="Best deals in your town"
+            items={bestDeals}
+            loading={false}
+            busyKey={busyKey}
+            flushBottom
+            quantityFor={(listingId) =>
+              isPlaceholderListingId(listingId) ? 0 : quantityFor(listingId)
+            }
+            onIncrease={(listingId) => {
+              if (isPlaceholderListingId(listingId)) return;
+              void doIncrease(listingId);
+            }}
+            onDecrease={(listingId) => {
+              if (isPlaceholderListingId(listingId)) return;
+              void doDecrease(listingId);
+            }}
+            onBrowseMore={() => setDealsOpen(true)}
+          />
+          ) : null}
         </div>
       )}
     </PortalShell>
@@ -453,7 +470,7 @@ export function CartPage() {
 }
 
 const styles: Record<string, CSSProperties> = {
-  page: { display: 'grid', gap: '0.55rem', paddingBottom: '5.25rem' },
+  page: { display: 'grid', gap: '0.55rem', paddingBottom: 0 },
   deliverRow: {
     display: 'flex',
     alignItems: 'center',
@@ -516,13 +533,6 @@ const styles: Record<string, CSSProperties> = {
     fontSize: '0.88rem',
   },
   discount: { color: 'var(--accent)' },
-  deliveryNudge: {
-    margin: 0,
-    fontSize: '0.9rem',
-    fontWeight: 700,
-    color: '#b45309',
-    lineHeight: 1.35,
-  },
   payRow: {
     display: 'flex',
     justifyContent: 'space-between',
@@ -567,25 +577,27 @@ const styles: Record<string, CSSProperties> = {
     maxWidth: 'var(--shell-max)',
     display: 'flex',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: '0.75rem',
+    gap: '0.45rem',
     background: '#1C1C1C',
     color: '#fff',
     borderRadius: 12,
-    padding: '0.5rem 0.5rem 0.5rem 0.95rem',
+    padding: '0.45rem 0.45rem 0.45rem 0.8rem',
     boxShadow: '0 10px 28px rgba(0,0,0,0.28)',
   },
+  payBlock: { flex: '0 0 auto', minWidth: '4.4rem' },
   payLabel: { margin: 0, fontSize: '0.68rem', opacity: 0.75, fontWeight: 700 },
   payTotal: { margin: 0, fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: '1.05rem' },
+  unlockSpacer: { flex: '1 1 auto', minWidth: 0 },
   placeBtn: {
     border: 'none',
     background: 'var(--accent)',
     color: '#fff',
     fontWeight: 800,
     borderRadius: 10,
-    padding: '0.8rem 1.1rem',
+    padding: '0.8rem 1.05rem',
     minHeight: 44,
     cursor: 'pointer',
     whiteSpace: 'nowrap',
+    flex: '0 0 auto',
   },
 };

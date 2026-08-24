@@ -452,6 +452,10 @@ export function OrderDetailPage() {
               <span>Delivery fee</span>
               <strong>{money(order.deliveryFee)}</strong>
             </div>
+            <div style={styles.totalRow}>
+              <span>Platform fee</span>
+              <strong>{money(order.platformFee ?? 0)}</strong>
+            </div>
             {(order.storeCreditApplied ?? 0) > 0 ? (
               <div style={styles.totalRow}>
                 <span>Store credit applied</span>

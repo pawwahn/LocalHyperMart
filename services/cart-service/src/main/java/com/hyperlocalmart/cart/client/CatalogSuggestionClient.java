@@ -1,5 +1,6 @@
 package com.hyperlocalmart.cart.client;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.hyperlocalmart.cart.config.CatalogServiceProperties;
 import com.hyperlocalmart.cart.dto.response.CartSuggestionItemResponse;
 import com.hyperlocalmart.common.api.ApiResponse;
@@ -27,12 +28,14 @@ public class CatalogSuggestionClient {
             List<UUID> excludeListingIds,
             List<UUID> seedMasterItemIds,
             List<String> seedNames,
+            List<UUID> previousListingIds,
             int limit) {
         try {
             RestClient client = restClientBuilder.baseUrl(catalogServiceProperties.getBaseUrl()).build();
             ApiResponse<List<CatalogItemSnapshot>> response = client.post()
                     .uri("/api/v1/internal/catalog/suggestions")
-                    .body(new SuggestRequest(townId, excludeListingIds, seedMasterItemIds, seedNames, limit))
+                    .body(new SuggestRequest(
+                            townId, excludeListingIds, seedMasterItemIds, seedNames, previousListingIds, limit))
                     .retrieve()
                     .body(new ParameterizedTypeReference<ApiResponse<List<CatalogItemSnapshot>>>() {});
             if (response == null || response.getData() == null) {
@@ -65,6 +68,7 @@ public class CatalogSuggestionClient {
                 .imageUrls(item.imageUrls())
                 .avgRating(item.avgRating())
                 .ratingCount(item.ratingCount())
+                .fromPreviousOrder(Boolean.TRUE.equals(item.fromPreviousOrder()))
                 .build();
     }
 
@@ -73,9 +77,11 @@ public class CatalogSuggestionClient {
             List<UUID> excludeListingIds,
             List<UUID> seedMasterItemIds,
             List<String> seedNames,
+            List<UUID> previousListingIds,
             int limit) {
     }
 
+    @JsonIgnoreProperties(ignoreUnknown = true)
     private record CatalogItemSnapshot(
             UUID listingId,
             UUID masterItemId,
@@ -95,6 +101,7 @@ public class CatalogSuggestionClient {
             String imageUrl,
             List<String> imageUrls,
             BigDecimal avgRating,
-            int ratingCount) {
+            int ratingCount,
+            Boolean fromPreviousOrder) {
     }
 }

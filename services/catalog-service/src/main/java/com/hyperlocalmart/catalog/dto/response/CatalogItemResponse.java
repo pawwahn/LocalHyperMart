@@ -32,4 +32,7 @@ public class CatalogItemResponse {
     private List<String> imageUrls;
     private BigDecimal avgRating;
     private int ratingCount;
+    /** True when this listing was taken from the buyer's previous orders. */
+    @Builder.Default
+    private boolean fromPreviousOrder = false;
 }

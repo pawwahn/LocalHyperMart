@@ -5,6 +5,7 @@ import com.hyperlocalmart.catalog.dto.request.BulkCreateVendorListingsRequest;
 import com.hyperlocalmart.catalog.dto.request.CreateCategoryRequest;
 import com.hyperlocalmart.catalog.dto.request.CreateMasterItemRequest;
 import com.hyperlocalmart.catalog.dto.request.CreateVendorListingRequest;
+import com.hyperlocalmart.catalog.dto.request.SetCategoryImageRequest;
 import com.hyperlocalmart.catalog.dto.request.SetMasterItemImagesRequest;
 import com.hyperlocalmart.catalog.dto.request.SetVendorListingImagesRequest;
 import com.hyperlocalmart.catalog.dto.request.UpdateVendorListingRequest;
@@ -97,6 +98,7 @@ public class VendorListingService {
     public List<VendorListingResponse> bulkPublish(UUID vendorId, UUID actorUserId, BulkCreateVendorListingsRequest request) {
         VendorShopClient.VendorShopContext context = vendorShopClient.getShopContextForVendor(vendorId);
         List<VendorListingResponse> results = new ArrayList<>();
+        BusinessException lastFailure = null;
         for (CreateVendorListingRequest item : request.getItems()) {
             if (item.getActive() == null) {
                 item.setActive(true);
@@ -105,11 +107,18 @@ public class VendorListingService {
                 VendorListing listing = createOrUpdateListing(vendorId, actorUserId, context, item);
                 results.add(toResponse(listing, context.shopName()));
             } catch (BusinessException ex) {
-                String productName = masterItemRepository.findById(item.getMasterItemId())
-                        .map(MasterItem::getName)
-                        .orElse("Product");
-                throw new BusinessException(ex.getErrorCode(), productName + ": " + ex.getMessage());
+                String productName = item.getMasterItemId() == null
+                        ? "Product"
+                        : masterItemRepository.findById(item.getMasterItemId())
+                                .map(MasterItem::getName)
+                                .orElse("Product");
+                lastFailure = new BusinessException(ex.getErrorCode(), productName + ": " + ex.getMessage());
             }
+        }
+        if (results.isEmpty()) {
+            throw lastFailure != null
+                    ? lastFailure
+                    : new BusinessException(ErrorCode.VALIDATION_ERROR, "No products could be listed");
         }
         attachListingImages(results);
         return results;
@@ -206,6 +215,23 @@ public class VendorListingService {
                 ? null
                 : request.getDescription().trim());
         category.setUpdatedBy(actorUserId);
+        return toCategory(categoryRepository.save(category));
+    }
+
+    @Transactional
+    public CategoryResponse setCategoryImage(UUID categoryId, SetCategoryImageRequest request) {
+        Category category = categoryRepository.findById(categoryId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Category not found"));
+        boolean clear = request.getMediaId() == null
+                || request.getUrl() == null
+                || request.getUrl().isBlank();
+        if (clear) {
+            category.setImageMediaId(null);
+            category.setImageUrl(null);
+        } else {
+            category.setImageMediaId(request.getMediaId());
+            category.setImageUrl(request.getUrl().trim());
+        }
         return toCategory(categoryRepository.save(category));
     }
 

@@ -121,13 +121,37 @@ export type TownConfigVm = {
   minOrderValue: number;
   deliveryMode: 'DEFAULT' | 'SLAB';
   deliverySlabs: DeliverySlabVm[];
+  themeColor: string;
+  bestDealsEnabled: boolean;
+  dealPrices: number[];
+  platformFee: number;
 };
 
 export type UpdateTownConfigInput = {
   minOrderValue?: number;
   deliveryMode: 'DEFAULT' | 'SLAB';
   deliverySlabs: DeliverySlabVm[];
+  themeColor: string;
+  bestDealsEnabled: boolean;
+  dealPrices: number[];
+  platformFee: number;
 };
+
+function asDealPrices(v: unknown): number[] {
+  const fallback = [19, 29, 49, 99];
+  if (!Array.isArray(v) || v.length !== 4) return fallback;
+  const nums = v.map((item) => {
+    const n = typeof item === 'number' ? item : Number(item);
+    return Number.isFinite(n) ? Math.max(1, Math.round(n)) : 0;
+  });
+  return nums.every((n) => n >= 1) ? nums : fallback;
+}
+
+function asHex(v: unknown, fallback: string): string {
+  const raw = String(v ?? '').trim();
+  const hex = raw.startsWith('#') ? raw : raw ? `#${raw}` : '';
+  return /^#[0-9A-Fa-f]{6}$/.test(hex) ? hex.toUpperCase() : fallback;
+}
 
 function asNum(v: unknown, fallback = 0): number {
   if (typeof v === 'number' && Number.isFinite(v)) return v;
@@ -153,6 +177,10 @@ export async function getTownConfig(token: string, townId: string): Promise<Town
         deliveryFee: asNum(row.deliveryFee, 0),
       };
     }),
+    themeColor: asHex(data?.themeColor, '#0C831F'),
+    bestDealsEnabled: data?.bestDealsEnabled !== false,
+    dealPrices: asDealPrices(data?.dealPrices),
+    platformFee: Math.max(0, asNum(data?.platformFee, 0)),
   };
 }
 

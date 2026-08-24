@@ -8,95 +8,46 @@ Run all commands in PowerShell from the project root:
 
 # PART A — Startup (every day after reboot)
 
-## A1. Start Docker Desktop
+One command starts Docker, all Java services, and all web apps. Repeat runs skip Maven (uses fat JARs) and skip anything already UP.
 
-- Open **Docker Desktop** and wait until it shows **Running** (whale icon steady).
-- Skip if Docker is already running.
+    .\scripts\start-dev.ps1
 
-## A2. Start infrastructure (Postgres, Redis, Kafka, etc.)
+First run after clone/reboot with no JARs: waits for Docker + Maven package, then starts (a few minutes). Later runs: tens of seconds.
 
-    docker compose up -d
+| Flag | When |
+|---|---|
+| (none) | Fast path — skip Maven if JARs exist |
+| `-Rebuild` | After Java code changes |
+| `-SkipWeb` | Backend only |
+| `-NoWait` | Don't poll health |
 
-Wait ~30 seconds. Check:
+URLs after UP:
 
-    docker compose ps
+| App | URL |
+|---|---|
+| Gateway | http://localhost:8080 |
+| Vendor | http://localhost:5173 |
+| Hub / agent | http://localhost:5174 |
+| Buyer | http://localhost:5175 |
+| Super-admin | http://localhost:5176 |
 
-All containers should show **running**.
+Pilot vendor login: `9876500001` / `password`. Hub: `9876500100` / `password`. Super-admin: `9876500900` / `password`.
 
-## A3. Start all Java microservices
-
-    .\scripts\start-dev.ps1 -SkipBuild -ServicesOnly
-
-- Uses the last Maven build (faster).
-- If you changed code or get class-not-found errors:
-
-    mvn clean install -DskipTests
-    .\scripts\start-dev.ps1 -SkipBuild -ServicesOnly
-
-Services start in the background. Logs are in `logs\`.
-Wait **2–3 minutes** before checking health.
-
-## A4. Verify everything is up
-
-    .\scripts\health-check.ps1
-
-Expected: all 10 services **UP**, and `GET /towns -> 1 town(s)`.
-
-If a service is **DOWN**:
+If a Java service is **DOWN**:
 
     Get-Content .\logs\<service-name>.log -Tail 40
 
-## A5. Quick smoke (optional)
+Optional extra health:
 
-    Invoke-RestMethod -Uri "http://localhost:8080/api/v1/towns?status=ENABLED"
+    .\scripts\health-check.ps1
+
+Optional catalog smoke:
 
     Invoke-RestMethod -Uri "http://localhost:8080/api/v1/catalog/items?townId=a1111111-1111-4111-8111-111111111111"
 
-## A6. Start vendor portal UI (optional)
+Stop Java + web (Docker stays up for a faster next start):
 
-Stack for all web apps: **Vite + React + TypeScript** (same for vendor, hub, buyer later).
-
-Node portable (if not on PATH): `C:\Tools\node` — add to PATH for the session:
-
-    $env:Path = "C:\Tools\node;" + $env:Path
-
-Then:
-
-    cd D:\LocalHyperMart\LocalHyperMart\web\vendor-portal
-    npm install
-    npm run dev
-
-Open **http://localhost:5173**
-
-Pilot login: phone `9876500001` / password `password`
-
-Requires backend gateway UP (Part A3–A4). The Vite dev server proxies `/api` to `http://localhost:8080`.
-
-## A7. Start delivery portal UI (hub + agent)
-
-    $env:Path = "C:\Tools\node;" + $env:Path
-    cd D:\LocalHyperMart\LocalHyperMart\web\delivery-portal
-    npm install
-    npm run dev
-
-Open **http://localhost:5174**
-
-| Role | Phone | Password |
-|---|---|---|
-| Hub admin | 9876500100 | password |
-| Agent | 9876500200 | password |
-
-## A8. Start buyer web UI
-
-    $env:Path = "C:\Tools\node;" + $env:Path
-    cd D:\LocalHyperMart\LocalHyperMart\web\buyer-web
-    npm install
-    npm run dev
-
-Open **http://localhost:5175**
-
-- Register a buyer (password example: `Buyer@123`) or login
-- Shop → Cart → Add address → Place COD order → Orders
+    .\scripts\stop-dev.ps1
 
 ---
 
@@ -387,16 +338,11 @@ Optional reorder:
 
 # PART C — End of day (optional — free RAM)
 
-Stop Java services (ports 8080–8089):
+    .\scripts\stop-dev.ps1
 
-    8080,8081,8082,8083,8084,8085,8086,8087,8088,8089 | ForEach-Object {
-      Get-NetTCPConnection -LocalPort $_ -ErrorAction SilentlyContinue |
-        ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }
-    }
+Docker stays running so the next `start-dev.ps1` is fast. Full teardown:
 
-Stop Docker infra:
-
-    docker compose stop
+    .\scripts\stop-dev.ps1 -Down
 
 ---
 
@@ -418,18 +364,25 @@ Stop Docker infra:
 
 # PART E — Service ports (individual restart)
 
-| Service | Port | Restart command |
-|---|---|---|
-| api-gateway | 8080 | `mvn -pl gateway/api-gateway spring-boot:run` |
-| user-service | 8081 | `mvn -pl services/user-service spring-boot:run` |
-| town-service | 8082 | `mvn -pl services/town-service spring-boot:run` |
-| vendor-service | 8083 | `mvn -pl services/vendor-service spring-boot:run` |
-| catalog-service | 8084 | `mvn -pl services/catalog-service spring-boot:run` |
-| cart-service | 8085 | `mvn -pl services/cart-service spring-boot:run` |
-| order-service | 8086 | `mvn -pl services/order-service spring-boot:run` |
-| payment-service | 8087 | `mvn -pl services/payment-service spring-boot:run` |
-| delivery-service | 8088 | `mvn -pl services/delivery-service spring-boot:run` |
-| notification-service | 8089 | `mvn -pl services/notification-service spring-boot:run` |
+Prefer `.\scripts\start-dev.ps1` (skips anything already UP). One service after a code change:
+
+    .\scripts\start-dev.ps1 -Rebuild
+
+| Service | Port |
+|---|---|
+| api-gateway | 8080 |
+| user-service | 8081 |
+| town-service | 8082 |
+| vendor-service | 8083 |
+| catalog-service | 8084 |
+| cart-service | 8085 |
+| order-service | 8086 |
+| payment-service | 8087 |
+| delivery-service | 8088 |
+| notification-service | 8089 |
+| billing-service | 8090 |
+| media-service | 8091 |
+| reporting-service | 8092 |
 
 Stop one port before restart:
 

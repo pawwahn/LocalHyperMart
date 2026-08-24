@@ -110,6 +110,10 @@ export function OrderDetailPage() {
                   <span style={styles.moneyLabel}>Delivery fee</span>
                   <span>{money(Number(order.deliveryFee ?? 0))}</span>
                 </div>
+                <div style={styles.moneyRow}>
+                  <span style={styles.moneyLabel}>Platform fee</span>
+                  <span>{money(Number(order.platformFee ?? 0))}</span>
+                </div>
                 {Number(order.promoDiscount ?? 0) > 0 ? (
                   <div style={styles.moneyRow}>
                     <span style={styles.moneyLabel}>

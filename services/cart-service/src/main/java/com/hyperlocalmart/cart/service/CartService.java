@@ -2,6 +2,7 @@ package com.hyperlocalmart.cart.service;
 
 import com.hyperlocalmart.cart.client.CatalogListingClient;
 import com.hyperlocalmart.cart.client.CatalogSuggestionClient;
+import com.hyperlocalmart.cart.client.OrderHistoryClient;
 import com.hyperlocalmart.cart.client.VendorShopClient;
 import com.hyperlocalmart.cart.dto.request.AddCartItemRequest;
 import com.hyperlocalmart.cart.dto.request.ApplyPromoRequest;
@@ -45,6 +46,7 @@ public class CartService {
     private final PromoCodeRepository promoCodeRepository;
     private final CatalogListingClient catalogListingClient;
     private final CatalogSuggestionClient catalogSuggestionClient;
+    private final OrderHistoryClient orderHistoryClient;
     private final VendorShopClient vendorShopClient;
 
     @Transactional(readOnly = true)
@@ -58,9 +60,10 @@ public class CartService {
         List<UUID> excludeListingIds = cart.getItems().stream().map(CartItem::getListingId).toList();
         List<UUID> seedMasterItemIds = cart.getItems().stream().map(CartItem::getMasterItemId).distinct().toList();
         List<String> seedNames = cart.getItems().stream().map(CartItem::getItemName).distinct().toList();
+        List<UUID> previousListingIds = orderHistoryClient.recentListingIds(userId, townId, capped);
         return CartSuggestionsResponse.builder()
                 .items(catalogSuggestionClient.suggest(
-                        townId, excludeListingIds, seedMasterItemIds, seedNames, capped))
+                        townId, excludeListingIds, seedMasterItemIds, seedNames, previousListingIds, capped))
                 .build();
     }
 

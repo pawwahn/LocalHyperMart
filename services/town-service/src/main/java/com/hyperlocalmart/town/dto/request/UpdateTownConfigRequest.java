@@ -16,6 +16,17 @@ public class UpdateTownConfigRequest {
 
     private List<DeliverySlabRequest> deliverySlabs = new ArrayList<>();
 
+    /** Hex #RRGGBB used on buyer Best deals chrome. */
+    private String themeColor;
+
+    private Boolean bestDealsEnabled;
+
+    /** Four whole-rupee deal price points shown as “Deals at ₹”. */
+    private List<Integer> dealPrices;
+
+    /** Convenience / platform fee added on the buyer basket below delivery. */
+    private BigDecimal platformFee;
+
     @Data
     public static class DeliverySlabRequest {
         private BigDecimal minOrderValue;

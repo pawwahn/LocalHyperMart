@@ -23,7 +23,10 @@ public class CartSuggestionsRequest {
     /** Cart line names — fallback keyword search when category browse is thin. */
     private List<String> seedNames;
 
+    /** Listing IDs from the buyer's recent orders — shown first when still available in town. */
+    private List<UUID> previousListingIds;
+
     @Min(1)
-    @Max(12)
+    @Max(20)
     private Integer limit = 6;
 }

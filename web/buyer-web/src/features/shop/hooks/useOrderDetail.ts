@@ -49,6 +49,7 @@ export function summaryToPreview(summary: OrderSummaryDto): OrderDetailDto {
     placedAt: summary.placedAt,
     itemsSubtotal: Number(summary.totalAmount ?? 0),
     deliveryFee: 0,
+    platformFee: 0,
     storeCreditApplied: 0,
     totalAmount: Number(summary.totalAmount ?? 0),
     paymentMethod: summary.paymentMethod ?? 'COD',

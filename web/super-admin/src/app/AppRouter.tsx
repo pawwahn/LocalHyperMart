@@ -1,3 +1,4 @@
+import { routerBasename } from '../../../shared/routerBasename';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { ThemeProvider } from '@hlm-theme';
 import { AuthProvider } from '@/shared/auth/AuthContext';
@@ -23,7 +24,7 @@ export function AppRouter() {
   return (
     <ThemeProvider storageKey="hlm.superadmin.theme" defaultAccent="amber">
       <AuthProvider>
-        <BrowserRouter>
+        <BrowserRouter basename={routerBasename()}>
           <Routes>
             <Route path="/login" element={<LoginPage />} />
             <Route element={<RequireAuth />}>

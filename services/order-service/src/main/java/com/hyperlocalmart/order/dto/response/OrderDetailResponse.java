@@ -23,6 +23,7 @@ public class OrderDetailResponse {
     private Instant placedAt;
     private BigDecimal itemsSubtotal;
     private BigDecimal deliveryFee;
+    private BigDecimal platformFee;
     private BigDecimal storeCreditApplied;
     private BigDecimal totalAmount;
     private PaymentMethod paymentMethod;

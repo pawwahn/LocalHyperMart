@@ -16,6 +16,7 @@ import {
   saveTownPreference,
   type TownPreference,
 } from './townPreference';
+import { applyTownTheme, DEFAULT_DEAL_PRICES, DEFAULT_TOWN_THEME, parseDealPrices } from './townTheme';
 
 type TownContextValue = {
   towns: TownVm[];
@@ -23,6 +24,9 @@ type TownContextValue = {
   townId: string;
   townLabel: string;
   hasTown: boolean;
+  themeColor: string;
+  bestDealsEnabled: boolean;
+  dealPrices: number[];
   loading: boolean;
   error: string | null;
   /** One-shot message after a town switch (cart cleared, etc.). */
@@ -60,6 +64,9 @@ export function TownProvider({ children }: { children: ReactNode }) {
   const [pref, setPref] = useState<TownPreference | null>(() => loadTownPreference());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [themeColor, setThemeColor] = useState(DEFAULT_TOWN_THEME);
+  const [bestDealsEnabled, setBestDealsEnabled] = useState(true);
+  const [dealPrices, setDealPrices] = useState<number[]>(DEFAULT_DEAL_PRICES);
   const [switchNotice, setSwitchNotice] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
 
@@ -107,6 +114,39 @@ export function TownProvider({ children }: { children: ReactNode }) {
   const hasTown = Boolean(townId);
   const townLabel = hasTown ? labelFor(pref, towns, townId) : 'Choose your town';
 
+  useEffect(() => {
+    if (!townId) {
+      setThemeColor(DEFAULT_TOWN_THEME);
+      setBestDealsEnabled(true);
+      setDealPrices(DEFAULT_DEAL_PRICES);
+      applyTownTheme(DEFAULT_TOWN_THEME);
+      return;
+    }
+    let cancelled = false;
+    void apiRequest<{ themeColor?: string; bestDealsEnabled?: boolean; dealPrices?: number[] }>(
+      `/api/v1/towns/${townId}/shop-settings`,
+      { timeoutMs: 8_000 },
+    )
+      .then((data) => {
+        if (cancelled) return;
+        const color = data?.themeColor?.trim() || DEFAULT_TOWN_THEME;
+        setThemeColor(color);
+        setBestDealsEnabled(data?.bestDealsEnabled !== false);
+        setDealPrices(parseDealPrices(data?.dealPrices));
+        applyTownTheme(color);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setThemeColor(DEFAULT_TOWN_THEME);
+        setBestDealsEnabled(true);
+        setDealPrices(DEFAULT_DEAL_PRICES);
+        applyTownTheme(DEFAULT_TOWN_THEME);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [townId]);
+
   const selectTown = useCallback(
     async (town: TownVm) => {
       const previousTownId = session?.townId || pref?.townId || '';
@@ -151,6 +191,9 @@ export function TownProvider({ children }: { children: ReactNode }) {
       townId,
       townLabel,
       hasTown,
+      themeColor,
+      bestDealsEnabled,
+      dealPrices,
       loading,
       error,
       switchNotice,
@@ -170,6 +213,9 @@ export function TownProvider({ children }: { children: ReactNode }) {
       townId,
       townLabel,
       hasTown,
+      themeColor,
+      bestDealsEnabled,
+      dealPrices,
       loading,
       error,
       switchNotice,

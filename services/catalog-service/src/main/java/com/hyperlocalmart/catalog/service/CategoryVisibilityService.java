@@ -181,6 +181,8 @@ public class CategoryVisibilityService {
                 .id(category.getId())
                 .name(category.getName())
                 .description(category.getDescription())
+                .imageMediaId(category.getImageMediaId())
+                .imageUrl(category.getImageUrl())
                 .status(category.getStatus() == null ? CatalogItemStatus.ACTIVE.name() : category.getStatus().name())
                 .hiddenTownCount(hiddenTownCount)
                 .liveTownCount(liveTownCount)

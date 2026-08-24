@@ -30,6 +30,26 @@ public class CatalogSuggestionService {
         Set<UUID> seenListingIds = new HashSet<>();
         List<CatalogItemResponse> picked = new ArrayList<>();
 
+        List<UUID> previousIds = nullSafeIds(request.getPreviousListingIds()).stream()
+                .filter(id -> !excluded.contains(id))
+                .limit(Math.min(6, limit))
+                .toList();
+        if (!previousIds.isEmpty()) {
+            for (CatalogItemResponse item : catalogBrowseService.activeByIdsInTown(request.getTownId(), previousIds)) {
+                if (item.getListingId() == null || excluded.contains(item.getListingId())) {
+                    continue;
+                }
+                if (!seenListingIds.add(item.getListingId())) {
+                    continue;
+                }
+                item.setFromPreviousOrder(true);
+                picked.add(item);
+                if (picked.size() >= limit) {
+                    return picked;
+                }
+            }
+        }
+
         Set<UUID> categoryIds = resolveCategoryIds(nullSafeIds(request.getSeedMasterItemIds()));
         for (UUID categoryId : categoryIds) {
             if (picked.size() >= limit) {

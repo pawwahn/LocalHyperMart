@@ -18,6 +18,8 @@ export type CategoryVm = {
   description?: string | null;
   parentId?: string | null;
   status?: string;
+  imageUrl?: string | null;
+  imageMediaId?: string | null;
   hiddenTownCount?: number;
   liveTownCount?: number;
 };
@@ -254,6 +256,18 @@ export async function setCategoryTownVisibility(
   }
   if (!last) throw new Error('Select at least one town');
   return last;
+}
+
+export async function setCategoryImage(
+  token: string,
+  categoryId: string,
+  image: { mediaId: string; url: string } | null,
+): Promise<CategoryVm> {
+  return apiRequest<CategoryVm>(`/api/v1/catalog/categories/${categoryId}/image`, {
+    method: 'PUT',
+    token,
+    body: image ? { mediaId: image.mediaId, url: image.url } : { mediaId: null, url: null },
+  });
 }
 
 export async function uploadCatalogImage(token: string, file: File): Promise<UploadedMedia> {

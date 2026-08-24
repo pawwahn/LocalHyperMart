@@ -12,6 +12,8 @@ public class CategoryResponse {
     private UUID id;
     private String name;
     private String description;
+    private UUID imageMediaId;
+    private String imageUrl;
     private String status;
     /** Hide-overrides while globally ACTIVE. */
     private long hiddenTownCount;

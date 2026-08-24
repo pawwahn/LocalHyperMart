@@ -13,7 +13,7 @@ import {
   type TownVm,
 } from '../api/townsApi';
 import { getPlatformSettings } from '@/features/settings/api/settingsApi';
-import { TownDeliveryConfigDialog } from '../components/TownDeliveryConfigDialog';
+import { TownSettingsDialog } from '../components/TownSettingsDialog';
 
 type Filter = 'all' | 'enabled' | 'disabled';
 
@@ -393,7 +393,7 @@ export function TownsPage() {
                         <td style={styles.tdRight}>
                           <div style={styles.actionRow}>
                             <Button size="sm" variant="ghost" disabled={busy} onClick={() => setConfigTown(town)}>
-                              Delivery
+                              Settings
                             </Button>
                             {disabled ? (
                               <Button size="sm" disabled={rowBusy || busy} onClick={() => void toggleStatus(town)}>
@@ -441,7 +441,7 @@ export function TownsPage() {
       </Card>
 
       {configTown ? (
-        <TownDeliveryConfigDialog
+        <TownSettingsDialog
           town={configTown}
           token={token}
           platformDeliveryFee={platformDeliveryFee}

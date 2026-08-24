@@ -11,6 +11,7 @@ import {
   listMasterItemsPage,
   listUnits,
   setMasterItemImages,
+  setCategoryImage,
   updateCategory,
   updateMasterItem,
   uploadCatalogImage,
@@ -81,9 +82,11 @@ export function CatalogPage() {
   const [editItemMrp, setEditItemMrp] = useState('');
   const [catPage, setCatPage] = useState(0);
   const [imageItemId, setImageItemId] = useState<string | null>(null);
+  const [imageCategoryId, setImageCategoryId] = useState<string | null>(null);
   const [imageBusy, setImageBusy] = useState(false);
 
   const imageItem = items.find((i) => i.id === imageItemId) ?? null;
+  const imageCategory = categories.find((c) => c.id === imageCategoryId) ?? null;
   const catNameNormalized = catName.trim().replace(/\s+/g, ' ');
   const catNameTaken = categories.some(
     (c) => c.name.trim().toLowerCase() === catNameNormalized.toLowerCase(),
@@ -336,6 +339,7 @@ export function CatalogPage() {
     try {
       await deleteCategory(token, pendingDelete.id);
       setNotice(`Category “${pendingDelete.name}” deleted`);
+      if (imageCategoryId === pendingDelete.id) setImageCategoryId(null);
       setFilterCategoryId((prev) => (prev === pendingDelete.id ? '' : prev));
       setItemCategoryId((prev) => (prev === pendingDelete.id ? '' : prev));
       setPendingDelete(null);
@@ -539,6 +543,41 @@ export function CatalogPage() {
     }
   }
 
+  async function onPickCategoryImage(files: FileList | null) {
+    if (!token || !imageCategory || !files?.[0]) return;
+    setImageBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const uploaded = await uploadCatalogImage(token, files[0]);
+      const updated = await setCategoryImage(token, imageCategory.id, {
+        mediaId: uploaded.mediaId,
+        url: uploaded.url,
+      });
+      setCategories((prev) => prev.map((c) => (c.id === updated.id ? { ...c, ...updated } : c)));
+      setNotice(`Cover saved for ${updated.name}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Image upload failed');
+    } finally {
+      setImageBusy(false);
+    }
+  }
+
+  async function onClearCategoryImage() {
+    if (!token || !imageCategory) return;
+    setImageBusy(true);
+    setError(null);
+    try {
+      const updated = await setCategoryImage(token, imageCategory.id, null);
+      setCategories((prev) => prev.map((c) => (c.id === updated.id ? { ...c, ...updated } : c)));
+      setNotice('Cover image cleared');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to clear cover');
+    } finally {
+      setImageBusy(false);
+    }
+  }
+
   useEffect(() => {
     if (!imageItemId) return;
     function onKey(e: KeyboardEvent) {
@@ -547,6 +586,15 @@ export function CatalogPage() {
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
   }, [imageItemId]);
+
+  useEffect(() => {
+    if (!imageCategoryId) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') setImageCategoryId(null);
+    }
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [imageCategoryId]);
 
   return (
     <PortalShell
@@ -893,6 +941,7 @@ export function CatalogPage() {
             <table style={styles.table}>
               <thead>
                 <tr>
+                  <th style={styles.th}>Cover</th>
                   <SortTh
                     label="Name"
                     column="name"
@@ -914,13 +963,24 @@ export function CatalogPage() {
               <tbody>
                 {pagedCategories.length === 0 ? (
                   <tr>
-                    <td colSpan={4} style={styles.empty}>
+                    <td colSpan={5} style={styles.empty}>
                       {catQuery.trim() ? 'No categories match.' : 'No categories yet.'}
                     </td>
                   </tr>
                 ) : (
                   pagedCategories.map((c) => (
                     <tr key={c.id}>
+                      <td style={styles.td}>
+                        <button
+                          type="button"
+                          style={styles.thumbBtn}
+                          title="Category cover for buyer home"
+                          aria-label={`Cover image for ${c.name}`}
+                          onClick={() => setImageCategoryId(c.id)}
+                        >
+                          <Thumb urls={c.imageUrl ? [c.imageUrl] : []} />
+                        </button>
+                      </td>
                       <td style={styles.td}>
                         <strong>{c.name}</strong>
                       </td>
@@ -1046,6 +1106,70 @@ export function CatalogPage() {
                 Clear images
               </Button>
               <Button type="button" variant="secondary" onClick={() => setImageItemId(null)}>
+                Done
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {imageCategory ? (
+        <div
+          style={styles.modalBackdrop}
+          role="presentation"
+          onClick={() => setImageCategoryId(null)}
+        >
+          <div
+            style={styles.modal}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="category-cover-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={styles.modalHead}>
+              <div>
+                <h3 id="category-cover-title" style={styles.h3}>
+                  Cover · {imageCategory.name}
+                </h3>
+                <p style={styles.meta}>One photo for the buyer category tile.</p>
+              </div>
+              <button
+                type="button"
+                style={styles.modalClose}
+                aria-label="Close"
+                onClick={() => setImageCategoryId(null)}
+              >
+                ✕
+              </button>
+            </div>
+            <div style={styles.thumbsRow}>
+              {imageCategory.imageUrl ? (
+                <img src={imageCategory.imageUrl} alt="" style={styles.thumbLarge} />
+              ) : null}
+              <label style={styles.uploadTile}>
+                {imageBusy ? '…' : imageCategory.imageUrl ? 'Replace' : '+ Add'}
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,image/gif"
+                  hidden
+                  disabled={imageBusy}
+                  onChange={(e) => {
+                    void onPickCategoryImage(e.target.files);
+                    e.target.value = '';
+                  }}
+                />
+              </label>
+            </div>
+            <div style={styles.imageActions}>
+              <Button
+                type="button"
+                variant="ghost"
+                disabled={imageBusy || !imageCategory.imageUrl}
+                onClick={() => void onClearCategoryImage()}
+              >
+                Clear
+              </Button>
+              <Button type="button" variant="secondary" onClick={() => setImageCategoryId(null)}>
                 Done
               </Button>
             </div>

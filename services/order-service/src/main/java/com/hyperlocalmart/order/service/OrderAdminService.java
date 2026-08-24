@@ -151,6 +151,7 @@ public class OrderAdminService {
                 .paymentStatus(order.getPaymentStatus())
                 .itemsSubtotal(order.getItemsSubtotal())
                 .deliveryFee(order.getDeliveryFee())
+                .platformFee(order.getPlatformFee())
                 .storeCreditApplied(order.getStoreCreditApplied())
                 .promoDiscount(order.getPromoDiscount())
                 .promoCode(order.getPromoCode())

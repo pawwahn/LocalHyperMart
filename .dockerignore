@@ -1,0 +1,17 @@
+.git
+**/.git
+**/target
+**/node_modules
+**/dist
+logs
+*.log
+.idea
+.vscode
+**/.DS_Store
+data
+.env
+.env.qa
+*.iml
+apps
+Documents
+**/.cursor

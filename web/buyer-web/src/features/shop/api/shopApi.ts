@@ -20,6 +20,7 @@ export type CatalogItemDto = {
   imageUrls?: string[] | null;
   avgRating?: number | null;
   ratingCount?: number | null;
+  fromPreviousOrder?: boolean;
 };
 
 export type CartDto = {
@@ -104,6 +105,7 @@ export type OrderDetailDto = {
   placedAt?: string;
   itemsSubtotal: number;
   deliveryFee: number;
+  platformFee?: number;
   storeCreditApplied?: number;
   totalAmount: number;
   paymentMethod: string;
@@ -190,6 +192,7 @@ export type CatalogItemView = {
   price: number;
   imageUrl?: string | null;
   imageUrls: string[];
+  fromPreviousOrder?: boolean;
 };
 
 export type CartLineView = {
@@ -249,6 +252,7 @@ export function toCatalogItem(dto: CatalogItemDto): CatalogItemView {
     ratingCount: Number(dto.ratingCount ?? 0),
     imageUrl,
     imageUrls: urls,
+    fromPreviousOrder: Boolean(dto.fromPreviousOrder),
   };
 }
 
@@ -322,6 +326,7 @@ export type CategoryView = {
   id: string;
   name: string;
   description?: string | null;
+  imageUrl?: string | null;
 };
 
 export async function fetchCategories(townId?: string): Promise<CategoryView[]> {
@@ -345,6 +350,89 @@ export async function fetchCartSuggestions(
     { token, timeoutMs: 8_000 },
   );
   return (data.items ?? []).map(toCatalogItem);
+}
+
+export const PLACEHOLDER_DEAL_PREFIX = 'placeholder:deal:';
+
+export function isPlaceholderListingId(listingId: string): boolean {
+  return listingId.startsWith(PLACEHOLDER_DEAL_PREFIX);
+}
+
+export type DealLane = {
+  id: string;
+  label: string;
+  atPrice?: number;
+};
+
+type DealSample = {
+  name: string;
+  unit: string;
+  price: number;
+  mrp?: number;
+  rating?: number;
+  reviews?: number;
+  maxPrice?: number;
+};
+
+function toDealItem(sample: DealSample, index: number): CatalogItemView {
+  const hasDiscount = sample.mrp != null && sample.mrp > sample.price;
+  return {
+    listingId: `${PLACEHOLDER_DEAL_PREFIX}${index + 1}`,
+    name: sample.name,
+    shopName: 'Local shop',
+    unit: sample.unit,
+    price: sample.price,
+    priceLabel: money(sample.price),
+    mrpLabel: hasDiscount ? money(sample.mrp) : null,
+    discountPercent: hasDiscount
+      ? Math.round(((sample.mrp! - sample.price) / sample.mrp!) * 100)
+      : null,
+    avgRating: sample.rating ?? 0,
+    ratingCount: sample.reviews ?? 0,
+    imageUrls: [],
+  };
+}
+
+const PLACEHOLDER_DEAL_SAMPLES: DealSample[] = [
+  { name: 'Basmati Rice 1kg', unit: '1 kg', price: 140, mrp: 165, rating: 4.6, reviews: 210, maxPrice: 149 },
+  { name: 'Farm Eggs 6pc', unit: '1 pack', price: 48, mrp: 60, rating: 4.5, reviews: 88, maxPrice: 49 },
+  { name: 'Toned Milk 500ml', unit: '1 pack', price: 28, mrp: 32, rating: 4.4, reviews: 340, maxPrice: 29 },
+  { name: 'Toor Dal 1kg', unit: '1 kg', price: 148, mrp: 175, rating: 4.3, reviews: 64, maxPrice: 149 },
+  { name: 'Sunflower Oil 1L', unit: '1 pc', price: 132, mrp: 155, rating: 4.5, reviews: 120, maxPrice: 149 },
+  { name: 'Wheat Atta 5kg', unit: '1 pack', price: 245, mrp: 280, rating: 4.7, reviews: 410, maxPrice: 249 },
+  { name: 'Little Hearts Biscuits', unit: '1 pack (75 g)', price: 19, mrp: 30, rating: 4.7, reviews: 920, maxPrice: 19 },
+  { name: 'Soya Chunks 200g', unit: '1 pack', price: 29, mrp: 42, rating: 4.4, reviews: 150, maxPrice: 29 },
+  { name: 'Maggi Masala 70g', unit: '1 pack', price: 14, mrp: 16, rating: 4.6, reviews: 1800, maxPrice: 19 },
+  { name: 'Tata Salt 1kg', unit: '1 pack', price: 28, mrp: 32, rating: 4.8, reviews: 640, maxPrice: 29 },
+  { name: 'Parle-G Gold 250g', unit: '1 pack', price: 29, mrp: 35, rating: 4.5, reviews: 510, maxPrice: 29 },
+  { name: 'Kissan Jam 200g', unit: '1 pc', price: 49, mrp: 65, rating: 4.2, reviews: 77, maxPrice: 49 },
+];
+
+/** Town deals feed is not wired yet. Swap this for the real API when it exists. */
+export function placeholderBestDealsInTown(): CatalogItemView[] {
+  return PLACEHOLDER_DEAL_SAMPLES.slice(0, 6).map(toDealItem);
+}
+
+export function placeholderDealLanes(prices: number[] = [19, 29, 49, 99]): DealLane[] {
+  const caps = prices.filter((n) => Number.isFinite(n) && n >= 1).slice(0, 4);
+  return [
+    { id: 'all', label: 'Best of all deals' },
+    ...caps.map((atPrice) => ({
+      id: String(atPrice),
+      label: 'Deals at',
+      atPrice,
+    })),
+  ];
+}
+
+export function placeholderDealsForLane(laneId: string): CatalogItemView[] {
+  const items = PLACEHOLDER_DEAL_SAMPLES.map(toDealItem);
+  if (laneId === 'all') return items;
+  const cap = Number(laneId);
+  if (!Number.isFinite(cap)) return items;
+  return PLACEHOLDER_DEAL_SAMPLES.map((sample, i) => ({ sample, item: toDealItem(sample, i) }))
+    .filter(({ sample }) => (sample.maxPrice ?? sample.price) <= cap)
+    .map(({ item }) => item);
 }
 
 export async function addToCart(

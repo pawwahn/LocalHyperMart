@@ -1,3 +1,4 @@
+import { routerBasename } from '../../../shared/routerBasename';
 import type { ReactNode } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { ThemeProvider } from '@hlm-theme';
@@ -31,7 +32,7 @@ export function AppRouter() {
   return (
     <AuthProvider>
       <AuthBoundTheme>
-        <BrowserRouter>
+        <BrowserRouter basename={routerBasename()}>
           <Routes>
             <Route path="/login" element={<LoginPage />} />
             <Route element={<RequireAuth />}>

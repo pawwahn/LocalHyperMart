@@ -1,0 +1,21 @@
+---
+description: Bring the local stack up fast with one script; do not re-explore startup each time
+alwaysApply: true
+---
+
+# Fast local stack
+
+When the user asks to start / bring up / make running the app, services, or local stack:
+
+1. Run this immediately from `LocalHyperMart` (do not rediscover how to start):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\start-dev.ps1
+```
+
+2. If they changed Java code since the last JAR build, add `-Rebuild`.
+3. If they only want backend: `-SkipWeb`. To free RAM later: `.\scripts\stop-dev.ps1` (Docker stays up unless `-Down`).
+4. Do not use `mvn spring-boot:run` or `mvn clean install` for everyday start — the script uses existing fat JARs and `java -jar`.
+5. After start, run `.\scripts\health-check.ps1` only if the start script still reported DOWN services.
+
+Repeat asks should take seconds (Docker + JARs already present), not a Maven rebuild.

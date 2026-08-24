@@ -1,0 +1,237 @@
+# QA stack: one VM, Docker Compose (not ECS).
+# Copy .env.qa.example → .env.qa and run from repo root:
+#   docker compose -f docker-compose.qa.yml --env-file .env.qa up -d --build
+
+name: hlm-qa
+
+x-java-build: &java-build
+  context: .
+  dockerfile: infra/docker/Dockerfile.java
+
+x-java-env: &java-env
+  JWT_SECRET: ${JWT_SECRET}
+  SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER}
+  SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
+  SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+  MANAGEMENT_HEALTH_KAFKA_ENABLED: "false"
+  HLM_USER_SERVICE_URI: http://user-service:8081
+  HLM_TOWN_SERVICE_URI: http://town-service:8082
+  HLM_VENDOR_SERVICE_URI: http://vendor-service:8083
+  HLM_CATALOG_SERVICE_URI: http://catalog-service:8084
+  HLM_CART_SERVICE_URI: http://cart-service:8085
+  HLM_ORDER_SERVICE_URI: http://order-service:8086
+  HLM_PAYMENT_SERVICE_URI: http://payment-service:8087
+  HLM_DELIVERY_SERVICE_URI: http://delivery-service:8088
+  HLM_NOTIFICATION_SERVICE_URI: http://notification-service:8089
+  HLM_BILLING_SERVICE_URI: http://billing-service:8090
+  HLM_MEDIA_SERVICE_URI: http://media-service:8091
+  HLM_REPORTING_SERVICE_URI: http://reporting-service:8092
+
+x-java-svc: &java-svc
+  restart: unless-stopped
+  mem_limit: 384m
+  depends_on:
+    postgres:
+      condition: service_healthy
+    kafka:
+      condition: service_started
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: postgres
+    volumes:
+      - qa-pg-data:/var/lib/postgresql/data
+      - ./infra/postgres/init-databases.sql:/docker-entrypoint-initdb.d/01-init-databases.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    mem_limit: 512m
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --requirepass ${REDIS_PASSWORD}
+    mem_limit: 128m
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.1
+    restart: unless-stopped
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    mem_limit: 256m
+
+  kafka:
+    image: confluentinc/cp-kafka:7.6.1
+    restart: unless-stopped
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    mem_limit: 768m
+
+  user-service:
+    <<: *java-svc
+    build:
+      <<: *java-build
+      args:
+        JAR_PATH: services/user-service/target/user-service-1.0.0-SNAPSHOT.jar
+    environment:
+      <<: *java-env
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/hyperlocalmart_user
+      BUYER_INVITE_PHONES: ${BUYER_INVITE_PHONES:-}
+
+  town-service:
+    <<: *java-svc
+    build:
+      <<: *java-build
+      args:
+        JAR_PATH: services/town-service/target/town-service-1.0.0-SNAPSHOT.jar
+    environment:
+      <<: *java-env
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/hyperlocalmart_town
+
+  vendor-service:
+    <<: *java-svc
+    build:
+      <<: *java-build
+      args:
+        JAR_PATH: services/vendor-service/target/vendor-service-1.0.0-SNAPSHOT.jar
+    environment:
+      <<: *java-env
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/hyperlocalmart_vendor
+
+  catalog-service:
+    <<: *java-svc
+    build:
+      <<: *java-build
+      args:
+        JAR_PATH: services/catalog-service/target/catalog-service-1.0.0-SNAPSHOT.jar
+    environment:
+      <<: *java-env
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/hyperlocalmart_catalog
+
+  cart-service:
+    <<: *java-svc
+    build:
+      <<: *java-build
+      args:
+        JAR_PATH: services/cart-service/target/cart-service-1.0.0-SNAPSHOT.jar
+    environment:
+      <<: *java-env
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/hyperlocalmart_cart
+
+  order-service:
+    <<: *java-svc
+    build:
+      <<: *java-build
+      args:
+        JAR_PATH: services/order-service/target/order-service-1.0.0-SNAPSHOT.jar
+    environment:
+      <<: *java-env
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/hyperlocalmart_order
+
+  payment-service:
+    <<: *java-svc
+    build:
+      <<: *java-build
+      args:
+        JAR_PATH: services/payment-service/target/payment-service-1.0.0-SNAPSHOT.jar
+    environment:
+      <<: *java-env
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/hyperlocalmart_payment
+
+  delivery-service:
+    <<: *java-svc
+    build:
+      <<: *java-build
+      args:
+        JAR_PATH: services/delivery-service/target/delivery-service-1.0.0-SNAPSHOT.jar
+    environment:
+      <<: *java-env
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/hyperlocalmart_delivery
+      DELIVERY_OTP_FIXED_CODE: ${DELIVERY_OTP_FIXED_CODE:-111111}
+
+  notification-service:
+    <<: *java-svc
+    build:
+      <<: *java-build
+      args:
+        JAR_PATH: services/notification-service/target/notification-service-1.0.0-SNAPSHOT.jar
+    environment:
+      <<: *java-env
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/hyperlocalmart_notification
+
+  billing-service:
+    <<: *java-svc
+    build:
+      <<: *java-build
+      args:
+        JAR_PATH: services/billing-service/target/billing-service-1.0.0-SNAPSHOT.jar
+    environment:
+      <<: *java-env
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/hyperlocalmart_billing
+
+  media-service:
+    <<: *java-svc
+    build:
+      <<: *java-build
+      args:
+        JAR_PATH: services/media-service/target/media-service-1.0.0-SNAPSHOT.jar
+    environment:
+      <<: *java-env
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/hyperlocalmart_media
+
+  reporting-service:
+    <<: *java-svc
+    build:
+      <<: *java-build
+      args:
+        JAR_PATH: services/reporting-service/target/reporting-service-1.0.0-SNAPSHOT.jar
+    environment:
+      <<: *java-env
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/hyperlocalmart_reporting
+
+  api-gateway:
+    <<: *java-svc
+    build:
+      <<: *java-build
+      args:
+        JAR_PATH: gateway/api-gateway/target/api-gateway-1.0.0-SNAPSHOT.jar
+    environment:
+      <<: *java-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      user-service:
+        condition: service_started
+      catalog-service:
+        condition: service_started
+
+  web:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.web
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - api-gateway
+    mem_limit: 64m
+
+volumes:
+  qa-pg-data:

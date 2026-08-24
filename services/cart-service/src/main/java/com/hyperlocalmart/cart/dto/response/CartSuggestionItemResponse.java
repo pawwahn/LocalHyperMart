@@ -30,4 +30,5 @@ public class CartSuggestionItemResponse {
     private List<String> imageUrls;
     private BigDecimal avgRating;
     private int ratingCount;
+    private boolean fromPreviousOrder;
 }

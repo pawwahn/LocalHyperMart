@@ -28,6 +28,7 @@ export type AdminOrderDetail = {
   paymentStatus: string;
   itemsSubtotal?: number;
   deliveryFee?: number;
+  platformFee?: number;
   storeCreditApplied?: number;
   promoDiscount?: number;
   promoCode?: string | null;

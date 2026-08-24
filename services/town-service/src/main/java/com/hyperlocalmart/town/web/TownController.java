@@ -7,6 +7,7 @@ import com.hyperlocalmart.town.dto.request.UpdateTownStatusRequest;
 import com.hyperlocalmart.town.dto.response.TownDetailResponse;
 import com.hyperlocalmart.town.dto.response.TownListResponse;
 import com.hyperlocalmart.town.dto.response.TownOperationalConfigResponse;
+import com.hyperlocalmart.town.dto.response.TownShopSettingsResponse;
 import com.hyperlocalmart.town.dto.response.TownSummaryResponse;
 import com.hyperlocalmart.town.entity.TownStatus;
 import com.hyperlocalmart.town.service.PlatformSettingsService;
@@ -92,7 +93,14 @@ public class TownController {
                 townConfigService.updateOperationalConfig(townId, request)));
     }
 
-    /** Buyer/cart preview: resolved delivery fee for this town + cart value. */
+    /** Buyer cart: theme color + whether Best deals is on for this town. */
+    @GetMapping("/api/v1/towns/{townId}/shop-settings")
+    public ResponseEntity<ApiResponse<TownShopSettingsResponse>> getShopSettings(
+            @PathVariable UUID townId,
+            HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest, townConfigService.toShopSettings(townId)));
+    }
+
     @GetMapping("/api/v1/towns/{townId}/delivery-fee")
     public ResponseEntity<ApiResponse<Map<String, Object>>> getTownDeliveryFeePreview(
             @PathVariable UUID townId,
