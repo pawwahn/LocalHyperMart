@@ -9,20 +9,24 @@ import com.hyperlocalmart.order.dto.request.ResolveClaimRequest;
 import com.hyperlocalmart.order.dto.response.AdminOrderResponses.AdminOrderDetailResponse;
 import com.hyperlocalmart.order.dto.response.AdminOrderResponses.AdminOrderSummaryResponse;
 import com.hyperlocalmart.order.dto.response.ClaimResponse;
+import com.hyperlocalmart.order.dto.response.ScratchCardGiftReportResponse;
 import com.hyperlocalmart.order.dto.response.VendorOrderAlertResponse;
 import com.hyperlocalmart.order.entity.ClaimStatus;
 import com.hyperlocalmart.order.entity.OrderStatus;
 import com.hyperlocalmart.order.security.AuthUserPrincipal;
 import com.hyperlocalmart.order.service.OrderAdminService;
 import com.hyperlocalmart.order.service.OrderClaimService;
+import com.hyperlocalmart.order.service.ScratchCardAdminService;
 import com.hyperlocalmart.order.service.VendorOrderAlertService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDate;
 import java.util.UUID;
 
 @RestController
@@ -33,6 +37,7 @@ public class OrderAdminController {
     private final OrderAdminService orderAdminService;
     private final OrderClaimService orderClaimService;
     private final VendorOrderAlertService vendorOrderAlertService;
+    private final ScratchCardAdminService scratchCardAdminService;
 
     @GetMapping
     public ResponseEntity<ApiResponse<PageResponse<AdminOrderSummaryResponse>>> listOrders(
@@ -91,6 +96,18 @@ public class OrderAdminController {
                         principal.getUserId(), principal.getRoles(), subOrderId, townId, body)));
     }
 
+    @GetMapping("/scratch-cards/report")
+    public ResponseEntity<ApiResponse<ScratchCardGiftReportResponse>> scratchCardGiftReport(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @RequestParam(required = false) UUID townId,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            HttpServletRequest httpRequest) {
+        requireSuperAdmin(principal);
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                scratchCardAdminService.townGiftReport(townId, from, to)));
+    }
+
     @GetMapping("/{orderId}")
     public ResponseEntity<ApiResponse<AdminOrderDetailResponse>> getOrder(
             @AuthenticationPrincipal AuthUserPrincipal principal,
@@ -107,6 +124,12 @@ public class OrderAdminController {
         if (principal == null || (!principal.getRoles().contains("HUB_ADMIN")
                 && !principal.getRoles().contains("SUPER_ADMIN"))) {
             throw new BusinessException(ErrorCode.FORBIDDEN, "Hub admin or super admin role required");
+        }
+    }
+
+    private void requireSuperAdmin(AuthUserPrincipal principal) {
+        if (principal == null || !principal.getRoles().contains("SUPER_ADMIN")) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "Super admin role required");
         }
     }
 }

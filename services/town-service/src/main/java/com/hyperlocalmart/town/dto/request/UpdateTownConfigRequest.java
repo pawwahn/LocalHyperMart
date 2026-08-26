@@ -27,6 +27,17 @@ public class UpdateTownConfigRequest {
     /** Convenience / platform fee added on the buyer basket below delivery. */
     private BigDecimal platformFee;
 
+    private Boolean scratchCardEnabled;
+
+    /** Wallet credit lower bound (₹) when the card is scratched. */
+    private BigDecimal scratchRewardMin;
+
+    /** Wallet credit upper bound (₹) when the card is scratched. */
+    private BigDecimal scratchRewardMax;
+
+    /** Goods total after coupon must be greater than this (excludes delivery + platform). */
+    private BigDecimal scratchMinGoodsAmount;
+
     @Data
     public static class DeliverySlabRequest {
         private BigDecimal minOrderValue;

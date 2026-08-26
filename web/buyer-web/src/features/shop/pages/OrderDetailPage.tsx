@@ -2,6 +2,7 @@ import { useState, type CSSProperties } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { PortalShell } from '@/shared/layout/PortalShell';
 import { Badge, Banner, Button, Card, EmptyState, LoadingBlock } from '@/shared/ui';
+import { useAuth } from '@/shared/auth/AuthContext';
 import { useShop } from '../hooks/useShop';
 import { useOrderDetail } from '../hooks/useOrderDetail';
 import { formatBuyerPaymentLabel } from '../lib/formatBuyerPaymentLabel';
@@ -10,6 +11,7 @@ import { ReasonDialog } from '../components/ReasonDialog';
 import { ClaimDialog } from '../components/ClaimDialog';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { StarRating } from '../components/StarRating';
+import { ScratchCardSheet } from '../components/ScratchCardSheet';
 import type { ClaimType, OrderDetailDto } from '../api/shopApi';
 
 function statusTone(status: string): 'neutral' | 'success' | 'warning' | 'danger' | 'brand' {
@@ -80,6 +82,7 @@ export function OrderDetailPage() {
   const location = useLocation();
   const { orderId } = useParams<{ orderId: string }>();
   const preview = (location.state as { preview?: OrderDetailDto } | null)?.preview ?? null;
+  const { session } = useAuth();
   const { cart } = useShop();
   const {
     order,
@@ -103,6 +106,7 @@ export function OrderDetailPage() {
   const [claimOpen, setClaimOpen] = useState(false);
   const [draftRatings, setDraftRatings] = useState<Record<string, number>>({});
   const [claimPresetItemId, setClaimPresetItemId] = useState<string | null>(null);
+  const [scratchOpen, setScratchOpen] = useState(false);
   const [resultDialog, setResultDialog] = useState<{ title: string; description: string } | null>(
     null,
   );
@@ -120,6 +124,7 @@ export function OrderDetailPage() {
       ...item,
       canFileClaim: true,
     }));
+  const unitCount = (order?.items ?? []).reduce((sum, item) => sum + Number(item.quantity ?? 0), 0);
 
   async function onConfirmCancel(reason: string) {
     if (!cancelTarget) return;
@@ -274,6 +279,28 @@ export function OrderDetailPage() {
             ) : null}
           </Card>
 
+          {order.scratchCard ? (
+            <Card elevated style={styles.scratchCard}>
+              <div style={styles.scratchRow}>
+                <div>
+                  <p style={styles.scratchTitle}>
+                    {order.scratchCard.status === 'REVEALED' ? 'Scratch card credited' : 'Scratch card'}
+                  </p>
+                  <p style={styles.meta}>
+                    {order.scratchCard.status === 'REVEALED'
+                      ? `₹${Number(order.scratchCard.revealedAmount ?? 0).toFixed(0)} added to wallet`
+                      : `Win ₹${Math.round(Number(order.scratchCard.rewardMin))}–₹${Math.round(Number(order.scratchCard.rewardMax))}`}
+                  </p>
+                </div>
+                {order.scratchCard.status === 'ISSUED' && session?.accessToken ? (
+                  <Button size="sm" onClick={() => setScratchOpen(true)}>
+                    Scratch
+                  </Button>
+                ) : null}
+              </div>
+            </Card>
+          ) : null}
+
           {order.timeline && order.timeline.length > 0 ? (
             <OrderStatusTimeline
               steps={order.timeline}
@@ -283,7 +310,11 @@ export function OrderDetailPage() {
           ) : null}
 
           <section style={styles.section}>
-            <h2 style={styles.h2}>Items in this order</h2>
+            <h2 style={styles.h2}>
+              {(order.items?.length ?? 0) === 0
+                ? 'Items in this order'
+                : `${unitCount} item${unitCount === 1 ? '' : 's'} in this order`}
+            </h2>
             {(order.items?.length ?? 0) === 0 ? (
               <LoadingBlock label="Loading items…" />
             ) : (
@@ -301,7 +332,7 @@ export function OrderDetailPage() {
                             cancelled ? { ...styles.itemName, ...styles.cancelled } : styles.itemName
                           }
                         >
-                          {item.quantity}× {item.name}
+                          {item.name}
                           {cancelled ? ' (cancelled)' : ''}
                         </p>
                         <p style={styles.meta}>{item.shopName}</p>
@@ -395,6 +426,7 @@ export function OrderDetailPage() {
                           </div>
                         ) : null}
                       </div>
+                      <span style={styles.itemQty}>×{item.quantity}</span>
                       <strong style={styles.lineTotal}>{money(item.lineTotal)}</strong>
                     </Card>
                   );
@@ -479,6 +511,18 @@ export function OrderDetailPage() {
             </Card>
           ) : null}
         </div>
+      ) : null}
+
+      {scratchOpen && order?.scratchCard && session?.accessToken ? (
+        <ScratchCardSheet
+          card={order.scratchCard}
+          token={session.accessToken}
+          onClose={() => setScratchOpen(false)}
+          onRevealed={() => {
+            void reload();
+            window.dispatchEvent(new Event('hlm:scratch-refresh'));
+          }}
+        />
       ) : null}
 
       <ReasonDialog
@@ -582,6 +626,15 @@ const styles: Record<string, CSSProperties> = {
     color: 'var(--text-muted)',
   },
   walletLink: { color: 'var(--accent)', fontWeight: 700, textDecoration: 'none' },
+  itemQty: {
+    fontWeight: 800,
+    whiteSpace: 'nowrap',
+    fontVariantNumeric: 'tabular-nums',
+    minWidth: '2.1rem',
+    textAlign: 'right',
+    alignSelf: 'flex-start',
+    paddingTop: 2,
+  },
   lineTotal: { fontWeight: 800, whiteSpace: 'nowrap' },
   totals: { padding: '0.9rem 1rem', display: 'grid', gap: '0.4rem' },
   totalRow: {
@@ -593,4 +646,12 @@ const styles: Record<string, CSSProperties> = {
   grand: { marginTop: '0.25rem', paddingTop: '0.45rem', borderTop: '1px solid var(--border)' },
   grandAmount: { fontSize: '1.05rem' },
   addressCard: { padding: '0.9rem 1rem', display: 'grid', gap: '0.25rem' },
+  scratchCard: { padding: '0.7rem 0.85rem' },
+  scratchRow: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: '0.75rem',
+  },
+  scratchTitle: { margin: 0, fontWeight: 800, fontSize: '0.92rem' },
 };

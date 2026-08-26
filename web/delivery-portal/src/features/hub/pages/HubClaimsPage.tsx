@@ -291,7 +291,7 @@ export function HubClaimsPage() {
                     <p style={styles.orderNo}>{claim.orderNumber ?? claim.orderId}</p>
                     <p style={styles.meta}>
                       {claimTypeLabel(claim.claimType)}
-                      {claim.itemName ? ` · ${claim.quantity ?? ''}× ${claim.itemName}` : ''}
+                      {claim.itemName ? ` · ${claim.itemName} × ${claim.quantity ?? ''}` : ''}
                       {claim.shopName ? ` · ${claim.shopName}` : ''}
                     </p>
                   </div>

@@ -632,8 +632,7 @@ export function HubDashboardPage() {
                             {s.items.map((item, idx) => (
                               <li key={`${s.id}-${item.name}-${idx}`} style={styles.itemRow}>
                                 <span>
-                                  {item.quantity}
-                                  {item.unitCode ? ` ${item.unitCode.toLowerCase()}` : ''} × {item.name}
+                                  {item.name} × {item.quantity}
                                 </span>
                                 {item.lineTotalLabel ? (
                                   <span style={styles.itemAmt}>{item.lineTotalLabel}</span>

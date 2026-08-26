@@ -31,6 +31,9 @@ public class TownConfigService {
     private static final String DEFAULT_THEME_COLOR = "#0C831F";
     private static final String MODE_DEFAULT = "DEFAULT";
     private static final String MODE_SLAB = "SLAB";
+    private static final BigDecimal DEFAULT_SCRATCH_MIN = new BigDecimal("10.00");
+    private static final BigDecimal DEFAULT_SCRATCH_MAX = new BigDecimal("50.00");
+    private static final BigDecimal DEFAULT_SCRATCH_Z = new BigDecimal("499.00");
 
     private final TownConfigRepository townConfigRepository;
     private final TownRepository townRepository;
@@ -113,6 +116,7 @@ public class TownConfigService {
         if (request.getPlatformFee() != null) {
             value.put("platformFee", normalizePlatformFee(request.getPlatformFee()));
         }
+        applyScratchCard(value, request);
 
         config.setConfigValue(value);
         config.setUpdatedAt(Instant.now());
@@ -270,6 +274,10 @@ public class TownConfigService {
                 .bestDealsEnabled(true)
                 .dealPrices(defaultDealPrices())
                 .platformFee(BigDecimal.ZERO)
+                .scratchCardEnabled(false)
+                .scratchRewardMin(DEFAULT_SCRATCH_MIN)
+                .scratchRewardMax(DEFAULT_SCRATCH_MAX)
+                .scratchMinGoodsAmount(DEFAULT_SCRATCH_Z)
                 .build();
     }
 
@@ -286,6 +294,10 @@ public class TownConfigService {
         value.put("bestDealsEnabled", true);
         value.put("dealPrices", defaultDealPrices());
         value.put("platformFee", BigDecimal.ZERO);
+        value.put("scratchCardEnabled", false);
+        value.put("scratchRewardMin", DEFAULT_SCRATCH_MIN);
+        value.put("scratchRewardMax", DEFAULT_SCRATCH_MAX);
+        value.put("scratchMinGoodsAmount", DEFAULT_SCRATCH_Z);
         return value;
     }
 
@@ -324,6 +336,10 @@ public class TownConfigService {
                 .bestDealsEnabled(readBestDealsEnabled(value))
                 .dealPrices(readDealPrices(value))
                 .platformFee(readPlatformFee(value))
+                .scratchCardEnabled(readScratchCardEnabled(value))
+                .scratchRewardMin(readMoney(value, "scratchRewardMin", DEFAULT_SCRATCH_MIN))
+                .scratchRewardMax(readMoney(value, "scratchRewardMax", DEFAULT_SCRATCH_MAX))
+                .scratchMinGoodsAmount(readMoney(value, "scratchMinGoodsAmount", DEFAULT_SCRATCH_Z))
                 .build();
     }
 
@@ -406,6 +422,61 @@ public class TownConfigService {
     static BigDecimal normalizePlatformFee(BigDecimal raw) {
         if (raw == null || raw.compareTo(BigDecimal.ZERO) < 0) {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Platform fee must be ₹0 or more");
+        }
+        return raw.setScale(2, RoundingMode.HALF_UP);
+    }
+
+    private void applyScratchCard(Map<String, Object> value, UpdateTownConfigRequest request) {
+        boolean enabled = request.getScratchCardEnabled() != null
+                ? request.getScratchCardEnabled()
+                : readScratchCardEnabled(value);
+        BigDecimal min = request.getScratchRewardMin() != null
+                ? normalizeScratchMoney(request.getScratchRewardMin(), "Reward min")
+                : readMoney(value, "scratchRewardMin", DEFAULT_SCRATCH_MIN);
+        BigDecimal max = request.getScratchRewardMax() != null
+                ? normalizeScratchMoney(request.getScratchRewardMax(), "Reward max")
+                : readMoney(value, "scratchRewardMax", DEFAULT_SCRATCH_MAX);
+        BigDecimal threshold = request.getScratchMinGoodsAmount() != null
+                ? normalizeScratchMoney(request.getScratchMinGoodsAmount(), "Min goods amount")
+                : readMoney(value, "scratchMinGoodsAmount", DEFAULT_SCRATCH_Z);
+        if (max.compareTo(min) < 0) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Scratch reward max must be ≥ min");
+        }
+        if (enabled && (min.compareTo(BigDecimal.ONE) < 0 || threshold.compareTo(BigDecimal.ONE) < 0)) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR,
+                    "Scratch card needs reward min, max, and goods threshold of ₹1 or more");
+        }
+        value.put("scratchCardEnabled", enabled);
+        value.put("scratchRewardMin", min);
+        value.put("scratchRewardMax", max);
+        value.put("scratchMinGoodsAmount", threshold);
+    }
+
+    private static boolean readScratchCardEnabled(Map<String, Object> value) {
+        if (value == null || value.get("scratchCardEnabled") == null) {
+            return false;
+        }
+        Object raw = value.get("scratchCardEnabled");
+        if (raw instanceof Boolean b) {
+            return b;
+        }
+        return "true".equalsIgnoreCase(String.valueOf(raw).trim());
+    }
+
+    private BigDecimal readMoney(Map<String, Object> value, String key, BigDecimal fallback) {
+        if (value == null) {
+            return fallback;
+        }
+        BigDecimal n = asDecimal(value.get(key));
+        if (n == null || n.compareTo(BigDecimal.ZERO) < 0) {
+            return fallback;
+        }
+        return n.setScale(2, RoundingMode.HALF_UP);
+    }
+
+    static BigDecimal normalizeScratchMoney(BigDecimal raw, String label) {
+        if (raw == null || raw.compareTo(BigDecimal.ZERO) < 0) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, label + " must be ₹0 or more");
         }
         return raw.setScale(2, RoundingMode.HALF_UP);
     }

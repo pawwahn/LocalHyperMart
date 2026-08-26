@@ -160,8 +160,7 @@ export function ClaimOrderDetailDialog({
                   <li key={item.orderItemId} style={hot ? styles.itemHot : styles.item}>
                     <div style={styles.itemMain}>
                       <span style={styles.itemName}>
-                        {item.quantity}
-                        {item.unitCode ? ` ${item.unitCode.toLowerCase()}` : ''} × {item.name}
+                        {item.name} × {item.quantity}
                         {item.cancelled ? ' · cancelled' : ''}
                       </span>
                       {hot && hasCredit ? (

@@ -86,7 +86,7 @@ export function ClaimDialog({
     }
     const typeLabel = typeMeta?.label ?? claimType;
     const itemLabel = selected
-      ? `${selected.quantity}× ${selected.name}${selected.shopName ? ` (${selected.shopName})` : ''}`
+      ? `${selected.name} × ${selected.quantity}${selected.shopName ? ` (${selected.shopName})` : ''}`
       : 'item';
     const trimmed = comment.trim();
     const reason = trimmed ? `${typeLabel} — ${itemLabel} — ${trimmed}` : `${typeLabel} — ${itemLabel}`;
@@ -151,7 +151,7 @@ export function ClaimDialog({
                 >
                   {claimable.map((item) => (
                     <option key={item.orderItemId} value={item.orderItemId!}>
-                      {item.quantity}× {item.name}
+                      {item.name} × {item.quantity}
                       {item.shopName ? ` · ${item.shopName}` : ''}
                       {` · ${money(item.lineTotal)}`}
                     </option>

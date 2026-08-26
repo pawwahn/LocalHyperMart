@@ -16,6 +16,7 @@ import { MorePage } from '@/features/shop/pages/MorePage';
 import { AddressesPage } from '@/features/shop/pages/AddressesPage';
 import { WalletProvider } from '@/features/shop/hooks/useWallet';
 import { ShopProvider } from '@/features/shop/hooks/useShop';
+import { ScratchCardHost } from '@/features/shop/components/ScratchCardHost';
 import type { ReactNode } from 'react';
 
 /** Shared default theme until login; then personal preference from this browser. */
@@ -57,6 +58,7 @@ export function AppRouter() {
                   </Route>
                   <Route path="*" element={<Navigate to="/shop" replace />} />
                 </Routes>
+                <ScratchCardHost />
               </BrowserRouter>
             </ShopProvider>
           </WalletProvider>

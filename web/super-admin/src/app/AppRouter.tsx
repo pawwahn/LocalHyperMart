@@ -19,6 +19,7 @@ import { OrdersPage } from '@/features/orders/pages/OrdersPage';
 import { OrderDetailPage } from '@/features/orders/pages/OrderDetailPage';
 import { ClaimsPage } from '@/features/claims/pages/ClaimsPage';
 import { CustomersPage } from '@/features/customers/pages/CustomersPage';
+import { ScratchGiftReportPage } from '@/features/scratch/pages/ScratchGiftReportPage';
 
 export function AppRouter() {
   return (
@@ -30,6 +31,7 @@ export function AppRouter() {
             <Route element={<RequireAuth />}>
               <Route path="/dashboard" element={<DashboardPage />} />
               <Route path="/towns" element={<TownsPage />} />
+              <Route path="/scratch-cards" element={<ScratchGiftReportPage />} />
               <Route path="/ads" element={<AdsPage />} />
               <Route path="/orders" element={<OrdersPage />} />
               <Route path="/orders/:orderId" element={<OrderDetailPage />} />

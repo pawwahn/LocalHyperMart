@@ -51,6 +51,10 @@ export function TownSettingsDialog({
   const [bestDealsEnabled, setBestDealsEnabled] = useState(true);
   const [dealPrices, setDealPrices] = useState(['19', '29', '49', '99']);
   const [platformFee, setPlatformFee] = useState('0');
+  const [scratchCardEnabled, setScratchCardEnabled] = useState(false);
+  const [scratchRewardMin, setScratchRewardMin] = useState('10');
+  const [scratchRewardMax, setScratchRewardMax] = useState('50');
+  const [scratchMinGoodsAmount, setScratchMinGoodsAmount] = useState('499');
 
   useEffect(() => {
     let cancelled = false;
@@ -69,6 +73,10 @@ export function TownSettingsDialog({
         setBestDealsEnabled(cfg.bestDealsEnabled);
         setDealPrices(cfg.dealPrices.map((n) => String(n)));
         setPlatformFee(String(cfg.platformFee ?? 0));
+        setScratchCardEnabled(Boolean(cfg.scratchCardEnabled));
+        setScratchRewardMin(String(cfg.scratchRewardMin ?? 10));
+        setScratchRewardMax(String(cfg.scratchRewardMax ?? 50));
+        setScratchMinGoodsAmount(String(cfg.scratchMinGoodsAmount ?? 499));
       })
       .catch((err) => {
         if (cancelled) return;
@@ -97,6 +105,13 @@ export function TownSettingsDialog({
       setError('Platform fee must be ₹0 or more.');
       return;
     }
+    const x = Math.round(Number(scratchRewardMin));
+    const y = Math.round(Number(scratchRewardMax));
+    const z = Math.round(Number(scratchMinGoodsAmount));
+    if (scratchCardEnabled && (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z) || x < 1 || y < x || z < 1)) {
+      setError('Scratch card needs reward min, max, and goods threshold. Max must be ≥ min.');
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -108,6 +123,10 @@ export function TownSettingsDialog({
         bestDealsEnabled,
         dealPrices: prices,
         platformFee: fee,
+        scratchCardEnabled,
+        scratchRewardMin: Number.isFinite(x) ? x : 10,
+        scratchRewardMax: Number.isFinite(y) ? y : 50,
+        scratchMinGoodsAmount: Number.isFinite(z) ? z : 499,
       });
       onSaved(`Town settings saved for ${town.displayName}`);
       onClose();
@@ -255,6 +274,49 @@ export function TownSettingsDialog({
                   </label>
                 </div>
                 <p style={styles.hint}>Shown on the buyer basket below delivery fee</p>
+              </div>
+
+              <div style={styles.toggleRow}>
+                <span>
+                  <strong style={styles.toggleTitle}>Scratch card</strong>
+                  <span style={styles.toggleHint}>After delivery if goods (after coupon) &gt; Z</span>
+                </span>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={scratchCardEnabled}
+                  style={scratchCardEnabled ? styles.switchOn : styles.switchOff}
+                  onClick={() => setScratchCardEnabled((v) => !v)}
+                >
+                  <span style={scratchCardEnabled ? styles.knobOn : styles.knobOff} />
+                </button>
+              </div>
+
+              <div>
+                <p style={styles.label}>Min · Max · Above (₹)</p>
+                <div className="town-settings-scratch-row">
+                  {[
+                    { value: scratchRewardMin, set: setScratchRewardMin, label: 'Min' },
+                    { value: scratchRewardMax, set: setScratchRewardMax, label: 'Max' },
+                    { value: scratchMinGoodsAmount, set: setScratchMinGoodsAmount, label: 'Above' },
+                  ].map((field) => (
+                    <label key={field.label} style={styles.scratchField}>
+                      <span style={styles.dealMiniLabel}>{field.label}</span>
+                      <span style={styles.dealField}>
+                        <span style={styles.dealPrefix}>₹</span>
+                        <input
+                          style={styles.dealInput}
+                          inputMode="numeric"
+                          maxLength={6}
+                          value={field.value}
+                          aria-label={field.label}
+                          onChange={(e) => field.set(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                        />
+                      </span>
+                    </label>
+                  ))}
+                </div>
+                <p style={styles.hint}>Random wallet credit between min and max</p>
               </div>
             </section>
 
@@ -415,6 +477,11 @@ const PANEL_CSS = `
     grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 0.4rem;
   }
+  .town-settings-scratch-row {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.4rem;
+  }
   .town-settings-delivery-row {
     display: grid;
     grid-template-columns: minmax(140px, 1fr) minmax(200px, 1.3fr);
@@ -449,6 +516,9 @@ const PANEL_CSS = `
     }
     .town-settings-deal-row {
       grid-template-columns: 1fr 1fr;
+    }
+    .town-settings-scratch-row {
+      grid-template-columns: 1fr 1fr 1fr;
     }
   }
 `;
@@ -569,6 +639,14 @@ const styles: Record<string, CSSProperties> = {
     minHeight: 36,
   },
   dealPrefix: { fontSize: '0.82rem', fontWeight: 800, color: 'var(--text-muted)' },
+  dealMiniLabel: {
+    display: 'block',
+    fontSize: '0.68rem',
+    fontWeight: 700,
+    color: 'var(--text-muted)',
+    marginBottom: 2,
+  },
+  scratchField: { display: 'grid', gap: 0, minWidth: 0 },
   dealInput: {
     width: '100%',
     minWidth: 0,

@@ -110,8 +110,7 @@ export function SubOrderList({
                         {order.items.map((item) => (
                           <li key={item.orderItemId} style={styles.itemRow}>
                             <span style={item.cancelled ? styles.itemCancelled : undefined}>
-                              {item.quantity}
-                              {item.unitCode ? ` ${item.unitCode.toLowerCase()}` : ''} × {item.name}
+                              {item.name} × {item.quantity}
                               {' · '}
                               {item.lineTotalLabel}
                               {item.cancelled

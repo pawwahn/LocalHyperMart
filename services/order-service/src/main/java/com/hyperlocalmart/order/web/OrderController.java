@@ -13,12 +13,14 @@ import com.hyperlocalmart.order.dto.response.OrderDetailResponse;
 import com.hyperlocalmart.order.dto.response.OrderSummaryResponse;
 import com.hyperlocalmart.order.dto.response.ProductRatingResponse;
 import com.hyperlocalmart.order.dto.response.ReorderResponse;
+import com.hyperlocalmart.order.dto.response.ScratchCardResponse;
 import com.hyperlocalmart.order.security.AuthUserPrincipal;
 import com.hyperlocalmart.order.service.BuyerOrderCancelService;
 import com.hyperlocalmart.order.service.OrderClaimService;
 import com.hyperlocalmart.order.service.OrderInvoiceService;
 import com.hyperlocalmart.order.service.OrderService;
 import com.hyperlocalmart.order.service.ProductRatingService;
+import com.hyperlocalmart.order.service.ScratchCardService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -42,6 +44,7 @@ public class OrderController {
     private final BuyerOrderCancelService buyerOrderCancelService;
     private final OrderClaimService orderClaimService;
     private final ProductRatingService productRatingService;
+    private final ScratchCardService scratchCardService;
 
     @PostMapping
     public ResponseEntity<ApiResponse<CreateOrderResponse>> createOrder(
@@ -63,6 +66,32 @@ public class OrderController {
             HttpServletRequest httpRequest) {
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
                 orderService.listOrders(principal.getUserId(), townId, page, size)));
+    }
+
+    @GetMapping("/scratch-cards")
+    public ResponseEntity<ApiResponse<List<ScratchCardResponse>>> listPendingScratchCards(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                scratchCardService.listPending(principal.getUserId())));
+    }
+
+    @GetMapping("/{orderId}/scratch-card")
+    public ResponseEntity<ApiResponse<ScratchCardResponse>> getScratchCard(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @PathVariable UUID orderId,
+            HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                scratchCardService.getForOrder(principal.getUserId(), orderId)));
+    }
+
+    @PostMapping("/{orderId}/scratch-card/reveal")
+    public ResponseEntity<ApiResponse<ScratchCardResponse>> revealScratchCard(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @PathVariable UUID orderId,
+            HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                scratchCardService.reveal(principal.getUserId(), orderId)));
     }
 
     @GetMapping("/{orderId}")

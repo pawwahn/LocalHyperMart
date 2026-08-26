@@ -36,6 +36,19 @@ public class TownOperationalConfigResponse {
     @Builder.Default
     private BigDecimal platformFee = BigDecimal.ZERO;
 
+    @Builder.Default
+    private boolean scratchCardEnabled = false;
+
+    @Builder.Default
+    private BigDecimal scratchRewardMin = new BigDecimal("10.00");
+
+    @Builder.Default
+    private BigDecimal scratchRewardMax = new BigDecimal("50.00");
+
+    /** Goods total after coupon must be greater than this. */
+    @Builder.Default
+    private BigDecimal scratchMinGoodsAmount = new BigDecimal("499.00");
+
     @Data
     @Builder
     public static class DeliverySlabResponse {

@@ -20,9 +20,9 @@ const LINKS = [
     body: 'Browse and add platform master items used by vendors.',
   },
   {
-    to: '/store-listings',
-    title: 'Store listings report',
-    body: 'See what a specific vendor is listing in a town. Filter and download CSV.',
+    to: '/scratch-cards',
+    title: 'Scratch card gifts',
+    body: 'Town-level wallet credit burned by scratch cards. Super admin only.',
   },
   {
     to: '/settlements',

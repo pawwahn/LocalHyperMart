@@ -21,6 +21,7 @@ import com.hyperlocalmart.order.repository.OrderStatusHistoryRepository;
 import com.hyperlocalmart.order.repository.ProductRatingRepository;
 import com.hyperlocalmart.order.repository.VendorSubOrderRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
@@ -39,6 +40,7 @@ import java.util.stream.Stream;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class OrderService {
 
     private final OrderRepository orderRepository;
@@ -56,6 +58,7 @@ public class OrderService {
     private final OrderInvoiceService orderInvoiceService;
     private final DeliveryClient deliveryClient;
     private final ProductRatingRepository productRatingRepository;
+    private final ScratchCardService scratchCardService;
 
     @Transactional
     public CreateOrderResponse createOrder(UUID buyerId, String buyerPhone, String idempotencyKey, CreateOrderRequest request) {
@@ -268,6 +271,11 @@ public class OrderService {
         notificationClient.notifyOrderDelivered(
                 order.getTownId(), order.getId(), order.getBuyerId(), order.getBuyerPhoneSnapshot(),
                 order.getOrderNumber());
+        try {
+            scratchCardService.issueIfEligible(order);
+        } catch (Exception ex) {
+            log.warn("Scratch card not issued for order {}: {}", order.getId(), ex.getMessage());
+        }
     }
 
     @Transactional(readOnly = true)
@@ -606,6 +614,7 @@ public class OrderService {
                 .timeline(buildTimeline(order, assignments))
                 .canCancelOrder(canCancelOrder)
                 .canFileClaim(canFileClaim)
+                .scratchCard(scratchCardService.findForOrder(order.getBuyerId(), order.getId()).orElse(null))
                 .build();
     }
 

@@ -218,6 +218,9 @@ public class WalletService {
         if ("ORDER_CHECKOUT".equals(ref)) {
             return "Used on an order at checkout";
         }
+        if ("SCRATCH_CARD".equals(ref)) {
+            return "Scratch card reward";
+        }
         if (tx.getNote() != null && !tx.getNote().isBlank()) {
             return tx.getNote();
         }

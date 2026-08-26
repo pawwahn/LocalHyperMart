@@ -35,11 +35,6 @@ function formatUnit(unitCode: string | null | undefined): { short: string; full:
   }
 }
 
-function formatTakeAmount(quantity: number, unitCode: string | null | undefined): string {
-  const unit = formatUnit(unitCode);
-  return unit ? `${quantity} ${unit.short}` : String(quantity);
-}
-
 export function PickupItemsList({
   manifest,
   loading,
@@ -79,7 +74,8 @@ export function PickupItemsList({
     );
   }
 
-  const summary = `${manifest.items.length} item${manifest.items.length === 1 ? '' : 's'} · ₹${manifest.subtotal.toFixed(0)}`;
+  const unitCount = manifest.items.reduce((sum, item) => sum + Number(item.quantity ?? 0), 0);
+  const summary = `${unitCount} item${unitCount === 1 ? '' : 's'} · ₹${manifest.subtotal.toFixed(0)}`;
 
   return (
     <div style={styles.wrap}>
@@ -118,7 +114,7 @@ export function PickupItemsList({
                       <span style={styles.unitMissing}>Unit missing</span>
                     ) : null}
                   </div>
-                  <strong style={styles.qty}>{formatTakeAmount(item.quantity, item.unitCode)}</strong>
+                  <strong style={styles.qty}>×{item.quantity}</strong>
                 </li>
               );
             })}

@@ -23,11 +23,13 @@ function shortTitle(tx: WalletTransactionDto): string {
   if (ref === 'ORDER_CHECKOUT') return 'Checkout';
   if (ref === 'ORDER_ITEM_CANCEL') return 'Cancelled';
   if (ref === 'ORDER_ITEM_RESTORE') return 'Restored';
+  if (ref === 'SCRATCH_CARD') return 'Scratch card';
 
   const raw = (tx.title ?? tx.note ?? '').trim().toLowerCase();
   if (raw.includes('checkout')) return 'Checkout';
   if (raw.includes('cancelled') || raw.includes('canceled')) return 'Cancelled';
   if (raw.includes('restored') || raw.includes('backfill')) return 'Restored';
+  if (raw.includes('scratch')) return 'Scratch card';
   if (raw === 'test') return 'Test';
   return tx.type === 'CREDIT' ? 'Credit' : 'Used';
 }

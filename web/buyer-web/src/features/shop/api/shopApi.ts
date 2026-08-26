@@ -116,6 +116,17 @@ export type OrderDetailDto = {
   timeline?: OrderTimelineStepDto[];
   canCancelOrder?: boolean;
   canFileClaim?: boolean;
+  scratchCard?: ScratchCardDto | null;
+};
+
+export type ScratchCardDto = {
+  id: string;
+  orderId: string;
+  orderNumber?: string | null;
+  status: 'ISSUED' | 'REVEALED';
+  rewardMin: number;
+  rewardMax: number;
+  revealedAmount?: number | null;
 };
 
 export type ClaimType = 'WRONG_ITEM' | 'MISSING' | 'DAMAGED';
@@ -584,6 +595,22 @@ export async function listMyOrders(token: string, townId: string): Promise<Order
 
 export async function fetchOrderDetail(token: string, orderId: string): Promise<OrderDetailDto> {
   return apiRequest<OrderDetailDto>(`/api/v1/orders/${orderId}`, { token });
+}
+
+export async function listPendingScratchCards(token: string): Promise<ScratchCardDto[]> {
+  const data = await apiRequest<ScratchCardDto[] | { items?: ScratchCardDto[] }>(
+    '/api/v1/orders/scratch-cards',
+    { token },
+  );
+  return Array.isArray(data) ? data : data.items ?? [];
+}
+
+export async function revealScratchCard(token: string, orderId: string): Promise<ScratchCardDto> {
+  return apiRequest<ScratchCardDto>(`/api/v1/orders/${orderId}/scratch-card/reveal`, {
+    method: 'POST',
+    token,
+    body: {},
+  });
 }
 
 export async function cancelOrder(

@@ -77,6 +77,31 @@ public class TownClient {
         }
     }
 
+    public ScratchSettings getScratchSettings(UUID townId) {
+        try {
+            RestClient client = restClientBuilder.baseUrl(townServiceProperties.getBaseUrl()).build();
+            ApiResponse<Map<String, Object>> response = client.get()
+                    .uri("/api/v1/internal/towns/{townId}/operational-config", townId)
+                    .retrieve()
+                    .body(new ParameterizedTypeReference<ApiResponse<Map<String, Object>>>() {});
+            if (response == null || response.getData() == null) {
+                return ScratchSettings.disabled();
+            }
+            Map<String, Object> data = response.getData();
+            boolean enabled = Boolean.TRUE.equals(data.get("scratchCardEnabled"))
+                    || "true".equalsIgnoreCase(String.valueOf(data.get("scratchCardEnabled")));
+            BigDecimal min = money(data.get("scratchRewardMin"));
+            BigDecimal max = money(data.get("scratchRewardMax"));
+            BigDecimal threshold = money(data.get("scratchMinGoodsAmount"));
+            if (!enabled || min == null || max == null || threshold == null || max.compareTo(min) < 0) {
+                return ScratchSettings.disabled();
+            }
+            return new ScratchSettings(true, min, max, threshold);
+        } catch (Exception ex) {
+            return ScratchSettings.disabled();
+        }
+    }
+
     private static BigDecimal money(Object raw) {
         if (raw instanceof Number n) {
             return BigDecimal.valueOf(n.doubleValue()).setScale(2, java.math.RoundingMode.HALF_UP);
@@ -91,5 +116,11 @@ public class TownClient {
     }
 
     public record CheckoutFees(BigDecimal deliveryFee, BigDecimal platformFee) {
+    }
+
+    public record ScratchSettings(boolean enabled, BigDecimal rewardMin, BigDecimal rewardMax, BigDecimal minGoodsAmount) {
+        static ScratchSettings disabled() {
+            return new ScratchSettings(false, null, null, null);
+        }
     }
 }

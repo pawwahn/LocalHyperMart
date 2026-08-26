@@ -495,8 +495,9 @@ function OrderRow({
   open: boolean;
   onToggle: () => void;
 }) {
-  const itemCount = row.items?.length ?? 0;
-  const canExpand = itemCount > 0;
+  const lineCount = row.items?.length ?? 0;
+  const unitCount = row.itemCount || lineCount;
+  const canExpand = lineCount > 0;
   const rejected = isRejectedSalesStatus(row.status);
   return (
     <Fragment>
@@ -510,8 +511,8 @@ function OrderRow({
                 aria-expanded={open}
                 aria-label={
                   open
-                    ? `Hide ${itemCount} items for ${row.orderNumber}`
-                    : `Show ${itemCount} items for ${row.orderNumber}`
+                    ? `Hide ${unitCount} items for ${row.orderNumber}`
+                    : `Show ${unitCount} items for ${row.orderNumber}`
                 }
                 onClick={onToggle}
               >
@@ -530,7 +531,7 @@ function OrderRow({
           <div style={styles.sub}>{row.subOrderNumber}</div>
           {canExpand ? (
             <button type="button" style={styles.itemPeek} onClick={onToggle}>
-              {open ? 'Hide items' : `${itemCount} items · show`}
+              {open ? 'Hide items' : `${unitCount} items · show`}
             </button>
           ) : null}
         </td>
@@ -570,7 +571,7 @@ function OrderRow({
               <td style={styles.td} />
               <td style={styles.td} />
               <td style={styles.tdItem} colSpan={2}>
-                {item.quantity}× {item.name}
+                {item.name} × {item.quantity}
                 {item.unit ? ` (${item.unit})` : ''}
               </td>
               <td style={styles.tdRight}>{formatMoney(item.lineTotal)}</td>
