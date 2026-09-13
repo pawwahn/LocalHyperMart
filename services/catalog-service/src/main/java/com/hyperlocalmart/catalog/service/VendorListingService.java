@@ -1,5 +1,6 @@
 package com.hyperlocalmart.catalog.service;
 
+import com.hyperlocalmart.catalog.client.AdminAuditClient;
 import com.hyperlocalmart.catalog.client.VendorShopClient;
 import com.hyperlocalmart.catalog.dto.request.BulkCreateVendorListingsRequest;
 import com.hyperlocalmart.catalog.dto.request.CreateCategoryRequest;
@@ -57,6 +58,7 @@ public class VendorListingService {
     private final CategoryRepository categoryRepository;
     private final UnitRepository unitRepository;
     private final VendorShopClient vendorShopClient;
+    private final AdminAuditClient adminAuditClient;
 
     @Transactional(readOnly = true)
     public PageResponse<VendorListingResponse> listMyListings(UUID vendorId, int page, int size) {
@@ -181,11 +183,13 @@ public class VendorListingService {
                 .build();
         category.setCreatedBy(actorUserId);
         category.setUpdatedBy(actorUserId);
-        return CategoryVisibilityService.toCategory(categoryRepository.save(category), 0, 0);
+        Category saved = categoryRepository.save(category);
+        adminAuditClient.record("catalog", "CREATE_CATEGORY", "Created category " + name, actorUserId, null, saved.getId());
+        return CategoryVisibilityService.toCategory(saved, 0, 0);
     }
 
     @Transactional
-    public void deleteCategory(UUID categoryId) {
+    public void deleteCategory(UUID categoryId, UUID actorUserId) {
         Category category = categoryRepository.findById(categoryId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Category not found"));
         long itemCount = masterItemRepository.countByCategory_Id(categoryId);
@@ -197,6 +201,7 @@ public class VendorListingService {
                             + " this category. Move or delete those items first.");
         }
         categoryRepository.delete(category);
+        adminAuditClient.record("catalog", "DELETE_CATEGORY", "Deleted category " + category.getName(), actorUserId, null, categoryId);
     }
 
     @Transactional
@@ -215,7 +220,9 @@ public class VendorListingService {
                 ? null
                 : request.getDescription().trim());
         category.setUpdatedBy(actorUserId);
-        return toCategory(categoryRepository.save(category));
+        Category saved = categoryRepository.save(category);
+        adminAuditClient.record("catalog", "UPDATE_CATEGORY", "Updated category " + name, actorUserId, null, categoryId);
+        return toCategory(saved);
     }
 
     @Transactional
@@ -375,6 +382,7 @@ public class VendorListingService {
         item.setUpdatedBy(actorUserId);
         MasterItemSummaryResponse created = toMasterSummary(masterItemRepository.save(item));
         created.setImageUrls(List.of());
+        adminAuditClient.record("catalog", "CREATE_MASTER_ITEM", "Created item " + created.getName(), actorUserId, null, created.getMasterItemId());
         return created;
     }
 
@@ -401,11 +409,12 @@ public class VendorListingService {
         item.setUpdatedBy(actorUserId);
         MasterItemSummaryResponse updated = toMasterSummary(masterItemRepository.save(item));
         attachImageUrls(List.of(updated));
+        adminAuditClient.record("catalog", "UPDATE_MASTER_ITEM", "Updated item " + updated.getName(), actorUserId, null, masterItemId);
         return updated;
     }
 
     @Transactional
-    public void deleteMasterItem(UUID masterItemId) {
+    public void deleteMasterItem(UUID masterItemId, UUID actorUserId) {
         MasterItem item = masterItemRepository.findById(masterItemId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Master item not found"));
         long listingCount = vendorListingRepository.countByMasterItem_Id(masterItemId);
@@ -418,6 +427,7 @@ public class VendorListingService {
         }
         masterItemImageRepository.deleteByMasterItemId(masterItemId);
         masterItemRepository.delete(item);
+        adminAuditClient.record("catalog", "DELETE_MASTER_ITEM", "Deleted item " + item.getName(), actorUserId, null, masterItemId);
     }
 
     private String blankToNull(String value) {

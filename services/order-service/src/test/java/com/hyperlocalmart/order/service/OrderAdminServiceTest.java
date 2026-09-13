@@ -57,4 +57,66 @@ class OrderAdminServiceTest {
         assertThat(result.getItems()).hasSize(1);
         assertThat(result.getItems().getFirst().getOrderNumber()).isEqualTo("NRPT-00001");
     }
+
+    @Test
+    void getAdminOrder_countsActiveItemsAndKeepsCancelledVisible() {
+        UUID townId = UUID.fromString("a8e7366c-2bd8-4376-b18b-7ba110f4d69f");
+        UUID hubAdminUserId = UUID.fromString("00000000-0000-4000-8000-000000000202");
+        UUID orderId = UUID.randomUUID();
+
+        OrderItem active = OrderItem.builder()
+                .id(UUID.randomUUID())
+                .itemNameSnapshot("Toor Dal")
+                .shopNameSnapshot("R K Fancy")
+                .quantity(1)
+                .lineTotal(new BigDecimal("160.00"))
+                .status(OrderItemStatus.ACTIVE)
+                .build();
+        OrderItem cancelled = OrderItem.builder()
+                .id(UUID.randomUUID())
+                .itemNameSnapshot("Biryani Masala")
+                .shopNameSnapshot("R K Fancy")
+                .quantity(1)
+                .lineTotal(new BigDecimal("50.00"))
+                .status(OrderItemStatus.CANCELLED)
+                .build();
+        VendorSubOrder bag = VendorSubOrder.builder()
+                .id(UUID.randomUUID())
+                .subOrderNumber("CLX/AP-110926-0001/1")
+                .vendorId(UUID.randomUUID())
+                .shopId(UUID.randomUUID())
+                .status(VendorSubOrderStatus.READY_FOR_PICKUP)
+                .subtotal(new BigDecimal("160.00"))
+                .items(List.of(active, cancelled))
+                .build();
+        Order order = Order.builder()
+                .id(orderId)
+                .orderNumber("CLX/AP-110926-0001")
+                .townId(townId)
+                .buyerId(UUID.randomUUID())
+                .status(OrderStatus.PLACED)
+                .paymentMethod(PaymentMethod.COD)
+                .paymentStatus(PaymentStatus.PENDING)
+                .totalAmount(new BigDecimal("161.00"))
+                .vendorSubOrders(List.of(bag))
+                .build();
+        bag.setOrder(order);
+
+        when(deliveryClient.getHubAdminContext(hubAdminUserId))
+                .thenReturn(new DeliveryClient.HubAdminContext(hubAdminUserId, UUID.randomUUID(), townId));
+        when(orderRepository.findAdminDetailById(orderId)).thenReturn(java.util.Optional.of(order));
+        when(vendorOrderAlertRepository.findByVendorSubOrderIdInOrderByCreatedAtDesc(any()))
+                .thenReturn(List.of());
+        when(deliveryClient.getAssignmentsForOrder(orderId)).thenReturn(List.of());
+
+        var detail = orderAdminService.getAdminOrder(
+                hubAdminUserId, List.of("HUB_ADMIN"), orderId, townId);
+
+        assertThat(detail.getSubOrders()).hasSize(1);
+        var sub = detail.getSubOrders().getFirst();
+        assertThat(sub.getItemCount()).isEqualTo(1);
+        assertThat(sub.getCancelledItemCount()).isEqualTo(1);
+        assertThat(sub.getItems()).hasSize(2);
+        assertThat(sub.getItems().get(1).getStatus()).isEqualTo("CANCELLED");
+    }
 }

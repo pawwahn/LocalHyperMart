@@ -10,6 +10,7 @@ export default defineConfig({
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
       '@hlm-theme': fileURLToPath(new URL('../shared/theme', import.meta.url)),
+      '@hlm-legal': fileURLToPath(new URL('../shared/legal', import.meta.url)),
     },
   },
   server: {
@@ -18,6 +19,8 @@ export default defineConfig({
       '/api': {
         target: 'http://localhost:8080',
         changeOrigin: true,
+        timeout: 10_000,
+        proxyTimeout: 10_000,
       },
     },
   },

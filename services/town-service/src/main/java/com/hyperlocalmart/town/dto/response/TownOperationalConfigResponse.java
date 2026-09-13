@@ -49,6 +49,10 @@ public class TownOperationalConfigResponse {
     @Builder.Default
     private BigDecimal scratchMinGoodsAmount = new BigDecimal("499.00");
 
+    /** Sell membership in this town. Existing members can still use credits when false. */
+    @Builder.Default
+    private boolean buyerMembershipEnabled = true;
+
     @Data
     @Builder
     public static class DeliverySlabResponse {

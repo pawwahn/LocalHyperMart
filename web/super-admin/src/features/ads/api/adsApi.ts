@@ -90,19 +90,25 @@ export const SLOT_LABELS: Record<TownAdSlot, string> = {
   CART_UPSELL: 'Cart / checkout',
 };
 
-export async function fetchTownAdsEditor(token: string, townId: string): Promise<TownAdsVm> {
-  return apiRequest<TownAdsVm>(`/api/v1/towns/${townId}/ads/editor`, { token });
+export async function fetchTownAdsEditor(
+  token: string,
+  townId: string,
+  signal?: AbortSignal,
+): Promise<TownAdsVm> {
+  return apiRequest<TownAdsVm>(`/api/v1/towns/${townId}/ads/editor`, { token, signal });
 }
 
 export async function saveTownAds(
   token: string,
   townId: string,
   items: UpsertTownAdInput[],
+  signal?: AbortSignal,
 ): Promise<TownAdsVm> {
   return apiRequest<TownAdsVm>(`/api/v1/towns/${townId}/ads`, {
     method: 'PUT',
     token,
     body: { items },
+    signal,
   });
 }
 

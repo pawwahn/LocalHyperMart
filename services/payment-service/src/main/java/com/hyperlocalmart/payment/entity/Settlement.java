@@ -31,6 +31,11 @@ public class Settlement extends BaseAuditEntity {
     @Column(name = "payee_type", nullable = false, length = 20)
     private SettlementPayeeType payeeType;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "direction", nullable = false, length = 20)
+    @Builder.Default
+    private SettlementDirection direction = SettlementDirection.PAYOUT;
+
     @Column(name = "payee_id", nullable = false)
     private UUID payeeId;
 

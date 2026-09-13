@@ -25,7 +25,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Collection;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @Service
@@ -36,6 +38,8 @@ public class TownService {
     private final TownPincodeRepository townPincodeRepository;
     private final GeoCatalogService geoCatalogService;
     private final TownConfigService townConfigService;
+    private final TownDeliveryPayoutConfigService townDeliveryPayoutConfigService;
+    private final AdminAuditor adminAuditService;
 
     @Transactional(readOnly = true)
     public TownListResponse listTowns(TownStatus status, boolean includeDisabled) {
@@ -158,6 +162,18 @@ public class TownService {
         }
 
         townConfigService.ensureDefaultOperationalConfig(town.getId());
+        townDeliveryPayoutConfigService.ensureDefault(town.getId());
+        adminAuditService.record(
+                "towns",
+                "CREATE_TOWN",
+                "Created " + town.getDisplayName(),
+                actorId,
+                "SUPER_ADMIN",
+                town.getId(),
+                "TOWN",
+                town.getId(),
+                null,
+                Map.of("name", town.getName(), "townCode", town.getTownCode(), "status", town.getStatus().name()));
 
         return getTown(town.getId());
     }
@@ -166,9 +182,31 @@ public class TownService {
     public TownDetailResponse updateStatus(UUID townId, UpdateTownStatusRequest request, UUID actorId) {
         Town town = townRepository.findById(townId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Town not found"));
-        town.setStatus(request.getStatus());
+        TownStatus next = request.getStatus();
+        String before = town.getStatus().name();
+        if (town.getStatus() == next) {
+            return getTown(townId);
+        }
+        town.setStatus(next);
         town.setUpdatedBy(actorId);
         townRepository.save(town);
+        boolean enabling = next == TownStatus.ENABLED;
+        Map<String, Object> after = new LinkedHashMap<>();
+        after.put("status", next.name());
+        if (request.getReason() != null && !request.getReason().isBlank()) {
+            after.put("reason", request.getReason().trim());
+        }
+        adminAuditService.record(
+                "towns",
+                enabling ? "ENABLE_TOWN" : "DISABLE_TOWN",
+                (enabling ? "Enabled " : "Disabled ") + town.getDisplayName(),
+                actorId,
+                "SUPER_ADMIN",
+                townId,
+                "TOWN",
+                townId,
+                Map.of("status", before),
+                after);
         return getTown(townId);
     }
 

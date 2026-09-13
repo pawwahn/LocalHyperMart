@@ -94,6 +94,7 @@ services:
       <<: *java-env
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/hyperlocalmart_user
       BUYER_INVITE_PHONES: ${BUYER_INVITE_PHONES:-}
+      PASSWORD_RESET_OTP_FIXED_CODE: ${PASSWORD_RESET_OTP_FIXED_CODE:-111111}
 
   town-service:
     <<: *java-svc

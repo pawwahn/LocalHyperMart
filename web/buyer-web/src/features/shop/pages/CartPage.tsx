@@ -12,10 +12,12 @@ import { BestDealsSheet } from '../components/BestDealsSheet';
 import { CartSuggestionStrip } from '../components/CartSuggestionStrip';
 import { DeliveryUnlockChip } from '../components/DeliveryUnlockChip';
 import { QuantityStepper } from '../components/QuantityStepper';
-import { fetchCartSuggestions, isPlaceholderListingId, placeholderBestDealsInTown, type CatalogItemView } from '../api/shopApi';
+import { fetchCartSuggestions, fetchCatalogPage, filterDealsForLane, type CatalogItemView } from '../api/shopApi';
 import { productVisual } from '../lib/productVisual';
 import { useDeliveryQuote } from '../hooks/useDeliveryQuote';
 import { useShop } from '../hooks/useShop';
+import { cheapestPurchasable, fetchMembershipCatalog, type MembershipCatalog } from '../api/membershipApi';
+import { MembershipPlansSheet } from '../components/MembershipPlansSheet';
 
 const STICKY_CSS = `
   @media (max-width: 400px) {
@@ -63,7 +65,11 @@ export function CartPage() {
   const [dealsOpen, setDealsOpen] = useState(false);
   const [suggestions, setSuggestions] = useState<CatalogItemView[]>([]);
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
+  const [memberCredits, setMemberCredits] = useState(0);
+  const [membershipCatalog, setMembershipCatalog] = useState<MembershipCatalog | null>(null);
+  const [plansOpen, setPlansOpen] = useState(false);
   const couponSectionRef = useRef<HTMLDivElement | null>(null);
+  const checkoutErrorRef = useRef<HTMLDivElement | null>(null);
   const suggestionsRequestRef = useRef(0);
   const rememberItemsRef = useRef(rememberItems);
   rememberItemsRef.current = rememberItems;
@@ -75,7 +81,12 @@ export function CartPage() {
     itemsPayable,
     hasCartItems,
   );
-  const extras = hasCartItems ? deliveryFee + platformFee : 0;
+  const starterPlan = cheapestPurchasable(membershipCatalog);
+  const showMembershipOffer =
+    hasCartItems && Boolean(membershipCatalog?.platformEnabled) && memberCredits <= 0 && Boolean(starterPlan);
+  const membershipWaives = hasCartItems && memberCredits > 0 && deliveryFee > 0;
+  const chargedDelivery = membershipWaives ? 0 : deliveryFee;
+  const extras = hasCartItems ? chargedDelivery + platformFee : 0;
   const orderGross = itemsPayable + extras;
   const creditToApply =
     useStoreCredit && storeCreditBalance > 0
@@ -88,7 +99,31 @@ export function CartPage() {
     () => cart?.items.map((item) => `${item.listingId}:${item.quantity}`).join('|') ?? '',
     [cart?.items],
   );
-  const bestDeals = useMemo(() => placeholderBestDealsInTown(), []);
+  const [dealCatalog, setDealCatalog] = useState<CatalogItemView[]>([]);
+  const bestDeals = useMemo(() => filterDealsForLane(dealCatalog, 'all').slice(0, 10), [dealCatalog]);
+
+  useEffect(() => {
+    if (!session?.accessToken) {
+      setMemberCredits(0);
+      setMembershipCatalog(null);
+      return;
+    }
+    let cancelled = false;
+    void fetchMembershipCatalog(session.accessToken, townId || undefined)
+      .then((catalog) => {
+        if (cancelled) return;
+        setMembershipCatalog(catalog);
+        setMemberCredits(catalog.mine?.usableCredits ?? 0);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setMemberCredits(0);
+        setMembershipCatalog(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [session?.accessToken, townId]);
 
   const loadSuggestions = useCallback(
     async (opts?: { keepPrevious?: boolean }) => {
@@ -138,6 +173,26 @@ export function CartPage() {
     if (!bestDealsEnabled) setDealsOpen(false);
   }, [bestDealsEnabled]);
 
+  useEffect(() => {
+    if (!townId || !bestDealsEnabled) {
+      setDealCatalog([]);
+      return;
+    }
+    let cancelled = false;
+    void fetchCatalogPage({ townId, page: 0, size: 48, sort: 'price', dir: 'asc' })
+      .then((data) => {
+        if (cancelled) return;
+        setDealCatalog(data.items);
+        rememberItems(data.items, 'append');
+      })
+      .catch(() => {
+        if (!cancelled) setDealCatalog([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [townId, bestDealsEnabled, rememberItems]);
+
   async function handleApplyCoupon() {
     const code = couponCode.trim();
     if (!code) {
@@ -176,6 +231,9 @@ export function CartPage() {
     const placed = await doCheckout({ useStoreCredit });
     if (!placed) {
       setConfirmCheckout(false);
+      requestAnimationFrame(() => {
+        checkoutErrorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      });
       return;
     }
     setConfirmCheckout(false);
@@ -198,7 +256,13 @@ export function CartPage() {
                 <p style={styles.payLabel}>Cash on delivery</p>
                 <p style={styles.payTotal}>{payLabel}</p>
               </div>
-              {deliveryNudge ? (
+              {memberCredits > 0 && bestDealsEnabled ? (
+                <button type="button" style={styles.dealsLink} onClick={() => setDealsOpen(true)}>
+                  Best deals in town
+                </button>
+              ) : memberCredits > 0 ? (
+                <span style={styles.unlockSpacer} />
+              ) : deliveryNudge ? (
                 <DeliveryUnlockChip
                   addMore={deliveryNudge.addMore}
                   nextFee={deliveryNudge.nextFee}
@@ -257,21 +321,31 @@ export function CartPage() {
       <BestDealsSheet
         open={dealsOpen && bestDealsEnabled}
         busyKey={busyKey}
-        quantityFor={(listingId) =>
-          isPlaceholderListingId(listingId) ? 0 : quantityFor(listingId)
-        }
-        onIncrease={(listingId) => {
-          if (isPlaceholderListingId(listingId)) return;
-          void doIncrease(listingId);
-        }}
-        onDecrease={(listingId) => {
-          if (isPlaceholderListingId(listingId)) return;
-          void doDecrease(listingId);
-        }}
+        error={error}
+        quantityFor={quantityFor}
+        rememberItems={rememberItems}
+        onIncrease={(listingId) => void doIncrease(listingId)}
+        onDecrease={(listingId) => void doDecrease(listingId)}
         onClose={() => setDealsOpen(false)}
       />
+      <MembershipPlansSheet
+        open={plansOpen}
+        onClose={() => setPlansOpen(false)}
+        onBought={() => {
+          void fetchMembershipCatalog(session?.accessToken ?? '', townId || undefined)
+            .then((catalog) => {
+              setMembershipCatalog(catalog);
+              setMemberCredits(catalog.mine?.usableCredits ?? 0);
+            })
+            .catch(() => undefined);
+        }}
+      />
 
-      {error ? <Banner tone="danger">{error}</Banner> : null}
+      {error ? (
+        <div ref={checkoutErrorRef}>
+          <Banner tone="danger">{error}</Banner>
+        </div>
+      ) : null}
       {notice ? <Banner tone="success">{notice}</Banner> : null}
 
       {!cart || cart.items.length === 0 ? (
@@ -403,9 +477,42 @@ export function CartPage() {
               </div>
             ) : null}
             <div style={styles.summaryRow}>
-              <span>Delivery fee</span>
-              <strong>₹{deliveryFee.toFixed(2)}</strong>
+              <span>{membershipWaives ? 'Delivery (membership)' : 'Delivery fee'}</span>
+              <strong>
+                {membershipWaives ? (
+                  <span>
+                    <s style={{ opacity: 0.55, fontWeight: 600 }}>₹{deliveryFee.toFixed(2)}</s> Free
+                  </span>
+                ) : (
+                  `₹${deliveryFee.toFixed(2)}`
+                )}
+              </strong>
             </div>
+            {showMembershipOffer ? (
+              <button type="button" style={styles.memberOffer} onClick={() => setPlansOpen(true)}>
+                <span style={styles.memberOfferIcon} aria-hidden>
+                  🏷
+                </span>
+                <span style={styles.memberOfferCopy}>
+                  <strong>Make delivery free</strong>
+                  <span>
+                    From ₹{Number(starterPlan?.price ?? 0).toFixed(0)} · {starterPlan?.credits} drops
+                  </span>
+                </span>
+                <strong style={styles.memberOfferCta}>Plans</strong>
+              </button>
+            ) : memberCredits > 0 ? (
+              <button type="button" style={styles.memberOffer} onClick={() => setPlansOpen(true)}>
+                <span style={styles.memberOfferIcon} aria-hidden>
+                  ✓
+                </span>
+                <span style={styles.memberOfferCopy}>
+                  <strong>{memberCredits} free deliveries left</strong>
+                  <span>Used when this town charges a fee</span>
+                </span>
+                <strong style={styles.memberOfferCta}>View</strong>
+              </button>
+            ) : null}
             <div style={styles.summaryRow}>
               <span>Platform fee</span>
               <strong>₹{platformFee.toFixed(2)}</strong>
@@ -449,17 +556,9 @@ export function CartPage() {
             loading={false}
             busyKey={busyKey}
             flushBottom
-            quantityFor={(listingId) =>
-              isPlaceholderListingId(listingId) ? 0 : quantityFor(listingId)
-            }
-            onIncrease={(listingId) => {
-              if (isPlaceholderListingId(listingId)) return;
-              void doIncrease(listingId);
-            }}
-            onDecrease={(listingId) => {
-              if (isPlaceholderListingId(listingId)) return;
-              void doDecrease(listingId);
-            }}
+            quantityFor={quantityFor}
+            onIncrease={(listingId) => void doIncrease(listingId)}
+            onDecrease={(listingId) => void doDecrease(listingId)}
             onBrowseMore={() => setDealsOpen(true)}
           />
           ) : null}
@@ -524,6 +623,34 @@ const styles: Record<string, CSSProperties> = {
   couponRow: { display: 'flex', gap: '0.4rem', alignItems: 'center' },
   couponInput: { padding: '0.5rem 0.7rem' },
   couponAlert: { animation: 'hlm-fade-up 220ms ease both' },
+  memberOffer: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.5rem',
+    width: '100%',
+    margin: '0.05rem 0 0.1rem',
+    padding: '0.45rem 0.55rem',
+    borderRadius: 12,
+    border: '1px solid #B7E4C4',
+    background: '#E7F6EC',
+    color: '#1A1C1A',
+    textAlign: 'left',
+    cursor: 'pointer',
+    minHeight: 48,
+  },
+  memberOfferIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: 8,
+    background: '#0C831F',
+    color: '#fff',
+    display: 'grid',
+    placeItems: 'center',
+    fontSize: '0.8rem',
+    flexShrink: 0,
+  },
+  memberOfferCopy: { flex: 1, minWidth: 0, display: 'grid', gap: '0.04rem', fontSize: '0.72rem', color: '#6B7280' },
+  memberOfferCta: { color: '#0C831F', fontSize: '0.78rem', flexShrink: 0 },
   summaryRow: {
     display: 'flex',
     justifyContent: 'space-between',
@@ -588,6 +715,22 @@ const styles: Record<string, CSSProperties> = {
   payLabel: { margin: 0, fontSize: '0.68rem', opacity: 0.75, fontWeight: 700 },
   payTotal: { margin: 0, fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: '1.05rem' },
   unlockSpacer: { flex: '1 1 auto', minWidth: 0 },
+  dealsLink: {
+    flex: '1 1 auto',
+    minWidth: 0,
+    margin: 0,
+    padding: 0,
+    border: 'none',
+    background: 'none',
+    color: '#B7E4C4',
+    fontSize: '0.78rem',
+    fontWeight: 800,
+    textAlign: 'left',
+    textDecoration: 'underline',
+    textUnderlineOffset: 3,
+    cursor: 'pointer',
+    minHeight: 36,
+  },
   placeBtn: {
     border: 'none',
     background: 'var(--accent)',

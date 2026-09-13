@@ -13,8 +13,10 @@ import com.hyperlocalmart.order.dto.response.OrderDetailResponse;
 import com.hyperlocalmart.order.dto.response.OrderSummaryResponse;
 import com.hyperlocalmart.order.dto.response.ProductRatingResponse;
 import com.hyperlocalmart.order.dto.response.ReorderResponse;
+import com.hyperlocalmart.order.dto.response.BuyerSpendReportResponse;
 import com.hyperlocalmart.order.dto.response.ScratchCardResponse;
 import com.hyperlocalmart.order.security.AuthUserPrincipal;
+import com.hyperlocalmart.order.service.BuyerSpendReportService;
 import com.hyperlocalmart.order.service.BuyerOrderCancelService;
 import com.hyperlocalmart.order.service.OrderClaimService;
 import com.hyperlocalmart.order.service.OrderInvoiceService;
@@ -29,8 +31,10 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
@@ -45,6 +49,7 @@ public class OrderController {
     private final OrderClaimService orderClaimService;
     private final ProductRatingService productRatingService;
     private final ScratchCardService scratchCardService;
+    private final BuyerSpendReportService buyerSpendReportService;
 
     @PostMapping
     public ResponseEntity<ApiResponse<CreateOrderResponse>> createOrder(
@@ -66,6 +71,17 @@ public class OrderController {
             HttpServletRequest httpRequest) {
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
                 orderService.listOrders(principal.getUserId(), townId, page, size)));
+    }
+
+    @GetMapping("/me/spend-report")
+    public ResponseEntity<ApiResponse<BuyerSpendReportResponse>> mySpendReport(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @RequestParam(required = false) UUID townId,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                buyerSpendReportService.getReport(principal.getUserId(), townId, from, to)));
     }
 
     @GetMapping("/scratch-cards")

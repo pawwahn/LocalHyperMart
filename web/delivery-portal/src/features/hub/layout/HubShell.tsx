@@ -13,8 +13,10 @@ const NAV = [
   { to: '/hub', label: 'Desk', icon: '🖥️', end: true },
   { to: '/hub/boys', label: 'Agents', icon: '🛵', end: false },
   { to: '/hub/cod', label: 'COD', icon: '💵', end: false },
+  { to: '/hub/memberships', label: 'Plans', icon: '🎫', end: false },
   { to: '/hub/claims', label: 'Claims', icon: '🧾', end: false },
   { to: '/hub/reports', label: 'Reports', icon: '📊', end: false },
+  { to: '/hub/incentives', label: 'Pay', icon: '₹', end: false },
 ] as const;
 
 export function HubShell({ title, subtitle, onRefresh, children }: Props) {
@@ -58,7 +60,7 @@ const styles: Record<string, CSSProperties> = {
     height: 'calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px))',
     paddingBottom: 'env(safe-area-inset-bottom, 0px)',
     display: 'grid',
-    gridTemplateColumns: 'repeat(5, 1fr)',
+    gridTemplateColumns: 'repeat(7, 1fr)',
     background: 'var(--bg-elevated)',
     borderTop: '1px solid var(--border)',
     zIndex: 50,

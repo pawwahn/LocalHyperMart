@@ -12,6 +12,7 @@ import com.hyperlocalmart.delivery.dto.request.AssignPickupRequest;
 import com.hyperlocalmart.delivery.dto.request.BuyerRejectedRequest;
 import com.hyperlocalmart.delivery.dto.request.DeliverRequest;
 import com.hyperlocalmart.delivery.dto.request.PickedFromVendorRequest;
+import com.hyperlocalmart.delivery.dto.response.AdminAgentAssignmentPage;
 import com.hyperlocalmart.delivery.dto.response.AssignmentResponse;
 import com.hyperlocalmart.delivery.dto.response.DeliveryEventResponse;
 import com.hyperlocalmart.delivery.dto.response.DeliveryManifestLineResponse;
@@ -21,6 +22,7 @@ import com.hyperlocalmart.delivery.dto.response.PickupManifestResponse;
 import com.hyperlocalmart.delivery.entity.*;
 import com.hyperlocalmart.delivery.repository.*;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
@@ -34,6 +36,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class AssignmentService {
@@ -233,6 +236,57 @@ public class AssignmentService {
     }
 
     @Transactional(readOnly = true)
+    public AdminAgentAssignmentPage listAssignmentsForAdmin(
+            UUID agentId, Instant from, Instant to, int page, int size) {
+        if (!deliveryAgentRepository.existsById(agentId)) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "Agent not found");
+        }
+        int safeSize = Math.min(Math.max(size, 1), 50);
+        int safePage = Math.max(page, 0);
+        PageRequest pageable = PageRequest.of(safePage, safeSize);
+        Instant start = from == null ? Instant.EPOCH : from;
+        Instant end = to == null ? Instant.now().plusSeconds(1) : to;
+        Page<DeliveryAssignment> assignments =
+                deliveryAssignmentRepository
+                        .findByAgentIdAndAssignedAtGreaterThanEqualAndAssignedAtLessThanOrderByAssignedAtDesc(
+                                agentId, start, end, pageable);
+        List<AssignmentResponse> items = assignments.getContent().stream().map(this::toAdminRow).toList();
+        long completedPickups = deliveryAssignmentRepository
+                .countCompletedByAgentIdAndLegTypeBetween(agentId, AssignmentLegType.PICKUP, start, end);
+        long completedHome = deliveryAssignmentRepository
+                .countCompletedByAgentIdAndLegTypeBetween(agentId, AssignmentLegType.LAST_MILE, start, end);
+        return AdminAgentAssignmentPage.builder()
+                .items(items)
+                .page(assignments.getNumber())
+                .size(assignments.getSize())
+                .totalElements(assignments.getTotalElements())
+                .totalPages(assignments.getTotalPages())
+                .completedPickups(completedPickups)
+                .completedHomeDeliveries(completedHome)
+                .build();
+    }
+
+    private AssignmentResponse toAdminRow(DeliveryAssignment assignment) {
+        return AssignmentResponse.builder()
+                .assignmentId(assignment.getId())
+                .assignmentNumber(assignment.getAssignmentNumber())
+                .orderId(assignment.getOrderId())
+                .orderNumber(assignment.getOrderNumber())
+                .vendorSubOrderId(assignment.getVendorSubOrderId())
+                .subOrderNumber(assignment.getSubOrderNumber())
+                .townId(assignment.getTownId())
+                .hubId(assignment.getHubId())
+                .agentId(assignment.getAgentId())
+                .legType(assignment.getLegType())
+                .status(assignment.getStatus())
+                .assignedBy(assignment.getAssignedBy())
+                .assignedAt(assignment.getAssignedAt())
+                .completedAt(assignment.getCompletedAt())
+                .events(List.of())
+                .build();
+    }
+
+    @Transactional(readOnly = true)
     public PickupManifestResponse getPickupManifest(UUID agentUserId, UUID assignmentId) {
         DeliveryAgent agent = deliveryAgentRepository.findByUserId(agentUserId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Delivery agent not found"));
@@ -356,7 +410,15 @@ public class AssignmentService {
         DeliveryAssignment assignment = deliveryAssignmentRepository
                 .findByVendorSubOrderIdAndLegTypeAndStatus(
                         vendorSubOrderId, AssignmentLegType.PICKUP, AssignmentStatus.IN_PROGRESS)
-                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "In-progress pickup assignment not found"));
+                .orElse(null);
+        if (assignment == null) {
+            assignment = deliveryAssignmentRepository
+                    .findByVendorSubOrderIdAndLegTypeAndStatus(
+                            vendorSubOrderId, AssignmentLegType.PICKUP, AssignmentStatus.COMPLETED)
+                    .orElseThrow(() -> new BusinessException(
+                            ErrorCode.NOT_FOUND, "In-progress pickup assignment not found"));
+            return toResponse(assignment);
+        }
 
         assignment.setStatus(AssignmentStatus.COMPLETED);
         assignment.setCompletedAt(Instant.now());
@@ -367,15 +429,23 @@ public class AssignmentService {
                 "vendorSubOrderId", vendorSubOrderId.toString()
         ));
 
-        try {
-            OrderClient.DeliveryOrderSnapshot order = orderClient.getDeliveryOrder(assignment.getOrderId());
-            notificationClient.notifyOrderAtHub(
-                    order.townId(), order.orderId(), order.buyerId(), order.buyerPhone(), order.orderNumber());
-        } catch (RuntimeException ex) {
-            // Non-blocking: hub intake still succeeds if notify fails.
-        }
-
         return toResponse(assignment);
+    }
+
+    /** Fire-and-forget after the bag-at-hub write commits. Never block hub confirm. */
+    public void notifyBagArrivedAtHub(UUID orderId) {
+        if (orderId == null) {
+            return;
+        }
+        Thread.ofVirtual().start(() -> {
+            try {
+                OrderClient.DeliveryOrderSnapshot order = orderClient.getDeliveryOrder(orderId);
+                notificationClient.notifyOrderAtHub(
+                        order.townId(), order.orderId(), order.buyerId(), order.buyerPhone(), order.orderNumber());
+            } catch (RuntimeException ex) {
+                log.warn("At-hub notify failed for order {}: {}", orderId, ex.getMessage());
+            }
+        });
     }
 
     @Transactional

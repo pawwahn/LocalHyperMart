@@ -2,6 +2,7 @@ package com.hyperlocalmart.delivery.service;
 
 import com.hyperlocalmart.common.exception.BusinessException;
 import com.hyperlocalmart.common.exception.ErrorCode;
+import com.hyperlocalmart.delivery.client.TownClient;
 import com.hyperlocalmart.delivery.client.UserClient;
 import com.hyperlocalmart.delivery.dto.request.CreateAgentRequest;
 import com.hyperlocalmart.delivery.dto.request.UpdateAgentStatusRequest;
@@ -39,6 +40,7 @@ public class AgentService {
     private final DeliveryAssignmentRepository deliveryAssignmentRepository;
     private final DeliveryEventRepository deliveryEventRepository;
     private final UserClient userClient;
+    private final TownClient townClient;
 
     @Transactional(readOnly = true)
     public AgentMeResponse getMyAgent(UUID userId) {
@@ -276,6 +278,15 @@ public class AgentService {
 
         UUID hubId = resolveHubIdForAgent(agentId);
         DeliveryHub hub = hubId == null ? null : deliveryHubRepository.findById(hubId).orElse(null);
+        if (superAdmin) {
+            townClient.appendAdminAudit(
+                    "agents",
+                    "UPDATE_AGENT_STATUS",
+                    (agent.getName() == null ? "Agent" : agent.getName()) + " → " + agent.getStatus().name(),
+                    actorUserId,
+                    hub == null ? null : hub.getTownId(),
+                    agentId);
+        }
         return toResponse(agent, hub);
     }
 
@@ -323,6 +334,7 @@ public class AgentService {
                 .userId(agent.getUserId())
                 .hubId(hub == null ? null : hub.getId())
                 .hubName(hub == null ? null : hub.getName())
+                .townId(hub == null ? null : hub.getTownId())
                 .name(agent.getName())
                 .phone(agent.getPhone())
                 .status(agent.getStatus())

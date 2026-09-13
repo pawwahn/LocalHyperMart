@@ -4,6 +4,7 @@ import { PortalShell } from '@/shared/layout/PortalShell';
 import { useAuth } from '@/shared/auth/AuthContext';
 import { ApiError } from '@/shared/api/http';
 import { Banner, Button, SearchSelect, TextField } from '@/shared/ui';
+import { AdminHistoryPanel } from '@/shared/audit/AdminHistoryPanel';
 import { listTowns, type TownVm } from '@/features/towns/api/townsApi';
 import {
   claimTypeLabel,
@@ -484,6 +485,7 @@ export function ClaimsPage() {
           </Button>
         </div>
       ) : null}
+      {token ? <AdminHistoryPanel token={token} screen="claims" refreshTick={notice ? notice.length : 0} /> : null}
     </PortalShell>
   );
 }

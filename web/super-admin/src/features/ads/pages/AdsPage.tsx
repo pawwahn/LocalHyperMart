@@ -3,7 +3,8 @@ import { PortalShell } from '@/shared/layout/PortalShell';
 import { useAuth } from '@/shared/auth/AuthContext';
 import { ApiError } from '@/shared/api/http';
 import { Banner, Button, Card, TextField, Toast } from '@/shared/ui';
-import { listTowns, listTownsByIds, searchTowns, type TownVm } from '@/features/towns/api/townsApi';
+import { AdminHistoryPanel } from '@/shared/audit/AdminHistoryPanel';
+import { listTowns, type TownVm } from '@/features/towns/api/townsApi';
 import {
   fetchTownAdsEditor,
   saveTownAds,
@@ -231,13 +232,13 @@ function SectionHeader({
 }
 
 function AdTargetTownsPicker({
-  token,
+  towns,
   currentTownId,
   selectedIds,
   disabled,
   onChange,
 }: {
-  token: string;
+  towns: TownVm[];
   currentTownId: string;
   selectedIds: string[];
   disabled: boolean;
@@ -245,50 +246,27 @@ function AdTargetTownsPicker({
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
-  const [debounced, setDebounced] = useState('');
-  const [results, setResults] = useState<TownVm[]>([]);
-  const [labels, setLabels] = useState<TownVm[]>([]);
-  const [loading, setLoading] = useState(false);
 
   const selected = useMemo(() => new Set(selectedIds), [selectedIds]);
   const extraCount = selectedIds.filter((id) => id !== currentTownId).length;
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => setDebounced(query.trim()), 250);
-    return () => window.clearTimeout(timer);
-  }, [query]);
-
-  useEffect(() => {
-    if (!token) return;
-    const extra = selectedIds.filter((id) => id !== currentTownId);
-    if (extra.length === 0) {
-      setLabels([]);
-      return;
-    }
-    let cancelled = false;
-    void listTownsByIds(token, extra).then((items) => {
-      if (!cancelled) setLabels(items);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [token, selectedIds, currentTownId]);
-
-  useEffect(() => {
-    if (!open || !token) return;
-    let cancelled = false;
-    setLoading(true);
-    void searchTowns(token, { q: debounced, page: 0, size: 60 })
-      .then((page) => {
-        if (!cancelled) setResults(page.items);
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
+  const townById = useMemo(() => {
+    const map = new Map<string, TownVm>();
+    for (const t of towns) map.set(t.id, t);
+    return map;
+  }, [towns]);
+  const chips = selectedIds
+    .map((id) => townById.get(id))
+    .filter((t): t is TownVm => Boolean(t));
+  const results = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return towns
+      .filter((t) => !q || t.displayName.toLowerCase().includes(q) || t.townCode.toLowerCase().includes(q))
+      .sort((a, b) => {
+        if (a.id === currentTownId) return -1;
+        if (b.id === currentTownId) return 1;
+        return a.displayName.localeCompare(b.displayName);
       });
-    return () => {
-      cancelled = true;
-    };
-  }, [open, token, debounced]);
+  }, [towns, query, currentTownId]);
 
   function toggleTown(id: string) {
     if (id === currentTownId) return;
@@ -316,7 +294,7 @@ function AdTargetTownsPicker({
       </button>
       {extraCount > 0 ? (
         <div style={styles.townChips}>
-          {labels.map((t) => (
+          {chips.map((t) => (
             <span key={t.id} style={styles.townChip}>
               {t.displayName}
               {t.id !== currentTownId ? (
@@ -346,15 +324,12 @@ function AdTargetTownsPicker({
             onChange={(e) => setQuery(e.target.value)}
           />
           <div style={styles.townList}>
-            {loading ? <p style={styles.townListHint}>Loading…</p> : null}
-            {!loading && results.length === 0 ? (
-              <p style={styles.townListHint}>No towns match</p>
-            ) : null}
+            {results.length === 0 ? <p style={styles.townListHint}>No towns match</p> : null}
             {results.map((t) => (
               <label key={t.id} style={styles.townRow}>
                 <input
                   type="checkbox"
-                  checked={selected.has(t.id)}
+                  checked={selected.has(t.id) || t.id === currentTownId}
                   disabled={disabled || t.id === currentTownId}
                   onChange={() => toggleTown(t.id)}
                 />
@@ -406,7 +381,7 @@ function AdEditorCard({
   draft,
   busy,
   uploading,
-  token,
+  towns,
   currentTownId,
   compact,
   onChange,
@@ -417,7 +392,7 @@ function AdEditorCard({
   draft: DraftAd;
   busy: boolean;
   uploading: boolean;
-  token: string;
+  towns: TownVm[];
   currentTownId: string;
   compact?: boolean;
   onChange: (patch: Partial<DraftAd>) => void;
@@ -475,7 +450,7 @@ function AdEditorCard({
 
       {!draft.allTowns ? (
         <AdTargetTownsPicker
-          token={token}
+          towns={towns}
           currentTownId={currentTownId}
           selectedIds={draft.targetTownIds.length ? draft.targetTownIds : [currentTownId]}
           disabled={busy}
@@ -602,7 +577,7 @@ export function AdsPage() {
   const [townId, setTownId] = useState('');
   const [drafts, setDrafts] = useState<DraftAd[]>(AD_EDITOR_ITEMS.map(emptyDraft));
   const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [uploadingKey, setUploadingKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<{ message: string; tone: 'success' | 'info' } | null>(null);
@@ -638,24 +613,24 @@ export function AdsPage() {
     }
   }, [token]);
 
+  const applyEditor = useCallback((data: { items: TownAdVm[] }) => {
+    setDrafts(
+      AD_EDITOR_ITEMS.map((item) => {
+        const ad = data.items.find((row) => matchEditorAd(row, item));
+        return ad ? toDraft(item, ad) : emptyDraft(item);
+      }),
+    );
+  }, []);
+
   const reloadAds = useCallback(async () => {
     if (!token || !townId) return;
-    setBusy(true);
     setError(null);
     try {
-      const data = await fetchTownAdsEditor(token, townId);
-      setDrafts(
-        AD_EDITOR_ITEMS.map((item) => {
-          const ad = data.items.find((row) => matchEditorAd(row, item));
-          return ad ? toDraft(item, ad) : emptyDraft(item);
-        }),
-      );
+      applyEditor(await fetchTownAdsEditor(token, townId));
     } catch (err) {
       setError(err instanceof ApiError || err instanceof Error ? err.message : 'Failed to load ads');
-    } finally {
-      setBusy(false);
     }
-  }, [token, townId]);
+  }, [token, townId, applyEditor]);
 
   useEffect(() => {
     void reloadTowns();
@@ -700,10 +675,16 @@ export function AdsPage() {
   }
 
   async function onSave() {
-    if (!token || !townId) return;
-    setBusy(true);
+    if (!token || !townId || saving) return;
+    setSaving(true);
     setError(null);
     setToast(null);
+    let finished = false;
+    const watchdog = window.setTimeout(() => {
+      if (finished) return;
+      setSaving(false);
+      setError('Town service is not answering. You can keep editing. Restart town-service, then Save again.');
+    }, 15000);
     try {
       const items: UpsertTownAdInput[] = drafts.map((d) => ({
         slot: d.slot,
@@ -717,13 +698,17 @@ export function AdsPage() {
         allTowns: d.allTowns,
         targetTownIds: d.allTowns ? [] : d.targetTownIds.length ? d.targetTownIds : [townId],
       }));
-      await saveTownAds(token, townId, items);
-      await reloadAds();
-      setToast({ message: 'Ads saved successfully.', tone: 'success' });
+      const data = await saveTownAds(token, townId, items);
+      finished = true;
+      applyEditor(data);
+      setError(null);
+      setToast({ message: 'Ads saved.', tone: 'success' });
     } catch (err) {
+      finished = true;
       setError(err instanceof ApiError || err instanceof Error ? err.message : 'Save failed');
     } finally {
-      setBusy(false);
+      window.clearTimeout(watchdog);
+      setSaving(false);
     }
   }
 
@@ -758,7 +743,7 @@ export function AdsPage() {
             <select
               style={styles.select}
               value={townId}
-              disabled={loading || busy}
+              disabled={loading}
               onChange={(e) => setTownId(e.target.value)}
             >
               {towns.length === 0 ? <option value="">No towns</option> : null}
@@ -792,9 +777,9 @@ export function AdsPage() {
             <AdEditorCard
               meta={heroItem}
               draft={draftByKey.get(adEditorKey(heroItem.slot, heroItem.slotIndex)) ?? emptyDraft(heroItem)}
-              busy={busy}
+              busy={false}
               uploading={uploadingKey === adEditorKey(heroItem.slot, heroItem.slotIndex)}
-              token={token}
+              towns={towns}
               currentTownId={townId}
               onChange={(patch) => updateDraft(adEditorKey(heroItem.slot, heroItem.slotIndex), patch)}
               onPickImage={(e) => void onPickImage(adEditorKey(heroItem.slot, heroItem.slotIndex), e)}
@@ -823,10 +808,10 @@ export function AdsPage() {
                     key={key}
                     meta={item}
                     draft={draft}
-                    busy={busy}
+                    busy={false}
                     compact
                     uploading={uploadingKey === key}
-                    token={token}
+                    towns={towns}
                     currentTownId={townId}
                     onChange={(patch) => updateDraft(key, patch)}
                     onPickImage={(e) => void onPickImage(key, e)}
@@ -844,9 +829,9 @@ export function AdsPage() {
             <AdEditorCard
               meta={cartItem}
               draft={draftByKey.get(adEditorKey(cartItem.slot, cartItem.slotIndex)) ?? emptyDraft(cartItem)}
-              busy={busy}
+              busy={false}
               uploading={uploadingKey === adEditorKey(cartItem.slot, cartItem.slotIndex)}
-              token={token}
+              towns={towns}
               currentTownId={townId}
               onChange={(patch) => updateDraft(adEditorKey(cartItem.slot, cartItem.slotIndex), patch)}
               onPickImage={(e) => void onPickImage(adEditorKey(cartItem.slot, cartItem.slotIndex), e)}
@@ -869,11 +854,13 @@ export function AdsPage() {
               {liveCount} of {AD_EDITOR_ITEMS.length} slots live · up to {MAX_AD_IMAGES} images each
             </p>
           </div>
-          <Button disabled={busy || !townId || loading} onClick={() => void onSave()}>
-            {busy ? 'Saving…' : 'Save all ads'}
+          <Button disabled={saving || !townId || loading} onClick={() => void onSave()}>
+            {saving ? 'Saving…' : 'Save all ads'}
           </Button>
         </Card>
       </div>
+
+      {token ? <AdminHistoryPanel token={token} screen="ads" refreshTick={toast ? toast.message.length : 0} /> : null}
 
       <Toast
         open={Boolean(toast)}

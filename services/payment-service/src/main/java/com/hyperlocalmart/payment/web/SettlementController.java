@@ -3,9 +3,11 @@ package com.hyperlocalmart.payment.web;
 import com.hyperlocalmart.common.api.ApiResponse;
 import com.hyperlocalmart.common.exception.BusinessException;
 import com.hyperlocalmart.common.exception.ErrorCode;
+import com.hyperlocalmart.payment.dto.request.CreateDeliverySettlementRequest;
 import com.hyperlocalmart.payment.dto.request.CreateSettlementRequest;
 import com.hyperlocalmart.payment.dto.request.MarkSettlementPaidRequest;
 import com.hyperlocalmart.payment.dto.request.VendorPayoutLookupRequest;
+import com.hyperlocalmart.payment.dto.response.DeliverySettlementCandidateView;
 import com.hyperlocalmart.payment.dto.response.SettlementCandidateView;
 import com.hyperlocalmart.payment.dto.response.SettlementResponse;
 import com.hyperlocalmart.payment.dto.response.VendorOrderPayoutResponse;
@@ -13,6 +15,7 @@ import com.hyperlocalmart.payment.dto.response.VendorSettlementAdjustmentRespons
 import com.hyperlocalmart.payment.entity.SettlementPayeeType;
 import com.hyperlocalmart.payment.entity.SettlementStatus;
 import com.hyperlocalmart.payment.security.AuthUserPrincipal;
+import com.hyperlocalmart.payment.service.DeliverySettlementService;
 import com.hyperlocalmart.payment.service.SettlementService;
 import com.hyperlocalmart.payment.service.VendorSettlementAdjustmentService;
 import jakarta.servlet.http.HttpServletRequest;
@@ -35,6 +38,7 @@ import java.util.UUID;
 public class SettlementController {
 
     private final SettlementService settlementService;
+    private final DeliverySettlementService deliverySettlementService;
     private final VendorSettlementAdjustmentService vendorSettlementAdjustmentService;
 
     @GetMapping("/candidates")
@@ -48,6 +52,30 @@ public class SettlementController {
         requireSuperAdmin(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
                 settlementService.listCandidates(townId, vendorId, from, to)));
+    }
+
+    @GetMapping("/delivery-candidates")
+    public ResponseEntity<ApiResponse<DeliverySettlementCandidateView>> deliveryCandidates(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @RequestParam UUID townId,
+            @RequestParam SettlementPayeeType payeeType,
+            @RequestParam UUID payeeId,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            HttpServletRequest httpRequest) {
+        requireSuperAdmin(principal);
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                deliverySettlementService.listCandidates(townId, payeeType, payeeId, from, to)));
+    }
+
+    @PostMapping("/delivery")
+    public ResponseEntity<ApiResponse<SettlementResponse>> createDelivery(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @Valid @RequestBody CreateDeliverySettlementRequest request,
+            HttpServletRequest httpRequest) {
+        requireSuperAdmin(principal);
+        return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponses.ok(httpRequest,
+                deliverySettlementService.create(principal.getUserId(), request)));
     }
 
     @PostMapping

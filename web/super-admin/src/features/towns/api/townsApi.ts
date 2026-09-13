@@ -129,6 +129,7 @@ export type TownConfigVm = {
   scratchRewardMin: number;
   scratchRewardMax: number;
   scratchMinGoodsAmount: number;
+  buyerMembershipEnabled: boolean;
 };
 
 export type UpdateTownConfigInput = {
@@ -143,6 +144,7 @@ export type UpdateTownConfigInput = {
   scratchRewardMin: number;
   scratchRewardMax: number;
   scratchMinGoodsAmount: number;
+  buyerMembershipEnabled: boolean;
 };
 
 function asDealPrices(v: unknown): number[] {
@@ -193,6 +195,7 @@ export async function getTownConfig(token: string, townId: string): Promise<Town
     scratchRewardMin: Math.max(0, asNum(data?.scratchRewardMin, 10)),
     scratchRewardMax: Math.max(0, asNum(data?.scratchRewardMax, 50)),
     scratchMinGoodsAmount: Math.max(0, asNum(data?.scratchMinGoodsAmount, 499)),
+    buyerMembershipEnabled: data?.buyerMembershipEnabled !== false,
   };
 }
 

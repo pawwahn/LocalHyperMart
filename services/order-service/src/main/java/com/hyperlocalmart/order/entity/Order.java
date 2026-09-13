@@ -82,6 +82,14 @@ public class Order extends BaseAuditEntity {
     @Builder.Default
     private BigDecimal storeCreditApplied = BigDecimal.ZERO;
 
+    @Column(name = "membership_credit_used", nullable = false)
+    @Builder.Default
+    private boolean membershipCreditUsed = false;
+
+    @Column(name = "membership_delivery_waived", nullable = false, precision = 12, scale = 2)
+    @Builder.Default
+    private BigDecimal membershipDeliveryWaived = BigDecimal.ZERO;
+
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "delivery_address_snapshot", nullable = false, columnDefinition = "jsonb")
     private Map<String, Object> deliveryAddressSnapshot;

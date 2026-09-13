@@ -35,6 +35,8 @@ hyperlocalmart:
       expiration-minutes: 5
       max-requests-per-hour: 5
       max-verify-attempts: 5
+      # Local/dev only — password reset always accepts 111111. Clear this in production.
+      fixed-code: ${PASSWORD_RESET_OTP_FIXED_CODE:111111}
   invite:
     # Comma-separated. Empty = allow all (dev). Non-empty = only listed phones can register.
     buyer-phones: ${BUYER_INVITE_PHONES:}

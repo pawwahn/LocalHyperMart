@@ -11,6 +11,9 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
 
+import java.time.Instant;
+import java.util.Collection;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -61,6 +64,40 @@ public class DeliveryClient {
             }
             throw new BusinessException(ErrorCode.INTERNAL_ERROR, "Could not verify hub PIN");
         }
+    }
+
+    public List<OrderLegs> resolveDeliveryLegs(Collection<UUID> orderIds) {
+        if (orderIds == null || orderIds.isEmpty()) {
+            return List.of();
+        }
+        RestClient client = restClientBuilder.baseUrl(deliveryServiceProperties.getBaseUrl()).build();
+        try {
+            ApiResponse<List<OrderLegs>> response = client.post()
+                    .uri("/api/v1/internal/orders/delivery-legs/resolve")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(List.copyOf(orderIds))
+                    .retrieve()
+                    .body(new ParameterizedTypeReference<ApiResponse<List<OrderLegs>>>() {});
+            if (response == null || response.getData() == null) {
+                throw new BusinessException(ErrorCode.INTERNAL_ERROR, "Could not load delivery trips for payout");
+            }
+            return response.getData();
+        } catch (BusinessException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            throw new BusinessException(ErrorCode.INTERNAL_ERROR, "Could not load delivery trips for payout");
+        }
+    }
+
+    public record OrderLegs(
+            UUID orderId,
+            UUID hubId,
+            UUID agentId,
+            boolean lastMileCompleted,
+            Instant lastMileCompletedAt,
+            boolean pickupCompleted,
+            Instant pickupCompletedAt
+    ) {
     }
 
     public record HubAdminContext(UUID userId, UUID hubId, UUID townId) {

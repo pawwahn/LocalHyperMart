@@ -392,67 +392,82 @@ public class OrderService {
         }
         BigDecimal deliveryFee = configuredFee != null ? configuredFee : checkoutProperties.getDeliveryFee();
         BigDecimal platformFee = fees.platformFee() == null ? BigDecimal.ZERO : fees.platformFee();
-        BigDecimal grossTotal = payableSubtotal.add(deliveryFee).add(platformFee);
-
-        BigDecimal walletBalance = request.isUseStoreCredit()
-                ? paymentClient.getWalletBalance(buyerId)
-                : BigDecimal.ZERO;
-        BigDecimal storeCreditApplied = walletBalance.min(grossTotal).max(BigDecimal.ZERO);
-        BigDecimal totalAmount = grossTotal.subtract(storeCreditApplied);
-
+        boolean membershipCreditUsed = false;
+        UUID persistedOrderId = null;
+        try {
         boolean isCod = request.getPaymentMethod() == PaymentMethod.COD;
-        // Fully covered by store credit → treat as placed/paid with no COD/online charge.
-        boolean fullyCoveredByCredit = storeCreditApplied.compareTo(grossTotal) >= 0 && grossTotal.compareTo(BigDecimal.ZERO) > 0;
-        OrderStatus orderStatus = (isCod || fullyCoveredByCredit) ? OrderStatus.PLACED : OrderStatus.PAYMENT_PENDING;
-        // COD cash is collected on delivery — stay PENDING until then. Only wallet-covered is PAID at place.
-        PaymentStatus paymentStatus = fullyCoveredByCredit ? PaymentStatus.PAID : PaymentStatus.PENDING;
+        CheckoutTotals totals = totalsFor(payableSubtotal, deliveryFee, platformFee, request.isUseStoreCredit(), buyerId);
 
         Order order = Order.builder()
                 .orderNumber(orderNumber)
                 .townId(request.getTownId())
                 .buyerId(buyerId)
                 .cartId(request.getCartId())
-                .status(orderStatus)
+                .status(totals.orderStatus(isCod))
                 .paymentMethod(request.getPaymentMethod())
-                .paymentStatus(paymentStatus)
+                .paymentStatus(totals.paymentStatus())
                 .itemsSubtotal(cart.itemsSubtotal())
                 .promoCode(cart.promoCode())
                 .promoDiscount(promoDiscount)
                 .deliveryFee(deliveryFee)
                 .platformFee(platformFee)
-                .storeCreditApplied(storeCreditApplied)
-                .totalAmount(totalAmount)
+                .storeCreditApplied(totals.storeCreditApplied())
+                .membershipCreditUsed(false)
+                .membershipDeliveryWaived(BigDecimal.ZERO)
+                .totalAmount(totals.totalAmount())
                 .deliveryAddressSnapshot(addressSnapshot)
                 .buyerPhoneSnapshot(buyerPhone)
-                .placedAt((isCod || fullyCoveredByCredit) ? Instant.now() : null)
+                .placedAt(totals.placedAt(isCod))
                 .build();
 
         buildVendorSubOrders(order, cart);
-        orderRepository.save(order);
+        orderRepository.saveAndFlush(order);
+        persistedOrderId = order.getId();
 
-        if (storeCreditApplied.compareTo(BigDecimal.ZERO) > 0) {
+        if (deliveryFee.compareTo(BigDecimal.ZERO) > 0) {
+            PaymentClient.ConsumeMembershipResult consume =
+                    paymentClient.tryConsumeMembership(buyerId, order.getId(), deliveryFee);
+            if (consume != null && consume.applied()) {
+                membershipCreditUsed = true;
+                BigDecimal waived = consume.waivedAmount() == null ? deliveryFee : consume.waivedAmount();
+                deliveryFee = BigDecimal.ZERO;
+                totals = totalsFor(payableSubtotal, deliveryFee, platformFee, request.isUseStoreCredit(), buyerId);
+                order.setDeliveryFee(deliveryFee);
+                order.setMembershipCreditUsed(true);
+                order.setMembershipDeliveryWaived(waived);
+                order.setStoreCreditApplied(totals.storeCreditApplied());
+                order.setTotalAmount(totals.totalAmount());
+                order.setStatus(totals.orderStatus(isCod));
+                order.setPaymentStatus(totals.paymentStatus());
+                order.setPlacedAt(totals.placedAt(isCod));
+                orderRepository.saveAndFlush(order);
+            }
+        }
+
+        if (totals.storeCreditApplied().compareTo(BigDecimal.ZERO) > 0) {
             paymentClient.debitWallet(
                     buyerId,
-                    storeCreditApplied,
+                    totals.storeCreditApplied(),
                     "ORDER_CHECKOUT",
                     order.getId(),
                     order.getId(),
                     "Store credit applied on order " + order.getOrderNumber());
         }
 
-        orderStatusHistoryRepository.save(OrderStatusHistory.builder()
+        orderStatusHistoryRepository.saveAndFlush(OrderStatusHistory.builder()
                 .orderId(order.getId())
-                .toStatus(orderStatus.name())
+                .toStatus(order.getStatus().name())
                 .changedBy(buyerId)
                 .changedByRole("BUYER")
-                .note(storeCreditApplied.compareTo(BigDecimal.ZERO) > 0
-                        ? "Order created; store credit " + storeCreditApplied.toPlainString()
+                .note(totals.storeCreditApplied().compareTo(BigDecimal.ZERO) > 0
+                        ? "Order created; store credit " + totals.storeCreditApplied().toPlainString()
                         : "Order created")
                 .build());
 
         cartClient.convertCart(request.getCartId(), buyerId, request.getTownId());
 
         PaymentInfoResponse paymentInfo = null;
+        boolean fullyCoveredByCredit = totals.fullyCovered();
         if (!isCod && !fullyCoveredByCredit) {
             paymentInfo = paymentClient.initiatePayment(
                     buyerId, order.getId(), request.getTownId(), request.getPaymentGateway(), idempotencyKey + "-pay");
@@ -474,6 +489,47 @@ public class OrderService {
                     order.getOrderNumber(), order.getTotalAmount());
         }
         return response;
+        } catch (RuntimeException ex) {
+            if (membershipCreditUsed && persistedOrderId != null) {
+                paymentClient.restoreMembershipCredit(buyerId, persistedOrderId, "Order create failed");
+            }
+            throw ex;
+        }
+    }
+
+    private CheckoutTotals totalsFor(
+            BigDecimal payableSubtotal,
+            BigDecimal deliveryFee,
+            BigDecimal platformFee,
+            boolean useStoreCredit,
+            UUID buyerId) {
+        BigDecimal grossTotal = payableSubtotal.add(deliveryFee).add(platformFee);
+        BigDecimal walletBalance = useStoreCredit
+                ? paymentClient.getWalletBalance(buyerId)
+                : BigDecimal.ZERO;
+        BigDecimal storeCreditApplied = walletBalance.min(grossTotal).max(BigDecimal.ZERO);
+        BigDecimal totalAmount = grossTotal.subtract(storeCreditApplied);
+        boolean fullyCovered = storeCreditApplied.compareTo(grossTotal) >= 0 && grossTotal.compareTo(BigDecimal.ZERO) > 0;
+        return new CheckoutTotals(grossTotal, storeCreditApplied, totalAmount, fullyCovered);
+    }
+
+    private record CheckoutTotals(
+            BigDecimal grossTotal,
+            BigDecimal storeCreditApplied,
+            BigDecimal totalAmount,
+            boolean fullyCovered
+    ) {
+        OrderStatus orderStatus(boolean isCod) {
+            return (isCod || fullyCovered) ? OrderStatus.PLACED : OrderStatus.PAYMENT_PENDING;
+        }
+
+        PaymentStatus paymentStatus() {
+            return fullyCovered ? PaymentStatus.PAID : PaymentStatus.PENDING;
+        }
+
+        Instant placedAt(boolean isCod) {
+            return (isCod || fullyCovered) ? Instant.now() : null;
+        }
     }
 
     private void buildVendorSubOrders(Order order, CartClient.CartSnapshot cart) {
@@ -523,6 +579,7 @@ public class OrderService {
     private OrderSummaryResponse toSummary(Order order) {
         int itemCount = order.getVendorSubOrders().stream()
                 .flatMap(sub -> sub.getItems().stream())
+                .filter(OrderItem::isActiveLine)
                 .mapToInt(OrderItem::getQuantity)
                 .sum();
         return OrderSummaryResponse.builder()
@@ -603,6 +660,9 @@ public class OrderService {
                 .placedAt(order.getPlacedAt())
                 .itemsSubtotal(order.getItemsSubtotal())
                 .deliveryFee(order.getDeliveryFee())
+                .membershipCreditUsed(order.isMembershipCreditUsed())
+                .membershipDeliveryWaived(order.getMembershipDeliveryWaived() == null
+                        ? BigDecimal.ZERO : order.getMembershipDeliveryWaived())
                 .platformFee(order.getPlatformFee() == null ? BigDecimal.ZERO : order.getPlatformFee())
                 .storeCreditApplied(order.getStoreCreditApplied() == null ? BigDecimal.ZERO : order.getStoreCreditApplied())
                 .totalAmount(order.getTotalAmount())

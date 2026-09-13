@@ -191,6 +191,29 @@ export function HubReportsPage() {
           <button type="button" style={styles.applyBtn} onClick={() => void loadReport()} disabled={loading}>
             Show report
           </button>
+          <button
+            type="button"
+            style={styles.applyBtn}
+            disabled={!report}
+            onClick={() => {
+              if (!report) return;
+              const rows = [
+                ['Agent', 'Phone', 'Pickups', 'Deliveries', 'Total'].join(','),
+                ...report.agents.map((a) =>
+                  [a.name, a.phone, a.shopPickupsCompleted, a.homeDeliveriesCompleted, a.totalCompleted].join(','),
+                ),
+              ];
+              const blob = new Blob([rows.join('\n')], { type: 'text/csv;charset=utf-8' });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = `hub-report-${report.from}-${report.to}.csv`;
+              a.click();
+              URL.revokeObjectURL(url);
+            }}
+          >
+            Export CSV
+          </button>
           <p style={styles.rangeHint}>
             Showing: {rangeLabel}
             {selectedAgent ? ` · agent ${selectedAgent.phone}` : ' · all agents'}
@@ -247,6 +270,24 @@ export function HubReportsPage() {
                     label="Bags marked ready"
                     value={report.bagsMarkedReady}
                     help="Shops packed in this period"
+                  />
+                  <Stat
+                    label="GMV placed"
+                    value={Number(report.placedGmv ?? 0)}
+                    help="₹ order value placed"
+                    money
+                  />
+                  <Stat
+                    label="GMV delivered"
+                    value={Number(report.deliveredGmv ?? 0)}
+                    help="₹ reached buyer"
+                    money
+                  />
+                  <Stat
+                    label="COD collected"
+                    value={Number(report.codGmv ?? 0)}
+                    help="₹ cash on delivery"
+                    money
                   />
                 </div>
               </section>
@@ -373,17 +414,19 @@ function Stat({
   value,
   help,
   tone = 'neutral',
+  money = false,
 }: {
   label: string;
   value: number;
   help: string;
   tone?: 'neutral' | 'go' | 'info';
+  money?: boolean;
 }) {
   const toneStyle =
     tone === 'go' ? styles.statGo : tone === 'info' ? styles.statInfo : styles.stat;
   return (
     <div style={toneStyle}>
-      <p style={styles.statValue}>{value}</p>
+      <p style={styles.statValue}>{money ? `₹${value.toFixed(0)}` : value}</p>
       <p style={styles.statLabel}>{label}</p>
       <p style={styles.statHelp}>{help}</p>
     </div>

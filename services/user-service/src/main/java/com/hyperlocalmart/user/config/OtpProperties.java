@@ -14,4 +14,10 @@ public class OtpProperties {
     private long expirationMinutes = 5;
     private int maxRequestsPerHour = 5;
     private int maxVerifyAttempts = 5;
+
+    /**
+     * When set (local/dev), password-reset OTP uses this fixed code instead of a random value.
+     * Leave empty in production.
+     */
+    private String fixedCode = "111111";
 }

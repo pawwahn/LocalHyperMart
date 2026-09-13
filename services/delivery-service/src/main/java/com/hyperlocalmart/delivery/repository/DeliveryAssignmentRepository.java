@@ -18,6 +18,9 @@ public interface DeliveryAssignmentRepository extends JpaRepository<DeliveryAssi
 
     List<DeliveryAssignment> findByOrderIdOrderByAssignedAtDesc(UUID orderId);
 
+    List<DeliveryAssignment> findByOrderIdInAndLegTypeAndStatus(
+            Collection<UUID> orderIds, AssignmentLegType legType, AssignmentStatus status);
+
     boolean existsByVendorSubOrderIdAndLegTypeAndStatusIn(
             UUID vendorSubOrderId, AssignmentLegType legType, Collection<AssignmentStatus> statuses);
 
@@ -38,6 +41,9 @@ public interface DeliveryAssignmentRepository extends JpaRepository<DeliveryAssi
 
     Page<DeliveryAssignment> findByAgentIdAndStatusOrderByAssignedAtDesc(
             UUID agentId, AssignmentStatus status, Pageable pageable);
+
+    Page<DeliveryAssignment> findByAgentIdAndAssignedAtGreaterThanEqualAndAssignedAtLessThanOrderByAssignedAtDesc(
+            UUID agentId, Instant from, Instant to, Pageable pageable);
 
     List<DeliveryAssignment> findByAssignmentNumberIsNull();
 

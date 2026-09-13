@@ -27,6 +27,21 @@ public interface SettlementLineItemRepository extends JpaRepository<SettlementLi
             @Param("subOrderIds") Collection<UUID> subOrderIds);
 
     @Query("""
+            SELECT li.orderId FROM SettlementLineItem li
+            JOIN li.settlement s
+            WHERE li.orderId IN :orderIds
+              AND li.lineType = 'DELIVERY_ORDER'
+              AND s.payeeType = :payeeType
+              AND s.payeeId = :payeeId
+              AND s.status IN :statuses
+            """)
+    List<UUID> findSettledDeliveryOrderIds(
+            @Param("orderIds") Collection<UUID> orderIds,
+            @Param("payeeType") com.hyperlocalmart.payment.entity.SettlementPayeeType payeeType,
+            @Param("payeeId") UUID payeeId,
+            @Param("statuses") Collection<SettlementStatus> statuses);
+
+    @Query("""
             SELECT li.subOrderId FROM SettlementLineItem li
             JOIN li.settlement s
             WHERE li.subOrderId IN :subOrderIds

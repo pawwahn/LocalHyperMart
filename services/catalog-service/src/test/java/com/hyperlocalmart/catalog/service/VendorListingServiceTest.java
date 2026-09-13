@@ -40,6 +40,7 @@ class VendorListingServiceTest {
     @Mock private CategoryRepository categoryRepository;
     @Mock private UnitRepository unitRepository;
     @Mock private VendorShopClient vendorShopClient;
+    @Mock private com.hyperlocalmart.catalog.client.AdminAuditClient adminAuditClient;
 
     @InjectMocks
     private VendorListingService vendorListingService;
@@ -108,7 +109,7 @@ class VendorListingServiceTest {
                 MasterItem.builder().id(id).name("Apple").status(CatalogItemStatus.ACTIVE).build()));
         when(vendorListingRepository.countByMasterItem_Id(id)).thenReturn(3L);
 
-        assertThatThrownBy(() -> vendorListingService.deleteMasterItem(id))
+        assertThatThrownBy(() -> vendorListingService.deleteMasterItem(id, UUID.randomUUID()))
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("3 vendor listings");
 
@@ -122,7 +123,7 @@ class VendorListingServiceTest {
         when(masterItemRepository.findById(id)).thenReturn(Optional.of(item));
         when(vendorListingRepository.countByMasterItem_Id(id)).thenReturn(0L);
 
-        vendorListingService.deleteMasterItem(id);
+        vendorListingService.deleteMasterItem(id, UUID.randomUUID());
 
         verify(masterItemImageRepository).deleteByMasterItemId(id);
         verify(masterItemRepository).delete(item);

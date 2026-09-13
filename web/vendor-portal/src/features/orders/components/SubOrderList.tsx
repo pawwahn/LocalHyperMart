@@ -119,7 +119,7 @@ export function SubOrderList({
                                   : ' · cancelled'
                                 : ''}
                             </span>
-                            {canAct && !item.cancelled ? (
+                            {item.canCancel ? (
                               <Button
                                 variant="ghost"
                                 size="sm"

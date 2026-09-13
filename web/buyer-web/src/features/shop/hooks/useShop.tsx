@@ -700,6 +700,13 @@ function useShopState() {
       const raw = err instanceof Error ? err.message : 'Checkout failed';
       if (/address must belong/i.test(raw)) {
         setError('Delivery address is for another town. Add or select an address in your current town, then retry.');
+      } else if (/cart is not active/i.test(raw)) {
+        try {
+          await reload();
+        } catch {
+          /* show the message even if reload fails */
+        }
+        setError('This basket was already used on a failed checkout. Refresh the page, add the items again, then place the order.');
       } else if (/internal server error/i.test(raw)) {
         setError('Checkout failed. Check address and town match, then retry. If it keeps failing, refresh and try again.');
       } else {

@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hyperlocalmart.common.exception.BusinessException;
 import com.hyperlocalmart.common.exception.ErrorCode;
+import com.hyperlocalmart.vendor.client.AdminAuditClient;
 import com.hyperlocalmart.vendor.dto.request.CommercialTermsQuoteRequest;
 import com.hyperlocalmart.vendor.dto.request.UpsertVendorCommercialTermsRequest;
 import com.hyperlocalmart.vendor.dto.response.CommercialTermsQuoteResponse;
@@ -40,6 +41,7 @@ public class VendorCommercialTermsService {
     private final VendorCommercialTermsRepository termsRepository;
     private final VendorRepository vendorRepository;
     private final ObjectMapper objectMapper;
+    private final AdminAuditClient adminAuditClient;
 
     @Transactional
     public VendorCommercialTermsResponse ensureDefault(UUID vendorId, UUID actorId) {
@@ -117,6 +119,7 @@ public class VendorCommercialTermsService {
             keep.setUpdatedBy(actorId);
             VendorCommercialTerms saved = termsRepository.save(keep);
             repairOverlappingEnds(vendorId);
+            auditTerms(vendorId, actorId, saved);
             return toResponse(saved, resolveCurrentId(vendorId));
         }
 
@@ -130,7 +133,19 @@ public class VendorCommercialTermsService {
         next.setUpdatedBy(actorId);
         VendorCommercialTerms saved = termsRepository.save(next);
         repairOverlappingEnds(vendorId);
+        auditTerms(vendorId, actorId, saved);
         return toResponse(saved, resolveCurrentId(vendorId));
+    }
+
+    private void auditTerms(UUID vendorId, UUID actorId, VendorCommercialTerms saved) {
+        Vendor vendor = vendorRepository.findById(vendorId).orElse(null);
+        adminAuditClient.record(
+                "vendor-billing",
+                "UPSERT_COMMERCIAL_TERMS",
+                (vendor == null ? "Vendor" : vendor.getBusinessName()) + " terms from " + saved.getEffectiveFrom(),
+                actorId,
+                vendor == null ? null : vendor.getTownId(),
+                vendorId);
     }
 
     /** Keep one row per (vendor, effectiveFrom); delete older duplicates. */

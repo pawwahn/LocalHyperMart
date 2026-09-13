@@ -5,6 +5,7 @@ import com.hyperlocalmart.user.dto.request.BindStaffContextRequest;
 import com.hyperlocalmart.user.dto.request.CreateStaffUserRequest;
 import com.hyperlocalmart.user.dto.request.UpdateUserStatusRequest;
 import com.hyperlocalmart.user.dto.response.StaffUserResponse;
+import com.hyperlocalmart.user.dto.response.UserProfileResponse;
 import com.hyperlocalmart.user.service.UserService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -21,6 +22,13 @@ import java.util.UUID;
 public class UserInternalController {
 
     private final UserService userService;
+
+    @GetMapping("/by-phone")
+    public ResponseEntity<ApiResponse<UserProfileResponse>> findByPhone(
+            @RequestParam String phone,
+            HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest, userService.findByPhone(phone)));
+    }
 
     @PostMapping("/staff")
     public ResponseEntity<ApiResponse<StaffUserResponse>> createStaffUser(

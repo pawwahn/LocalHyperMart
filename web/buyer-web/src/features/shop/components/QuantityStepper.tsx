@@ -39,7 +39,16 @@ export function QuantityStepper({
         onClick={onIncrease}
         aria-label="Add to cart"
       >
-        {iconOnly ? '+' : 'ADD'}
+        {iconOnly ? (
+          '+'
+        ) : (
+          <>
+            ADD
+            <span aria-hidden style={styles.addPlus}>
+              +
+            </span>
+          </>
+        )}
       </button>
     );
   }
@@ -75,44 +84,58 @@ export function QuantityStepper({
 
 const styles: Record<string, CSSProperties> = {
   add: {
-    minWidth: 72,
-    minHeight: 'var(--touch-min)',
-    padding: '0.42rem 0.7rem',
-    border: 'none',
-    borderRadius: 10,
-    background: 'var(--highlight)',
-    color: '#0a1a08',
+    position: 'relative',
+    minWidth: 68,
+    minHeight: 32,
+    padding: '0.28rem 0.85rem 0.28rem 0.55rem',
+    border: '1.5px solid var(--accent)',
+    borderRadius: 8,
+    background: '#fff',
+    color: 'var(--accent)',
     fontWeight: 800,
-    fontSize: '0.78rem',
-    letterSpacing: '0.06em',
+    fontSize: '0.72rem',
+    letterSpacing: '0.04em',
     cursor: 'pointer',
-    boxShadow: '0 3px 10px rgba(12, 131, 31, 0.18)',
+    boxShadow: '0 2px 8px rgba(12, 131, 31, 0.12)',
     boxSizing: 'border-box',
   },
-  addMd: {
-    minWidth: 84,
-    padding: '0.55rem 0.9rem',
-    border: 'none',
-    borderRadius: 12,
-    background: 'var(--highlight)',
-    color: '#0a1a08',
+  addPlus: {
+    position: 'absolute',
+    top: 1,
+    right: 5,
+    fontSize: '0.72rem',
     fontWeight: 800,
-    fontSize: '0.88rem',
-    letterSpacing: '0.06em',
+    lineHeight: 1,
+  },
+  addMd: {
+    position: 'relative',
+    minWidth: 88,
+    minHeight: 40,
+    padding: '0.45rem 1.05rem 0.45rem 0.7rem',
+    border: '1.5px solid var(--accent)',
+    borderRadius: 10,
+    background: '#fff',
+    color: 'var(--accent)',
+    fontWeight: 800,
+    fontSize: '0.84rem',
+    letterSpacing: '0.04em',
     cursor: 'pointer',
+    boxShadow: '0 2px 8px rgba(12, 131, 31, 0.12)',
   },
   addXs: {
-    minWidth: 40,
-    padding: '0.22rem 0.28rem',
-    border: 'none',
+    position: 'relative',
+    minWidth: 52,
+    minHeight: 26,
+    padding: '0.16rem 0.55rem 0.16rem 0.35rem',
+    border: '1.5px solid var(--accent)',
     borderRadius: 6,
-    background: 'var(--highlight)',
-    color: '#0a1a08',
+    background: '#fff',
+    color: 'var(--accent)',
     fontWeight: 800,
-    fontSize: '0.55rem',
+    fontSize: '0.58rem',
     letterSpacing: '0.03em',
     cursor: 'pointer',
-    boxShadow: '0 2px 6px rgba(12, 131, 31, 0.14)',
+    boxShadow: '0 1px 4px rgba(12, 131, 31, 0.1)',
   },
   addIconXs: {
     width: 28,

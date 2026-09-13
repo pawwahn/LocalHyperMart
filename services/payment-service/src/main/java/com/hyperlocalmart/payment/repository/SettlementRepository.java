@@ -28,6 +28,34 @@ public interface SettlementRepository extends JpaRepository<Settlement, UUID> {
             @Param("payeeId") UUID payeeId,
             @Param("status") SettlementStatus status);
 
+    @Query("""
+            SELECT s FROM Settlement s
+            WHERE s.payeeType = :payeeType
+              AND s.payeeId = :payeeId
+              AND s.direction = com.hyperlocalmart.payment.entity.SettlementDirection.COLLECTION
+              AND s.status IN :statuses
+              AND s.periodStart = :periodStart
+              AND s.periodEnd = :periodEnd
+            """)
+    List<Settlement> findFranchiseCollections(
+            @Param("payeeType") SettlementPayeeType payeeType,
+            @Param("payeeId") UUID payeeId,
+            @Param("periodStart") java.time.LocalDate periodStart,
+            @Param("periodEnd") java.time.LocalDate periodEnd,
+            @Param("statuses") List<SettlementStatus> statuses);
+
+    @Query("""
+            SELECT s FROM Settlement s
+            WHERE s.payeeType = :payeeType
+              AND s.payeeId = :payeeId
+              AND s.direction = com.hyperlocalmart.payment.entity.SettlementDirection.COLLECTION
+              AND s.status IN :statuses
+            """)
+    List<Settlement> findAnyFranchiseCollections(
+            @Param("payeeType") SettlementPayeeType payeeType,
+            @Param("payeeId") UUID payeeId,
+            @Param("statuses") List<SettlementStatus> statuses);
+
     @Query("SELECT DISTINCT s FROM Settlement s LEFT JOIN FETCH s.lineItems WHERE s.id = :id")
     Optional<Settlement> findDetailedById(@Param("id") UUID id);
 }

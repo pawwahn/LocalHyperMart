@@ -216,7 +216,7 @@ export function SearchSelect({
                   const active = opt.value === value;
                   const focused = index === highlight;
                   return (
-                    <li key={opt.value} role="option" aria-selected={active}>
+                    <li key={opt.value || '__all__'} role="option" aria-selected={active}>
                       <button
                         type="button"
                         style={{

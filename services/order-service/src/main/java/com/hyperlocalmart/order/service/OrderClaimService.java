@@ -3,6 +3,7 @@ package com.hyperlocalmart.order.service;
 import com.hyperlocalmart.common.api.PageResponse;
 import com.hyperlocalmart.common.exception.BusinessException;
 import com.hyperlocalmart.common.exception.ErrorCode;
+import com.hyperlocalmart.order.client.TownClient;
 import com.hyperlocalmart.order.client.DeliveryClient;
 import com.hyperlocalmart.order.client.NotificationClient;
 import com.hyperlocalmart.order.client.PaymentClient;
@@ -37,6 +38,7 @@ public class OrderClaimService {
     /** Pilot window: buyer may file within 7 days of delivery. */
     public static final Duration CLAIM_WINDOW = Duration.ofDays(7);
 
+    private final TownClient townClient;
     private final OrderClaimRepository orderClaimRepository;
     private final OrderRepository orderRepository;
     private final PaymentClient paymentClient;
@@ -248,6 +250,13 @@ public class OrderClaimService {
             log.warn("Claim resolve notification failed for {}: {}", claimId, ex.toString());
         }
 
+        townClient.appendAdminAudit(
+                "claims",
+                "RESOLVE_CLAIM",
+                claim.getStatus().name() + " " + order.getOrderNumber(),
+                actorUserId,
+                townId,
+                claimId);
         return toResponse(claim, order, item);
     }
 

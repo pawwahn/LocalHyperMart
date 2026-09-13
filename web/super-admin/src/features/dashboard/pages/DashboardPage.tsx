@@ -5,6 +5,11 @@ import { Banner, Card } from '@/shared/ui';
 
 const LINKS = [
   {
+    to: '/reports',
+    title: 'Reports',
+    body: 'GMV, AOV, COD, SLA, town and vendor performance — Instamart-style ops desk.',
+  },
+  {
     to: '/towns',
     title: 'Towns',
     body: 'Create towns, enable or disable order acceptance.',
@@ -26,8 +31,8 @@ const LINKS = [
   },
   {
     to: '/settlements',
-    title: 'Vendor payouts',
-    body: 'Pay vendors for day/week/month orders. Record mode, UTR, and mark paid.',
+    title: 'Payouts',
+    body: 'Pay vendors, hubs, and agents. Collect hub franchise. Record UTR and mark paid.',
   },
   {
     to: '/settings',

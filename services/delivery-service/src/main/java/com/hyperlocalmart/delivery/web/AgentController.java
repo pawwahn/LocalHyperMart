@@ -5,9 +5,11 @@ import com.hyperlocalmart.common.exception.BusinessException;
 import com.hyperlocalmart.common.exception.ErrorCode;
 import com.hyperlocalmart.delivery.dto.request.CreateAgentRequest;
 import com.hyperlocalmart.delivery.dto.request.UpdateAgentStatusRequest;
+import com.hyperlocalmart.delivery.dto.response.AdminAgentAssignmentPage;
 import com.hyperlocalmart.delivery.dto.response.AgentResponse;
 import com.hyperlocalmart.delivery.security.AuthUserPrincipal;
 import com.hyperlocalmart.delivery.service.AgentService;
+import com.hyperlocalmart.delivery.service.AssignmentService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -16,6 +18,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
@@ -24,6 +27,7 @@ import java.util.UUID;
 public class AgentController {
 
     private final AgentService agentService;
+    private final AssignmentService assignmentService;
 
     @PostMapping("/api/v1/delivery/agents")
     public ResponseEntity<ApiResponse<AgentResponse>> createAgent(
@@ -51,6 +55,20 @@ public class AgentController {
             HttpServletRequest httpRequest) {
         requireSuperAdmin(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, agentService.listAllAgentsForSuperAdmin()));
+    }
+
+    @GetMapping("/api/v1/delivery/admin/agents/{agentId}/assignments")
+    public ResponseEntity<ApiResponse<AdminAgentAssignmentPage>> listAgentAssignments(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @PathVariable UUID agentId,
+            @RequestParam(required = false) Instant from,
+            @RequestParam(required = false) Instant to,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "25") int size,
+            HttpServletRequest httpRequest) {
+        requireSuperAdmin(principal);
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                assignmentService.listAssignmentsForAdmin(agentId, from, to, page, size)));
     }
 
     @PatchMapping("/api/v1/delivery/agents/{agentId}/status")

@@ -128,24 +128,71 @@ export function PortalShell({
         )}
 
         {showTownPicker ? (
-          <button
-            type="button"
-            style={shopChrome ? styles.locationBtnShop : styles.locationBtn}
-            aria-label={`Change town. Currently ${townLabel}`}
-            title="Tap to change town"
-            onClick={openPicker}
-          >
-            <span style={styles.pin} aria-hidden>
-              📍
-            </span>
-            <span style={styles.locationValue}>
-              <span style={styles.locationEyebrow}>Deliver to </span>
-              {townLabel}
-            </span>
-            <span style={styles.chevron} aria-hidden>
-              ▾
-            </span>
-          </button>
+          <div style={shopChrome ? styles.shopLocateRow : undefined}>
+            <button
+              type="button"
+              style={shopChrome ? styles.locationBtnShop : styles.locationBtn}
+              aria-label={`Change town. Currently ${townLabel}`}
+              title="Tap to change town"
+              onClick={openPicker}
+            >
+              {shopChrome ? (
+                <span style={styles.etaChip}>Same-day</span>
+              ) : (
+                <span style={styles.pin} aria-hidden>
+                  📍
+                </span>
+              )}
+              <span style={styles.locationCopy}>
+                {shopChrome ? (
+                  <span style={styles.locationEyebrow}>Delivering to</span>
+                ) : (
+                  <span style={styles.locationEyebrow}>Deliver to </span>
+                )}
+                <span style={styles.locationValue}>
+                  {townLabel}
+                  <span style={styles.chevron} aria-hidden>
+                    ▾
+                  </span>
+                </span>
+              </span>
+            </button>
+            {shopChrome ? (
+              <div style={styles.headerActions}>
+                {session ? (
+                  <HeaderIconButton
+                    label="Order alerts"
+                    onClick={() => navigate('/alerts')}
+                    style={styles.headerIcon}
+                  >
+                    🔔
+                  </HeaderIconButton>
+                ) : null}
+                {onRefresh ? (
+                  <HeaderIconButton
+                    label={refreshing ? 'Refreshing…' : 'Refresh'}
+                    onClick={() => void handleRefresh()}
+                    disabled={refreshing}
+                    style={{
+                      ...styles.headerIcon,
+                      ...(refreshing ? { opacity: 0.65 } : null),
+                    }}
+                  >
+                    {refreshing ? '…' : '↻'}
+                  </HeaderIconButton>
+                ) : null}
+                {session ? (
+                  <HeaderIconButton label="Sign out" onClick={logout} style={styles.headerIcon}>
+                    <span style={{ fontSize: '0.58rem', fontWeight: 800, letterSpacing: '0.02em' }}>OUT</span>
+                  </HeaderIconButton>
+                ) : (
+                  <Link to="/login" style={styles.signIn}>
+                    Login
+                  </Link>
+                )}
+              </div>
+            ) : null}
+          </div>
         ) : null}
       </header>
 
@@ -253,11 +300,38 @@ const styles: Record<string, CSSProperties> = {
     top: 0,
     zIndex: 40,
     margin: '0 -0.85rem',
-    padding: '0.4rem 0.85rem 0.15rem',
-    background: 'var(--bg)',
+    padding: '0.4rem 0.85rem 0.35rem',
+    background: 'color-mix(in srgb, var(--bg) 88%, #fff)',
+    backdropFilter: 'blur(14px)',
+    WebkitBackdropFilter: 'blur(14px)',
     display: 'grid',
     gap: '0.2rem',
     minWidth: 0,
+  },
+  shopLocateRow: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: '0.4rem',
+    minWidth: 0,
+  },
+  locationCopy: {
+    display: 'grid',
+    gap: '0.02rem',
+    minWidth: 0,
+    flex: '1 1 auto',
+  },
+  etaChip: {
+    flexShrink: 0,
+    background: 'var(--highlight)',
+    color: '#1A1C1A',
+    fontSize: '0.62rem',
+    fontWeight: 800,
+    letterSpacing: '0.03em',
+    textTransform: 'uppercase',
+    borderRadius: 7,
+    padding: '0.28rem 0.4rem',
+    lineHeight: 1.1,
   },
   brandRow: {
     display: 'flex',
@@ -331,23 +405,24 @@ const styles: Record<string, CSSProperties> = {
   locationBtnShop: {
     display: 'flex',
     alignItems: 'center',
-    gap: '0.3rem',
-    width: '100%',
+    gap: '0.45rem',
+    flex: '1 1 auto',
+    minWidth: 0,
     border: 'none',
     background: 'transparent',
-    padding: '0.15rem 0',
-    minHeight: 32,
+    padding: '0.1rem 0',
+    minHeight: 40,
     textAlign: 'left',
     cursor: 'pointer',
     boxSizing: 'border-box',
-    minWidth: 0,
   },
   locationEyebrow: {
-    fontWeight: 600,
+    fontWeight: 700,
     color: 'var(--text-muted)',
     textTransform: 'none',
     letterSpacing: '-0.01em',
-    fontSize: 'inherit',
+    fontSize: '0.68rem',
+    display: 'block',
   },
   pin: {
     fontSize: '0.85rem',
@@ -357,16 +432,18 @@ const styles: Record<string, CSSProperties> = {
   locationValue: {
     margin: 0,
     fontFamily: 'var(--font-display)',
-    fontWeight: 700,
-    fontSize: '0.92rem',
+    fontWeight: 800,
+    fontSize: '0.95rem',
     color: 'var(--text)',
     lineHeight: 1.2,
-    letterSpacing: '-0.015em',
+    letterSpacing: '-0.02em',
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
-    flex: '1 1 auto',
     minWidth: 0,
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.2rem',
   },
   chevron: {
     color: 'var(--text)',
@@ -407,8 +484,9 @@ const styles: Record<string, CSSProperties> = {
     paddingBottom: 'env(safe-area-inset-bottom, 0px)',
     display: 'grid',
     gridTemplateColumns: 'repeat(5, 1fr)',
-    background: 'var(--bg)',
+    background: '#fff',
     borderTop: '1px solid var(--border)',
+    boxShadow: '0 -6px 20px rgba(16, 24, 40, 0.06)',
     zIndex: 50,
     boxSizing: 'border-box',
   },

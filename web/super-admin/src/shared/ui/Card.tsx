@@ -20,7 +20,6 @@ export function Card({ children, padding = 'md', elevated, style, className }: P
         borderRadius: 'var(--radius-lg)',
         boxShadow: elevated ? 'var(--shadow-elevated)' : 'var(--shadow-card)',
         padding: pads[padding],
-        animation: 'hlm-fade-up 220ms ease both',
         ...style,
       }}
     >

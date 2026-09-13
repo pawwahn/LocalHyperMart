@@ -20,6 +20,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -68,6 +69,12 @@ public class AuthService {
                 .firstName(request.getFirstName())
                 .lastName(request.getLastName())
                 .status(UserStatus.ACTIVE)
+                .termsAcceptedAt(Boolean.TRUE.equals(request.getAcceptedTerms()) ? Instant.now() : null)
+                .termsVersion(Boolean.TRUE.equals(request.getAcceptedTerms())
+                        ? (request.getAcceptedLegalVersion() == null || request.getAcceptedLegalVersion() < 1
+                                ? 1
+                                : request.getAcceptedLegalVersion())
+                        : null)
                 .build();
 
         UserRole userRole = UserRole.builder().user(user).role(buyerRole).build();
@@ -141,7 +148,7 @@ public class AuthService {
         }
 
         userRepository.findByPhone(request.getPhone()).ifPresent(user -> {
-            String otp = HashUtils.randomNumericOtp(6);
+            String otp = resolveOtpCode();
             PasswordResetOtp entity = PasswordResetOtp.builder()
                     .phone(user.getPhone())
                     .otpHash(HashUtils.sha256(otp))
@@ -158,6 +165,11 @@ public class AuthService {
                 .findFirstByPhoneAndUsedAtIsNullOrderByCreatedAtDesc(request.getPhone())
                 .orElseThrow(() -> new BusinessException(ErrorCode.VALIDATION_ERROR, "Invalid or expired OTP"));
 
+        if (matchesFixedDevOtp(request.getOtp())) {
+            completePasswordReset(request, otpRecord);
+            return;
+        }
+
         if (!otpRecord.isUsable()) {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Invalid or expired OTP");
         }
@@ -171,6 +183,10 @@ public class AuthService {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Invalid OTP");
         }
 
+        completePasswordReset(request, otpRecord);
+    }
+
+    private void completePasswordReset(ResetPasswordRequest request, PasswordResetOtp otpRecord) {
         User user = userRepository.findByPhone(request.getPhone())
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "User not found"));
 
@@ -182,6 +198,19 @@ public class AuthService {
         otpRecord.setUsedAt(Instant.now());
         passwordResetOtpRepository.save(otpRecord);
         revokeActiveRefreshTokens(user.getId());
+    }
+
+    private String resolveOtpCode() {
+        String fixed = otpProperties.getFixedCode();
+        if (StringUtils.hasText(fixed)) {
+            return fixed.trim();
+        }
+        return HashUtils.randomNumericOtp(6);
+    }
+
+    private boolean matchesFixedDevOtp(String otp) {
+        String fixed = otpProperties.getFixedCode();
+        return StringUtils.hasText(fixed) && fixed.trim().equals(otp == null ? null : otp.trim());
     }
 
     @Transactional

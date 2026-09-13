@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '@/shared/auth/AuthContext';
 import { ApiError } from '@/shared/api/http';
 import {
@@ -91,13 +91,14 @@ export function useHubWorkspace() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [lastAgentId, setLastAgentId] = useState<string | null>(() => readLastAgentId());
+  const atHubAbortRef = useRef<AbortController | null>(null);
 
   const hubId = session?.hubId;
   const townId = session?.townId;
 
-  const agentNameById = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const a of agents) map.set(a.agentId, a.name);
+  const agentById = useMemo(() => {
+    const map = new Map<string, AgentDto>();
+    for (const a of agents) map.set(a.agentId, a);
     return map;
   }, [agents]);
 
@@ -134,6 +135,12 @@ export function useHubWorkspace() {
     void reload();
   }, [reload]);
 
+  useEffect(() => {
+    if (!notice) return;
+    const t = window.setTimeout(() => setNotice(null), 4000);
+    return () => window.clearTimeout(t);
+  }, [notice]);
+
   const visibleOrders = useMemo(
     () => filterHubOrders(orders, orderTab, search),
     [orders, orderTab, search],
@@ -169,11 +176,16 @@ export function useHubWorkspace() {
 
   function agentLabel(agentId?: string | null): string {
     if (!agentId) return 'Agent';
-    return agentNameById.get(agentId) ?? 'Agent';
+    const agent = agentById.get(agentId);
+    const fromAssignment = detail?.assignments?.find((a) => a.agentId === agentId);
+    const name = agent?.name?.trim() || fromAssignment?.agentName?.trim() || 'Agent';
+    const phone = agent?.phone?.trim() || fromAssignment?.agentPhone?.trim();
+    return phone ? `${name} (${phone})` : name;
   }
 
   async function openOrder(orderId: string) {
     if (!session) return;
+    if (selectedOrderId !== orderId) setNotice(null);
     setSelectedOrderId(orderId);
     setShowHistory(true);
     setError(null);
@@ -230,6 +242,7 @@ export function useHubWorkspace() {
           status: s.status,
           subtotalLabel: money(s.subtotal),
           itemCount: s.itemCount,
+          cancelledItemCount: s.cancelledItemCount ?? 0,
           vendorId: s.vendorId,
           items: (s.items ?? []).map((item) => ({
             name: item.name,
@@ -237,6 +250,7 @@ export function useHubWorkspace() {
             unitCode: item.unitCode || undefined,
             lineTotalLabel:
               item.lineTotal != null ? money(item.lineTotal) : undefined,
+            cancelled: (item.status ?? 'ACTIVE').toUpperCase() === 'CANCELLED',
           })),
           vendorAlert: s.vendorAlert
             ? {
@@ -273,19 +287,35 @@ export function useHubWorkspace() {
     }
   }
 
-  async function doMarkAtHub(subOrderId: string) {
-    if (!session) return;
+  function cancelMarkAtHub() {
+    atHubAbortRef.current?.abort();
+    atHubAbortRef.current = null;
+  }
+
+  async function doMarkAtHub(subOrderId: string): Promise<boolean> {
+    if (!session) return false;
+    cancelMarkAtHub();
+    const ac = new AbortController();
+    atHubAbortRef.current = ac;
     setBusy(true);
     setNotice(null);
     setError(null);
     try {
-      await markSubOrderAtHub(session.accessToken, subOrderId);
+      await markSubOrderAtHub(session.accessToken, subOrderId, ac.signal);
       setNotice('Marked as received at hub.');
-      if (selectedOrderId) await openOrder(selectedOrderId);
-      await reload();
+      return true;
     } catch (err) {
+      if (err instanceof ApiError && (err.status === 404 || /not found/i.test(err.message))) {
+        setNotice('Bag already marked at hub.');
+        return true;
+      }
+      if (err instanceof ApiError && err.message === 'Cancelled') {
+        return false;
+      }
       setError(err instanceof Error ? err.message : 'At-hub failed');
+      return false;
     } finally {
+      if (atHubAbortRef.current === ac) atHubAbortRef.current = null;
       setBusy(false);
     }
   }
@@ -380,6 +410,7 @@ export function useHubWorkspace() {
     clearOrderSelection,
     doAssignPickup,
     doMarkAtHub,
+    cancelMarkAtHub,
     doAssignLastMile,
     doReassign,
     doAlertVendor,

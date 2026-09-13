@@ -52,8 +52,9 @@ public class AssignmentController {
             @PathVariable UUID vendorSubOrderId,
             HttpServletRequest httpRequest) {
         requireHubAdmin(principal);
-        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
-                assignmentService.markAtHub(principal.getUserId(), vendorSubOrderId)));
+        AssignmentResponse response = assignmentService.markAtHub(principal.getUserId(), vendorSubOrderId);
+        assignmentService.notifyBagArrivedAtHub(response.getOrderId());
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest, response));
     }
 
     @PatchMapping("/{assignmentId}/reassign")

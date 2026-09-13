@@ -91,6 +91,27 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
     @Query("""
             SELECT o FROM Order o
             WHERE o.townId = :townId
+              AND o.status = com.hyperlocalmart.order.entity.OrderStatus.DELIVERED
+              AND o.deliveredAt IS NOT NULL
+              AND o.deliveredAt >= :start AND o.deliveredAt < :end
+            ORDER BY o.deliveredAt ASC
+            """)
+    List<Order> findDeliveredByTownAndDeliveredAtBetween(
+            @Param("townId") UUID townId,
+            @Param("start") Instant start,
+            @Param("end") Instant end);
+
+    @Query("""
+            SELECT o FROM Order o
+            WHERE o.id IN :orderIds
+              AND o.status = com.hyperlocalmart.order.entity.OrderStatus.DELIVERED
+              AND o.deliveredAt IS NOT NULL
+            """)
+    List<Order> findDeliveredByIds(@Param("orderIds") Collection<UUID> orderIds);
+
+    @Query("""
+            SELECT o FROM Order o
+            WHERE o.townId = :townId
               AND o.paymentMethod = com.hyperlocalmart.order.entity.PaymentMethod.COD
               AND o.status = com.hyperlocalmart.order.entity.OrderStatus.DELIVERED
               AND o.deliveredAt IS NOT NULL
@@ -109,4 +130,59 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
               AND o.status = com.hyperlocalmart.order.entity.OrderStatus.DELIVERED
             """)
     List<Order> findCodDeliveredByIds(@Param("orderIds") Collection<UUID> orderIds);
+
+    @Query("""
+            SELECT DISTINCT o FROM Order o
+            LEFT JOIN FETCH o.vendorSubOrders
+            WHERE (:townId IS NULL OR o.townId = :townId)
+              AND o.placedAt IS NOT NULL
+              AND o.placedAt >= :start AND o.placedAt < :end
+            ORDER BY o.placedAt DESC
+            """)
+    List<Order> findPlacedWithSubsInRange(
+            @Param("townId") UUID townId,
+            @Param("start") Instant start,
+            @Param("end") Instant end);
+
+    @Query("""
+            SELECT DISTINCT o FROM Order o
+            LEFT JOIN FETCH o.vendorSubOrders
+            WHERE o.buyerId = :buyerId
+              AND (:townId IS NULL OR o.townId = :townId)
+              AND o.placedAt IS NOT NULL
+              AND o.placedAt >= :start AND o.placedAt < :end
+            ORDER BY o.placedAt DESC
+            """)
+    List<Order> findBuyerPlacedWithSubsInRange(
+            @Param("buyerId") UUID buyerId,
+            @Param("townId") UUID townId,
+            @Param("start") Instant start,
+            @Param("end") Instant end);
+
+    @Query("""
+            SELECT COALESCE(SUM(o.totalAmount), 0) FROM Order o
+            WHERE o.townId = :townId
+              AND o.placedAt IS NOT NULL
+              AND o.placedAt >= :start AND o.placedAt < :end
+            """)
+    java.math.BigDecimal sumPlacedGmvByTown(UUID townId, Instant start, Instant end);
+
+    @Query("""
+            SELECT COALESCE(SUM(o.totalAmount), 0) FROM Order o
+            WHERE o.townId = :townId
+              AND o.status = com.hyperlocalmart.order.entity.OrderStatus.DELIVERED
+              AND o.deliveredAt IS NOT NULL
+              AND o.deliveredAt >= :start AND o.deliveredAt < :end
+            """)
+    java.math.BigDecimal sumDeliveredGmvByTown(UUID townId, Instant start, Instant end);
+
+    @Query("""
+            SELECT COALESCE(SUM(o.totalAmount), 0) FROM Order o
+            WHERE o.townId = :townId
+              AND o.paymentMethod = com.hyperlocalmart.order.entity.PaymentMethod.COD
+              AND o.status = com.hyperlocalmart.order.entity.OrderStatus.DELIVERED
+              AND o.deliveredAt IS NOT NULL
+              AND o.deliveredAt >= :start AND o.deliveredAt < :end
+            """)
+    java.math.BigDecimal sumCodDeliveredGmvByTown(UUID townId, Instant start, Instant end);
 }

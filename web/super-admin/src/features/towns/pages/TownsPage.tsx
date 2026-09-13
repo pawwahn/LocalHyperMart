@@ -3,7 +3,7 @@ import type { CSSProperties } from 'react';
 import { PortalShell } from '@/shared/layout/PortalShell';
 import { useAuth } from '@/shared/auth/AuthContext';
 import { ApiError } from '@/shared/api/http';
-import { Banner, Button, Card, ConfirmDialog, TextField } from '@/shared/ui';
+import { Banner, Button, Card, ConfirmDialog, SearchSelect, TextField } from '@/shared/ui';
 import {
   createTown,
   listCountries,
@@ -14,6 +14,8 @@ import {
 } from '../api/townsApi';
 import { getPlatformSettings } from '@/features/settings/api/settingsApi';
 import { TownSettingsDialog } from '../components/TownSettingsDialog';
+import { TownIncentiveDialog } from '../components/TownIncentiveDialog';
+import { AdminHistoryPanel } from '@/shared/audit/AdminHistoryPanel';
 
 type Filter = 'all' | 'enabled' | 'disabled';
 
@@ -46,7 +48,11 @@ export function TownsPage() {
   const [pincodes, setPincodes] = useState('');
   const [radius, setRadius] = useState('10');
   const [configTown, setConfigTown] = useState<TownVm | null>(null);
-  const [pendingDisableTown, setPendingDisableTown] = useState<TownVm | null>(null);
+  const [incentiveTown, setIncentiveTown] = useState<TownVm | null>(null);
+  const [pendingStatus, setPendingStatus] = useState<{ town: TownVm; next: 'ENABLED' | 'DISABLED' } | null>(null);
+  const [historyTick, setHistoryTick] = useState(0);
+  const [pageView, setPageView] = useState<'towns' | 'history'>('towns');
+  const [historyTownId, setHistoryTownId] = useState('');
   const [platformDeliveryFee, setPlatformDeliveryFee] = useState(40);
 
   const selectedCountry = useMemo(
@@ -54,6 +60,18 @@ export function TownsPage() {
     [countries, countryCode],
   );
   const states = selectedCountry?.states ?? [];
+
+  const historyTownOptions = useMemo(
+    () =>
+      towns.map((t) => ({
+        value: t.id,
+        label: `${t.displayName}${t.status !== 'ENABLED' ? ' · DISABLED' : ''}`,
+        searchText: [t.displayName, t.townCode, t.state, t.stateCode, t.country, t.countryCode, t.status]
+          .filter(Boolean)
+          .join(' '),
+      })),
+    [towns],
+  );
 
   const enabledCount = useMemo(() => towns.filter((t) => t.status === 'ENABLED').length, [towns]);
   const disabledCount = useMemo(() => towns.filter((t) => t.status !== 'ENABLED').length, [towns]);
@@ -163,6 +181,7 @@ export function TownsPage() {
       setPincodes('');
       setShowAdd(false);
       setFilter('all');
+      setHistoryTick((n) => n + 1);
       await reload();
     } catch (err) {
       setError(err instanceof ApiError || err instanceof Error ? err.message : 'Create failed');
@@ -176,10 +195,16 @@ export function TownsPage() {
     setError(null);
     setNotice(null);
     try {
-      await updateTownStatus(token, town.id, next, next === 'DISABLED' ? 'Paused by super admin' : undefined);
+      await updateTownStatus(
+        token,
+        town.id,
+        next,
+        next === 'DISABLED' ? 'Paused by super admin' : 'Resumed by super admin',
+      );
       setNotice(`${town.displayName} ${next === 'ENABLED' ? 'enabled' : 'disabled'}`);
       if (next === 'DISABLED') setFilter('all');
-      setPendingDisableTown(null);
+      setPendingStatus(null);
+      setHistoryTick((n) => n + 1);
       await reload();
     } catch (err) {
       setError(err instanceof ApiError || err instanceof Error ? err.message : 'Status update failed');
@@ -188,17 +213,18 @@ export function TownsPage() {
     }
   }
 
-  async function toggleStatus(town: TownVm) {
-    const next = town.status === 'ENABLED' ? 'DISABLED' : 'ENABLED';
-    if (next === 'DISABLED') {
-      setPendingDisableTown(town);
-      return;
-    }
-    await applyStatus(town, next);
+  function requestStatus(town: TownVm, next: 'ENABLED' | 'DISABLED') {
+    setPendingStatus({ town, next });
   }
 
   return (
-    <PortalShell title="Towns" onRefresh={() => void reload()}>
+    <PortalShell
+      title="Towns"
+      onRefresh={() => {
+        setHistoryTick((n) => n + 1);
+        void reload();
+      }}
+    >
       {error ? <Banner tone="danger">{error}</Banner> : null}
       {notice ? <Banner tone="success">{notice}</Banner> : null}
 
@@ -217,21 +243,61 @@ export function TownsPage() {
             </p>
           </div>
           <div style={styles.toolbarActions}>
-            <input
-              style={styles.search}
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search towns…"
-              aria-label="Search towns"
-            />
-            <Button size="sm" variant={showAdd ? 'secondary' : 'primary'} onClick={() => setShowAdd((v) => !v)}>
-              {showAdd ? 'Close' : 'Add town'}
-            </Button>
+            <div style={styles.viewTabs} role="tablist" aria-label="Towns or history">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={pageView === 'towns'}
+                style={pageView === 'towns' ? styles.viewTabActive : styles.viewTab}
+                onClick={() => setPageView('towns')}
+              >
+                Towns
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={pageView === 'history'}
+                style={pageView === 'history' ? styles.viewTabActive : styles.viewTab}
+                onClick={() => {
+                  setPageView('history');
+                  setHistoryTick((n) => n + 1);
+                }}
+              >
+                History
+              </button>
+            </div>
+            {pageView === 'towns' ? (
+              <>
+                <input
+                  style={styles.search}
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Search towns…"
+                  aria-label="Search towns"
+                />
+                <Button size="sm" variant={showAdd ? 'secondary' : 'primary'} onClick={() => setShowAdd((v) => !v)}>
+                  {showAdd ? 'Close' : 'Add town'}
+                </Button>
+              </>
+            ) : (
+              <div style={styles.historyTownSearch}>
+                <SearchSelect
+                  compact
+                  noun="towns"
+                  value={historyTownId}
+                  options={historyTownOptions}
+                  onChange={setHistoryTownId}
+                  disabled={towns.length === 0}
+                  placeholder={loading ? 'Loading towns…' : 'Search town for history…'}
+                  emptyMessage={towns.length === 0 ? 'No towns yet' : 'No towns match'}
+                />
+              </div>
+            )}
           </div>
         </div>
       </Card>
 
-      {showAdd ? (
+      {pageView === 'towns' && showAdd ? (
         <Card style={styles.addCard}>
           <div style={styles.addHead}>
             <h2 style={styles.sectionTitle}>New town</h2>
@@ -312,6 +378,7 @@ export function TownsPage() {
         </Card>
       ) : null}
 
+      {pageView === 'towns' ? (
       <Card style={styles.mainCard}>
         <div style={styles.listHeader}>
           <div style={styles.tabs}>
@@ -378,7 +445,14 @@ export function TownsPage() {
                     return (
                       <tr key={town.id}>
                         <td style={styles.td}>
-                          <button type="button" style={styles.townLink} onClick={() => setConfigTown(town)}>
+                          <button
+                            type="button"
+                            style={styles.townLink}
+                            onClick={() => {
+                              setIncentiveTown(null);
+                              setConfigTown(town);
+                            }}
+                          >
                             <strong style={styles.townName}>{town.displayName}</strong>
                           </button>
                           <div style={styles.tdSub}>{town.country ?? 'India'}</div>
@@ -392,11 +466,34 @@ export function TownsPage() {
                         </td>
                         <td style={styles.tdRight}>
                           <div style={styles.actionRow}>
-                            <Button size="sm" variant="ghost" disabled={busy} onClick={() => setConfigTown(town)}>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              disabled={busy}
+                              onClick={() => {
+                                setIncentiveTown(null);
+                                setConfigTown(town);
+                              }}
+                            >
                               Settings
                             </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              disabled={busy}
+                              onClick={() => {
+                                setConfigTown(null);
+                                setIncentiveTown(town);
+                              }}
+                            >
+                              Hub & agent pay
+                            </Button>
                             {disabled ? (
-                              <Button size="sm" disabled={rowBusy || busy} onClick={() => void toggleStatus(town)}>
+                              <Button
+                                size="sm"
+                                disabled={rowBusy || busy}
+                                onClick={() => requestStatus(town, 'ENABLED')}
+                              >
                                 {rowBusy ? '…' : 'Enable'}
                               </Button>
                             ) : (
@@ -404,7 +501,7 @@ export function TownsPage() {
                                 size="sm"
                                 variant="ghost"
                                 disabled={rowBusy || busy}
-                                onClick={() => void toggleStatus(town)}
+                                onClick={() => requestStatus(town, 'DISABLED')}
                               >
                                 {rowBusy ? '…' : 'Disable'}
                               </Button>
@@ -439,6 +536,7 @@ export function TownsPage() {
           </>
         )}
       </Card>
+      ) : null}
 
       {configTown ? (
         <TownSettingsDialog
@@ -449,23 +547,66 @@ export function TownsPage() {
           onSaved={(message) => {
             setNotice(message);
             setError(null);
+            setHistoryTick((n) => n + 1);
           }}
         />
       ) : null}
 
+      {incentiveTown ? (
+        <TownIncentiveDialog
+          town={incentiveTown}
+          token={token}
+          onClose={() => setIncentiveTown(null)}
+          onSaved={(message) => {
+            setNotice(message);
+            setError(null);
+            setHistoryTick((n) => n + 1);
+          }}
+        />
+      ) : null}
+
+      {pageView === 'history' && token ? (
+        <AdminHistoryPanel
+          token={token}
+          title={
+            historyTownId
+              ? `${towns.find((t) => t.id === historyTownId)?.displayName ?? 'Town'} history`
+              : 'Town history'
+          }
+          refreshTick={historyTick}
+          tall
+          townId={historyTownId || undefined}
+          requireTown={!historyTownId}
+          townNames={Object.fromEntries(towns.map((t) => [t.id, t.displayName]))}
+          tabs={[
+            { id: 'settings', label: 'Settings', screen: 'town-settings' },
+            { id: 'pay', label: 'Hub & agent pay', screen: 'town-incentives' },
+            { id: 'status', label: 'Enable / disable', screen: 'towns' },
+          ]}
+        />
+      ) : null}
+
       <ConfirmDialog
-        open={Boolean(pendingDisableTown)}
-        title={`Disable ${pendingDisableTown?.displayName}?`}
-        description="Buyers and vendors in this town will stop until you enable it again."
-        confirmLabel="Disable town"
+        open={Boolean(pendingStatus)}
+        title={
+          pendingStatus?.next === 'ENABLED'
+            ? `Enable ${pendingStatus.town.displayName}?`
+            : `Disable ${pendingStatus?.town.displayName}?`
+        }
+        description={
+          pendingStatus?.next === 'ENABLED'
+            ? 'Buyers and vendors in this town can take orders again.'
+            : 'Buyers and vendors in this town will stop until you enable it again.'
+        }
+        confirmLabel={pendingStatus?.next === 'ENABLED' ? 'Enable town' : 'Disable town'}
         cancelLabel="Cancel"
-        danger
+        danger={pendingStatus?.next === 'DISABLED'}
         busy={Boolean(busyId)}
         onConfirm={() => {
-          if (pendingDisableTown) void applyStatus(pendingDisableTown, 'DISABLED');
+          if (pendingStatus) void applyStatus(pendingStatus.town, pendingStatus.next);
         }}
         onClose={() => {
-          if (!busyId) setPendingDisableTown(null);
+          if (!busyId) setPendingStatus(null);
         }}
       />
     </PortalShell>
@@ -493,6 +634,38 @@ const styles: Record<string, CSSProperties> = {
     alignItems: 'center',
     flex: '1 1 220px',
     justifyContent: 'flex-end',
+  },
+  viewTabs: {
+    display: 'flex',
+    gap: 3,
+    padding: 3,
+    border: '1px solid var(--border)',
+    borderRadius: 'var(--radius-md)',
+    background: 'var(--bg)',
+  },
+  viewTab: {
+    appearance: 'none',
+    border: 'none',
+    background: 'transparent',
+    color: 'var(--text-muted)',
+    fontWeight: 700,
+    fontSize: '0.8rem',
+    padding: '0.35rem 0.75rem',
+    borderRadius: 6,
+    cursor: 'pointer',
+  },
+  historyTownSearch: { minWidth: 240, flex: '1 1 240px', maxWidth: 360 },
+  viewTabActive: {
+    appearance: 'none',
+    border: 'none',
+    background: 'var(--bg-elevated)',
+    color: 'var(--text)',
+    fontWeight: 800,
+    fontSize: '0.8rem',
+    padding: '0.35rem 0.75rem',
+    borderRadius: 6,
+    cursor: 'pointer',
+    boxShadow: 'var(--shadow-card)',
   },
   eyebrow: {
     margin: 0,

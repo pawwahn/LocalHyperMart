@@ -28,6 +28,10 @@ hyperlocalmart:
       secret: ${JWT_SECRET:hyperlocalmart-dev-secret-change-in-production-min-32-chars!!}
   order-service:
     base-url: ${HLM_ORDER_SERVICE_URI:http://localhost:8086}
+  town-service:
+    base-url: ${HLM_TOWN_SERVICE_URI:http://localhost:8082}
+  user-service:
+    base-url: ${HLM_USER_SERVICE_URI:http://localhost:8081}
   vendor-service:
     base-url: ${HLM_VENDOR_SERVICE_URI:http://localhost:8083}
   delivery-service:

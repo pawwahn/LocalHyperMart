@@ -346,6 +346,7 @@ export function HubDashboardPage() {
     clearOrderSelection,
     doAssignPickup,
     doMarkAtHub,
+    cancelMarkAtHub,
     doAssignLastMile,
     doReassign,
     doAlertVendor,
@@ -356,6 +357,7 @@ export function HubDashboardPage() {
   const showMobileDetail = isMobile && Boolean(detail);
   const [agentPrompt, setAgentPrompt] = useState<AgentPrompt>(null);
   const [atHubPrompt, setAtHubPrompt] = useState<AtHubPrompt>(null);
+  const [atHubSaving, setAtHubSaving] = useState(false);
   const [alertPrompt, setAlertPrompt] = useState<AlertPrompt>(null);
   const [alertError, setAlertError] = useState<string | null>(null);
   const [openItemBags, setOpenItemBags] = useState<Record<string, boolean>>({});
@@ -363,9 +365,24 @@ export function HubDashboardPage() {
   useEffect(() => {
     setOpenItemBags({});
     setAtHubPrompt(null);
+    setAtHubSaving(false);
     setAlertPrompt(null);
     setAlertError(null);
   }, [selectedOrderId]);
+
+  useEffect(() => {
+    setOpenItemBags((prev) => {
+      const next = { ...prev };
+      let changed = false;
+      for (const s of subOrders) {
+        if (s.cancelledItemCount > 0 && next[s.id] !== true) {
+          next[s.id] = true;
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [subOrders]);
 
   useEffect(() => {
     if (showMobileDetail && detailRef.current) {
@@ -622,6 +639,9 @@ export function HubDashboardPage() {
                         >
                           {openItemBags[s.id] ? '▾' : '▸'} {s.itemCount} item
                           {s.itemCount === 1 ? '' : 's'}
+                          {s.cancelledItemCount > 0
+                            ? ` · ${s.cancelledItemCount} cancelled`
+                            : ''}
                         </button>
                         {vendorPickup ? ` · ${agentLabel(vendorPickup.agentId)}` : ''}
                         {hint ? ` · ${hint}` : ''}
@@ -630,13 +650,18 @@ export function HubDashboardPage() {
                         s.items.length > 0 ? (
                           <ul style={styles.itemList}>
                             {s.items.map((item, idx) => (
-                              <li key={`${s.id}-${item.name}-${idx}`} style={styles.itemRow}>
+                              <li
+                                key={`${s.id}-${item.name}-${idx}`}
+                                style={
+                                  item.cancelled
+                                    ? { ...styles.itemRow, ...styles.itemCancelled }
+                                    : styles.itemRow
+                                }
+                              >
                                 <span>
                                   {item.name} × {item.quantity}
+                                  {item.cancelled ? ' · cancelled' : ''}
                                 </span>
-                                {item.lineTotalLabel ? (
-                                  <span style={styles.itemAmt}>{item.lineTotalLabel}</span>
-                                ) : null}
                               </li>
                             ))}
                           </ul>
@@ -694,6 +719,7 @@ export function HubDashboardPage() {
                                   });
                                   return;
                                 }
+                                setAtHubSaving(false);
                                 setAtHubPrompt({ subOrderId: s.id, shopName: s.shopName });
                               }}
                             >
@@ -720,7 +746,7 @@ export function HubDashboardPage() {
                               </button>
                             )
                           ) : null}
-                          {s.vendorAlert?.status === 'ACKNOWLEDGED' && s.vendorAlert.acknowledgedAt && !alertPending ? (
+                          {s.vendorAlert?.status === 'ACKNOWLEDGED' && s.vendorAlert.acknowledgedAt && !alertPending && legState === 'awaiting_vendor' ? (
                             <span style={styles.alertNoticed}>
                               Noticed {formatPortalTime(s.vendorAlert.acknowledgedAt)}
                             </span>
@@ -916,16 +942,28 @@ export function HubDashboardPage() {
       <ConfirmAtHubDialog
         open={Boolean(atHubPrompt)}
         shopName={atHubPrompt?.shopName ?? 'Shop'}
-        busy={busy}
+        busy={atHubSaving}
+        error={atHubPrompt ? error : null}
         onClose={() => {
-          if (!busy) setAtHubPrompt(null);
+          cancelMarkAtHub();
+          setAtHubSaving(false);
+          setAtHubPrompt(null);
         }}
         onConfirm={() => {
-          if (!atHubPrompt) return;
+          if (!atHubPrompt || atHubSaving) return;
           const subOrderId = atHubPrompt.subOrderId;
+          const orderId = selectedOrderId;
+          setAtHubSaving(true);
           void (async () => {
-            await doMarkAtHub(subOrderId);
-            setAtHubPrompt(null);
+            try {
+              const ok = await doMarkAtHub(subOrderId);
+              if (!ok) return;
+              setAtHubPrompt(null);
+              if (orderId) void openOrder(orderId);
+              void reload();
+            } finally {
+              setAtHubSaving(false);
+            }
           })();
         }}
       />
@@ -1642,6 +1680,11 @@ const styles: Record<string, CSSProperties> = {
     color: 'var(--text)',
   },
   itemAmt: { color: 'var(--text-muted)', fontWeight: 700, whiteSpace: 'nowrap' },
+  itemCancelled: {
+    textDecoration: 'line-through',
+    color: 'var(--text-muted)',
+    fontWeight: 650,
+  },
   boyLine: {
     margin: 0,
     color: 'var(--text)',

@@ -21,10 +21,12 @@
       "@/*": ["src/*"],
       "@hlm-theme": ["../shared/theme"],
       "@hlm-theme/*": ["../shared/theme/*"],
+      "@hlm-legal": ["../shared/legal"],
+      "@hlm-legal/*": ["../shared/legal/*"],
       "react": ["./node_modules/@types/react/index.d.ts"],
       "react/jsx-runtime": ["./node_modules/@types/react/jsx-runtime.d.ts"],
       "react/jsx-dev-runtime": ["./node_modules/@types/react/jsx-dev-runtime.d.ts"]
     }
   },
-  "include": ["src", "../shared/theme/**/*.ts", "../shared/theme/**/*.tsx"]
+  "include": ["src", "../shared/theme/**/*.ts", "../shared/theme/**/*.tsx", "../shared/legal/**/*.ts", "../shared/legal/**/*.tsx"]
 }

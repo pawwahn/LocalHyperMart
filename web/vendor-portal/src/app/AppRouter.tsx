@@ -6,6 +6,7 @@ import { AuthProvider, useAuth } from '@/shared/auth/AuthContext';
 import { RequireAuth } from '@/shared/routing/RequireAuth';
 import { VendorChromeLayout } from '@/shared/layout/VendorChromeLayout';
 import { LoginPage } from '@/features/auth/pages/LoginPage';
+import { LegalDocumentPage } from '@hlm-legal';
 import { PayoutsPage } from '@/features/payouts/pages/PayoutsPage';
 import { SellersPage } from '@/features/sellers/pages/SellersPage';
 import { SettingsPage } from '@/features/settings/pages/SettingsPage';
@@ -35,6 +36,7 @@ export function AppRouter() {
         <BrowserRouter basename={routerBasename()}>
           <Routes>
             <Route path="/login" element={<LoginPage />} />
+            <Route path="/legal/:doc" element={<LegalDocumentPage homeTo="/login" />} />
             <Route element={<RequireAuth />}>
               <Route element={<VendorChromeLayout />}>
                 <Route path="/dashboard" element={<KeepAliveRoute />} />

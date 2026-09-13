@@ -46,6 +46,7 @@ export type AdminOrderDetail = {
     status: string;
     subtotal: number;
     itemCount: number;
+    cancelledItemCount?: number;
     readyForPickupAt?: string | null;
     items?: Array<{
       name: string;

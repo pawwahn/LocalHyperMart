@@ -22,7 +22,7 @@ public class OrderItemDetailResponse {
     private String cancelReason;
     private Instant cancelledAt;
     private BigDecimal storeCreditAmount;
-    /** True when buyer may cancel this line (shop still PLACED). */
+    /** True when this line may still be cancelled (shop packing, before pickup). */
     private boolean canCancel;
     /** True when this line was cancelled by the buyer (vendor must not restore). */
     private boolean cancelledByBuyer;

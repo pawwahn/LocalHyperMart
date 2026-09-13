@@ -3,6 +3,7 @@ package com.hyperlocalmart.delivery.dto.response;
 import lombok.Builder;
 import lombok.Data;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
@@ -25,6 +26,9 @@ public class HubReportResponse {
 
     private long shopPickupsCompleted;
     private long homeDeliveriesCompleted;
+    private BigDecimal placedGmv;
+    private BigDecimal deliveredGmv;
+    private BigDecimal codGmv;
 
     private List<AgentPerformanceRow> agents;
 

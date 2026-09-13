@@ -17,12 +17,14 @@ type Props = {
   imageCount?: number;
   quantity: number;
   busy?: boolean;
+  /** rail = Instamart-style horizontal scroller card */
+  layout?: 'grid' | 'rail';
   onOpen: () => void;
   onIncrease: () => void;
   onDecrease: () => void;
 };
 
-/** Presentational product tile — 2-up phone grid. */
+/** Presentational product tile — 2-up phone grid or horizontal rail. */
 export function ProductCard({
   name,
   shopName,
@@ -38,6 +40,7 @@ export function ProductCard({
   imageCount = 0,
   quantity,
   busy,
+  layout = 'grid',
   onOpen,
   onIncrease,
   onDecrease,
@@ -47,14 +50,14 @@ export function ProductCard({
   const showRating = ratingCount > 0 && avgRating > 0;
 
   return (
-    <article className="hlm-product-card" style={styles.card}>
+    <article className="hlm-product-card" style={layout === 'rail' ? styles.cardRail : styles.card}>
       <div style={{ ...styles.media, background: visual.tint }}>
         <button type="button" style={styles.mediaHit} onClick={onOpen} aria-label={`View ${name}`} />
         {badge ? (
           <span style={specialOfferActive ? styles.sale : styles.offer}>{badge}</span>
         ) : null}
         {imageUrl ? (
-          <img src={imageUrl} alt="" style={styles.photo} />
+          <img src={imageUrl} alt="" style={styles.photoContain} />
         ) : (
           <span style={styles.emoji} aria-hidden>
             {visual.emoji}
@@ -94,15 +97,27 @@ export function ProductCard({
 
 const styles: Record<string, CSSProperties> = {
   card: {
-    background: 'var(--bg-elevated)',
-    border: '1px solid color-mix(in srgb, var(--border) 80%, transparent)',
-    borderRadius: 18,
+    background: '#fff',
+    border: '1px solid var(--border)',
+    borderRadius: 12,
     overflow: 'hidden',
     display: 'grid',
     gridTemplateRows: 'auto 1fr',
     minWidth: 0,
-    boxShadow: 'none',
+    boxShadow: 'var(--shadow-card)',
     animation: 'hlm-fade-up 260ms ease both',
+  },
+  cardRail: {
+    background: '#fff',
+    border: '1px solid var(--border)',
+    borderRadius: 12,
+    overflow: 'hidden',
+    display: 'grid',
+    gridTemplateRows: 'auto 1fr',
+    width: 148,
+    flex: '0 0 148px',
+    minWidth: 148,
+    boxShadow: 'var(--shadow-card)',
   },
   media: {
     position: 'relative',
@@ -124,6 +139,12 @@ const styles: Record<string, CSSProperties> = {
     width: '100%',
     height: '100%',
     objectFit: 'cover',
+    display: 'block',
+  },
+  photoContain: {
+    width: '86%',
+    height: '86%',
+    objectFit: 'contain',
     display: 'block',
   },
   emoji: { fontSize: '2.25rem', lineHeight: 1 },
@@ -149,8 +170,8 @@ const styles: Record<string, CSSProperties> = {
     top: 8,
     left: 8,
     zIndex: 2,
-    background: 'var(--highlight)',
-    color: '#0a1a08',
+    background: 'var(--accent)',
+    color: '#fff',
     fontSize: '0.62rem',
     fontWeight: 800,
     padding: '0.2rem 0.4rem',

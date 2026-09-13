@@ -4,6 +4,8 @@ import com.hyperlocalmart.common.api.ApiResponse;
 import com.hyperlocalmart.town.dto.request.CreateTownRequest;
 import com.hyperlocalmart.town.dto.request.UpdateTownConfigRequest;
 import com.hyperlocalmart.town.dto.request.UpdateTownStatusRequest;
+import com.hyperlocalmart.town.dto.response.MembershipConfigResponse;
+import com.hyperlocalmart.town.dto.response.MembershipPackRevisionResponse;
 import com.hyperlocalmart.town.dto.response.TownDetailResponse;
 import com.hyperlocalmart.town.dto.response.TownListResponse;
 import com.hyperlocalmart.town.dto.response.TownOperationalConfigResponse;
@@ -89,8 +91,9 @@ public class TownController {
             @RequestBody UpdateTownConfigRequest request,
             HttpServletRequest httpRequest) {
         AdminAuth.requireSuperAdmin(httpRequest);
+        UUID actorId = AdminAuth.requireUserId(httpRequest);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
-                townConfigService.updateOperationalConfig(townId, request)));
+                townConfigService.updateOperationalConfig(townId, request, actorId)));
     }
 
     /** Buyer cart: theme color + whether Best deals is on for this town. */
@@ -126,7 +129,15 @@ public class TownController {
             @RequestBody Map<String, Object> patch,
             HttpServletRequest httpRequest) {
         AdminAuth.requireSuperAdmin(httpRequest);
-        return ResponseEntity.ok(ApiResponses.ok(httpRequest, platformSettingsService.patchSettings(patch)));
+        UUID actorId = AdminAuth.requireUserId(httpRequest);
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest, platformSettingsService.patchSettings(patch, actorId)));
+    }
+
+    @GetMapping("/api/v1/platform/membership-pack-history")
+    public ResponseEntity<ApiResponse<List<MembershipPackRevisionResponse>>> membershipPackHistory(
+            HttpServletRequest httpRequest) {
+        AdminAuth.requireSuperAdmin(httpRequest);
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest, platformSettingsService.listPackRevisions()));
     }
 
     @GetMapping("/api/v1/internal/towns/{townId}/exists")
@@ -167,5 +178,10 @@ public class TownController {
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, Map.of(
                 "deliveryFee", platformSettingsService.resolveDeliveryFee()
         )));
+    }
+
+    @GetMapping("/api/v1/internal/platform/membership-config")
+    public ResponseEntity<ApiResponse<MembershipConfigResponse>> membershipConfig(HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest, platformSettingsService.getMembershipConfig()));
     }
 }

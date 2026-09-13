@@ -71,4 +71,8 @@ public class OrderItem {
     @Column(name = "created_at", nullable = false)
     @Builder.Default
     private Instant createdAt = Instant.now();
+
+    public boolean isActiveLine() {
+        return status == null || status == OrderItemStatus.ACTIVE;
+    }
 }

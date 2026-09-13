@@ -36,5 +36,7 @@ hyperlocalmart:
   security:
     jwt:
       secret: ${JWT_SECRET:hyperlocalmart-dev-secret-change-in-production-min-32-chars!!}
+  town-service:
+    base-url: ${HLM_TOWN_SERVICE_URI:http://localhost:8082}
   vendor-service:
     base-url: ${HLM_VENDOR_SERVICE_URI:http://localhost:8083}

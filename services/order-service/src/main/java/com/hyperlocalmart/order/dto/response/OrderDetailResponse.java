@@ -23,6 +23,8 @@ public class OrderDetailResponse {
     private Instant placedAt;
     private BigDecimal itemsSubtotal;
     private BigDecimal deliveryFee;
+    private boolean membershipCreditUsed;
+    private BigDecimal membershipDeliveryWaived;
     private BigDecimal platformFee;
     private BigDecimal storeCreditApplied;
     private BigDecimal totalAmount;

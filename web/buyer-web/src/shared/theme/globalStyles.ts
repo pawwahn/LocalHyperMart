@@ -68,15 +68,15 @@ export function injectGlobalStyles(): void {
       padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) 0 env(safe-area-inset-left, 0px);
     }
     .hlm-search-input::placeholder {
-      color: #8a8a8a;
+      color: #8B9394;
       opacity: 1;
     }
     .hlm-product-card {
       transition: transform 180ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 180ms ease;
     }
     .hlm-product-card:hover {
-      transform: translateY(-3px);
-      box-shadow: 0 12px 28px rgba(0, 0, 0, 0.35);
+      transform: translateY(-2px);
+      box-shadow: 0 10px 22px rgba(16, 24, 40, 0.1);
     }
     .hlm-product-card:active {
       transform: translateY(-1px) scale(0.99);
@@ -91,8 +91,9 @@ export function injectGlobalStyles(): void {
       transition: transform 160ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 160ms ease, background 160ms ease;
     }
     .hlm-add-btn:hover:not(:disabled) {
-      transform: scale(1.04);
-      box-shadow: 0 4px 14px rgba(12, 131, 31, 0.28);
+      transform: scale(1.03);
+      background: var(--accent-soft);
+      box-shadow: 0 2px 8px rgba(12, 131, 31, 0.16);
     }
     .hlm-add-btn:active:not(:disabled) {
       transform: scale(0.96);

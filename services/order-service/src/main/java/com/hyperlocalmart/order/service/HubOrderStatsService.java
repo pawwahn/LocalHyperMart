@@ -47,6 +47,9 @@ public class HubOrderStatsService {
                 .ordersCancelled(orderRepository.countCancelledByTownIdAndCancelledAtBetween(townId, start, end))
                 .subOrdersPlaced(vendorSubOrderRepository.countByTownIdAndPlacedAtBetween(townId, start, end))
                 .bagsMarkedReady(vendorSubOrderRepository.countMarkedReadyByTownIdAndReadyAtBetween(townId, start, end))
+                .placedGmv(orderRepository.sumPlacedGmvByTown(townId, start, end))
+                .deliveredGmv(orderRepository.sumDeliveredGmvByTown(townId, start, end))
+                .codGmv(orderRepository.sumCodDeliveredGmvByTown(townId, start, end))
                 .build();
     }
 

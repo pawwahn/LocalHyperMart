@@ -1,4 +1,5 @@
 import { useEffect, useId, type CSSProperties } from 'react';
+import { createPortal } from 'react-dom';
 import { Button } from './Button';
 
 type Props = {
@@ -40,7 +41,7 @@ export function ConfirmDialog({
 
   if (!open) return null;
 
-  return (
+  return createPortal(
     <div
       style={styles.overlay}
       role="presentation"
@@ -75,7 +76,8 @@ export function ConfirmDialog({
           </Button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -83,7 +85,7 @@ const styles: Record<string, CSSProperties> = {
   overlay: {
     position: 'fixed',
     inset: 0,
-    zIndex: 1000,
+    zIndex: 200,
     display: 'grid',
     placeItems: 'center',
     padding: '1rem',

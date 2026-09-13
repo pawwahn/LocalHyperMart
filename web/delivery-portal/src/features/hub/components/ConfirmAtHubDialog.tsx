@@ -4,20 +4,21 @@ type Props = {
   open: boolean;
   shopName: string;
   busy?: boolean;
+  error?: string | null;
   onConfirm: () => void;
   onClose: () => void;
 };
 
 /** Two-step confirm so hub staff do not mark bag at hub before it physically arrives. */
-export function ConfirmAtHubDialog({ open, shopName, busy, onConfirm, onClose }: Props) {
+export function ConfirmAtHubDialog({ open, shopName, busy, error, onConfirm, onClose }: Props) {
   useEffect(() => {
     if (!open) return;
     function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape' && !busy) onClose();
+      if (e.key === 'Escape') onClose();
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [open, busy, onClose]);
+  }, [open, onClose]);
 
   if (!open) return null;
 
@@ -26,7 +27,7 @@ export function ConfirmAtHubDialog({ open, shopName, busy, onConfirm, onClose }:
       style={styles.overlay}
       role="presentation"
       onMouseDown={(e) => {
-        if (e.target === e.currentTarget && !busy) onClose();
+        if (e.target === e.currentTarget) onClose();
       }}
     >
       <div
@@ -44,18 +45,19 @@ export function ConfirmAtHubDialog({ open, shopName, busy, onConfirm, onClose }:
           Tap YES only if the bag is in your hand at the hub right now.
         </p>
         <p style={styles.hint}>If the agent is still on the way, tap NO.</p>
+        {error ? <p style={styles.error}>{error}</p> : null}
 
         <div style={styles.actions}>
-          <button type="button" style={styles.noBtn} disabled={busy} onClick={onClose}>
-            NO — still coming
+          <button type="button" style={styles.noBtn} onClick={onClose}>
+            {busy ? 'Close' : 'NO — still coming'}
           </button>
           <button
             type="button"
-            style={styles.yesBtn}
+            style={{ ...styles.yesBtn, opacity: busy ? 0.7 : 1 }}
             disabled={busy}
             onClick={onConfirm}
           >
-            {busy ? '…' : 'YES — bag is here'}
+            {busy ? 'Saving…' : 'YES — bag is here'}
           </button>
         </div>
       </div>
@@ -109,6 +111,15 @@ const styles: Record<string, CSSProperties> = {
     color: 'var(--text-muted)',
     fontWeight: 600,
     fontSize: '0.88rem',
+  },
+  error: {
+    margin: 0,
+    padding: '0.5rem 0.65rem',
+    borderRadius: 8,
+    background: 'var(--danger-soft, #FEE2E2)',
+    color: 'var(--danger, #B91C1C)',
+    fontWeight: 700,
+    fontSize: '0.85rem',
   },
   actions: {
     display: 'flex',

@@ -106,6 +106,9 @@ public class HubReportService {
                 .bagsMarkedReady(orderStats.bagsMarkedReady())
                 .shopPickupsCompleted(pickups)
                 .homeDeliveriesCompleted(lastMile)
+                .placedGmv(orderStats.placedGmv())
+                .deliveredGmv(orderStats.deliveredGmv())
+                .codGmv(orderStats.codGmv())
                 .agents(agents)
                 .build();
     }

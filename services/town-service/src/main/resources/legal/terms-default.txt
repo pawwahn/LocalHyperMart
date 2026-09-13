@@ -1,0 +1,102 @@
+HYPERLOCALMART — TERMS AND CONDITIONS
+
+These Terms govern use of HyperLocalMart: the buyer app, vendor portal, hub/agent (delivery) portal, and super-admin tools (together, the “Platform”).
+
+By creating an account, ticking “I agree”, or signing in and using any portal, you accept these Terms, the Privacy Policy, and the Refund & Store Credit Policy. Super Admin may update this text at any time under Platform settings. The version and date shown in the app are the current Terms. Continued use after an update means you accept the new Terms, except where law requires a fresh consent.
+
+1. WHO WE ARE
+HyperLocalMart is a town marketplace. We connect buyers with neighbourhood shops and a town delivery hub. We are not a dark store, not the seller of every item, and not a bank. Vendors sell goods. The hub and agents move orders. Prices, stock, and packing are the vendor’s responsibility unless we say otherwise below.
+
+2. ACCOUNTS
+• Buyers register with an Indian mobile number and a strong password. Soft launch may be invite-only (only listed numbers can register).
+• You must accept these Terms during buyer registration. We store the version you accepted.
+• Vendors, hub admins, and agents are onboarded by Super Admin / hub ops. Using those portals binds you to these Terms and any commercial terms Super Admin sets for that shop.
+• Keep your phone and password secret. We may lock an account after repeated failed logins, and may disable accounts for abuse, fraud, or unsafe conduct.
+• You must pick an enabled town. Catalog, cart, delivery fee, membership sale, and checkout use that town only.
+
+3. ORDERS (BUYERS)
+• You shop from approved vendors in your selected town. Listings can change; an item in the cart may become unavailable.
+• A town may set a minimum order. Checkout is blocked until that minimum is met.
+• After you place an order you cannot cancel it from the buyer app. If a shop cannot fulfil an item, that shop (or hub, where allowed) rejects or cancels those lines.
+• Payment at checkout may be Cash on Delivery (COD) and, when enabled, online pay. Pilot/Gate A may be COD only.
+• Delivery fee is set by Super Admin (platform-wide) and/or town rules (including slabs). The fee shown at checkout is the fee that applies to that order.
+• Same-day delivery is the service model, not a guaranteed 10-minute slot. Timing depends on vendors marking ready, hub assignment, and agent capacity.
+• You must be reachable at the delivery address. The agent confirms delivery with an OTP sent to the buyer. Hub ops may use an override OTP in defined operational cases. Do not share OTPs with anyone except the assigned agent at the door.
+• Promotions, catalog ads, and “best deals” may appear. They are not a price-match or stock guarantee.
+
+4. VENDOR REJECT, CANCEL, RESTORE
+• A vendor may reject their bag (or a line) with a reason if they cannot pack it. Rejected lines are not payable to that vendor.
+• Other shops on the same order may continue. If every remaining item is cancelled, the master order is cancelled.
+• If a cancelled line is restored before pickup, we reverse the store credit for that line — only if you still have that credit in the wallet. If you already spent it, restore is refused.
+• Buyer-cancelled lines (where that action exists) are not restorable by the shop.
+
+5. WALLET / STORE CREDIT
+The in-app “Wallet” is store credit on HyperLocalMart. It is not a bank account, UPI wallet, or cash you can withdraw to a bank or UPI ID.
+
+Store credit may be added when:
+• a shop rejects or cancels items that were payable to you as credit under our money rules;
+• a post-delivery claim is approved;
+• you reveal an eligible scratch card;
+• Super Admin / ops posts a documented adjustment.
+
+Store credit may be used only:
+• at checkout, if you tick “Use store credit”, and only up to the order amount;
+• you may leave credit unused for a later order.
+
+You cannot transfer, cash out, or demand a bank refund of unused store credit except where Indian law requires it. Credit has no interest. We may freeze a wallet if we suspect fraud. “Insufficient store credit” blocks checkout debit or a shop restore that would reverse credit you already spent.
+
+COD note: cancelling a line reduces what you still owe in cash for remaining items, and we also post store credit for the cancelled line as implemented in the Platform. Online full-order cancel may refund the original payment instrument instead of wallet, typically within about 5 working days after the payment provider processes it.
+
+6. FREE DELIVERY PACKS (MEMBERSHIP)
+This is not an auto-renewing magazine-style subscription. It is a prepaid pack of free-delivery credits.
+
+• Super Admin sets whether packs are on sale, and the price and number of free deliveries for 3-month, 6-month, and 12-month slabs.
+• A town can be set not to sell packs. Leftover credits can still be used in that town when a delivery fee would have applied.
+• One credit is used only when the quoted delivery fee for that order is greater than ₹0. If the fee is already ₹0, no credit is used.
+• Unused credits expire at the pack expiry. Expired credits are worth 0.
+• Buying another pack adds credits and sets a new expiry from the purchase/activation date for that pack’s duration. It does not keep an old expiry and add months on top.
+• Pay online (when enabled) or choose “pay cash at the hub”. Cash packs stay pending until the hub confirms cash received. You cannot stack a second pending cash request; cancel or wait for the hub.
+• Super Admin may gift a pack. Gifts still follow expiry and credit rules.
+• Pack fees are not refundable after activation, except where law requires. We do not cash out unused deliveries.
+• If we cancel an order or delivery fails after a credit was used, we restore that credit when the Platform records a restore.
+
+7. SCRATCH CARDS
+Where a town enables scratch cards, placing an order whose goods total (after promo, before delivery fee) is above that town’s threshold may issue one card. Revealing it credits a random amount between the town’s min and max into store credit. Cards are promotional, one per eligible order, and can be switched off for a town.
+
+8. CLAIMS (AFTER DELIVERY)
+• You may file a claim only after the order is delivered, within 7 days of delivery, for an item that was not cancelled.
+• Types: wrong item, missing, or damaged. One open claim per item; a resolved claim is not reopened in-app (contact the hub).
+• Hub reviews evidence and may approve store credit or reject (for example: outside window, duplicate, photos do not support the claim).
+• Approved claim credit is taken from the vendor’s payout for that shop. Line prices on the original invoice do not change.
+
+9. VENDORS
+• Only Super Admin–approved vendors appear in the town catalog. Keep listings, units, and prices accurate. Pause the shop if you cannot accept orders.
+• Mark bags Ready or Reject with a reason. Rejected value is not payable. Approved claims reduce payout.
+• Super Admin sets your commercial terms (commission, per-order fee, monthly subscription, slabs). Those terms are between you and the Platform, not a promise to buyers.
+• Photos and catalog content you submit must be lawful and yours to use. We may hide listings that break town or platform rules.
+• Order alert text is platform-wide (Super Admin). It does not change your duty to pack on time.
+
+10. HUB ADMINS AND AGENTS
+• Follow the town workflow: assign pickup → collect from vendor → receive at hub → last-mile → OTP delivery.
+• COD cash is hub-controlled. Close-day requires the hub PIN. Investigate discrepancies before the next close. Default PINs must be changed in live towns.
+• Confirm membership cash only when cash is actually received. Do not confirm to “help” a buyer without money in hand.
+• Delivery OTP is for the assigned drop. Do not share OTPs in chat groups. Hub override is an ops tool, not a shortcut to skip the buyer.
+
+11. FEES, TAXES, INVOICES
+Item prices are set by vendors. Delivery fee, membership prices, and platform fee (if shown) are Platform figures. Invoices and GST treatment follow what we print on the order invoice. You are responsible for lawful use of the Platform.
+
+12. WHAT WE DO NOT PROMISE
+Neighbourhood shops run out of stock. Traffic, weather, and packing delays happen. We do not guarantee every listing, a maximum delivery minute count, or that a membership will always be on sale. To the extent Indian law allows, the Platform’s liability for a proven issue is limited to the amount you paid for that order’s affected goods and delivery fee (or the unused store credit we already posted), not indirect loss, lost profit, or data on your device.
+
+13. ACCEPTABLE USE
+No fake orders, no harassment of agents or shop staff, no scraping, no attempts to bypass invite lists, payments, OTPs, or another person’s account. We may refuse orders or close accounts.
+
+14. CHANGES
+Super Admin can edit these Terms, Privacy, and Refund text in Platform settings at any time. We show version number and last-updated time in the app. Material changes should be read before you next register or continue transacting.
+
+15. CONTACT
+Support phone, grievance officer, and any extra policy URLs are set in Super Admin → Settings and shown on login. For town operations, the hub number is the first line of support.
+
+Governing law: India. Disputes: courts / consumer forum with jurisdiction over the town of the order, unless a mandatory law says otherwise.
+
+Last updated: see version date in the app (Super Admin → Settings).

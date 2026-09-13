@@ -29,7 +29,8 @@ public class DeliverySubOrderController {
         if (principal == null || !principal.getRoles().contains("HUB_ADMIN")) {
             throw new BusinessException(ErrorCode.FORBIDDEN, "Hub admin role required");
         }
-        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
-                assignmentService.markAtHub(principal.getUserId(), vendorSubOrderId)));
+        AssignmentResponse response = assignmentService.markAtHub(principal.getUserId(), vendorSubOrderId);
+        assignmentService.notifyBagArrivedAtHub(response.getOrderId());
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest, response));
     }
 }

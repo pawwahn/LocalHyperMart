@@ -446,6 +446,17 @@ export function placeholderDealsForLane(laneId: string): CatalogItemView[] {
     .map(({ item }) => item);
 }
 
+/** Real catalog items for a deal lane (price cap). Prefers discounted rows on "all". */
+export function filterDealsForLane(items: CatalogItemView[], laneId: string): CatalogItemView[] {
+  if (laneId === 'all') {
+    const discounted = items.filter((item) => (item.discountPercent ?? 0) > 0 || Boolean(item.mrpLabel));
+    return (discounted.length >= 4 ? discounted : items).slice(0, 40);
+  }
+  const cap = Number(laneId);
+  if (!Number.isFinite(cap)) return items.slice(0, 40);
+  return items.filter((item) => item.price <= cap).slice(0, 40);
+}
+
 export async function addToCart(
   token: string,
   townId: string,

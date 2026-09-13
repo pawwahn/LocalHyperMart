@@ -37,7 +37,11 @@ public final class AdminAuth {
         return roles(request).contains("SUPER_ADMIN");
     }
 
-    private static Set<String> roles(HttpServletRequest request) {
+    public static boolean isHubAdmin(HttpServletRequest request) {
+        return roles(request).contains("HUB_ADMIN");
+    }
+
+    public static Set<String> roles(HttpServletRequest request) {
         String header = request.getHeader("X-User-Roles");
         if (header == null || header.isBlank()) {
             return Set.of();

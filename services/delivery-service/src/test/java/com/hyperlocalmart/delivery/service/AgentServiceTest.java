@@ -1,5 +1,6 @@
 package com.hyperlocalmart.delivery.service;
 
+import com.hyperlocalmart.delivery.client.TownClient;
 import com.hyperlocalmart.delivery.client.UserClient;
 import com.hyperlocalmart.delivery.dto.request.CreateAgentRequest;
 import com.hyperlocalmart.delivery.entity.*;
@@ -29,6 +30,7 @@ class AgentServiceTest {
     @Mock private DeliveryAssignmentRepository deliveryAssignmentRepository;
     @Mock private DeliveryEventRepository deliveryEventRepository;
     @Mock private UserClient userClient;
+    @Mock private TownClient townClient;
 
     @InjectMocks
     private AgentService agentService;

@@ -14,6 +14,7 @@ public class AgentResponse {
     UUID userId;
     UUID hubId;
     String hubName;
+    UUID townId;
     String name;
     String phone;
     AgentStatus status;

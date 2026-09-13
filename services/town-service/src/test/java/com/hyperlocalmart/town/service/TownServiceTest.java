@@ -31,6 +31,9 @@ class TownServiceTest {
     @Mock private TownRepository townRepository;
     @Mock private TownPincodeRepository townPincodeRepository;
     @Mock private GeoCatalogService geoCatalogService;
+    @Mock private TownConfigService townConfigService;
+    @Mock private TownDeliveryPayoutConfigService townDeliveryPayoutConfigService;
+    @Mock private AdminAuditor adminAuditService;
 
     @InjectMocks
     private TownService townService;

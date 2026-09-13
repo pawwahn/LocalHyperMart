@@ -195,7 +195,7 @@ public class OrderClient {
                 .retrieve()
                 .body(new ParameterizedTypeReference<ApiResponse<HubTownReportStats>>() {});
         if (response == null || response.getData() == null) {
-            return new HubTownReportStats(from, to, 0, 0, 0, 0, 0);
+            return new HubTownReportStats(from, to, 0, 0, 0, 0, 0, java.math.BigDecimal.ZERO, java.math.BigDecimal.ZERO, java.math.BigDecimal.ZERO);
         }
         return response.getData();
     }
@@ -210,7 +210,10 @@ public class OrderClient {
             long ordersDelivered,
             long ordersCancelled,
             long subOrdersPlaced,
-            long bagsMarkedReady
+            long bagsMarkedReady,
+            java.math.BigDecimal placedGmv,
+            java.math.BigDecimal deliveredGmv,
+            java.math.BigDecimal codGmv
     ) {
     }
 

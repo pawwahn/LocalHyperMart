@@ -23,15 +23,25 @@ export type AdminListingFilters = {
   vendorId?: string;
   shopName?: string;
   active?: boolean | '';
+  page?: number;
+  size?: number;
+};
+
+export type AdminListingPage = {
+  items: AdminListingVm[];
+  page: number;
+  size: number;
+  total: number;
+  totalPages: number;
 };
 
 export async function listStoreListings(
   token: string,
   filters: AdminListingFilters = {},
-): Promise<AdminListingVm[]> {
+): Promise<AdminListingPage> {
   const params = new URLSearchParams();
-  params.set('page', '0');
-  params.set('size', '100');
+  params.set('page', String(filters.page ?? 0));
+  params.set('size', String(filters.size ?? 40));
   if (filters.townId) params.set('townId', filters.townId);
   if (filters.vendorId) params.set('vendorId', filters.vendorId);
   if (filters.shopName?.trim()) params.set('shopName', filters.shopName.trim());
@@ -43,5 +53,14 @@ export async function listStoreListings(
     `/api/v1/catalog/admin/listings?${params.toString()}`,
     { token },
   );
-  return data.items ?? [];
+  const items = data.items ?? [];
+  const total = data.totalElements ?? items.length;
+  const size = data.size || filters.size || items.length || 40;
+  return {
+    items,
+    page: data.page ?? filters.page ?? 0,
+    size,
+    total,
+    totalPages: data.totalPages ?? Math.max(1, Math.ceil(total / size)),
+  };
 }

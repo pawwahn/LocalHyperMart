@@ -271,9 +271,13 @@ public class OrderAdminService {
     }
 
     private AdminSubOrderResponse toSubOrder(VendorSubOrder subOrder, VendorOrderAlert alert) {
-        // Admin needs full picture — include cancelled/restored lines.
+        // Full picture: cancelled lines stay visible, but bag counts are active units only.
         List<OrderItem> items = subOrder.getItems() == null ? List.of() : subOrder.getItems();
-        int itemCount = items.stream().mapToInt(OrderItem::getQuantity).sum();
+        int itemCount = items.stream().filter(OrderItem::isActiveLine).mapToInt(OrderItem::getQuantity).sum();
+        int cancelledItemCount = items.stream()
+                .filter(item -> !item.isActiveLine())
+                .mapToInt(OrderItem::getQuantity)
+                .sum();
         String shopName = items.isEmpty() ? "Shop" : items.getFirst().getShopNameSnapshot();
         List<AdminSubOrderItemResponse> itemResponses = items.stream()
                 .map(item -> AdminSubOrderItemResponse.builder()
@@ -301,6 +305,7 @@ public class OrderAdminService {
                 .subtotal(subOrder.getSubtotal())
                 .readyForPickupAt(subOrder.getReadyForPickupAt())
                 .itemCount(itemCount)
+                .cancelledItemCount(cancelledItemCount)
                 .items(itemResponses)
                 .vendorAlert(vendorAlert)
                 .build();

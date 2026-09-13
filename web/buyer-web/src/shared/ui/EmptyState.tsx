@@ -34,7 +34,7 @@ const styles: Record<string, CSSProperties> = {
     justifyItems: 'center',
     gap: '0.65rem',
     textAlign: 'center',
-    padding: '2.5rem 1.25rem',
+    padding: '1.5rem 1rem',
     background: 'var(--bg-elevated)',
     border: '1px dashed var(--border)',
     borderRadius: 'var(--radius-lg)',

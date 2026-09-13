@@ -30,6 +30,7 @@ type RequestOptions = {
   token?: string | null;
   vendorId?: string | null;
   headers?: Record<string, string>;
+  signal?: AbortSignal;
 };
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
@@ -54,6 +55,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
     method: options.method ?? (options.body !== undefined ? 'POST' : 'GET'),
     headers,
     body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+    signal: options.signal,
   });
 
   let payload: ApiEnvelope<T> | null = null;

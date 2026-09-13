@@ -5,6 +5,7 @@ import com.hyperlocalmart.common.exception.ErrorCode;
 import com.hyperlocalmart.delivery.client.TownClient;
 import com.hyperlocalmart.delivery.client.UserClient;
 import com.hyperlocalmart.delivery.dto.request.CreateHubRequest;
+import com.hyperlocalmart.delivery.dto.request.UpdateHubRequest;
 import com.hyperlocalmart.delivery.dto.response.AdminHubResponse;
 import com.hyperlocalmart.delivery.entity.DeliveryHub;
 import com.hyperlocalmart.delivery.entity.HubAdmin;
@@ -17,6 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 
 @Slf4j
@@ -110,6 +112,13 @@ public class HubOnboardingService {
             hubAdminRepository.save(admin);
 
             userClient.bindHubContext(adminUserId, townId, hub.getId());
+            townClient.appendAdminAudit(
+                    "hubs",
+                    "CREATE_HUB",
+                    "Created hub " + hubName,
+                    actorId,
+                    townId,
+                    hub.getId());
 
             return toResponse(hub, admin, adminPhone, password);
         } catch (RuntimeException ex) {
@@ -121,6 +130,108 @@ public class HubOnboardingService {
             }
             throw ex;
         }
+    }
+
+    @Transactional(readOnly = true)
+    public AdminHubResponse getHub(UUID hubId) {
+        DeliveryHub hub = deliveryHubRepository.findById(hubId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Hub not found"));
+        HubAdmin admin = hubAdminRepository.findByHubId(hub.getId()).orElse(null);
+        return toResponse(hub, admin, hub.getPhone(), null);
+    }
+
+    @Transactional
+    public AdminHubResponse updateHub(UUID actorId, UUID hubId, UpdateHubRequest request) {
+        DeliveryHub hub = deliveryHubRepository.findById(hubId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Hub not found"));
+        HubAdmin admin = hubAdminRepository.findByHubId(hub.getId())
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Hub admin not found"));
+
+        String nextName = request.getName().trim();
+        String nextAddress = blankToNull(request.getAddress());
+        String nextPhone = request.getPhone().trim();
+        String nextStatus = request.getStatus().trim().toUpperCase();
+        String nextGovtType = request.getGovtIdType().trim().toUpperCase();
+        String nextGovtNumber = replaceGovtId(request.getGovtIdNumber(), admin.getGovtIdNumber(), nextGovtType);
+        String nextR1Name = request.getReference1Name().trim();
+        String nextR1Phone = request.getReference1Phone().trim();
+        String nextR2Name = request.getReference2Name().trim();
+        String nextR2Phone = request.getReference2Phone().trim();
+
+        if (nextR1Phone.equals(nextR2Phone)) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Reference 1 and reference 2 must use different phones");
+        }
+        if (nextR1Phone.equals(nextPhone) || nextR2Phone.equals(nextPhone)) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Reference phones must be different from the hub phone");
+        }
+
+        List<String> changes = new ArrayList<>();
+        addChange(changes, "name", hub.getName(), nextName);
+        addChange(changes, "address", nvl(hub.getAddress()), nvl(nextAddress));
+        addChange(changes, "phone", hub.getPhone(), nextPhone);
+        addChange(changes, "status", hub.getStatus(), nextStatus);
+        addChange(changes, "ID type", admin.getGovtIdType(), nextGovtType);
+        if (!Objects.equals(nvl(admin.getGovtIdNumber()), nvl(nextGovtNumber))) {
+            changes.add("ID number updated");
+        }
+        addChange(changes, "ref 1 name", admin.getReference1Name(), nextR1Name);
+        addChange(changes, "ref 1 phone", admin.getReference1Phone(), nextR1Phone);
+        addChange(changes, "ref 2 name", admin.getReference2Name(), nextR2Name);
+        addChange(changes, "ref 2 phone", admin.getReference2Phone(), nextR2Phone);
+
+        if (changes.isEmpty()) {
+            return toResponse(hub, admin, hub.getPhone(), null);
+        }
+
+        hub.setName(nextName);
+        hub.setAddress(nextAddress);
+        hub.setPhone(nextPhone);
+        hub.setStatus(nextStatus);
+        hub.setUpdatedBy(actorId);
+        deliveryHubRepository.save(hub);
+
+        admin.setGovtIdType(nextGovtType);
+        admin.setGovtIdNumber(nextGovtNumber);
+        admin.setReference1Name(nextR1Name);
+        admin.setReference1Phone(nextR1Phone);
+        admin.setReference2Name(nextR2Name);
+        admin.setReference2Phone(nextR2Phone);
+        admin.setStatus(nextStatus);
+        admin.setUpdatedBy(actorId);
+        hubAdminRepository.save(admin);
+
+        String summary = nextName + " · " + String.join(", ", changes);
+        if (summary.length() > 500) {
+            summary = summary.substring(0, 500);
+        }
+        townClient.appendAdminAudit("hubs", "UPDATE_HUB", summary, actorId, hub.getTownId(), hub.getId());
+        return toResponse(hub, admin, hub.getPhone(), null);
+    }
+
+    private static String replaceGovtId(String incoming, String stored, String nextType) {
+        String raw = incoming == null ? "" : incoming.replaceAll("\\s", "").trim();
+        if (raw.isEmpty() || raw.contains("*")) {
+            return stored;
+        }
+        if ("AADHAAR".equals(nextType) && !raw.matches("^\\d{12}$")) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Aadhaar number must be 12 digits");
+        }
+        if (raw.length() < 4) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Enter government ID number");
+        }
+        return raw;
+    }
+
+    private static void addChange(List<String> changes, String label, String before, String after) {
+        String left = nvl(before);
+        String right = nvl(after);
+        if (!left.equals(right)) {
+            changes.add(label + " " + (left.isEmpty() ? "—" : left) + " → " + (right.isEmpty() ? "—" : right));
+        }
+    }
+
+    private static String nvl(String value) {
+        return value == null ? "" : value.trim();
     }
 
     private static AdminHubResponse toResponse(

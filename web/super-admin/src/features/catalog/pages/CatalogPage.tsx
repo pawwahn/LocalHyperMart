@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type CSSProperties, type For
 import { PortalShell } from '@/shared/layout/PortalShell';
 import { useAuth } from '@/shared/auth/AuthContext';
 import { Banner, Button, ConfirmDialog, SearchSelect, TextField, Toast } from '@/shared/ui';
+import { AdminHistoryPanel } from '@/shared/audit/AdminHistoryPanel';
 import {
   createCategory,
   createMasterItem,
@@ -1393,6 +1394,7 @@ export function CatalogPage() {
         message={itemCreateToast ?? ''}
         onClose={() => setItemCreateToast(null)}
       />
+      {token ? <AdminHistoryPanel token={token} screen="catalog" refreshTick={notice ? notice.length : 0} /> : null}
     </PortalShell>
   );
 }

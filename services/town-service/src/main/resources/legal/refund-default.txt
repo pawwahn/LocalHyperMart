@@ -1,0 +1,48 @@
+HYPERLOCALMART — REFUND, CANCELLATION, WALLET AND MEMBERSHIP POLICY
+
+This policy is part of the Terms. It states how money, store credit, and free-delivery packs work on HyperLocalMart.
+
+1. YOU CANNOT CANCEL AFTER PLACE
+The buyer app does not offer “cancel order”. If something cannot be packed, the vendor (or hub, where allowed) rejects or cancels those lines.
+
+2. SHOP REJECT / LINE CANCEL
+• That shop’s rejected value is not payable to the vendor.
+• Other shops on the same order may still deliver.
+• You receive store credit for cancelled lines as posted in Wallet (COD and remaining multi-shop cases). If the whole order is cancelled and you paid online, we unwind via the payment gateway refund where that path applies (typically up to 5 working days after the provider processes it), instead of duplicating the same rupees as wallet.
+• If the last remaining shop is rejected, membership free-delivery credit used on that order is restored.
+
+3. RESTORE BEFORE PICKUP
+A shop may restore a cancelled line only if your wallet still holds the store credit issued for that line. If you already spent it at a later checkout, restore is refused (“already used this store credit”).
+
+4. WALLET (STORE CREDIT)
+• Not withdrawable to bank/UPI.
+• Optional at next checkout: tick “Use store credit” or leave it.
+• Also credited for approved claims and revealed scratch cards.
+• No expiry is coded on wallet rupees today; Super Admin may change product rules later via these policies.
+• Fraud or abuse may freeze credit.
+
+5. CLAIMS (7 DAYS AFTER DELIVERY)
+File only on delivered, non-cancelled items, within 7 days: wrong, missing, or damaged. Hub may approve store credit (charged to vendor payout) or reject. Duplicate or out-of-window claims are refused.
+
+6. MEMBERSHIP / FREE DELIVERY PACKS
+• Prepaid credits, not auto-renew.
+• Used only when a delivery fee would have been charged.
+• Expire at pack end; leftover credits become 0.
+• New pack adds credits and resets expiry from activation for that pack length.
+• Cash-at-hub packs activate only when hub confirms cash.
+• No refund of pack price after activation, except where law requires. Unused deliveries are not paid out in cash.
+• Credit restored if we cancel / fail delivery after a consume.
+
+7. SCRATCH CARDS
+Promotional wallet credit. Not guaranteed on every order. Town Super Admin settings control on/off, min goods amount, and reward range.
+
+8. COD
+You pay remaining cash to the agent. Hub close-day reconciles agent cash. A COD “refund” is store credit and/or a lower cash-due, not a bank transfer.
+
+9. ONLINE PAY
+When enabled, failed pay means the order is not placed. Successful pay that is later fully unwound follows the gateway refund timeline (about 5 working days). Partial shop reject on a still-active order uses store credit as above.
+
+10. HOW TO ASK
+Use in-app Wallet and Order detail first. Then the hub / support phone on the login screen. Keep the order number handy.
+
+Super Admin may update this text at any time. The app always shows the current version.

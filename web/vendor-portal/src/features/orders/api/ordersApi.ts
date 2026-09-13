@@ -24,6 +24,7 @@ export type SubOrderItemDto = {
   storeCreditAmount?: number;
   cancelledByBuyer?: boolean;
   canRestore?: boolean;
+  canCancel?: boolean;
 };
 
 export type SubOrderDto = {
@@ -76,6 +77,8 @@ export type SubOrderItemView = {
   storeCreditAmount?: number;
   /** True when vendor may offer Restore (before pickup). */
   canRestore: boolean;
+  /** True when vendor may cancel this line (before pickup). */
+  canCancel: boolean;
 };
 
 export type SubOrderView = {
@@ -145,6 +148,10 @@ function toItemView(item: SubOrderItemDto, subOrderStatus: SubOrderStatus): SubO
     typeof item.canRestore === 'boolean'
       ? item.canRestore
       : cancelled && restorableParent && !item.cancelledByBuyer && hasCredit;
+  const canCancel =
+    typeof item.canCancel === 'boolean'
+      ? item.canCancel
+      : !cancelled && subOrderStatus === 'PLACED';
   return {
     orderItemId: item.orderItemId,
     name: item.name ?? 'Item',
@@ -157,6 +164,7 @@ function toItemView(item: SubOrderItemDto, subOrderStatus: SubOrderStatus): SubO
     cancelledByBuyer: Boolean(item.cancelledByBuyer),
     storeCreditAmount: item.storeCreditAmount,
     canRestore,
+    canCancel,
   };
 }
 

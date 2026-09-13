@@ -3,6 +3,7 @@ import { PortalShell } from '@/shared/layout/PortalShell';
 import { useAuth } from '@/shared/auth/AuthContext';
 import { ApiError } from '@/shared/api/http';
 import { Banner, Button, Card, SearchSelect } from '@/shared/ui';
+import { AdminHistoryPanel } from '@/shared/audit/AdminHistoryPanel';
 import { listTowns, type TownVm } from '@/features/towns/api/townsApi';
 import { listVendors, type VendorVm } from '../api/vendorsApi';
 import {
@@ -439,7 +440,7 @@ export function VendorBillingPage() {
                   />
                 </label>
                 <label style={styles.label}>
-                  Ends on
+                  Ends on <span style={styles.hintInline}>(blank = keeps going)</span>
                   <input
                     style={styles.input}
                     type="date"
@@ -560,6 +561,7 @@ export function VendorBillingPage() {
               </div>
             )}
           </Card>
+          {token ? <AdminHistoryPanel token={token} screen="vendor-billing" refreshTick={notice ? notice.length : 0} /> : null}
         </div>
       )}
     </PortalShell>
@@ -616,6 +618,7 @@ const styles: Record<string, CSSProperties> = {
   },
   labelText: { fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)' },
   hint: { fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 600, lineHeight: 1.3 },
+  hintInline: { fontWeight: 600, color: 'var(--text-muted)', fontSize: '0.68rem' },
   pickerBlock: { display: 'grid', gap: '0.4rem' },
   chip: {
     border: '1px solid var(--border)',

@@ -4,8 +4,8 @@ import { applyTheme } from '@hlm-theme';
 import { injectGlobalStyles } from '@/shared/theme/globalStyles';
 import { AppRouter } from '@/app/AppRouter';
 
+applyTheme({ mode: 'light', accent: 'forest' });
 injectGlobalStyles();
-applyTheme({ mode: 'dark', accent: 'ocean' });
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

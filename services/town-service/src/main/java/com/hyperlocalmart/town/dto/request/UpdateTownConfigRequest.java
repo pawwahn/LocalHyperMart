@@ -38,6 +38,9 @@ public class UpdateTownConfigRequest {
     /** Goods total after coupon must be greater than this (excludes delivery + platform). */
     private BigDecimal scratchMinGoodsAmount;
 
+    /** When false, buyers cannot purchase membership while this town is selected. Credits still work. */
+    private Boolean buyerMembershipEnabled;
+
     @Data
     public static class DeliverySlabRequest {
         private BigDecimal minOrderValue;

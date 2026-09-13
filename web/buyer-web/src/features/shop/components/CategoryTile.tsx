@@ -67,10 +67,11 @@ const styles: Record<string, CSSProperties> = {
   tile: {
     width: '100%',
     aspectRatio: '1 / 1',
-    borderRadius: 18,
+    borderRadius: 16,
     display: 'grid',
     placeItems: 'center',
     overflow: 'hidden',
+    boxShadow: 'inset 0 0 0 1px rgba(16, 24, 40, 0.04)',
   },
   img: {
     width: '86%',

@@ -169,6 +169,10 @@ public class VendorSubOrderService {
                     .changedByRole("VENDOR")
                     .note("Vendor rejected last shop: " + request.getReason())
                     .build());
+            if (order.isMembershipCreditUsed()) {
+                paymentClient.restoreMembershipCredit(order.getBuyerId(), order.getId(),
+                        "Vendor rejected order: " + request.getReason());
+            }
 
             if (order.getPaymentMethod() == PaymentMethod.COD
                     && shopCredit.compareTo(BigDecimal.ZERO) > 0) {
@@ -264,16 +268,15 @@ public class VendorSubOrderService {
     }
 
     /**
-     * Cancel a single line item while the sub-order is still PLACED.
+     * Cancel a single line item while the shop is still packing (PLACED or READY),
+     * before the delivery agent picks up the bag.
      * Credits the buyer wallet for the line total; does not cancel sibling vendors' items.
      */
     @Transactional
     public VendorSubOrderResponse cancelItem(UUID vendorId, UUID subOrderId, UUID itemId,
                                              UUID actorUserId, CancelOrderItemRequest request) {
         VendorSubOrder subOrder = loadForVendorAction(vendorId, subOrderId);
-        if (subOrder.getStatus() != VendorSubOrderStatus.PLACED) {
-            throw new BusinessException(ErrorCode.CONFLICT, "Items can only be cancelled while sub-order is PLACED");
-        }
+        assertBagEditable(subOrder, false);
         Order order = subOrder.getOrder();
         if (order.getStatus() == OrderStatus.CANCELLED || order.getStatus() == OrderStatus.DELIVERED) {
             throw new BusinessException(ErrorCode.CONFLICT, "Order cannot be modified");
@@ -301,14 +304,15 @@ public class VendorSubOrderService {
         recalculateTotals(subOrder, order);
 
         boolean subOrderEmpty = subOrder.getItems().stream()
-                .noneMatch(i -> i.getStatus() == null || i.getStatus() == OrderItemStatus.ACTIVE);
+                .noneMatch(OrderItem::isActiveLine);
         if (subOrderEmpty) {
+            VendorSubOrderStatus priorSubStatus = subOrder.getStatus();
             subOrder.setStatus(VendorSubOrderStatus.VENDOR_REJECTED);
             subOrder.setRejectReason(request.getReason());
             orderStatusHistoryRepository.save(OrderStatusHistory.builder()
                     .orderId(order.getId())
                     .vendorSubOrderId(subOrder.getId())
-                    .fromStatus(VendorSubOrderStatus.PLACED.name())
+                    .fromStatus(priorSubStatus.name())
                     .toStatus(VendorSubOrderStatus.VENDOR_REJECTED.name())
                     .changedBy(actorUserId)
                     .changedByRole("VENDOR")
@@ -333,6 +337,10 @@ public class VendorSubOrderService {
                     .changedByRole("VENDOR")
                     .note("All items cancelled: " + request.getReason())
                     .build());
+            if (order.isMembershipCreditUsed()) {
+                paymentClient.restoreMembershipCredit(order.getBuyerId(), order.getId(),
+                        "Vendor cancelled last items: " + request.getReason());
+            }
 
             if (order.getPaymentMethod() == PaymentMethod.COD
                     && creditAmount != null
@@ -434,14 +442,8 @@ public class VendorSubOrderService {
     @Transactional
     public VendorSubOrderResponse restoreItem(UUID vendorId, UUID subOrderId, UUID itemId, UUID actorUserId) {
         VendorSubOrder subOrder = loadForVendorAction(vendorId, subOrderId);
+        assertBagEditable(subOrder, true);
         VendorSubOrderStatus status = subOrder.getStatus();
-        boolean restorableStatus = status == VendorSubOrderStatus.PLACED
-                || status == VendorSubOrderStatus.READY_FOR_PICKUP
-                || status == VendorSubOrderStatus.VENDOR_REJECTED;
-        if (!restorableStatus) {
-            throw new BusinessException(ErrorCode.CONFLICT,
-                    "Item can only be restored before the delivery agent picks up from your shop");
-        }
 
         Order order = subOrder.getOrder();
         if (order.getStatus() == OrderStatus.CANCELLED || order.getStatus() == OrderStatus.DELIVERED) {
@@ -598,7 +600,7 @@ public class VendorSubOrderService {
         }
         BigDecimal sum = BigDecimal.ZERO;
         for (OrderItem item : items) {
-            if (item.getStatus() == null || item.getStatus() == OrderItemStatus.ACTIVE) {
+            if (item.isActiveLine()) {
                 sum = sum.add(item.getLineTotal() == null ? BigDecimal.ZERO : item.getLineTotal());
             }
         }
@@ -641,8 +643,9 @@ public class VendorSubOrderService {
     private VendorSubOrderResponse toResponse(VendorSubOrder subOrder) {
         UUID buyerId = subOrder.getOrder() != null ? subOrder.getOrder().getBuyerId() : null;
         VendorSubOrderStatus subStatus = subOrder.getStatus();
+        boolean pickupStarted = pickupHasStarted(subOrder);
         List<OrderItemDetailResponse> items = subOrder.getItems().stream()
-                .map(item -> toItemDetail(item, buyerId, subStatus))
+                .map(item -> toItemDetail(item, buyerId, subStatus, pickupStarted))
                 .toList();
         return VendorSubOrderResponse.builder()
                 .subOrderId(subOrder.getId())
@@ -660,15 +663,12 @@ public class VendorSubOrderService {
     }
 
     private OrderItemDetailResponse toItemDetail(
-            OrderItem item, UUID buyerId, VendorSubOrderStatus subStatus) {
+            OrderItem item, UUID buyerId, VendorSubOrderStatus subStatus, boolean pickupStarted) {
         OrderItemStatus status = item.getStatus() == null ? OrderItemStatus.ACTIVE : item.getStatus();
         boolean cancelled = status == OrderItemStatus.CANCELLED;
         boolean cancelledByBuyer = cancelled
                 && buyerId != null
                 && buyerId.equals(item.getCancelledBy());
-        boolean restorableParent = subStatus == VendorSubOrderStatus.PLACED
-                || subStatus == VendorSubOrderStatus.READY_FOR_PICKUP
-                || subStatus == VendorSubOrderStatus.VENDOR_REJECTED;
         boolean hasCredit = item.getStoreCreditAmount() != null
                 && item.getStoreCreditAmount().compareTo(BigDecimal.ZERO) > 0;
         return OrderItemDetailResponse.builder()
@@ -682,8 +682,48 @@ public class VendorSubOrderService {
                 .cancelReason(item.getCancelReason())
                 .cancelledAt(item.getCancelledAt())
                 .storeCreditAmount(item.getStoreCreditAmount())
+                .canCancel(!cancelled && !pickupStarted && isEditableBagStatus(subStatus, false))
                 .cancelledByBuyer(cancelledByBuyer)
-                .canRestore(cancelled && restorableParent && !cancelledByBuyer && hasCredit)
+                .canRestore(cancelled && !pickupStarted && isEditableBagStatus(subStatus, true)
+                        && !cancelledByBuyer && hasCredit)
                 .build();
+    }
+
+    private void assertBagEditable(VendorSubOrder subOrder, boolean restoring) {
+        if (!isEditableBagStatus(subOrder.getStatus(), restoring)) {
+            throw new BusinessException(ErrorCode.CONFLICT,
+                    restoring
+                            ? "Item can only be restored before the delivery agent picks up from your shop"
+                            : "Items can only be cancelled before the delivery agent picks up from your shop");
+        }
+        if (pickupHasStarted(subOrder)) {
+            throw new BusinessException(ErrorCode.CONFLICT,
+                    restoring
+                            ? "Item can only be restored before the delivery agent picks up from your shop"
+                            : "Items can only be cancelled before the delivery agent picks up from your shop");
+        }
+    }
+
+    private static boolean isEditableBagStatus(VendorSubOrderStatus status, boolean restoring) {
+        if (status == VendorSubOrderStatus.PLACED || status == VendorSubOrderStatus.READY_FOR_PICKUP) {
+            return true;
+        }
+        return restoring && status == VendorSubOrderStatus.VENDOR_REJECTED;
+    }
+
+    private boolean pickupHasStarted(VendorSubOrder subOrder) {
+        if (subOrder.getOrder() == null || subOrder.getSubOrderNumber() == null) {
+            return false;
+        }
+        VendorSubOrderStatus status = subOrder.getStatus();
+        if (status != VendorSubOrderStatus.READY_FOR_PICKUP && status != VendorSubOrderStatus.DELIVERED) {
+            return false;
+        }
+        String bagNumber = subOrder.getSubOrderNumber();
+        return deliveryClient.getAssignmentsForOrder(subOrder.getOrder().getId()).stream()
+                .anyMatch(a -> "PICKUP".equalsIgnoreCase(a.legType())
+                        && bagNumber.equals(a.subOrderNumber())
+                        && ("IN_PROGRESS".equalsIgnoreCase(a.status())
+                        || "COMPLETED".equalsIgnoreCase(a.status())));
     }
 }

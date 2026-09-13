@@ -5,10 +5,12 @@ import com.hyperlocalmart.common.exception.ErrorCode;
 import com.hyperlocalmart.user.config.InviteProperties;
 import com.hyperlocalmart.user.config.LoginProperties;
 import com.hyperlocalmart.user.config.OtpProperties;
+import com.hyperlocalmart.user.dto.request.ForgotPasswordRequest;
 import com.hyperlocalmart.user.dto.request.LoginRequest;
 import com.hyperlocalmart.user.dto.request.RegisterRequest;
 import com.hyperlocalmart.user.dto.response.AuthResponse;
 import com.hyperlocalmart.user.dto.response.RegisterResponse;
+import com.hyperlocalmart.user.entity.PasswordResetOtp;
 import com.hyperlocalmart.user.entity.Role;
 import com.hyperlocalmart.user.entity.RoleName;
 import com.hyperlocalmart.user.entity.User;
@@ -17,6 +19,7 @@ import com.hyperlocalmart.user.repository.PasswordResetOtpRepository;
 import com.hyperlocalmart.user.repository.RefreshTokenRepository;
 import com.hyperlocalmart.user.repository.RoleRepository;
 import com.hyperlocalmart.user.repository.UserRepository;
+import com.hyperlocalmart.user.security.HashUtils;
 import com.hyperlocalmart.user.security.JwtService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -97,7 +100,26 @@ class AuthServiceTest {
 
         assertThat(response.getRole()).isEqualTo("BUYER");
         assertThat(response.getUserId()).isNotNull();
-        verify(userRepository).save(any(User.class));
+        ArgumentCaptor<User> saved = ArgumentCaptor.forClass(User.class);
+        verify(userRepository).save(saved.capture());
+        assertThat(saved.getValue().getTermsAcceptedAt()).isNotNull();
+        assertThat(saved.getValue().getTermsVersion()).isEqualTo(1);
+    }
+
+    @Test
+    void register_requiresTermsWhenConfigured() {
+        inviteProperties.setRequireTerms(true);
+        RegisterRequest request = new RegisterRequest();
+        request.setPhone("9876543210");
+        request.setPassword("Password@1");
+        request.setFirstName("Ravi");
+        request.setAcceptedTerms(false);
+
+        assertThatThrownBy(() -> authService.register(request))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode")
+                .isEqualTo(ErrorCode.VALIDATION_ERROR);
+        verify(userRepository, never()).save(any());
     }
 
     @Test
@@ -154,6 +176,22 @@ class AuthServiceTest {
         verify(userRepository).save(captor.capture());
         assertThat(captor.getValue().getLockedUntil()).isNotNull();
         assertThat(captor.getValue().getFailedLoginCount()).isEqualTo(5);
+    }
+
+    @Test
+    void forgotPassword_usesFixedOtpWhenConfigured() {
+        otpProperties.setFixedCode("111111");
+        ForgotPasswordRequest request = new ForgotPasswordRequest();
+        request.setPhone("9876543210");
+
+        when(passwordResetOtpRepository.countByPhoneSince(any(), any())).thenReturn(0L);
+        when(userRepository.findByPhone(request.getPhone())).thenReturn(Optional.of(activeUser()));
+
+        authService.forgotPassword(request);
+
+        ArgumentCaptor<PasswordResetOtp> captor = ArgumentCaptor.forClass(PasswordResetOtp.class);
+        verify(passwordResetOtpRepository).save(captor.capture());
+        assertThat(captor.getValue().getOtpHash()).isEqualTo(HashUtils.sha256("111111"));
     }
 
     private User activeUser() {

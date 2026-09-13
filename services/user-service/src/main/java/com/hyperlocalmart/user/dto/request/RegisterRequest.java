@@ -33,4 +33,7 @@ public class RegisterRequest {
 
     /** Buyer must accept Terms & Privacy when invite.require-terms is enabled. */
     private Boolean acceptedTerms;
+
+    /** Version of Platform Settings legal copy the buyer ticked. */
+    private Integer acceptedLegalVersion;
 }

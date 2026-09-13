@@ -6,12 +6,24 @@ export type PlatformSettingsVm = {
   termsUrl: string;
   privacyUrl: string;
   refundUrl: string;
+  termsText: string;
+  privacyText: string;
+  refundText: string;
+  legalVersion: number;
+  legalUpdatedAt: string;
   grievanceOfficer: string;
   supportPhone: string;
   /** Platform-wide buyer delivery fee in ₹ (not town-specific). */
   deliveryFee: number;
   /** Spoken and displayed for every vendor's new-order alert. */
   vendorOrderAlertMessage: string;
+  membershipEnabled?: boolean;
+  membershipQuarterlyPrice?: number;
+  membershipQuarterlyCredits?: number;
+  membershipHalfYearPrice?: number;
+  membershipHalfYearCredits?: number;
+  membershipAnnualPrice?: number;
+  membershipAnnualCredits?: number;
 };
 
 type SettingsDto = Record<string, unknown>;
@@ -40,10 +52,22 @@ function mapSettings(data: SettingsDto): PlatformSettingsVm {
     termsUrl: asString(data.termsUrl),
     privacyUrl: asString(data.privacyUrl),
     refundUrl: asString(data.refundUrl),
+    termsText: asString(data.termsText),
+    privacyText: asString(data.privacyText),
+    refundText: asString(data.refundText),
+    legalVersion: asNumber(data.legalVersion, 1),
+    legalUpdatedAt: asString(data.legalUpdatedAt),
     grievanceOfficer: asString(data.grievanceOfficer),
     supportPhone: asString(data.supportPhone),
     deliveryFee: asNumber(data.deliveryFee, 40),
     vendorOrderAlertMessage: asString(data.vendorOrderAlertMessage, 'Order received'),
+    membershipEnabled: asBool(data.membershipEnabled, false),
+    membershipQuarterlyPrice: asNumber(data.membershipQuarterlyPrice, 0),
+    membershipQuarterlyCredits: asNumber(data.membershipQuarterlyCredits, 0),
+    membershipHalfYearPrice: asNumber(data.membershipHalfYearPrice, 0),
+    membershipHalfYearCredits: asNumber(data.membershipHalfYearCredits, 0),
+    membershipAnnualPrice: asNumber(data.membershipAnnualPrice, 0),
+    membershipAnnualCredits: asNumber(data.membershipAnnualCredits, 0),
   };
 }
 
@@ -60,6 +84,15 @@ export async function patchPlatformSettings(
     method: 'PATCH',
     token,
     body: patch,
+  });
+  return mapSettings(data ?? {});
+}
+
+export async function resetLegalDefaults(token: string): Promise<PlatformSettingsVm> {
+  const data = await apiRequest<SettingsDto>('/api/v1/platform/settings', {
+    method: 'PATCH',
+    token,
+    body: { resetLegalDefaults: true },
   });
   return mapSettings(data ?? {});
 }

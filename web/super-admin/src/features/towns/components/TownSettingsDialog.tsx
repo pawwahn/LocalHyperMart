@@ -1,7 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
+import { createPortal } from 'react-dom';
 import { ApiError } from '@/shared/api/http';
 import { Banner, Button, TextField } from '@/shared/ui';
+import { AdminHistoryPanel, LastChangeStrip } from '@/shared/audit/AdminHistoryPanel';
 import {
   getTownConfig,
   updateTownConfig,
@@ -55,6 +57,11 @@ export function TownSettingsDialog({
   const [scratchRewardMin, setScratchRewardMin] = useState('10');
   const [scratchRewardMax, setScratchRewardMax] = useState('50');
   const [scratchMinGoodsAmount, setScratchMinGoodsAmount] = useState('499');
+  const [buyerMembershipEnabled, setBuyerMembershipEnabled] = useState(true);
+  const [savedNotice, setSavedNotice] = useState<string | null>(null);
+  const [historyTick, setHistoryTick] = useState(0);
+  const [panel, setPanel] = useState<'edit' | 'log'>('edit');
+  const bodyRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -77,6 +84,7 @@ export function TownSettingsDialog({
         setScratchRewardMin(String(cfg.scratchRewardMin ?? 10));
         setScratchRewardMax(String(cfg.scratchRewardMax ?? 50));
         setScratchMinGoodsAmount(String(cfg.scratchMinGoodsAmount ?? 499));
+        setBuyerMembershipEnabled(cfg.buyerMembershipEnabled !== false);
       })
       .catch((err) => {
         if (cancelled) return;
@@ -89,6 +97,23 @@ export function TownSettingsDialog({
       cancelled = true;
     };
   }, [token, town.id, platformDeliveryFee]);
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape' && !busy) onClose();
+    }
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('keydown', onKey);
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [busy, onClose]);
+
+  useEffect(() => {
+    if (bodyRef.current) bodyRef.current.scrollTop = 0;
+  }, [panel]);
 
   function updateSlab(index: number, patch: Partial<DeliverySlabVm>) {
     setSlabs((prev) => prev.map((s, i) => (i === index ? { ...s, ...patch } : s)));
@@ -127,9 +152,12 @@ export function TownSettingsDialog({
         scratchRewardMin: Number.isFinite(x) ? x : 10,
         scratchRewardMax: Number.isFinite(y) ? y : 50,
         scratchMinGoodsAmount: Number.isFinite(z) ? z : 499,
+        buyerMembershipEnabled,
       });
+      setSavedNotice('Saved and logged.');
+      setHistoryTick((n) => n + 1);
+      setPanel('log');
       onSaved(`Town settings saved for ${town.displayName}`);
-      onClose();
     } catch (err) {
       setError(err instanceof ApiError || err instanceof Error ? err.message : 'Save failed');
     } finally {
@@ -139,7 +167,7 @@ export function TownSettingsDialog({
 
   const ink = contrastInk(themeColor);
 
-  return (
+  return createPortal(
     <div style={styles.backdrop} role="presentation">
       <style>{PANEL_CSS}</style>
       <div
@@ -156,15 +184,48 @@ export function TownSettingsDialog({
             </h2>
             <p style={styles.sub}>{town.displayName}</p>
           </div>
-          <button type="button" style={styles.close} onClick={onClose} aria-label="Close">
-            ✕
-          </button>
+          <div style={styles.headRight}>
+            <div style={styles.viewTabs} role="tablist" aria-label="Edit or change log">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={panel === 'edit'}
+                style={panel === 'edit' ? styles.viewTabActive : styles.viewTab}
+                onClick={() => setPanel('edit')}
+              >
+                Edit
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={panel === 'log'}
+                style={panel === 'log' ? styles.viewTabActive : styles.viewTab}
+                onClick={() => setPanel('log')}
+              >
+                Change log
+              </button>
+            </div>
+            <button type="button" style={styles.close} onClick={onClose} aria-label="Close">
+              ✕
+            </button>
+          </div>
         </div>
 
         {error ? <Banner tone="danger">{error}</Banner> : null}
-        {loading ? <p style={styles.muted}>Loading…</p> : null}
+        {savedNotice ? <Banner tone="success">{savedNotice}</Banner> : null}
+        {panel === 'edit' && token ? (
+          <LastChangeStrip
+            token={token}
+            screen="town-settings"
+            townId={town.id}
+            refreshTick={historyTick}
+            onSeeAll={() => setPanel('log')}
+          />
+        ) : null}
+        {panel === 'edit' && loading ? <p style={styles.muted}>Loading…</p> : null}
 
-        {!loading ? (
+        <div ref={bodyRef} className="town-settings-scroll">
+        {panel === 'edit' && !loading ? (
           <div className="town-settings-grid">
             <section style={styles.card}>
               <h3 style={styles.sectionTitle}>Appearance</h3>
@@ -209,31 +270,32 @@ export function TownSettingsDialog({
                 </div>
               </div>
 
-              <div style={styles.toggleRow}>
-                <span>
-                  <strong style={styles.toggleTitle}>Best deals in your town</strong>
-                  <span style={styles.toggleHint}>
-                    {bestDealsEnabled
-                      ? 'Shown on the buyer basket between Pay on delivery and Place order'
-                      : 'Hidden on the buyer basket — layout stays tight, no empty gap'}
+              <div style={styles.scratchBlock}>
+                <div style={styles.scratchHead}>
+                  <span>
+                    <strong style={styles.toggleTitle}>Best deals in your town</strong>
+                    <span style={styles.toggleHint}>
+                      {bestDealsEnabled
+                        ? 'Shown on the buyer basket between Pay on delivery and Place order'
+                        : 'Hidden on the basket — prices stay saved, edit after you turn this on'}
+                    </span>
                   </span>
-                </span>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={bestDealsEnabled}
-                  style={bestDealsEnabled ? styles.switchOn : styles.switchOff}
-                  onClick={() => setBestDealsEnabled((v) => !v)}
-                >
-                  <span style={bestDealsEnabled ? styles.knobOn : styles.knobOff} />
-                </button>
-              </div>
-
-              <div>
-                <p style={styles.label}>Deals at (₹)</p>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={bestDealsEnabled}
+                    style={bestDealsEnabled ? styles.switchOn : styles.switchOff}
+                    onClick={() => setBestDealsEnabled((v) => !v)}
+                  >
+                    <span style={bestDealsEnabled ? styles.knobOn : styles.knobOff} />
+                  </button>
+                </div>
                 <div className="town-settings-deal-row">
                   {dealPrices.map((value, index) => (
-                    <label key={index} style={styles.dealField}>
+                    <label
+                      key={index}
+                      style={bestDealsEnabled ? styles.dealField : { ...styles.dealField, ...styles.dealFieldOff }}
+                    >
                       <span style={styles.dealPrefix}>₹</span>
                       <input
                         style={styles.dealInput}
@@ -241,6 +303,7 @@ export function TownSettingsDialog({
                         pattern="[0-9]*"
                         maxLength={5}
                         value={value}
+                        disabled={!bestDealsEnabled}
                         aria-label={`Deal price ${index + 1}`}
                         onChange={(e) => {
                           const next = e.target.value.replace(/\D/g, '').slice(0, 5);
@@ -278,45 +341,64 @@ export function TownSettingsDialog({
 
               <div style={styles.toggleRow}>
                 <span>
-                  <strong style={styles.toggleTitle}>Scratch card</strong>
-                  <span style={styles.toggleHint}>After delivery if goods (after coupon) &gt; Z</span>
+                  <strong style={styles.toggleTitle}>Sell membership</strong>
+                  <span style={styles.toggleHint}>Off = cannot buy here. Existing credits still work</span>
                 </span>
                 <button
                   type="button"
                   role="switch"
-                  aria-checked={scratchCardEnabled}
-                  style={scratchCardEnabled ? styles.switchOn : styles.switchOff}
-                  onClick={() => setScratchCardEnabled((v) => !v)}
+                  aria-checked={buyerMembershipEnabled}
+                  style={buyerMembershipEnabled ? styles.switchOn : styles.switchOff}
+                  onClick={() => setBuyerMembershipEnabled((v) => !v)}
                 >
-                  <span style={scratchCardEnabled ? styles.knobOn : styles.knobOff} />
+                  <span style={buyerMembershipEnabled ? styles.knobOn : styles.knobOff} />
                 </button>
               </div>
 
-              <div>
-                <p style={styles.label}>Min · Max · Above (₹)</p>
-                <div className="town-settings-scratch-row">
-                  {[
-                    { value: scratchRewardMin, set: setScratchRewardMin, label: 'Min' },
-                    { value: scratchRewardMax, set: setScratchRewardMax, label: 'Max' },
-                    { value: scratchMinGoodsAmount, set: setScratchMinGoodsAmount, label: 'Above' },
-                  ].map((field) => (
-                    <label key={field.label} style={styles.scratchField}>
-                      <span style={styles.dealMiniLabel}>{field.label}</span>
-                      <span style={styles.dealField}>
-                        <span style={styles.dealPrefix}>₹</span>
-                        <input
-                          style={styles.dealInput}
-                          inputMode="numeric"
-                          maxLength={6}
-                          value={field.value}
-                          aria-label={field.label}
-                          onChange={(e) => field.set(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                        />
-                      </span>
-                    </label>
-                  ))}
+              <div style={styles.scratchBlock}>
+                <div style={styles.scratchHead}>
+                  <span>
+                    <strong style={styles.toggleTitle}>Scratch card</strong>
+                    <span style={styles.toggleHint}>
+                      {scratchCardEnabled
+                        ? 'Random wallet credit after delivery if goods (after coupon) ≥ Above'
+                        : 'Off — no card after delivery'}
+                    </span>
+                  </span>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={scratchCardEnabled}
+                    style={scratchCardEnabled ? styles.switchOn : styles.switchOff}
+                    onClick={() => setScratchCardEnabled((v) => !v)}
+                  >
+                    <span style={scratchCardEnabled ? styles.knobOn : styles.knobOff} />
+                  </button>
                 </div>
-                <p style={styles.hint}>Random wallet credit between min and max</p>
+                {scratchCardEnabled ? (
+                  <div className="town-settings-scratch-row">
+                    {[
+                      { value: scratchRewardMin, set: setScratchRewardMin, label: 'Min' },
+                      { value: scratchRewardMax, set: setScratchRewardMax, label: 'Max' },
+                      { value: scratchMinGoodsAmount, set: setScratchMinGoodsAmount, label: 'Above' },
+                    ].map((field) => (
+                      <label key={field.label} style={styles.scratchField}>
+                        <span style={styles.dealMiniLabel}>{field.label}</span>
+                        <span style={styles.dealField}>
+                          <span style={styles.dealPrefix}>₹</span>
+                          <input
+                            style={styles.dealInput}
+                            inputMode="numeric"
+                            maxLength={6}
+                            value={field.value}
+                            aria-label={field.label}
+                            onChange={(e) => field.set(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                          />
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                ) : null}
               </div>
             </section>
 
@@ -431,18 +513,32 @@ export function TownSettingsDialog({
           </div>
         ) : null}
 
-        {!loading ? (
+        {panel === 'log' && token ? (
+          <AdminHistoryPanel
+            token={token}
+            screen="town-settings"
+            townId={town.id}
+            title="Change log"
+            embedded
+            tall
+            refreshTick={historyTick}
+          />
+        ) : null}
+        </div>
+
+        {panel === 'edit' && !loading ? (
           <div style={styles.actions}>
             <Button disabled={busy} onClick={() => void onSave()}>
               {busy ? 'Saving…' : 'Save'}
             </Button>
             <Button variant="ghost" disabled={busy} onClick={onClose}>
-              Cancel
+              Close
             </Button>
           </div>
         ) : null}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -450,13 +546,19 @@ const PANEL_CSS = `
   .town-settings-panel {
     width: min(920px, 100%);
     max-height: min(92vh, 860px);
-    overflow: auto;
+    overflow: hidden;
     background: var(--bg-elevated);
     border-radius: 16px;
     padding: 1rem 1.05rem 1.05rem;
-    display: grid;
-    gap: 0.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.65rem;
     box-shadow: 0 18px 48px rgba(2, 6, 12, 0.28);
+  }
+  .town-settings-scroll {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: auto;
   }
   .town-settings-panel input[type='color'] {
     width: 28px;
@@ -534,6 +636,38 @@ const styles: Record<string, CSSProperties> = {
     padding: '0.75rem',
   },
   head: { display: 'flex', justifyContent: 'space-between', gap: '0.75rem', alignItems: 'flex-start' },
+  headRight: { display: 'flex', alignItems: 'center', gap: '0.45rem', flexShrink: 0 },
+  viewTabs: {
+    display: 'flex',
+    gap: 3,
+    padding: 3,
+    border: '1px solid var(--border)',
+    borderRadius: 8,
+    background: 'var(--bg)',
+  },
+  viewTab: {
+    appearance: 'none',
+    border: 'none',
+    background: 'transparent',
+    color: 'var(--text-muted)',
+    fontWeight: 700,
+    fontSize: '0.78rem',
+    padding: '0.28rem 0.6rem',
+    borderRadius: 6,
+    cursor: 'pointer',
+  },
+  viewTabActive: {
+    appearance: 'none',
+    border: 'none',
+    background: 'var(--bg-elevated)',
+    color: 'var(--text)',
+    fontWeight: 800,
+    fontSize: '0.78rem',
+    padding: '0.28rem 0.6rem',
+    borderRadius: 6,
+    cursor: 'pointer',
+    boxShadow: 'var(--shadow-card)',
+  },
   title: { margin: 0, fontFamily: 'var(--font-display)', fontSize: '1.2rem', fontWeight: 800 },
   sub: { margin: '0.15rem 0 0', color: 'var(--text-muted)', fontSize: '0.85rem', fontWeight: 600 },
   close: {
@@ -628,6 +762,20 @@ const styles: Record<string, CSSProperties> = {
   },
   toggleTitle: { display: 'block', fontSize: '0.86rem' },
   toggleHint: { display: 'block', marginTop: 2, fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 600, lineHeight: 1.3 },
+  scratchBlock: {
+    display: 'grid',
+    gap: '0.45rem',
+    padding: '0.45rem 0.5rem',
+    borderRadius: 10,
+    border: '1px solid var(--border)',
+    background: 'var(--bg-elevated)',
+  },
+  scratchHead: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: '0.7rem',
+  },
   dealField: {
     display: 'flex',
     alignItems: 'center',
@@ -639,6 +787,7 @@ const styles: Record<string, CSSProperties> = {
     minHeight: 36,
   },
   dealPrefix: { fontSize: '0.82rem', fontWeight: 800, color: 'var(--text-muted)' },
+  dealFieldOff: { opacity: 0.55, pointerEvents: 'none' },
   dealMiniLabel: {
     display: 'block',
     fontSize: '0.68rem',
@@ -737,5 +886,12 @@ const styles: Record<string, CSSProperties> = {
     padding: '0.25rem',
     justifySelf: 'start',
   },
-  actions: { display: 'flex', gap: '0.5rem', flexWrap: 'wrap' },
+  actions: {
+    display: 'flex',
+    gap: '0.5rem',
+    flexWrap: 'wrap',
+    flexShrink: 0,
+    paddingTop: '0.15rem',
+    borderTop: '1px solid var(--border)',
+  },
 };

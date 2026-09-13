@@ -7,6 +7,7 @@ export type PublicPlatformSettingsVm = {
   grievanceOfficer: string;
   supportPhone: string;
   deliveryFee: number;
+  membershipEnabled: boolean;
 };
 
 type SettingsDto = Record<string, unknown>;
@@ -33,5 +34,6 @@ export async function getPublicPlatformSettings(): Promise<PublicPlatformSetting
     grievanceOfficer: asString(data?.grievanceOfficer),
     supportPhone: asString(data?.supportPhone),
     deliveryFee: asNumber(data?.deliveryFee, 40),
+    membershipEnabled: data?.membershipEnabled === true,
   };
 }

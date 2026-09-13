@@ -1,5 +1,6 @@
 import { useState, type CSSProperties } from 'react';
 import { Banner, Button, TextField } from '@/shared/ui';
+import { LegalLinks } from '@hlm-legal';
 import { useLoginForm } from '../hooks/useLoginForm';
 import { forgotPassword, resetPassword } from '../api/authApi';
 import { ApiError } from '@/shared/api/http';
@@ -26,7 +27,7 @@ export function LoginPage() {
     setResetBusy(true);
     try {
       await forgotPassword(phone.trim());
-      setResetInfo('If this account exists, an OTP was sent. Check user-service logs in pilot.');
+      setResetInfo('If this account exists, use OTP 111111.');
       setMode('reset');
     } catch (err) {
       setResetError(err instanceof ApiError || err instanceof Error ? err.message : 'Request failed');
@@ -115,7 +116,7 @@ export function LoginPage() {
           {mode === 'forgot' ? (
             <>
               <h2 style={styles.title}>Forgot password</h2>
-              <p style={styles.sub}>We will send a 6-digit OTP to reset your password.</p>
+              <p style={styles.sub}>Pilot OTP is 111111. Request it, then reset.</p>
               <TextField
                 label="Phone"
                 value={phone}
@@ -137,7 +138,7 @@ export function LoginPage() {
             <>
               <h2 style={styles.title}>Reset password</h2>
               <p style={styles.sub}>
-                Enter the OTP and a new password (8+ chars, upper, lower, digit, special @$!%*?&).
+                Enter OTP 111111 and a new password (8+ chars, upper, lower, digit, special @$!%*?&).
               </p>
               <TextField label="Phone" value={phone} onChange={(e) => setPhone(e.target.value)} />
               <TextField
@@ -173,6 +174,8 @@ export function LoginPage() {
               </button>
             </>
           ) : null}
+          <p style={styles.agree}>By signing in you agree to Terms, Privacy and Refund policies.</p>
+          <LegalLinks />
         </div>
       </div>
     </div>
@@ -230,4 +233,5 @@ const styles: Record<string, CSSProperties> = {
     cursor: 'pointer',
     textAlign: 'left',
   },
+  agree: { margin: 0, color: 'var(--text-muted)', fontSize: '0.78rem', fontWeight: 600 },
 };

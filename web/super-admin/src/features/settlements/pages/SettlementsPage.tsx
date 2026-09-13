@@ -22,6 +22,8 @@ import {
   type SettlementCandidate,
   type SettlementVm,
 } from '../api/settlementsApi';
+import { DeliveryPayoutPanel } from '../components/DeliveryPayoutPanel';
+import { AdminHistoryPanel } from '@/shared/audit/AdminHistoryPanel';
 
 type PeriodPreset = 'day' | 'week' | 'month' | 'custom';
 
@@ -104,6 +106,8 @@ export function SettlementsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [confirmPayOpen, setConfirmPayOpen] = useState(false);
+  const [tab, setTab] = useState<'VENDOR' | 'HUB' | 'AGENT'>('VENDOR');
+  const [deliveryRefreshTick, setDeliveryRefreshTick] = useState(0);
 
   const selectedVendor = useMemo(
     () => vendors.find((v) => v.id === vendorId) ?? null,
@@ -326,6 +330,7 @@ export function SettlementsPage() {
       setOtherChargesAmount('');
       setOtherChargesReason('');
       setConfirmPayOpen(false);
+      setDeliveryRefreshTick((n) => n + 1);
       await Promise.all([reloadCandidates(), reloadHistory()]);
     } catch (err) {
       setError(err instanceof ApiError || err instanceof Error ? err.message : 'Failed to record payout');
@@ -360,11 +365,45 @@ export function SettlementsPage() {
   const showSummary = !!townId && !!vendorId && (selected.size > 0 || pendingClaimChargebacks > 0);
 
   return (
-    <PortalShell title="Vendor payouts" onRefresh={() => void reload()}>
+    <PortalShell
+      title="Payouts"
+      onRefresh={() => {
+        if (tab === 'VENDOR') void reload();
+        else setDeliveryRefreshTick((n) => n + 1);
+      }}
+    >
       <style>{layoutCss}</style>
-      {error ? <Banner tone="danger">{error}</Banner> : null}
-      {success ? <Banner tone="success">{success}</Banner> : null}
+      <div style={styles.tabs}>
+        {(
+          [
+            ['VENDOR', 'Vendor'],
+            ['HUB', 'Hub'],
+            ['AGENT', 'Agent'],
+          ] as const
+        ).map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            style={tab === id ? styles.tabActive : styles.tab}
+            onClick={() => setTab(id)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {tab !== 'VENDOR' ? (
+        <DeliveryPayoutPanel
+          token={token}
+          payeeType={tab}
+          refreshTick={deliveryRefreshTick}
+          onSettled={() => setDeliveryRefreshTick((n) => n + 1)}
+        />
+      ) : null}
+      {tab === 'VENDOR' && error ? <Banner tone="danger">{error}</Banner> : null}
+      {tab === 'VENDOR' && success ? <Banner tone="success">{success}</Banner> : null}
 
+      {tab === 'VENDOR' ? (
+      <>
       <div className="sp-layout">
         <div className="sp-main">
           <Card padding="sm" style={styles.cardPad}>
@@ -855,6 +894,9 @@ export function SettlementsPage() {
           </div>
         )}
       </Card>
+      </>
+      ) : null}
+      {token ? <AdminHistoryPanel token={token} screen="settlements" refreshTick={deliveryRefreshTick} /> : null}
     </PortalShell>
   );
 }
@@ -901,6 +943,29 @@ const layoutCss = `
 `;
 
 const styles: Record<string, CSSProperties> = {
+  tabs: { display: 'flex', gap: '0.3rem', flexWrap: 'wrap', marginBottom: '0.35rem' },
+  tab: {
+    border: '1px solid var(--border)',
+    background: 'var(--bg)',
+    color: 'var(--text-muted)',
+    borderRadius: 'var(--radius-full)',
+    padding: '0.28rem 0.7rem',
+    cursor: 'pointer',
+    fontSize: '0.78rem',
+    fontWeight: 650,
+    fontFamily: 'inherit',
+  },
+  tabActive: {
+    border: '1.5px solid var(--accent)',
+    background: 'var(--accent-soft)',
+    color: 'var(--accent-hover)',
+    borderRadius: 'var(--radius-full)',
+    padding: '0.28rem 0.7rem',
+    cursor: 'pointer',
+    fontSize: '0.78rem',
+    fontWeight: 800,
+    fontFamily: 'inherit',
+  },
   cardPad: { display: 'grid', gap: '0.45rem' },
   toolbar: { display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' },
   sectionTitle: {

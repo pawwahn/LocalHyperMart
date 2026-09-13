@@ -166,6 +166,50 @@ public class OrderClient {
     ) {
     }
 
+    public List<DeliveryCompleteOrder> listDeliveryComplete(UUID townId, LocalDate from, LocalDate to) {
+        RestClient client = restClientBuilder.baseUrl(orderServiceProperties.getBaseUrl()).build();
+        ApiResponse<List<DeliveryCompleteOrder>> response = client.get()
+                .uri(uriBuilder -> uriBuilder
+                        .path("/api/v1/internal/orders/delivery-complete")
+                        .queryParam("townId", townId)
+                        .queryParam("from", from)
+                        .queryParam("to", to)
+                        .build())
+                .retrieve()
+                .body(new ParameterizedTypeReference<ApiResponse<List<DeliveryCompleteOrder>>>() {});
+        if (response == null || response.getData() == null) {
+            return List.of();
+        }
+        return response.getData();
+    }
+
+    public List<DeliveryCompleteOrder> resolveDeliveryComplete(Collection<UUID> orderIds) {
+        if (orderIds == null || orderIds.isEmpty()) {
+            return List.of();
+        }
+        RestClient client = restClientBuilder.baseUrl(orderServiceProperties.getBaseUrl()).build();
+        ApiResponse<List<DeliveryCompleteOrder>> response = client.post()
+                .uri("/api/v1/internal/orders/delivery-complete/resolve")
+                .body(List.copyOf(orderIds))
+                .retrieve()
+                .body(new ParameterizedTypeReference<ApiResponse<List<DeliveryCompleteOrder>>>() {});
+        if (response == null || response.getData() == null) {
+            return List.of();
+        }
+        return response.getData();
+    }
+
+    public record DeliveryCompleteOrder(
+            UUID orderId,
+            UUID townId,
+            String orderNumber,
+            String status,
+            String paymentStatus,
+            Instant deliveredAt,
+            BigDecimal totalAmount
+    ) {
+    }
+
     public record CodDeliveredOrders(
             UUID townId,
             UUID agentId,

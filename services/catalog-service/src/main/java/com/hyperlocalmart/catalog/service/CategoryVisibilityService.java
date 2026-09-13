@@ -1,5 +1,6 @@
 package com.hyperlocalmart.catalog.service;
 
+import com.hyperlocalmart.catalog.client.AdminAuditClient;
 import com.hyperlocalmart.catalog.dto.request.SetCategoryTownVisibilityRequest;
 import com.hyperlocalmart.catalog.dto.response.BulkCategoryVisibilityResponse;
 import com.hyperlocalmart.catalog.dto.response.CategoryResponse;
@@ -28,6 +29,7 @@ public class CategoryVisibilityService {
 
     private final CategoryRepository categoryRepository;
     private final CategoryTownOverrideRepository overrideRepository;
+    private final AdminAuditClient adminAuditClient;
 
     @Transactional(readOnly = true)
     public boolean isVisibleInTown(Category category, UUID townId) {
@@ -67,6 +69,13 @@ public class CategoryVisibilityService {
         category.setUpdatedBy(actorUserId);
         overrideRepository.deleteByCategoryId(categoryId);
         categoryRepository.save(category);
+        adminAuditClient.record(
+                "catalog",
+                paused ? "PAUSE_CATEGORY" : "RESUME_CATEGORY",
+                (paused ? "Paused " : "Resumed ") + category.getName(),
+                actorUserId,
+                null,
+                categoryId);
         return toCategory(category, 0, 0);
     }
 
@@ -75,6 +84,13 @@ public class CategoryVisibilityService {
         CatalogItemStatus status = paused ? CatalogItemStatus.INACTIVE : CatalogItemStatus.ACTIVE;
         int updated = categoryRepository.updateAllStatuses(status, actorUserId);
         overrideRepository.deleteAllOverrides();
+        adminAuditClient.record(
+                "catalog",
+                paused ? "PAUSE_ALL_CATEGORIES" : "RESUME_ALL_CATEGORIES",
+                (paused ? "Paused" : "Resumed") + " all categories (" + updated + ")",
+                actorUserId,
+                null,
+                null);
         return BulkCategoryVisibilityResponse.builder()
                 .paused(paused)
                 .updatedCount(updated)
@@ -114,6 +130,13 @@ public class CategoryVisibilityService {
         }
         category.setUpdatedBy(actorUserId);
         categoryRepository.save(category);
+        adminAuditClient.record(
+                "catalog",
+                "SET_TOWN_VISIBILITY",
+                (show ? "Show" : "Hide") + " " + category.getName() + " in " + townIds.size() + " town(s)",
+                actorUserId,
+                townIds.isEmpty() ? null : townIds.getFirst(),
+                categoryId);
         long[] pair = countsFor(categoryId);
         return toCategory(category, pair[0], pair[1]);
     }

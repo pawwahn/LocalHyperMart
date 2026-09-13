@@ -1,0 +1,40 @@
+HYPERLOCALMART — PRIVACY POLICY
+
+This policy explains how HyperLocalMart uses personal data on the buyer, vendor, hub/agent, and super-admin portals. It should be read with the Terms.
+
+1. DATA WE COLLECT
+• Account: mobile number, name, password hash, role (buyer / vendor / hub / agent / super-admin), town.
+• Buyer: saved addresses, cart and orders, payment method (COD / online marker), store-credit ledger, membership packs and credits, claims, scratch cards, device/session tokens.
+• Vendor: shop profile, listings, order bags, payouts, commercial terms, optional ID or bank details Super Admin stores for settlement.
+• Hub / agent: assignment history, COD close-day entries, OTP events, membership cash confirmations.
+• Support: what you type in claims and reject reasons; call recordings are not in-app unless you call the published support number on your own phone.
+
+We do not ask buyers for Aadhaar or PAN in the current apps.
+
+2. WHY WE USE IT
+To run the town marketplace: login, show the right catalog, place and deliver orders, collect COD, apply store credit and free-delivery credits, handle claims, pay vendors, detect abuse, and contact you on the support number you see in Settings.
+
+3. WHO SEES WHAT
+• Vendors see order bags for their shop, not your full address book, and not other shops’ payouts.
+• Hub and assigned agents see what they need to pick up and deliver (address, phone, OTP flow, COD amount).
+• Super Admin sees platform-wide ops, reports, and legal settings.
+• Payment providers (when online pay is on) receive what they need to charge or refund. We do not store full card numbers in our databases.
+• We do not sell your phone book to advertisers. Catalog ads are platform/vendor promotions inside the app.
+
+4. RETENTION
+Orders, invoices, wallet and membership ledgers, and COD close records are kept for tax, dispute, and ops history. You may ask hub/support to correct a name or address. Closing an account does not erase completed order records we must keep by law.
+
+5. SECURITY
+Passwords are hashed. OTPs and hub PINs are operational secrets — do not share them. No method is perfect; tell us quickly if you think your account was used by someone else.
+
+6. YOUR CHOICES
+Update addresses in the buyer app. Change password from the portal that issued your login. Withdraw consent by stopping use and asking Super Admin/support to disable the account. Some processing (invoices, COD, claims already filed) must continue.
+
+7. CHILDREN
+The Platform is for adults placing grocery orders. Do not register a child under 18 as the account holder.
+
+8. UPDATES
+Super Admin may edit this policy in Platform settings. The in-app version and date control.
+
+9. CONTACT
+Use the support phone and grievance officer named in Super Admin → Settings / login screen.

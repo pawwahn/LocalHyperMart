@@ -46,4 +46,25 @@ public class TownClient {
             throw new BusinessException(ErrorCode.INTERNAL_ERROR, "Could not validate town");
         }
     }
+
+    public void appendAdminAudit(
+            String screenKey, String action, String summary, UUID actorId, UUID townId, UUID entityId) {
+        try {
+            Map<String, Object> body = new java.util.LinkedHashMap<>();
+            body.put("screenKey", screenKey);
+            body.put("action", action);
+            body.put("changeSummary", summary);
+            body.put("actorUserId", actorId);
+            body.put("actorRole", "SUPER_ADMIN");
+            if (townId != null) body.put("townId", townId);
+            if (entityId != null) body.put("entityId", entityId);
+            restClientBuilder.baseUrl(townServiceProperties.getBaseUrl()).build()
+                    .post()
+                    .uri("/api/v1/internal/admin-audit")
+                    .body(body)
+                    .retrieve()
+                    .toBodilessEntity();
+        } catch (Exception ignored) {
+        }
+    }
 }

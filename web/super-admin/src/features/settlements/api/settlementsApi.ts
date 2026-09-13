@@ -45,6 +45,7 @@ export type SettlementVm = {
   id: string;
   townId: string;
   payeeType: string;
+  direction?: string | null;
   payeeId: string;
   payeeName?: string | null;
   periodStart: string;
@@ -118,12 +119,63 @@ export async function fetchSettlementCandidates(
   return apiRequest<SettlementCandidates>(`/api/v1/payments/settlements/candidates?${q}`, { token });
 }
 
+export type DeliveryPayeeType = 'HUB' | 'AGENT';
+
+export type DeliveryFranchiseDue = {
+  enabled: boolean;
+  cadence: string;
+  amount: number;
+  periodStart: string;
+  periodEnd: string;
+  alreadyCollected: boolean;
+  label: string;
+};
+
+export type DeliverySettlementCandidate = {
+  orderId: string;
+  orderNumber: string;
+  deliveredAt?: string | null;
+  paymentStatus?: string | null;
+  lastMileCompleted: boolean;
+  pickupCompleted: boolean;
+  amount: number;
+  alreadySettled: boolean;
+  skipReason?: string | null;
+};
+
+export type DeliverySettlementCandidates = {
+  townId: string;
+  payeeId: string;
+  payeeType: string;
+  from: string;
+  to: string;
+  hubPayoutModel: string;
+  franchise?: DeliveryFranchiseDue | null;
+  items: DeliverySettlementCandidate[];
+};
+
+export type CreateDeliverySettlementInput = {
+  townId: string;
+  payeeType: DeliveryPayeeType;
+  payeeId: string;
+  payeeName?: string;
+  periodStart: string;
+  periodEnd: string;
+  periodType: 'DAY' | 'WEEK' | 'MONTH' | 'CUSTOM';
+  kind: 'PER_ORDER' | 'FRANCHISE';
+  orderIds?: string[];
+  markPaid?: boolean;
+  payoutMethod?: string;
+  transactionReference?: string;
+  transactionNotes?: string;
+};
+
 export async function listSettlements(
   token: string,
-  params?: { townId?: string; payeeId?: string; status?: string },
+  params?: { townId?: string; payeeId?: string; status?: string; payeeType?: string },
 ): Promise<SettlementVm[]> {
   const q = new URLSearchParams();
-  q.set('payeeType', 'VENDOR');
+  q.set('payeeType', params?.payeeType ?? 'VENDOR');
   if (params?.townId) q.set('townId', params.townId);
   if (params?.payeeId) q.set('payeeId', params.payeeId);
   if (params?.status) q.set('status', params.status);
@@ -139,6 +191,28 @@ export async function createSettlement(
   input: CreateSettlementInput,
 ): Promise<SettlementVm> {
   return apiRequest<SettlementVm>('/api/v1/payments/settlements', {
+    method: 'POST',
+    token,
+    body: input,
+  });
+}
+
+export async function fetchDeliverySettlementCandidates(
+  token: string,
+  params: { townId: string; payeeType: DeliveryPayeeType; payeeId: string; from: string; to: string },
+): Promise<DeliverySettlementCandidates> {
+  const q = new URLSearchParams(params);
+  return apiRequest<DeliverySettlementCandidates>(
+    `/api/v1/payments/settlements/delivery-candidates?${q}`,
+    { token },
+  );
+}
+
+export async function createDeliverySettlement(
+  token: string,
+  input: CreateDeliverySettlementInput,
+): Promise<SettlementVm> {
+  return apiRequest<SettlementVm>('/api/v1/payments/settlements/delivery', {
     method: 'POST',
     token,
     body: input,

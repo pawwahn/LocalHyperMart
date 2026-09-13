@@ -13,6 +13,7 @@ import com.hyperlocalmart.order.dto.response.SettlementCandidateResponse;
 import com.hyperlocalmart.order.dto.response.SubOrderInternalSnapshotResponse;
 import com.hyperlocalmart.order.dto.response.SubOrderPickupManifestResponse;
 import com.hyperlocalmart.order.service.CodDeliveredService;
+import com.hyperlocalmart.order.service.DeliveryCompleteOrderService;
 import com.hyperlocalmart.order.service.HubOrderStatsService;
 import com.hyperlocalmart.order.service.OrderHistorySuggestionService;
 import com.hyperlocalmart.order.service.OrderService;
@@ -37,6 +38,7 @@ public class OrderInternalController {
     private final SettlementCandidateService settlementCandidateService;
     private final CodDeliveredService codDeliveredService;
     private final OrderHistorySuggestionService orderHistorySuggestionService;
+    private final DeliveryCompleteOrderService deliveryCompleteOrderService;
 
     @GetMapping("/api/v1/internal/buyers/{buyerId}/recent-listing-ids")
     public ResponseEntity<ApiResponse<List<UUID>>> recentListingIds(
@@ -158,6 +160,23 @@ public class OrderInternalController {
             HttpServletRequest httpRequest) {
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
                 codDeliveredService.list(townId, agentId, date)));
+    }
+
+    @GetMapping("/api/v1/internal/orders/delivery-complete")
+    public ResponseEntity<ApiResponse<List<DeliveryCompleteOrderService.CompleteOrder>>> listDeliveryComplete(
+            @RequestParam UUID townId,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                deliveryCompleteOrderService.listDelivered(townId, from, to)));
+    }
+
+    @PostMapping("/api/v1/internal/orders/delivery-complete/resolve")
+    public ResponseEntity<ApiResponse<List<DeliveryCompleteOrderService.CompleteOrder>>> resolveDeliveryComplete(
+            @RequestBody List<UUID> orderIds,
+            HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest, deliveryCompleteOrderService.resolveDelivered(orderIds)));
     }
 
     @PostMapping("/api/v1/internal/orders/cod-delivered/resolve")

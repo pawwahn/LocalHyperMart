@@ -137,7 +137,7 @@ public class CategoryController {
             @PathVariable UUID categoryId,
             HttpServletRequest httpRequest) {
         requireSuperAdmin(principal);
-        vendorListingService.deleteCategory(categoryId);
+        vendorListingService.deleteCategory(categoryId, principal.getUserId());
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, Map.of("deleted", true)));
     }
 

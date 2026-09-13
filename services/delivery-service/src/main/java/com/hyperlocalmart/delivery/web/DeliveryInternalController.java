@@ -7,6 +7,7 @@ import com.hyperlocalmart.delivery.dto.response.HubContactResponse;
 import com.hyperlocalmart.delivery.dto.response.OrderAssignmentResponse;
 import com.hyperlocalmart.delivery.dto.response.VerifyHubPinResponse;
 import com.hyperlocalmart.delivery.service.AgentService;
+import com.hyperlocalmart.delivery.service.DeliveryPayoutLegService;
 import com.hyperlocalmart.delivery.service.HubPinService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -23,6 +24,7 @@ public class DeliveryInternalController {
 
     private final AgentService agentService;
     private final HubPinService hubPinService;
+    private final DeliveryPayoutLegService deliveryPayoutLegService;
 
     @GetMapping("/api/v1/internal/hub-admins/{userId}/context")
     public ResponseEntity<ApiResponse<HubAdminContextResponse>> getHubAdminContext(
@@ -46,6 +48,13 @@ public class DeliveryInternalController {
             @PathVariable UUID townId,
             HttpServletRequest httpRequest) {
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, agentService.listHubContactsForTown(townId)));
+    }
+
+    @PostMapping("/api/v1/internal/orders/delivery-legs/resolve")
+    public ResponseEntity<ApiResponse<List<DeliveryPayoutLegService.OrderLegs>>> resolveDeliveryLegs(
+            @RequestBody List<UUID> orderIds,
+            HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest, deliveryPayoutLegService.resolve(orderIds)));
     }
 
     @GetMapping("/api/v1/internal/orders/{orderId}/assignments")

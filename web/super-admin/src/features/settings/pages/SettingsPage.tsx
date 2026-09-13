@@ -1,11 +1,21 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { CSSProperties } from 'react';
+import { Link } from 'react-router-dom';
 import { ACCENT_PRESETS, useTheme } from '@hlm-theme';
+import { formatLegalStamp } from '@hlm-legal';
 import { PortalShell } from '@/shared/layout/PortalShell';
 import { useAuth } from '@/shared/auth/AuthContext';
 import { ApiError } from '@/shared/api/http';
 import { Banner, Button, Card, TextField } from '@/shared/ui';
-import { getPlatformSettings, patchPlatformSettings, type PlatformSettingsVm } from '../api/settingsApi';
+import { AdminHistoryPanel } from '@/shared/audit/AdminHistoryPanel';
+import {
+  getPlatformSettings,
+  patchPlatformSettings,
+  resetLegalDefaults,
+  type PlatformSettingsVm,
+} from '../api/settingsApi';
+
+type LegalTab = 'termsText' | 'privacyText' | 'refundText';
 
 const EMPTY: PlatformSettingsVm = {
   mapsEnabled: false,
@@ -13,6 +23,11 @@ const EMPTY: PlatformSettingsVm = {
   termsUrl: '',
   privacyUrl: '',
   refundUrl: '',
+  termsText: '',
+  privacyText: '',
+  refundText: '',
+  legalVersion: 1,
+  legalUpdatedAt: '',
   grievanceOfficer: '',
   supportPhone: '',
   deliveryFee: 40,
@@ -24,6 +39,7 @@ export function SettingsPage() {
   const { preference, setMode, setAccent } = useTheme();
   const token = session?.accessToken ?? '';
   const [settings, setSettings] = useState<PlatformSettingsVm>(EMPTY);
+  const [legalTab, setLegalTab] = useState<LegalTab>('termsText');
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -51,6 +67,24 @@ export function SettingsPage() {
       setNotice('Settings saved');
     } catch (err) {
       setError(err instanceof ApiError || err instanceof Error ? err.message : 'Save failed');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onResetLegal() {
+    if (!token) return;
+    if (!window.confirm('Replace Terms, Privacy and Refund with the shipped HyperLocalMart rules?')) {
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      setSettings(await resetLegalDefaults(token));
+      setNotice('Legal copy reset to shipped rules. Version bumped.');
+    } catch (err) {
+      setError(err instanceof ApiError || err instanceof Error ? err.message : 'Reset failed');
     } finally {
       setBusy(false);
     }
@@ -175,20 +209,66 @@ export function SettingsPage() {
         </Card>
 
         <Card padding="sm" style={styles.card}>
+          <div style={styles.sectionHead}>
+            <h2 style={styles.sectionTitle}>Legal copy (shown to users)</h2>
+            <span style={styles.hintInline}>
+              {formatLegalStamp({
+                legalVersion: settings.legalVersion,
+                legalUpdatedAt: settings.legalUpdatedAt,
+              })}
+            </span>
+            <Link to="/legal/terms" style={styles.previewLink}>
+              Preview
+            </Link>
+          </div>
+          <div style={styles.tabs}>
+            {(
+              [
+                ['termsText', 'Terms'],
+                ['privacyText', 'Privacy'],
+                ['refundText', 'Refund / wallet'],
+              ] as const
+            ).map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                style={legalTab === key ? styles.tabOn : styles.tab}
+                onClick={() => setLegalTab(key)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <textarea
+            value={settings[legalTab]}
+            onChange={(e) => setSettings((s) => ({ ...s, [legalTab]: e.target.value }))}
+            rows={12}
+            style={styles.legalArea}
+            spellCheck
+          />
+          <div style={styles.legalMeta}>
+            <span style={styles.charCount}>{settings[legalTab].length.toLocaleString('en-IN')} chars</span>
+            <Button type="button" variant="ghost" disabled={busy} onClick={() => void onResetLegal()}>
+              Reset to shipped rules
+            </Button>
+          </div>
+        </Card>
+
+        <Card padding="sm" style={styles.card}>
           <h2 style={styles.sectionTitle}>Legal & support</h2>
           <div style={styles.formGrid}>
             <TextField
-              label="Terms URL"
+              label="Terms URL (optional extra)"
               value={settings.termsUrl}
               onChange={(e) => setSettings((s) => ({ ...s, termsUrl: e.target.value }))}
             />
             <TextField
-              label="Privacy URL"
+              label="Privacy URL (optional extra)"
               value={settings.privacyUrl}
               onChange={(e) => setSettings((s) => ({ ...s, privacyUrl: e.target.value }))}
             />
             <TextField
-              label="Refund URL"
+              label="Refund URL (optional extra)"
               value={settings.refundUrl}
               onChange={(e) => setSettings((s) => ({ ...s, refundUrl: e.target.value }))}
             />
@@ -225,6 +305,7 @@ export function SettingsPage() {
             </Button>
           </div>
         </Card>
+        {token ? <AdminHistoryPanel token={token} screen="settings" refreshTick={notice ? notice.length : 0} /> : null}
       </div>
     </PortalShell>
   );
@@ -331,5 +412,56 @@ const styles: Record<string, CSSProperties> = {
     fontSize: '0.85rem',
     color: 'var(--text-muted)',
     margin: 0,
+  },
+  tabs: { display: 'flex', gap: '0.3rem', flexWrap: 'wrap' },
+  tab: {
+    border: '1px solid var(--border)',
+    background: 'var(--bg)',
+    color: 'var(--text-muted)',
+    borderRadius: 'var(--radius-full)',
+    padding: '0.25rem 0.7rem',
+    fontSize: '0.76rem',
+    fontWeight: 700,
+    cursor: 'pointer',
+    minHeight: 32,
+  },
+  tabOn: {
+    border: '1px solid var(--accent)',
+    background: 'var(--accent-soft)',
+    color: 'var(--accent-hover)',
+    borderRadius: 'var(--radius-full)',
+    padding: '0.25rem 0.7rem',
+    fontSize: '0.76rem',
+    fontWeight: 800,
+    cursor: 'pointer',
+    minHeight: 32,
+  },
+  legalArea: {
+    width: '100%',
+    minHeight: 220,
+    maxHeight: '42vh',
+    resize: 'vertical',
+    boxSizing: 'border-box',
+    padding: '0.5rem 0.6rem',
+    borderRadius: 'var(--radius-md)',
+    border: '1px solid var(--border)',
+    background: 'var(--bg)',
+    color: 'var(--text)',
+    fontFamily: 'inherit',
+    fontSize: '0.8rem',
+    lineHeight: 1.4,
+  },
+  legalMeta: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: '0.5rem',
+    flexWrap: 'wrap',
+  },
+  previewLink: {
+    color: 'var(--accent)',
+    fontWeight: 800,
+    fontSize: '0.78rem',
+    textDecoration: 'none',
   },
 };

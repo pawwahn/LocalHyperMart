@@ -1,5 +1,6 @@
 import type { CSSProperties } from 'react';
 import { Link } from 'react-router-dom';
+import { LegalLinks, TermsAcceptBlock } from '@hlm-legal';
 import { Banner, Button, TextField } from '@/shared/ui';
 import { useAuthForms } from '../hooks/useAuthForms';
 import { useTown } from '@/shared/town/TownContext';
@@ -16,8 +17,9 @@ export function LoginPage() {
       <div style={styles.panel}>
         <div style={styles.hero}>
           <p style={styles.brand}>HyperLocalMart</p>
-          <h1 style={styles.heroTitle}>Fresh from your town</h1>
-          <p style={styles.heroSub}>Neighborhood vendors · same-day delivery · pay on delivery</p>
+          <span style={styles.heroChip}>Same-day delivery</span>
+          <h1 style={styles.heroTitle}>Groceries from shops in your town</h1>
+          <p style={styles.heroSub}>Neighbourhood vendors · pay on delivery · no dark store markup</p>
         </div>
 
         <div style={styles.card}>
@@ -55,39 +57,11 @@ export function LoginPage() {
           />
 
           {f.mode === 'register' ? (
-            <label style={styles.check}>
-              <input
-                type="checkbox"
-                checked={f.acceptedTerms}
-                onChange={(e) => f.setAcceptedTerms(e.target.checked)}
-              />
-              <span>
-                I agree to{' '}
-                {settings?.termsUrl ? (
-                  <a href={settings.termsUrl} target="_blank" rel="noreferrer" style={styles.inlineLink}>
-                    Terms
-                  </a>
-                ) : (
-                  'Terms'
-                )}
-                ,{' '}
-                {settings?.privacyUrl ? (
-                  <a href={settings.privacyUrl} target="_blank" rel="noreferrer" style={styles.inlineLink}>
-                    Privacy
-                  </a>
-                ) : (
-                  'Privacy'
-                )}
-                {' & '}
-                {settings?.refundUrl ? (
-                  <a href={settings.refundUrl} target="_blank" rel="noreferrer" style={styles.inlineLink}>
-                    Refund policy
-                  </a>
-                ) : (
-                  'Refund policy'
-                )}
-              </span>
-            </label>
+            <TermsAcceptBlock
+              accepted={f.acceptedTerms}
+              onAcceptedChange={f.setAcceptedTerms}
+              onVersion={f.setLegalVersion}
+            />
           ) : null}
 
           {settings?.supportPhone ? (
@@ -122,28 +96,12 @@ export function LoginPage() {
             Continue browsing as guest →
           </Link>
 
-          {(settings?.termsUrl || settings?.privacyUrl || settings?.refundUrl || settings?.grievanceOfficer) ? (
-            <div style={styles.legalRow}>
-              {settings.termsUrl ? (
-                <a href={settings.termsUrl} target="_blank" rel="noreferrer" style={styles.legalLink}>
-                  Terms
-                </a>
-              ) : null}
-              {settings.privacyUrl ? (
-                <a href={settings.privacyUrl} target="_blank" rel="noreferrer" style={styles.legalLink}>
-                  Privacy
-                </a>
-              ) : null}
-              {settings.refundUrl ? (
-                <a href={settings.refundUrl} target="_blank" rel="noreferrer" style={styles.legalLink}>
-                  Refund
-                </a>
-              ) : null}
-              {settings.grievanceOfficer ? (
-                <span style={styles.legalMuted}>Grievance: {settings.grievanceOfficer}</span>
-              ) : null}
-            </div>
-          ) : null}
+          <div style={styles.legalRow}>
+            <LegalLinks />
+            {settings?.grievanceOfficer ? (
+              <span style={styles.legalMuted}>Grievance: {settings.grievanceOfficer}</span>
+            ) : null}
+          </div>
 
           <p style={styles.hint}>
             Register once if needed. New password needs upper + lower + digit + special (e.g.{' '}
@@ -160,7 +118,8 @@ const styles: Record<string, CSSProperties> = {
     minHeight: '100vh',
     display: 'grid',
     placeItems: 'center',
-    padding: '1.5rem',
+    padding: '1rem',
+    background: 'var(--bg)',
   },
   panel: {
     width: 'min(920px, 100%)',
@@ -170,15 +129,26 @@ const styles: Record<string, CSSProperties> = {
     alignItems: 'stretch',
   },
   hero: {
-    background: 'linear-gradient(155deg, var(--accent) 0%, var(--accent-hover) 100%)',
-    color: 'var(--text-inverse)',
+    background: 'linear-gradient(145deg, #0C831F 0%, #149A2C 58%, #F7CE46 145%)',
+    color: '#fff',
     borderRadius: 'var(--radius-xl)',
-    padding: '2rem 1.75rem',
+    padding: '1.5rem 1.35rem',
     display: 'grid',
     alignContent: 'end',
-    gap: '0.55rem',
-    minHeight: 280,
+    gap: '0.45rem',
+    minHeight: 240,
     boxShadow: 'var(--shadow-elevated)',
+  },
+  heroChip: {
+    justifySelf: 'start',
+    background: '#F7CE46',
+    color: '#1A1C1A',
+    fontSize: '0.68rem',
+    fontWeight: 800,
+    letterSpacing: '0.04em',
+    textTransform: 'uppercase',
+    borderRadius: 999,
+    padding: '0.2rem 0.55rem',
   },
   brand: {
     margin: 0,

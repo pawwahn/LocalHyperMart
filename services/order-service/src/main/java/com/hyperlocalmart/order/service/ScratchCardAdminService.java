@@ -2,7 +2,6 @@ package com.hyperlocalmart.order.service;
 
 import com.hyperlocalmart.common.exception.BusinessException;
 import com.hyperlocalmart.common.exception.ErrorCode;
-import com.hyperlocalmart.order.client.TownClient;
 import com.hyperlocalmart.order.dto.response.ScratchCardGiftReportResponse;
 import com.hyperlocalmart.order.dto.response.ScratchCardGiftReportResponse.TownRow;
 import com.hyperlocalmart.order.repository.OrderScratchCardRepository;
@@ -33,7 +32,6 @@ public class ScratchCardAdminService {
     private static final int MAX_RANGE_DAYS = 366;
 
     private final OrderScratchCardRepository scratchCardRepository;
-    private final TownClient townClient;
 
     @Transactional(readOnly = true)
     public ScratchCardGiftReportResponse townGiftReport(UUID townId, LocalDate from, LocalDate to) {
@@ -89,7 +87,7 @@ public class ScratchCardAdminService {
             gifted = gifted.add(a.gifted);
             towns.add(TownRow.builder()
                     .townId(e.getKey())
-                    .townName(townName(e.getKey()))
+                    .townName(null)
                     .issued(a.issued)
                     .scratched(a.scratched)
                     .unopened(a.unopened)
@@ -112,18 +110,6 @@ public class ScratchCardAdminService {
 
     private static Acc acc(Map<UUID, Acc> byTown, UUID townId) {
         return byTown.computeIfAbsent(townId, id -> new Acc());
-    }
-
-    private String townName(UUID townId) {
-        try {
-            TownClient.TownSummary summary = townClient.getTownSummary(townId);
-            if (summary != null && summary.displayName() != null && !summary.displayName().isBlank()) {
-                return summary.displayName();
-            }
-        } catch (Exception ignored) {
-            // Town name is display-only; amounts still report.
-        }
-        return null;
     }
 
     private static long toLong(Object raw) {

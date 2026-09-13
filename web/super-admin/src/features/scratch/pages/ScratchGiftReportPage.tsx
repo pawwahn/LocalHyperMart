@@ -47,11 +47,12 @@ function csvEscape(value: string | number | null | undefined): string {
 export function ScratchGiftReportPage() {
   const { session } = useAuth();
   const token = session?.accessToken ?? '';
+  const initialRange = rangeFor('week');
   const [towns, setTowns] = useState<TownVm[]>([]);
   const [townId, setTownId] = useState('');
-  const [preset, setPreset] = useState<Preset>('all');
-  const [from, setFrom] = useState('');
-  const [to, setTo] = useState('');
+  const [preset, setPreset] = useState<Preset>('week');
+  const [from, setFrom] = useState(initialRange?.from ?? '');
+  const [to, setTo] = useState(initialRange?.to ?? '');
   const [report, setReport] = useState<ScratchGiftReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -62,20 +63,23 @@ export function ScratchGiftReportPage() {
     return map;
   }, [towns]);
 
+  useEffect(() => {
+    if (!token) return;
+    void listTowns(token)
+      .then(setTowns)
+      .catch(() => setTowns([]));
+  }, [token]);
+
   const reload = useCallback(async () => {
     if (!token) return;
     setLoading(true);
     setError(null);
     try {
-      const [townList, data] = await Promise.all([
-        listTowns(token),
-        fetchScratchGiftReport(token, {
-          townId: townId || undefined,
-          from: from && to ? from : undefined,
-          to: from && to ? to : undefined,
-        }),
-      ]);
-      setTowns(townList);
+      const data = await fetchScratchGiftReport(token, {
+        townId: townId || undefined,
+        from: from && to ? from : undefined,
+        to: from && to ? to : undefined,
+      });
       setReport(data);
     } catch (err) {
       setError(err instanceof ApiError || err instanceof Error ? err.message : 'Failed to load report');
@@ -199,22 +203,22 @@ export function ScratchGiftReportPage() {
 
       <div style={styles.kpis}>
         <span>
-          <strong>{loading ? '…' : money(report?.giftedAmount ?? 0)}</strong> gifted
+          <strong>{loading && !report ? '…' : money(report?.giftedAmount ?? 0)}</strong> gifted
         </span>
         <span>
-          <strong>{loading ? '…' : report?.scratched ?? 0}</strong> scratched
+          <strong>{loading && !report ? '…' : report?.scratched ?? 0}</strong> scratched
         </span>
         <span>
-          <strong>{loading ? '…' : report?.issued ?? 0}</strong> issued
+          <strong>{loading && !report ? '…' : report?.issued ?? 0}</strong> issued
         </span>
         <span>
-          <strong>{loading ? '…' : report?.unopened ?? 0}</strong> unopened
+          <strong>{loading && !report ? '…' : report?.unopened ?? 0}</strong> unopened
         </span>
       </div>
 
       <Card>
         {loading && !report ? (
-          <p style={styles.muted}>Loading report…</p>
+          <p style={styles.muted}>Loading last 7 days…</p>
         ) : (report?.towns?.length ?? 0) === 0 ? (
           <p style={styles.muted}>No scratch cards in this range.</p>
         ) : (

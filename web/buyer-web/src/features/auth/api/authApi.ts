@@ -16,6 +16,7 @@ export async function registerBuyer(input: {
   firstName: string;
   lastName?: string;
   acceptedTerms: boolean;
+  acceptedLegalVersion?: number;
 }): Promise<void> {
   await apiRequest<unknown>('/api/v1/auth/register', {
     method: 'POST',

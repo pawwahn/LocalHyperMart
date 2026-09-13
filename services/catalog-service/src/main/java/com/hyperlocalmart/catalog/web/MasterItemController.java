@@ -82,7 +82,7 @@ public class MasterItemController {
             @PathVariable UUID masterItemId,
             HttpServletRequest httpRequest) {
         requireSuperAdmin(principal);
-        vendorListingService.deleteMasterItem(masterItemId);
+        vendorListingService.deleteMasterItem(masterItemId, principal.getUserId());
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, Map.of("deleted", true)));
     }
 

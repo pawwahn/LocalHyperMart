@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import {
+  fetchCatalogPage,
+  filterDealsForLane,
   placeholderDealLanes,
-  placeholderDealsForLane,
   type CatalogItemView,
 } from '../api/shopApi';
 import { productVisual } from '../lib/productVisual';
@@ -11,7 +12,9 @@ import { useTown } from '@/shared/town/TownContext';
 type Props = {
   open: boolean;
   busyKey: string | null;
+  error?: string | null;
   quantityFor: (listingId: string) => number;
+  rememberItems: (items: CatalogItemView[], mode: 'replace' | 'append') => void;
   onIncrease: (listingId: string) => void;
   onDecrease: (listingId: string) => void;
   onClose: () => void;
@@ -20,15 +23,20 @@ type Props = {
 export function BestDealsSheet({
   open,
   busyKey,
+  error,
   quantityFor,
+  rememberItems,
   onIncrease,
   onDecrease,
   onClose,
 }: Props) {
-  const { dealPrices } = useTown();
+  const { townId, dealPrices } = useTown();
   const lanes = useMemo(() => placeholderDealLanes(dealPrices), [dealPrices]);
   const [laneId, setLaneId] = useState('all');
-  const items = useMemo(() => placeholderDealsForLane(laneId), [laneId]);
+  const [catalog, setCatalog] = useState<CatalogItemView[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const items = useMemo(() => filterDealsForLane(catalog, laneId), [catalog, laneId]);
 
   useEffect(() => {
     if (!lanes.some((lane) => lane.id === laneId)) {
@@ -49,6 +57,33 @@ export function BestDealsSheet({
       window.removeEventListener('keydown', onKey);
     };
   }, [open, onClose]);
+
+  useEffect(() => {
+    if (!open || !townId) {
+      setCatalog([]);
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
+    setLoadError(null);
+    void fetchCatalogPage({ townId, page: 0, size: 48, sort: 'price', dir: 'asc' })
+      .then((data) => {
+        if (cancelled) return;
+        setCatalog(data.items);
+        rememberItems(data.items, 'append');
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setCatalog([]);
+        setLoadError(err instanceof Error ? err.message : 'Could not load deals');
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, townId, rememberItems]);
 
   if (!open) return null;
 
@@ -89,16 +124,25 @@ export function BestDealsSheet({
           </nav>
 
           <div style={styles.grid} className="hlm-hide-scrollbar">
-            {items.map((item) => (
-              <DealCard
-                key={item.listingId}
-                item={item}
-                quantity={quantityFor(item.listingId)}
-                busy={busyKey === item.listingId}
-                onIncrease={() => onIncrease(item.listingId)}
-                onDecrease={() => onDecrease(item.listingId)}
-              />
-            ))}
+            {error || loadError ? (
+              <p style={styles.banner}>{error || loadError}</p>
+            ) : null}
+            {loading && items.length === 0 ? (
+              <p style={styles.empty}>Loading deals…</p>
+            ) : items.length === 0 ? (
+              <p style={styles.empty}>No deals in this lane yet. Try another price.</p>
+            ) : (
+              items.map((item) => (
+                <DealCard
+                  key={item.listingId}
+                  item={item}
+                  quantity={quantityFor(item.listingId)}
+                  busy={busyKey === item.listingId}
+                  onIncrease={() => onIncrease(item.listingId)}
+                  onDecrease={() => onDecrease(item.listingId)}
+                />
+              ))
+            )}
           </div>
         </div>
       </div>
@@ -303,6 +347,24 @@ const styles: Record<string, CSSProperties> = {
     gap: '0.7rem 0.5rem',
     alignContent: 'start',
     WebkitOverflowScrolling: 'touch',
+  },
+  banner: {
+    gridColumn: '1 / -1',
+    margin: 0,
+    padding: '0.45rem 0.55rem',
+    borderRadius: 8,
+    background: '#FDE8EA',
+    color: '#E03546',
+    fontSize: '0.75rem',
+    fontWeight: 700,
+  },
+  empty: {
+    gridColumn: '1 / -1',
+    margin: '1.4rem 0.4rem',
+    textAlign: 'center',
+    color: '#6b7280',
+    fontSize: '0.82rem',
+    fontWeight: 600,
   },
   card: {
     minWidth: 0,

@@ -55,6 +55,7 @@ export type AdminOrderDetailDto = {
     status: string;
     subtotal: number;
     itemCount: number;
+    cancelledItemCount?: number;
     readyForPickupAt?: string | null;
     items?: Array<{
       name: string;
@@ -77,6 +78,8 @@ export type AdminOrderDetailDto = {
     orderNumber: string;
     subOrderNumber?: string | null;
     agentId: string;
+    agentName?: string | null;
+    agentPhone?: string | null;
     legType: string;
     status: string;
     assignedAt?: string | null;
@@ -157,6 +160,7 @@ export type SubOrderItemView = {
   quantity: number;
   unitCode?: string;
   lineTotalLabel?: string;
+  cancelled?: boolean;
 };
 
 export type VendorAlertView = {
@@ -173,6 +177,7 @@ export type SubOrderRowView = {
   status: string;
   subtotalLabel: string;
   itemCount: number;
+  cancelledItemCount: number;
   vendorId: string;
   items: SubOrderItemView[];
   vendorAlert?: VendorAlertView | null;
@@ -268,6 +273,9 @@ export type HubReportDto = {
   bagsMarkedReady: number;
   shopPickupsCompleted: number;
   homeDeliveriesCompleted: number;
+  placedGmv?: number;
+  deliveredGmv?: number;
+  codGmv?: number;
   agents: Array<{
     agentId: string;
     name: string;
@@ -463,9 +471,15 @@ export async function alertVendor(
   });
 }
 
-export async function markSubOrderAtHub(token: string, vendorSubOrderId: string): Promise<AssignmentDto> {
+export async function markSubOrderAtHub(
+  token: string,
+  vendorSubOrderId: string,
+  signal?: AbortSignal,
+): Promise<AssignmentDto> {
   return apiRequest<AssignmentDto>(`/api/v1/delivery/sub-orders/${vendorSubOrderId}/at-hub`, {
     method: 'POST',
     token,
+    signal,
+    timeoutMs: 8_000,
   });
 }

@@ -208,4 +208,45 @@ public class PaymentClient {
 
     public record RefundResult(UUID refundId, UUID paymentId, UUID orderId, BigDecimal amount, String status) {
     }
+
+    public ConsumeMembershipResult tryConsumeMembership(UUID buyerId, UUID orderId, BigDecimal quotedDeliveryFee) {
+        try {
+            RestClient client = restClientBuilder.baseUrl(paymentServiceProperties.getBaseUrl()).build();
+            Map<String, Object> body = new java.util.HashMap<>();
+            body.put("buyerId", buyerId);
+            body.put("orderId", orderId);
+            body.put("quotedDeliveryFee", quotedDeliveryFee == null ? BigDecimal.ZERO : quotedDeliveryFee);
+            ApiResponse<ConsumeMembershipResult> response = client.post()
+                    .uri("/api/v1/internal/memberships/consume")
+                    .body(body)
+                    .retrieve()
+                    .body(new ParameterizedTypeReference<ApiResponse<ConsumeMembershipResult>>() {});
+            if (response == null || response.getData() == null) {
+                return new ConsumeMembershipResult(false, 0, BigDecimal.ZERO);
+            }
+            return response.getData();
+        } catch (RuntimeException ex) {
+            return new ConsumeMembershipResult(false, 0, BigDecimal.ZERO);
+        }
+    }
+
+    public void restoreMembershipCredit(UUID buyerId, UUID orderId, String reason) {
+        try {
+            RestClient client = restClientBuilder.baseUrl(paymentServiceProperties.getBaseUrl()).build();
+            Map<String, Object> body = new java.util.HashMap<>();
+            body.put("buyerId", buyerId);
+            body.put("orderId", orderId);
+            body.put("reason", reason != null ? reason : "");
+            client.post()
+                    .uri("/api/v1/internal/memberships/restore")
+                    .body(body)
+                    .retrieve()
+                    .toBodilessEntity();
+        } catch (RuntimeException ignored) {
+            // Fulfillment should not fail if membership restore is briefly down.
+        }
+    }
+
+    public record ConsumeMembershipResult(boolean applied, int creditsRemaining, BigDecimal waivedAmount) {
+    }
 }

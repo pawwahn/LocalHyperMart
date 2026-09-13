@@ -9,10 +9,14 @@ export default defineConfig({
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
       '@hlm-theme': fileURLToPath(new URL('../shared/theme', import.meta.url)),
+      '@hlm-legal': fileURLToPath(new URL('../shared/legal', import.meta.url)),
     },
   },
   server: {
     port: 5176,
+    watch: {
+      ignored: ['**/logs/**', '**/.cursor/**', '**/target/**'],
+    },
     proxy: {
       '/api': {
         target: 'http://localhost:8080',

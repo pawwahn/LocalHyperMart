@@ -1,5 +1,6 @@
 import type { CSSProperties } from 'react';
 import { LoginThemeCorner } from '@hlm-theme';
+import { LegalLinks } from '@hlm-legal';
 import { Banner, Button, TextField } from '@/shared/ui';
 import { useLoginForm } from '../hooks/useLoginForm';
 
@@ -44,6 +45,8 @@ export function LoginPage() {
           </Button>
 
           <p style={styles.hint}>Pilot: 9876500900 / password</p>
+          <p style={styles.agree}>By signing in you agree to the platform policies.</p>
+          <LegalLinks />
         </div>
       </div>
     </div>
@@ -91,4 +94,5 @@ const styles: Record<string, CSSProperties> = {
   title: { margin: 0, fontFamily: 'var(--font-display)', fontSize: '1.55rem', fontWeight: 800 },
   sub: { margin: 0, color: 'var(--text-muted)' },
   hint: { margin: 0, color: 'var(--text-muted)', fontSize: '0.8rem' },
+  agree: { margin: 0, color: 'var(--text-muted)', fontSize: '0.78rem', fontWeight: 600 },
 };

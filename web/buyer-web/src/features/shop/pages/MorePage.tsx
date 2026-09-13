@@ -18,6 +18,9 @@ export function MorePage() {
       { to: '/addresses', label: 'Saved addresses', hint: 'Edit or delete delivery addresses' },
       { to: '/alerts', label: 'Alerts', hint: 'Order updates' },
       { to: '/wallet', label: 'Wallet', hint: 'Store credit' },
+      { to: '/spend', label: 'My spend', hint: 'Orders, COD vs online, monthly total' },
+      { to: '/membership', label: 'Free delivery plans', hint: '3 / 6 / 12 months · buy here' },
+      { to: '/legal/terms', label: 'Terms & policies', hint: 'Wallet, membership, claims, refunds' },
     ],
     [],
   );

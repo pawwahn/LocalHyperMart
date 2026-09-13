@@ -2,6 +2,7 @@ package com.hyperlocalmart.payment.service;
 
 import com.hyperlocalmart.common.exception.BusinessException;
 import com.hyperlocalmart.common.exception.ErrorCode;
+import com.hyperlocalmart.payment.client.TownClient;
 import com.hyperlocalmart.payment.client.OrderClient;
 import com.hyperlocalmart.payment.client.OrderClient.SettlementCandidateItem;
 import com.hyperlocalmart.payment.client.VendorClient;
@@ -10,6 +11,7 @@ import com.hyperlocalmart.payment.dto.request.MarkSettlementPaidRequest;
 import com.hyperlocalmart.payment.dto.response.SettlementCandidateView;
 import com.hyperlocalmart.payment.dto.response.SettlementResponse;
 import com.hyperlocalmart.payment.dto.response.VendorOrderPayoutResponse;
+import com.hyperlocalmart.payment.entity.SettlementDirection;
 import com.hyperlocalmart.payment.entity.*;
 import com.hyperlocalmart.payment.repository.SettlementLineItemRepository;
 import com.hyperlocalmart.payment.repository.SettlementRepository;
@@ -38,6 +40,7 @@ public class SettlementService {
     private final VendorSettlementAdjustmentRepository vendorSettlementAdjustmentRepository;
     private final OrderClient orderClient;
     private final VendorClient vendorClient;
+    private final TownClient townClient;
 
     @Transactional(readOnly = true)
     public SettlementCandidateView listCandidates(UUID townId, UUID vendorId, LocalDate from, LocalDate to) {
@@ -248,6 +251,14 @@ public class SettlementService {
         if (request.isMarkPaid() && feeQuote.subscriptionIncluded()) {
             vendorClient.markSubscriptionCharged(request.getVendorId(), request.getPeriodEnd());
         }
+        townClient.appendAdminAudit(
+                "settlements",
+                "VENDOR_PAYOUT",
+                "Paid vendor " + (saved.getPayeeName() == null ? "" : saved.getPayeeName())
+                        + " ₹" + saved.getNetAmount(),
+                actorId,
+                saved.getTownId(),
+                saved.getId());
         return toResponse(saved);
     }
 
@@ -392,6 +403,8 @@ public class SettlementService {
                 .id(settlement.getId())
                 .townId(settlement.getTownId())
                 .payeeType(settlement.getPayeeType())
+                .direction(settlement.getDirection() == null
+                        ? SettlementDirection.PAYOUT : settlement.getDirection())
                 .payeeId(settlement.getPayeeId())
                 .payeeName(settlement.getPayeeName())
                 .periodStart(settlement.getPeriodStart())

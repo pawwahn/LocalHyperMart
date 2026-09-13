@@ -1,5 +1,6 @@
 package com.hyperlocalmart.payment.dto.response;
 
+import com.hyperlocalmart.payment.entity.SettlementDirection;
 import com.hyperlocalmart.payment.entity.SettlementPayeeType;
 import com.hyperlocalmart.payment.entity.SettlementPeriodType;
 import com.hyperlocalmart.payment.entity.SettlementStatus;
@@ -18,6 +19,7 @@ public class SettlementResponse {
     UUID id;
     UUID townId;
     SettlementPayeeType payeeType;
+    SettlementDirection direction;
     UUID payeeId;
     String payeeName;
     LocalDate periodStart;

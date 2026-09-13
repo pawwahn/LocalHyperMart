@@ -72,7 +72,10 @@ public final class AdminOrderResponses {
         VendorSubOrderStatus status;
         BigDecimal subtotal;
         Instant readyForPickupAt;
+        /** Active (to-pack / in-bag) units. Excludes cancelled lines. */
         int itemCount;
+        /** Cancelled units still listed for hub/admin visibility. */
+        int cancelledItemCount;
         List<AdminSubOrderItemResponse> items;
         /** Latest hub reminder for this shop bag, if any. */
         AdminVendorAlertResponse vendorAlert;

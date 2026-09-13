@@ -20,6 +20,7 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 
 @Service
@@ -38,6 +39,7 @@ public class TownConfigService {
     private final TownConfigRepository townConfigRepository;
     private final TownRepository townRepository;
     private final PlatformSettingsService platformSettingsService;
+    private final AdminAuditor adminAuditService;
 
     @Transactional(readOnly = true)
     public TownOperationalConfigResponse getOperationalConfig(UUID townId) {
@@ -74,6 +76,12 @@ public class TownConfigService {
 
     @Transactional
     public TownOperationalConfigResponse updateOperationalConfig(UUID townId, UpdateTownConfigRequest request) {
+        return updateOperationalConfig(townId, request, null);
+    }
+
+    @Transactional
+    public TownOperationalConfigResponse updateOperationalConfig(
+            UUID townId, UpdateTownConfigRequest request, UUID actorId) {
         if (!townRepository.existsById(townId)) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "Town not found");
         }
@@ -83,8 +91,9 @@ public class TownConfigService {
                 .findFirstByTownIdAndConfigKeyAndEffectiveToIsNullOrderByEffectiveFromDesc(townId, OPERATIONAL_KEY)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Town config not found"));
 
-        Map<String, Object> value = new LinkedHashMap<>(
-                config.getConfigValue() != null ? config.getConfigValue() : defaultConfigValue());
+        Map<String, Object> before = config.getConfigValue() != null
+                ? new LinkedHashMap<>(config.getConfigValue()) : defaultConfigValue();
+        Map<String, Object> value = new LinkedHashMap<>(before);
 
         if (request.getMinOrderValue() != null) {
             if (request.getMinOrderValue().compareTo(BigDecimal.ZERO) < 0) {
@@ -117,10 +126,27 @@ public class TownConfigService {
             value.put("platformFee", normalizePlatformFee(request.getPlatformFee()));
         }
         applyScratchCard(value, request);
+        if (request.getBuyerMembershipEnabled() != null) {
+            value.put("buyerMembershipEnabled", request.getBuyerMembershipEnabled());
+        }
 
         config.setConfigValue(value);
         config.setUpdatedAt(Instant.now());
         townConfigRepository.save(config);
+        String townName = townRepository.findById(townId)
+                .map(town -> town.getDisplayName() != null ? town.getDisplayName() : town.getName())
+                .orElse("Town");
+        adminAuditService.record(
+                "town-settings",
+                "UPDATE_TOWN_SETTINGS",
+                settingsChangeSummary(townName, before, value),
+                actorId,
+                "SUPER_ADMIN",
+                townId,
+                "TOWN_CONFIG",
+                config.getId(),
+                before,
+                value);
         return toOperational(config);
     }
 
@@ -278,6 +304,7 @@ public class TownConfigService {
                 .scratchRewardMin(DEFAULT_SCRATCH_MIN)
                 .scratchRewardMax(DEFAULT_SCRATCH_MAX)
                 .scratchMinGoodsAmount(DEFAULT_SCRATCH_Z)
+                .buyerMembershipEnabled(true)
                 .build();
     }
 
@@ -298,6 +325,7 @@ public class TownConfigService {
         value.put("scratchRewardMin", DEFAULT_SCRATCH_MIN);
         value.put("scratchRewardMax", DEFAULT_SCRATCH_MAX);
         value.put("scratchMinGoodsAmount", DEFAULT_SCRATCH_Z);
+        value.put("buyerMembershipEnabled", true);
         return value;
     }
 
@@ -340,6 +368,7 @@ public class TownConfigService {
                 .scratchRewardMin(readMoney(value, "scratchRewardMin", DEFAULT_SCRATCH_MIN))
                 .scratchRewardMax(readMoney(value, "scratchRewardMax", DEFAULT_SCRATCH_MAX))
                 .scratchMinGoodsAmount(readMoney(value, "scratchMinGoodsAmount", DEFAULT_SCRATCH_Z))
+                .buyerMembershipEnabled(readBuyerMembershipEnabled(value))
                 .build();
     }
 
@@ -452,6 +481,17 @@ public class TownConfigService {
         value.put("scratchMinGoodsAmount", threshold);
     }
 
+    private static boolean readBuyerMembershipEnabled(Map<String, Object> value) {
+        if (value == null || value.get("buyerMembershipEnabled") == null) {
+            return true;
+        }
+        Object raw = value.get("buyerMembershipEnabled");
+        if (raw instanceof Boolean b) {
+            return b;
+        }
+        return !"false".equalsIgnoreCase(String.valueOf(raw).trim());
+    }
+
     private static boolean readScratchCardEnabled(Map<String, Object> value) {
         if (value == null || value.get("scratchCardEnabled") == null) {
             return false;
@@ -520,5 +560,75 @@ public class TownConfigService {
             return new BigDecimal(s.trim()).setScale(2, RoundingMode.HALF_UP);
         }
         return null;
+    }
+
+    static String settingsChangeSummary(String townName, Map<String, Object> before, Map<String, Object> after) {
+        List<String> parts = new ArrayList<>();
+        addMoneyChange(parts, "min order", before.get("minOrderValue"), after.get("minOrderValue"));
+        addMoneyChange(parts, "platform fee", before.get("platformFee"), after.get("platformFee"));
+        addPlainChange(parts, "delivery", before.get("deliveryMode"), after.get("deliveryMode"));
+        addPlainChange(parts, "theme", before.get("themeColor"), after.get("themeColor"));
+        addBoolChange(parts, "best deals", before.get("bestDealsEnabled"), after.get("bestDealsEnabled"));
+        addBoolChange(parts, "buyer membership", before.get("buyerMembershipEnabled"), after.get("buyerMembershipEnabled"));
+        addBoolChange(parts, "scratch card", before.get("scratchCardEnabled"), after.get("scratchCardEnabled"));
+        if (!Objects.equals(stringify(before.get("dealPrices")), stringify(after.get("dealPrices")))) {
+            parts.add("deal prices changed");
+        }
+        if (!Objects.equals(stringify(before.get("deliverySlabs")), stringify(after.get("deliverySlabs")))) {
+            parts.add("delivery slabs changed");
+        }
+        String body = parts.isEmpty() ? "Updated settings" : String.join(", ", parts);
+        String prefix = townName == null || townName.isBlank() ? "" : townName.trim() + " · ";
+        String summary = prefix + body;
+        return summary.length() <= 500 ? summary : summary.substring(0, 500);
+    }
+
+    private static void addMoneyChange(List<String> parts, String label, Object before, Object after) {
+        String left = moneyLabel(before);
+        String right = moneyLabel(after);
+        if (!Objects.equals(left, right)) {
+            parts.add(label + " " + left + " → " + right);
+        }
+    }
+
+    private static void addPlainChange(List<String> parts, String label, Object before, Object after) {
+        String left = stringify(before);
+        String right = stringify(after);
+        if (!Objects.equals(left, right)) {
+            parts.add(label + " " + left + " → " + right);
+        }
+    }
+
+    private static void addBoolChange(List<String> parts, String label, Object before, Object after) {
+        if (Objects.equals(stringify(before), stringify(after))) {
+            return;
+        }
+        parts.add(label + " " + (truthy(after) ? "on" : "off"));
+    }
+
+    private static boolean truthy(Object raw) {
+        if (raw instanceof Boolean b) {
+            return b;
+        }
+        return "true".equalsIgnoreCase(stringify(raw));
+    }
+
+    private static String moneyLabel(Object raw) {
+        if (raw == null) {
+            return "—";
+        }
+        try {
+            BigDecimal n = raw instanceof Number num
+                    ? BigDecimal.valueOf(num.doubleValue())
+                    : new BigDecimal(String.valueOf(raw));
+            n = n.setScale(0, RoundingMode.HALF_UP);
+            return "₹" + n.toPlainString();
+        } catch (NumberFormatException ex) {
+            return stringify(raw);
+        }
+    }
+
+    private static String stringify(Object raw) {
+        return raw == null ? "—" : String.valueOf(raw);
     }
 }

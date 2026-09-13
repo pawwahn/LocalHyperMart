@@ -64,6 +64,7 @@ export function TownPickerSheet() {
         aria-labelledby="town-picker-title"
         onClick={(e) => e.stopPropagation()}
       >
+        <div style={styles.handle} aria-hidden />
         <div style={styles.head}>
           <h2 id="town-picker-title" style={styles.title}>
             Choose town
@@ -181,23 +182,34 @@ const styles: Record<string, CSSProperties> = {
   backdrop: {
     position: 'fixed',
     inset: 0,
-    background: 'rgba(15, 23, 42, 0.4)',
+    background: 'rgba(16, 24, 40, 0.42)',
     zIndex: 80,
     display: 'grid',
-    placeItems: 'center',
-    padding: '1rem',
+    alignItems: 'end',
+    justifyItems: 'center',
+    padding: 0,
   },
   sheet: {
-    width: 'min(400px, 100%)',
-    background: 'var(--bg-elevated)',
-    borderRadius: 16,
+    width: '100%',
+    maxWidth: 'var(--shell-max)',
+    background: '#fff',
+    borderRadius: '18px 18px 0 0',
     border: '1px solid var(--border)',
-    padding: '0.85rem 0.9rem 0.95rem',
+    padding: '0.45rem 0.9rem calc(0.95rem + env(safe-area-inset-bottom, 0px))',
     display: 'grid',
     gap: '0.45rem',
-    boxShadow: 'var(--shadow-elevated)',
-    maxHeight: 'min(72vh, 480px)',
+    boxShadow: '0 -12px 40px rgba(16, 24, 40, 0.16)',
+    maxHeight: 'min(78vh, 520px)',
     overflow: 'hidden',
+    animation: 'hlm-slide-up 220ms ease both',
+  },
+  handle: {
+    width: 40,
+    height: 4,
+    borderRadius: 999,
+    background: '#D1D5DB',
+    justifySelf: 'center',
+    margin: '0.15rem 0 0.1rem',
   },
   head: {
     display: 'flex',

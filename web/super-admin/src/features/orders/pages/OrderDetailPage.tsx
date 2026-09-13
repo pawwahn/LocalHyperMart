@@ -172,22 +172,39 @@ export function OrderDetailPage() {
                           {bag.subOrderNumber} · {labelStatus(bag.status)} · {money(bag.subtotal)}
                         </p>
                       </div>
-                      <span style={styles.pill}>{bag.itemCount} items</span>
+                      <span style={styles.pill}>
+                        {bag.itemCount} items
+                        {(bag.cancelledItemCount ?? 0) > 0
+                          ? ` · ${bag.cancelledItemCount} cancelled`
+                          : ''}
+                      </span>
                     </div>
                     {(bag.items ?? []).length > 0 ? (
                       <ul style={styles.itemList}>
-                        {bag.items!.map((item, idx) => (
-                          <li key={`${bag.subOrderId}-${idx}`} style={styles.itemRow}>
+                        {bag.items!.map((item, idx) => {
+                          const cancelled = (item.status ?? 'ACTIVE').toUpperCase() === 'CANCELLED';
+                          return (
+                          <li
+                            key={`${bag.subOrderId}-${idx}`}
+                            style={
+                              cancelled
+                                ? { ...styles.itemRow, ...styles.itemCancelled }
+                                : styles.itemRow
+                            }
+                          >
                             <span>
                               {item.name}
                               {item.unitCode ? ` · ${item.unitCode}` : ''} × {item.quantity}
-                              {item.status && item.status !== 'ACTIVE' ? (
+                              {cancelled ? (
+                                <span style={styles.itemStatus}> · cancelled</span>
+                              ) : item.status && item.status !== 'ACTIVE' ? (
                                 <span style={styles.itemStatus}> · {labelStatus(item.status)}</span>
                               ) : null}
                             </span>
                             <span style={styles.itemAmt}>{money(Number(item.lineTotal ?? 0))}</span>
                           </li>
-                        ))}
+                          );
+                        })}
                       </ul>
                     ) : null}
                   </div>
@@ -442,6 +459,7 @@ const styles: Record<string, CSSProperties> = {
     fontSize: '0.84rem',
   },
   itemStatus: { color: 'var(--text-muted)', fontWeight: 600 },
+  itemCancelled: { textDecoration: 'line-through', color: 'var(--text-muted)' },
   itemAmt: { fontWeight: 700, flexShrink: 0 },
   eventList: { listStyle: 'none', margin: '0.45rem 0 0', padding: 0, display: 'grid', gap: '0.15rem' },
   footer: { marginTop: '0.5rem' },

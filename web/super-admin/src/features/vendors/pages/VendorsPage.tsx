@@ -4,6 +4,7 @@ import { PortalShell } from '@/shared/layout/PortalShell';
 import { useAuth } from '@/shared/auth/AuthContext';
 import { ApiError } from '@/shared/api/http';
 import { Banner, Button, Card, TextField, SearchSelect, ConfirmDialog } from '@/shared/ui';
+import { AdminHistoryPanel } from '@/shared/audit/AdminHistoryPanel';
 import { listTowns, type TownVm } from '@/features/towns/api/townsApi';
 import {
   approveRegistration,
@@ -744,6 +745,7 @@ export function VendorsPage() {
           if (!statusBusyId) setPendingEnable(null);
         }}
       />
+      {token ? <AdminHistoryPanel token={token} screen="vendors" refreshTick={notice ? notice.length : 0} /> : null}
     </PortalShell>
   );
 }

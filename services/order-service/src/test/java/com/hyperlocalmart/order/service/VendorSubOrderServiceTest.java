@@ -599,6 +599,79 @@ class VendorSubOrderServiceTest {
     }
 
     @Test
+    void restoreItem_blocksAfterPickupStarted() {
+        UUID vendorId = UUID.randomUUID();
+        UUID subOrderId = UUID.randomUUID();
+        UUID actorId = UUID.randomUUID();
+        UUID buyerId = UUID.randomUUID();
+        UUID itemId = UUID.randomUUID();
+
+        Order order = Order.builder()
+                .id(UUID.randomUUID())
+                .orderNumber("CLX-00030")
+                .townId(UUID.randomUUID())
+                .buyerId(buyerId)
+                .status(OrderStatus.PLACED)
+                .paymentMethod(PaymentMethod.COD)
+                .paymentStatus(PaymentStatus.PENDING)
+                .itemsSubtotal(new BigDecimal("635.00"))
+                .deliveryFee(new BigDecimal("1.00"))
+                .storeCreditApplied(BigDecimal.ZERO)
+                .totalAmount(new BigDecimal("636.00"))
+                .deliveryAddressSnapshot(java.util.Map.of("line1", "MG Road"))
+                .vendorSubOrders(new ArrayList<>())
+                .build();
+
+        OrderItem cancelled = OrderItem.builder()
+                .id(itemId)
+                .itemNameSnapshot("Biryani Masala")
+                .quantity(1)
+                .lineTotal(new BigDecimal("50.00"))
+                .status(OrderItemStatus.CANCELLED)
+                .storeCreditAmount(new BigDecimal("50.00"))
+                .build();
+
+        VendorSubOrder subOrder = VendorSubOrder.builder()
+                .id(subOrderId)
+                .order(order)
+                .vendorId(vendorId)
+                .shopId(UUID.randomUUID())
+                .subOrderNumber("CLX/AP-110926-0001/1")
+                .status(VendorSubOrderStatus.READY_FOR_PICKUP)
+                .readyForPickupAt(java.time.Instant.now())
+                .subtotal(new BigDecimal("635.00"))
+                .items(new ArrayList<>(List.of(cancelled)))
+                .build();
+        cancelled.setVendorSubOrder(subOrder);
+        order.getVendorSubOrders().add(subOrder);
+
+        when(vendorSubOrderRepository.findDetailedByIdAndVendorId(subOrderId, vendorId))
+                .thenReturn(Optional.of(subOrder));
+        when(deliveryClient.getAssignmentsForOrder(order.getId())).thenReturn(List.of(
+                new com.hyperlocalmart.order.client.DeliveryClient.OrderAssignment(
+                        UUID.randomUUID(),
+                        "P-1",
+                        order.getOrderNumber(),
+                        subOrder.getSubOrderNumber(),
+                        UUID.randomUUID(),
+                        "Kumar",
+                        "9876543210",
+                        "PICKUP",
+                        "IN_PROGRESS",
+                        java.time.Instant.now(),
+                        java.time.Instant.now(),
+                        null,
+                        List.of()
+                )));
+
+        assertThatThrownBy(() -> vendorSubOrderService.restoreItem(vendorId, subOrderId, itemId, actorId))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("before the delivery agent picks up");
+        verify(paymentClient, never()).debitWallet(any(), any(), any(), any(), any(), any());
+        assertThat(cancelled.getStatus()).isEqualTo(OrderItemStatus.CANCELLED);
+    }
+
+    @Test
     void restoreItem_blocksBuyerCancelledItem() {
         UUID vendorId = UUID.randomUUID();
         UUID subOrderId = UUID.randomUUID();

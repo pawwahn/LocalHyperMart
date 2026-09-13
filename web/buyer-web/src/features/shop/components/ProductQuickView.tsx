@@ -250,7 +250,7 @@ const styles: Record<string, CSSProperties> = {
     top: 8,
     left: 8,
     zIndex: 1,
-    background: '#2563EB',
+    background: 'var(--accent)',
     color: '#fff',
     fontSize: '0.62rem',
     fontWeight: 800,

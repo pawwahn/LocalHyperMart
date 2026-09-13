@@ -18,6 +18,7 @@ export function useAuthForms() {
   const [firstName, setFirstName] = useState('Test');
   const [lastName, setLastName] = useState('Buyer');
   const [acceptedTerms, setAcceptedTerms] = useState(false);
+  const [legalVersion, setLegalVersion] = useState(1);
   const [publicSettings, setPublicSettings] = useState<PublicPlatformSettingsVm | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -34,7 +35,7 @@ export function useAuthForms() {
     try {
       if (mode === 'register') {
         if (!acceptedTerms) {
-          setError('Accept Terms, Privacy, and Refund policy to register');
+          setError('Read and accept Terms, Privacy, and Refund policy to register');
           return;
         }
         await registerBuyer({
@@ -43,6 +44,7 @@ export function useAuthForms() {
           firstName,
           lastName,
           acceptedTerms: true,
+          acceptedLegalVersion: legalVersion,
         });
       }
       const session = await loginBuyer(phone.trim(), password);
@@ -68,6 +70,7 @@ export function useAuthForms() {
     setLastName,
     acceptedTerms,
     setAcceptedTerms,
+    setLegalVersion,
     publicSettings,
     error,
     submitting,

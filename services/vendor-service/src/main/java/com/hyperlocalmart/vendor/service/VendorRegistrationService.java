@@ -2,6 +2,7 @@ package com.hyperlocalmart.vendor.service;
 
 import com.hyperlocalmart.common.exception.BusinessException;
 import com.hyperlocalmart.common.exception.ErrorCode;
+import com.hyperlocalmart.vendor.client.AdminAuditClient;
 import com.hyperlocalmart.vendor.client.UserClient;
 import com.hyperlocalmart.vendor.dto.request.CreateRegistrationRequest;
 import com.hyperlocalmart.vendor.dto.request.UpdateVendorProfileRequest;
@@ -46,6 +47,7 @@ public class VendorRegistrationService {
     private final ShopRepository shopRepository;
     private final UserClient userClient;
     private final VendorCommercialTermsService vendorCommercialTermsService;
+    private final AdminAuditClient adminAuditClient;
 
     @Transactional
     public VendorRegistrationResponse create(CreateRegistrationRequest request, UUID requestedByUserId) {
@@ -159,6 +161,13 @@ public class VendorRegistrationService {
         request.setReviewedAt(Instant.now());
         request.setUpdatedBy(reviewerId);
         registrationRequestRepository.save(request);
+        adminAuditClient.record(
+                "vendors",
+                "APPROVE_VENDOR",
+                "Approved " + request.getBusinessName(),
+                reviewerId,
+                request.getTownId(),
+                vendor.getId());
 
         return toRegistrationResponse(request, temporaryPassword);
     }
@@ -182,8 +191,16 @@ public class VendorRegistrationService {
         request.setReviewedBy(reviewerId);
         request.setReviewedAt(Instant.now());
         request.setUpdatedBy(reviewerId);
+        VendorRegistrationRequest saved = registrationRequestRepository.save(request);
+        adminAuditClient.record(
+                "vendors",
+                "REJECT_VENDOR",
+                "Rejected " + request.getBusinessName(),
+                reviewerId,
+                request.getTownId(),
+                request.getId());
 
-        return toRegistrationResponse(registrationRequestRepository.save(request), null);
+        return toRegistrationResponse(saved, null);
     }
 
     @Transactional(readOnly = true)
@@ -242,6 +259,13 @@ public class VendorRegistrationService {
             shopRepository.save(shop);
         }
 
+        adminAuditClient.record(
+                "vendors",
+                "UPDATE_VENDOR_PROFILE",
+                "Updated " + vendor.getBusinessName(),
+                actorUserId,
+                vendor.getTownId(),
+                vendor.getId());
         return toVendorResponse(vendor);
     }
 
@@ -278,6 +302,13 @@ public class VendorRegistrationService {
         vendor.setUpdatedBy(actorUserId);
         vendor = vendorRepository.save(vendor);
         syncLoginStatus(vendor);
+        adminAuditClient.record(
+                "vendors",
+                "UPDATE_VENDOR_STATUS",
+                vendor.getBusinessName() + " → " + vendor.getStatus().name(),
+                actorUserId,
+                vendor.getTownId(),
+                vendor.getId());
         return toVendorResponse(vendor);
     }
 

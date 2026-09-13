@@ -11,8 +11,14 @@ import {
   type CategoryView,
 } from '../api/shopApi';
 import { CategoryTile } from '../components/CategoryTile';
+import { useNavigate } from 'react-router-dom';
+import { useAuth } from '@/shared/auth/AuthContext';
+import { getPublicPlatformSettings } from '@/features/auth/api/platformSettingsApi';
+import { DeliveryHero } from '../components/DeliveryHero';
+import { MembershipPlansSheet } from '../components/MembershipPlansSheet';
 import { ProductCard } from '../components/ProductCard';
 import { ProductQuickView } from '../components/ProductQuickView';
+import { ProductRail } from '../components/ProductRail';
 import { groupCategoriesIntoAisles } from '../lib/aisles';
 import { useBrowserVoiceSearch } from '../hooks/useBrowserVoiceSearch';
 import { useShop } from '../hooks/useShop';
@@ -68,7 +74,9 @@ function sortParams(sort: ItemSort): { sort: string; dir: string } {
 }
 
 export function ShopPage({ browseOnly = false }: Props) {
-  const { townId } = useTown();
+  const navigate = useNavigate();
+  const { isAuthenticated } = useAuth();
+  const { townId, townLabel } = useTown();
   const {
     cart,
     busyKey,
@@ -95,12 +103,29 @@ export function ShopPage({ browseOnly = false }: Props) {
   const [catalogError, setCatalogError] = useState<string | null>(null);
   const [hintIndex, setHintIndex] = useState(0);
   const [quickView, setQuickView] = useState<CatalogItemView | null>(null);
+  const [plansOpen, setPlansOpen] = useState(false);
+  const [membershipOnSale, setMembershipOnSale] = useState(false);
+  const [featured, setFeatured] = useState<CatalogItemView[]>([]);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const loadingMoreRef = useRef(false);
   const fetchGenRef = useRef(0);
   const { listening, supported, error: voiceError, toggle: toggleVoice } = useBrowserVoiceSearch(
     (transcript) => setQuery(transcript),
   );
+
+  useEffect(() => {
+    let cancelled = false;
+    void getPublicPlatformSettings()
+      .then((s) => {
+        if (!cancelled) setMembershipOnSale(s.membershipEnabled);
+      })
+      .catch(() => {
+        if (!cancelled) setMembershipOnSale(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -162,6 +187,26 @@ export function ShopPage({ browseOnly = false }: Props) {
     () => (searching ? [] : buildCategoryHomeBlocks(aisles)),
     [aisles, searching],
   );
+
+  useEffect(() => {
+    if (!townId || browseOnly) {
+      setFeatured([]);
+      return;
+    }
+    let cancelled = false;
+    void fetchCatalogPage({ townId, page: 0, size: 12, sort: 'rating', dir: 'desc' })
+      .then((data) => {
+        if (cancelled) return;
+        setFeatured(data.items);
+        rememberItems(data.items, 'append');
+      })
+      .catch(() => {
+        if (!cancelled) setFeatured([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [townId, browseOnly, rememberItems]);
 
   const loadPage = useCallback(
     async (nextPage: number, append: boolean) => {
@@ -323,6 +368,27 @@ export function ShopPage({ browseOnly = false }: Props) {
 
       {!inCategory ? (
         <>
+          {browseOnly || searching ? null : (
+            <DeliveryHero
+              townLabel={townLabel}
+              showPlans={membershipOnSale}
+              onOpenPlans={() => {
+                if (isAuthenticated) setPlansOpen(true);
+                else navigate('/membership');
+              }}
+            />
+          )}
+          {browseOnly || searching ? null : (
+            <ProductRail
+              title="Bestsellers in your town"
+              items={featured}
+              quantityFor={quantityFor}
+              busyKey={busyKey}
+              onOpen={setQuickView}
+              onIncrease={(id) => void doIncrease(id)}
+              onDecrease={(id) => void doDecrease(id)}
+            />
+          )}
           {browseOnly || searching ? null : <AdSlot slot="home_hero" variant="strip" />}
           {!searching || aisles.length > 0 ? (
             aisles.length === 0 ? (
@@ -452,6 +518,7 @@ export function ShopPage({ browseOnly = false }: Props) {
           onDecrease={() => void doDecrease(quickViewLive.listingId)}
         />
       ) : null}
+      <MembershipPlansSheet open={plansOpen} onClose={() => setPlansOpen(false)} />
     </PortalShell>
   );
 }
@@ -491,13 +558,14 @@ const styles: Record<string, CSSProperties> = {
     display: 'flex',
     alignItems: 'center',
     gap: '0.45rem',
-    background: 'var(--bg-muted)',
-    border: 'none',
-    borderRadius: 14,
+    background: '#fff',
+    border: '1px solid var(--border)',
+    borderRadius: 12,
     padding: '0 0.85rem',
     minHeight: 44,
+    boxShadow: '0 2px 10px rgba(16, 24, 40, 0.05)',
   },
-  searchIcon: { color: '#9a9a9a', fontSize: '1.15rem', fontWeight: 700 },
+  searchIcon: { color: 'var(--accent)', fontSize: '1.15rem', fontWeight: 700 },
   search: {
     flex: 1,
     border: 'none',

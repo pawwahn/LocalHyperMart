@@ -1,0 +1,2 @@
+ALTER TABLE orders ADD COLUMN membership_credit_used BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE orders ADD COLUMN membership_delivery_waived DECIMAL(12, 2) NOT NULL DEFAULT 0;

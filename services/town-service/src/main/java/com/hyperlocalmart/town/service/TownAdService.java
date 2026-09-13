@@ -46,6 +46,7 @@ public class TownAdService {
     private final TownAdRepository townAdRepository;
     private final TownRepository townRepository;
     private final ObjectMapper objectMapper;
+    private final AdminAuditor adminAuditService;
 
     @Transactional(readOnly = true)
     public TownAdsResponse listPublicAds(UUID townId) {
@@ -105,6 +106,17 @@ public class TownAdService {
             }
             upsertAdAcrossTowns(townId, item, slotIndex, actorId);
         }
+        adminAuditService.record(
+                "ads",
+                "UPDATE_TOWN_ADS",
+                "Updated ads",
+                actorId,
+                "SUPER_ADMIN",
+                townId,
+                "TOWN_ADS",
+                townId,
+                null,
+                Map.of("slots", request.getItems().size()));
         return listAdminAds(townId);
     }
 
