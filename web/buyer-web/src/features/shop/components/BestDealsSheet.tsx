@@ -12,7 +12,6 @@ import { useTown } from '@/shared/town/TownContext';
 type Props = {
   open: boolean;
   busyKey: string | null;
-  error?: string | null;
   quantityFor: (listingId: string) => number;
   rememberItems: (items: CatalogItemView[], mode: 'replace' | 'append') => void;
   onIncrease: (listingId: string) => void;
@@ -23,7 +22,6 @@ type Props = {
 export function BestDealsSheet({
   open,
   busyKey,
-  error,
   quantityFor,
   rememberItems,
   onIncrease,
@@ -124,9 +122,7 @@ export function BestDealsSheet({
           </nav>
 
           <div style={styles.grid} className="hlm-hide-scrollbar">
-            {error || loadError ? (
-              <p style={styles.banner}>{error || loadError}</p>
-            ) : null}
+            {loadError ? <p style={styles.banner}>{loadError}</p> : null}
             {loading && items.length === 0 ? (
               <p style={styles.empty}>Loading deals…</p>
             ) : items.length === 0 ? (

@@ -17,9 +17,9 @@ public class PaymentWebhookController {
 
     @PostMapping("/razorpay")
     public ResponseEntity<Void> razorpayWebhook(
-            @RequestBody Map<String, Object> payload,
+            @RequestBody String rawBody,
             @RequestHeader(value = "X-Razorpay-Signature", required = false) String signature) {
-        paymentService.processWebhook(PaymentGateway.RAZORPAY, payload, signature);
+        paymentService.processRazorpayWebhook(rawBody, signature);
         return ResponseEntity.ok().build();
     }
 

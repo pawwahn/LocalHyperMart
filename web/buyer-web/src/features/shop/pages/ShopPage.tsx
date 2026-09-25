@@ -79,12 +79,14 @@ export function ShopPage({ browseOnly = false }: Props) {
   const { townId, townLabel } = useTown();
   const {
     cart,
+    busy,
     busyKey,
     error,
     notice,
     reload,
     rememberItems,
     quantityFor,
+    doAdd,
     doIncrease,
     doDecrease,
   } = useShop();
@@ -117,10 +119,14 @@ export function ShopPage({ browseOnly = false }: Props) {
     let cancelled = false;
     void getPublicPlatformSettings()
       .then((s) => {
-        if (!cancelled) setMembershipOnSale(s.membershipEnabled);
+        if (!cancelled) {
+          setMembershipOnSale(s.membershipEnabled);
+        }
       })
       .catch(() => {
-        if (!cancelled) setMembershipOnSale(false);
+        if (!cancelled) {
+          setMembershipOnSale(false);
+        }
       });
     return () => {
       cancelled = true;

@@ -23,6 +23,7 @@ export type TownAdVm = {
   enabled: boolean;
   allTowns: boolean;
   targetTownIds: string[];
+  displayDurationSec: number;
 };
 
 export type TownAdsVm = {
@@ -41,10 +42,14 @@ export type UpsertTownAdInput = {
   enabled: boolean;
   allTowns: boolean;
   targetTownIds: string[];
+  displayDurationSec: number;
 };
 
 export const MAX_AD_IMAGES = 3;
 export const MID_GRID_COUNT = 5;
+export const AD_DISPLAY_SEC_MIN = 2;
+export const AD_DISPLAY_SEC_MAX = 60;
+export const AD_DISPLAY_SEC_DEFAULT = 4;
 
 export type AdEditorSection = 'hero' | 'mid' | 'cart';
 
@@ -160,4 +165,10 @@ export function normalizeAdImages(ad: TownAdVm): TownAdImage[] {
 
 export function matchEditorAd(ad: TownAdVm, item: AdEditorItem): boolean {
   return ad.slot === item.slot && (ad.slotIndex ?? 0) === item.slotIndex;
+}
+
+export function clampDisplayDurationSec(value: number | undefined | null): number {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return AD_DISPLAY_SEC_DEFAULT;
+  return Math.min(AD_DISPLAY_SEC_MAX, Math.max(AD_DISPLAY_SEC_MIN, Math.round(n)));
 }

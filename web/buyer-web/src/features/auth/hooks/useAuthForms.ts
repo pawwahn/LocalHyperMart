@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { loginBuyer, registerBuyer } from '../api/authApi';
 import {
   getPublicPlatformSettings,
@@ -11,7 +11,9 @@ import { ApiError } from '@/shared/api/http';
 export function useAuthForms() {
   const { setSession } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [mode, setMode] = useState<'login' | 'register'>('login');
+  const [referralCode, setReferralCode] = useState(() => searchParams.get('ref')?.trim() ?? '');
   const [phone, setPhone] = useState('9876511111');
   // Seeded pilot buyer (9876511111) uses "password". For new register, use e.g. Buyer@123.
   const [password, setPassword] = useState('password');
@@ -29,6 +31,14 @@ export function useAuthForms() {
       .catch(() => setPublicSettings(null));
   }, []);
 
+  useEffect(() => {
+    const ref = searchParams.get('ref')?.trim();
+    if (ref) {
+      setReferralCode(ref);
+      setMode('register');
+    }
+  }, [searchParams]);
+
   async function submit() {
     setError(null);
     setSubmitting(true);
@@ -45,6 +55,7 @@ export function useAuthForms() {
           lastName,
           acceptedTerms: true,
           acceptedLegalVersion: legalVersion,
+          referralCode: referralCode.trim() || undefined,
         });
       }
       const session = await loginBuyer(phone.trim(), password);
@@ -72,6 +83,8 @@ export function useAuthForms() {
     setAcceptedTerms,
     setLegalVersion,
     publicSettings,
+    referralCode,
+    setReferralCode,
     error,
     submitting,
     submit,

@@ -106,6 +106,7 @@ export type OrderDetailDto = {
   itemsSubtotal: number;
   deliveryFee: number;
   platformFee?: number;
+  codFee?: number;
   storeCreditApplied?: number;
   totalAmount: number;
   paymentMethod: string;
@@ -115,6 +116,7 @@ export type OrderDetailDto = {
   invoicePdfUrl?: string | null;
   timeline?: OrderTimelineStepDto[];
   canCancelOrder?: boolean;
+  canPayOnline?: boolean;
   canFileClaim?: boolean;
   scratchCard?: ScratchCardDto | null;
 };
@@ -184,6 +186,22 @@ export type CreateOrderDto = {
   orderNumber: string;
   status: string;
   totalAmount: number;
+  payment?: {
+    paymentId: string;
+    status: string;
+    checkout?: GatewayCheckout | null;
+  } | null;
+};
+
+export type GatewayCheckout = {
+  keyId?: string | null;
+  gatewayOrderId: string;
+  amountPaise: number;
+  currency: string;
+  name: string;
+  description?: string | null;
+  prefillContact?: string | null;
+  logoUrl?: string | null;
 };
 
 export type CatalogItemView = {
@@ -528,6 +546,11 @@ export function isCartTownConflict(err: unknown): boolean {
   return /another town|change-town|confirmClear/i.test(msg);
 }
 
+export function isListingUnavailableError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err ?? '');
+  return /listing is not available|listing not found|does not belong to this town/i.test(msg);
+}
+
 export function friendlyCartError(err: unknown, fallback: string): string {
   if (isCartTownConflict(err)) {
     return 'Your cart had items from another town. We cleared it so you can shop here — try again.';
@@ -578,21 +601,59 @@ export async function deleteAddress(token: string, addressId: string): Promise<v
   await apiRequest<unknown>(`/api/v1/addresses/${addressId}`, { method: 'DELETE', token });
 }
 
-export async function placeCodOrder(
+export async function placeOrder(
   token: string,
-  input: { townId: string; cartId: string; addressId: string; useStoreCredit?: boolean },
+  input: {
+    townId: string;
+    cartId: string;
+    addressId: string;
+    useStoreCredit?: boolean;
+    paymentMethod?: 'COD' | 'ONLINE';
+  },
 ): Promise<CreateOrderDto> {
+  const paymentMethod = input.paymentMethod ?? 'COD';
   return apiRequest<CreateOrderDto>('/api/v1/orders', {
     method: 'POST',
     token,
     headers: { 'Idempotency-Key': `web-${Date.now()}` },
+    timeoutMs: 45_000,
     body: {
       townId: input.townId,
       cartId: input.cartId,
       addressId: input.addressId,
-      paymentMethod: 'COD',
+      paymentMethod,
+      paymentGateway: paymentMethod === 'ONLINE' ? 'RAZORPAY' : undefined,
       useStoreCredit: Boolean(input.useStoreCredit),
     },
+  });
+}
+
+export async function placeCodOrder(
+  token: string,
+  input: { townId: string; cartId: string; addressId: string; useStoreCredit?: boolean },
+): Promise<CreateOrderDto> {
+  return placeOrder(token, { ...input, paymentMethod: 'COD' });
+}
+
+export async function confirmOnlinePayment(
+  token: string,
+  input: { razorpayOrderId: string; razorpayPaymentId: string; razorpaySignature: string },
+): Promise<unknown> {
+  return apiRequest('/api/v1/payments/confirm', {
+    token,
+    method: 'POST',
+    body: input,
+  });
+}
+
+export async function retryOnlinePayment(
+  token: string,
+  orderId: string,
+): Promise<{ paymentId?: string; status?: string; checkout?: GatewayCheckout | null }> {
+  return apiRequest(`/api/v1/orders/${orderId}/payments/retry`, {
+    token,
+    method: 'POST',
+    headers: { 'Idempotency-Key': `retry-${orderId}-${Date.now()}` },
   });
 }
 

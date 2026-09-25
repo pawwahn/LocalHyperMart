@@ -46,9 +46,21 @@ export async function login(phone: string, password: string): Promise<AuthSessio
     throw new Error('This portal is for vendors. Use a vendor account.');
   }
 
-  const me = await apiRequest<VendorMeResponse>('/api/v1/vendors/me', {
-    token: data.accessToken,
-  });
+  let me: VendorMeResponse;
+  try {
+    me = await apiRequest<VendorMeResponse>('/api/v1/vendors/me', {
+      token: data.accessToken,
+      timeoutMs: 25_000,
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : '';
+    if (/timed out|failed to fetch|network/i.test(msg)) {
+      throw new Error(
+        'Signed in, but vendor service did not respond. Run stop-dev then start-dev, refresh, and try again.',
+      );
+    }
+    throw err;
+  }
   const vendorId = me.vendorId;
   const shopName = me.shopName ?? me.businessName ?? undefined;
 

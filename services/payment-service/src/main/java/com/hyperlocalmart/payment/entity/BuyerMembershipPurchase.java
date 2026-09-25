@@ -62,4 +62,10 @@ public class BuyerMembershipPurchase extends BaseAuditEntity {
 
     @Column(length = 255)
     private String note;
+
+    @Column(name = "gateway_order_id")
+    private String gatewayOrderId;
+
+    @Column(name = "gateway_payment_id")
+    private String gatewayPaymentId;
 }

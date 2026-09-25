@@ -244,7 +244,16 @@ public class TownAdService {
         ad.setHeadline(trimTo(item.getHeadline(), 160));
         ad.setBodyText(trimTo(item.getBodyText(), 240));
         ad.setCtaLabel(trimTo(item.getCtaLabel(), 60));
+        ad.setDisplayDurationSec(resolveDisplayDurationSec(item));
         applyImages(ad, item);
+    }
+
+    private int resolveDisplayDurationSec(UpsertTownAdRequest item) {
+        int sec = item.getDisplayDurationSec() != null ? item.getDisplayDurationSec() : 4;
+        if (sec < 2 || sec > 60) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Display duration must be between 2 and 60 seconds");
+        }
+        return sec;
     }
 
     private void copyContent(TownAd from, TownAd to) {
@@ -252,6 +261,7 @@ public class TownAdService {
         to.setHeadline(from.getHeadline());
         to.setBodyText(from.getBodyText());
         to.setCtaLabel(from.getCtaLabel());
+        to.setDisplayDurationSec(from.getDisplayDurationSec());
         to.setImagesJson(from.getImagesJson());
         to.setImageUrl(from.getImageUrl());
         to.setImageMediaId(from.getImageMediaId());
@@ -334,6 +344,7 @@ public class TownAdService {
                 .enabled(ad.isEnabled())
                 .allTowns(ad.isAllTowns())
                 .targetTownIds(targetTownIds)
+                .displayDurationSec(ad.getDisplayDurationSec())
                 .build();
     }
 

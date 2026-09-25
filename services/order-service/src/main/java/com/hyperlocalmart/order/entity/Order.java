@@ -71,6 +71,10 @@ public class Order extends BaseAuditEntity {
     @Builder.Default
     private BigDecimal platformFee = BigDecimal.ZERO;
 
+    @Column(name = "cod_fee", nullable = false, precision = 12, scale = 2)
+    @Builder.Default
+    private BigDecimal codFee = BigDecimal.ZERO;
+
     @Column(name = "tax_amount", nullable = false, precision = 12, scale = 2)
     @Builder.Default
     private BigDecimal taxAmount = BigDecimal.ZERO;

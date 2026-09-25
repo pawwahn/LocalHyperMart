@@ -6,9 +6,11 @@ import { useTown } from '@/shared/town/TownContext';
 import {
   fetchMembershipCatalog,
   purchaseMembership,
+  confirmMembershipPayment,
   type MembershipCatalog,
   type MembershipSlabOffer,
 } from '../api/membershipApi';
+import { CheckoutDismissedError, openRazorpayCheckout } from '../lib/razorpayCheckout';
 
 function money(n: number): string {
   return `₹${Number(n ?? 0).toFixed(0)}`;
@@ -86,6 +88,20 @@ export function MembershipPlansPanel({ onBought }: Props) {
       const row = await purchaseMembership(token, { slab: pick.code, channel, townId });
       if (row.status === 'PENDING_CASH') {
         setNotice(`Pay ${money(row.price)} cash at the hub. Show your phone.`);
+      } else if (row.checkout?.gatewayOrderId) {
+        try {
+          const paid = await openRazorpayCheckout(row.checkout, { contact: session?.phone });
+          const done = await confirmMembershipPayment(token, paid);
+          setNotice(`${done.creditsGranted} free deliveries added.`);
+        } catch (payErr) {
+          if (payErr instanceof CheckoutDismissedError) {
+            setNotice('Payment not finished. Tap Pay online again.');
+          } else {
+            throw payErr;
+          }
+          await reload();
+          return;
+        }
       } else {
         setNotice(`${row.creditsGranted} free deliveries added.`);
       }

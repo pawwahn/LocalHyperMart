@@ -41,6 +41,12 @@ hyperlocalmart:
     # Comma-separated. Empty = allow all (dev). Non-empty = only listed phones can register.
     buyer-phones: ${BUYER_INVITE_PHONES:}
     require-terms: true
+  town-service:
+    base-url: ${HLM_TOWN_SERVICE_URI:http://localhost:8082}
+  payment-service:
+    base-url: ${HLM_PAYMENT_SERVICE_URI:http://localhost:8087}
+  order-service:
+    base-url: ${HLM_ORDER_SERVICE_URI:http://localhost:8086}
 
 management:
   endpoints:

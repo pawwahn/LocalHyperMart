@@ -30,9 +30,11 @@ type RequestOptions = {
   token?: string | null;
   vendorId?: string | null;
   headers?: Record<string, string>;
+  timeoutMs?: number;
 };
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
+const DEFAULT_TIMEOUT_MS = 20_000;
 
 export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const headers: Record<string, string> = {
@@ -50,11 +52,25 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
     headers['X-Vendor-Id'] = options.vendorId;
   }
 
-  const response = await fetch(`${API_BASE}${path}`, {
-    method: options.method ?? (options.body !== undefined ? 'POST' : 'GET'),
-    headers,
-    body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
-  });
+  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE}${path}`, {
+      method: options.method ?? (options.body !== undefined ? 'POST' : 'GET'),
+      headers,
+      body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+      signal: controller.signal,
+    });
+  } catch (err) {
+    clearTimeout(timer);
+    if (err instanceof Error && err.name === 'AbortError') {
+      throw new ApiError('Request timed out. Check services are running, then refresh.', 408);
+    }
+    throw err;
+  }
+  clearTimeout(timer);
 
   let payload: ApiEnvelope<T> | null = null;
   const text = await response.text();

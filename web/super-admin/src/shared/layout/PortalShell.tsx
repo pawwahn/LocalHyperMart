@@ -25,6 +25,7 @@ type NavIcon =
   | 'billing'
   | 'agents'
   | 'catalog'
+  | 'recipes'
   | 'listings'
   | 'payouts'
   | 'settings';
@@ -55,6 +56,7 @@ const NAV_GROUPS: Array<{ label: string; items: NavItem[] }> = [
     label: 'Commerce',
     items: [
       { to: '/catalog', label: 'Catalog', icon: 'catalog' },
+      { to: '/recipes', label: 'Meal recipes', icon: 'recipes' },
       { to: '/store-listings', label: 'Listings', icon: 'listings' },
       { to: '/ads', label: 'Ads', icon: 'ads' },
       { to: '/scratch-cards', label: 'Scratch', icon: 'scratch' },
@@ -285,6 +287,13 @@ const GLYPHS: Record<NavIcon, ReactNode> = {
     <>
       <path d="M12 3 21 8l-9 5L3 8l9-5z" {...stroke} />
       <path d="M3 12l9 5 9-5M3 16.5 12 21.5 21 16.5" {...stroke} />
+    </>
+  ),
+  recipes: (
+    <>
+      <path d="M4 10h16v10H4z" {...stroke} />
+      <path d="M8 6c0-2 2-3 4-3s4 1 4 3" {...stroke} />
+      <path d="M8 14h8" {...stroke} />
     </>
   ),
   listings: (

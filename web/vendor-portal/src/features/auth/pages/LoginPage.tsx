@@ -106,9 +106,10 @@ export function LoginPage() {
               </button>
 
               <p style={styles.hint}>
-                Town: Narsaraopet (Andhra Pradesh)
+                Pilot seed vendor: 9876500001 / password
                 <br />
-                Pilot: 9876500001 / password (Ravi Kirana)
+                Approved vendor: password is HlM@ + last 4 digits (9876500004 → HlM@0004). Use exact
+                casing; 10-digit phone only.
               </p>
             </>
           ) : null}

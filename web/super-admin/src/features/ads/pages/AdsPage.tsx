@@ -5,6 +5,9 @@ import { ApiError } from '@/shared/api/http';
 import { Banner, Button, Card, TextField, Toast } from '@/shared/ui';
 import { AdminHistoryPanel } from '@/shared/audit/AdminHistoryPanel';
 import { listTowns, type TownVm } from '@/features/towns/api/townsApi';
+import { AdsRatesPanel } from '../components/AdsRatesPanel';
+import { AdsBillsPanel } from '../components/AdsBillsPanel';
+import { AdsSlotsPanel } from '../components/AdsSlotsPanel';
 import {
   fetchTownAdsEditor,
   saveTownAds,
@@ -13,6 +16,10 @@ import {
   AD_EDITOR_ITEMS,
   MID_GRID_COUNT,
   MAX_AD_IMAGES,
+  AD_DISPLAY_SEC_MIN,
+  AD_DISPLAY_SEC_MAX,
+  AD_DISPLAY_SEC_DEFAULT,
+  clampDisplayDurationSec,
   adEditorKey,
   matchEditorAd,
   type AdEditorItem,
@@ -118,6 +125,7 @@ type DraftAd = {
   enabled: boolean;
   allTowns: boolean;
   targetTownIds: string[];
+  displayDurationSec: number;
 };
 
 function emptyDraft(item: AdEditorItem): DraftAd {
@@ -133,6 +141,7 @@ function emptyDraft(item: AdEditorItem): DraftAd {
     enabled: false,
     allTowns: false,
     targetTownIds: [],
+    displayDurationSec: AD_DISPLAY_SEC_DEFAULT,
   };
 }
 
@@ -149,6 +158,7 @@ function toDraft(item: AdEditorItem, ad: TownAdVm): DraftAd {
     enabled: ad.enabled,
     allTowns: Boolean(ad.allTowns),
     targetTownIds: ad.targetTownIds?.length ? [...ad.targetTownIds] : [ad.townId],
+    displayDurationSec: clampDisplayDurationSec(ad.displayDurationSec),
   };
 }
 
@@ -520,6 +530,21 @@ function AdEditorCard({
           disabled={busy}
           placeholder="Optional"
         />
+        {meta.section === 'mid' ? (
+          <TextField
+            label="Display time (seconds)"
+            type="number"
+            min={AD_DISPLAY_SEC_MIN}
+            max={AD_DISPLAY_SEC_MAX}
+            step={1}
+            value={String(draft.displayDurationSec)}
+            onChange={(e) =>
+              onChange({ displayDurationSec: clampDisplayDurationSec(Number(e.target.value)) })
+            }
+            disabled={busy}
+            placeholder={`${AD_DISPLAY_SEC_MIN}–${AD_DISPLAY_SEC_MAX} sec before next slide`}
+          />
+        ) : null}
       </div>
 
       {meta.section !== 'mid' ? (
@@ -581,6 +606,8 @@ export function AdsPage() {
   const [uploadingKey, setUploadingKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<{ message: string; tone: 'success' | 'info' } | null>(null);
+  const [tab, setTab] = useState<'creatives' | 'slots' | 'rates' | 'bills' | 'history'>('creatives');
+  const [historyTick, setHistoryTick] = useState(0);
 
   const selectedTown = useMemo(() => towns.find((t) => t.id === townId) ?? null, [towns, townId]);
   const heroItem = AD_EDITOR_ITEMS.find((i) => i.section === 'hero')!;
@@ -697,12 +724,14 @@ export function AdsPage() {
         enabled: d.enabled,
         allTowns: d.allTowns,
         targetTownIds: d.allTowns ? [] : d.targetTownIds.length ? d.targetTownIds : [townId],
+        displayDurationSec: clampDisplayDurationSec(d.displayDurationSec),
       }));
       const data = await saveTownAds(token, townId, items);
       finished = true;
       applyEditor(data);
       setError(null);
       setToast({ message: 'Ads saved.', tone: 'success' });
+      setHistoryTick((n) => n + 1);
     } catch (err) {
       finished = true;
       setError(err instanceof ApiError || err instanceof Error ? err.message : 'Save failed');
@@ -713,10 +742,72 @@ export function AdsPage() {
   }
 
   return (
-    <PortalShell title="Town ads" onRefresh={() => void reloadAds()}>
+    <PortalShell
+      title="Ads"
+      onRefresh={() => {
+        if (tab === 'creatives') void reloadAds();
+        else setHistoryTick((n) => n + 1);
+      }}
+    >
       <style>{PAGE_CSS}</style>
       {error ? <Banner tone="danger">{error}</Banner> : null}
 
+      <div style={styles.tabs} role="tablist" aria-label="Ads sections">
+        {(
+          [
+            ['creatives', 'Creatives'],
+            ['slots', 'Slots'],
+            ['rates', 'Rate card'],
+            ['bills', 'Bills'],
+            ['history', 'History'],
+          ] as const
+        ).map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            role="tab"
+            aria-selected={tab === id}
+            style={tab === id ? styles.tabActive : styles.tab}
+            onClick={() => {
+              setTab(id);
+              setError(null);
+            }}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'slots' && token ? (
+        <AdsSlotsPanel
+          token={token}
+          towns={towns}
+          townId={townId}
+          onTownChange={setTownId}
+          refreshTick={historyTick}
+        />
+      ) : null}
+      {tab === 'rates' && token ? (
+        <AdsRatesPanel token={token} onSaved={() => setHistoryTick((n) => n + 1)} />
+      ) : null}
+      {tab === 'bills' && token ? (
+        <AdsBillsPanel token={token} towns={towns} onChanged={() => setHistoryTick((n) => n + 1)} />
+      ) : null}
+      {tab === 'history' && token ? (
+        <AdminHistoryPanel
+          token={token}
+          title="Ad change log"
+          refreshTick={historyTick}
+          tabs={[
+            { id: 'creatives', label: 'Creatives', screen: 'ads' },
+            { id: 'rates', label: 'Rates', screen: 'ads-rates' },
+            { id: 'bills', label: 'Bills', screen: 'ads-bills' },
+          ]}
+        />
+      ) : null}
+
+      {tab === 'creatives' ? (
+      <>
       <Card elevated style={styles.hero}>
         <div style={styles.heroTop}>
           <div style={styles.heroIntro}>
@@ -859,8 +950,8 @@ export function AdsPage() {
           </Button>
         </Card>
       </div>
-
-      {token ? <AdminHistoryPanel token={token} screen="ads" refreshTick={toast ? toast.message.length : 0} /> : null}
+      </>
+      ) : null}
 
       <Toast
         open={Boolean(toast)}
@@ -874,6 +965,35 @@ export function AdsPage() {
 }
 
 const styles: Record<string, CSSProperties> = {
+  tabs: {
+    display: 'inline-flex',
+    gap: '0.25rem',
+    padding: '0.2rem',
+    background: 'var(--bg-muted)',
+    borderRadius: 999,
+    width: 'fit-content',
+  },
+  tab: {
+    border: 'none',
+    background: 'transparent',
+    color: 'var(--text-muted)',
+    fontWeight: 700,
+    fontSize: '0.85rem',
+    padding: '0.45rem 0.95rem',
+    borderRadius: 999,
+    cursor: 'pointer',
+  },
+  tabActive: {
+    border: 'none',
+    background: 'var(--bg-elevated)',
+    color: 'var(--text)',
+    fontWeight: 800,
+    fontSize: '0.85rem',
+    padding: '0.45rem 0.95rem',
+    borderRadius: 999,
+    cursor: 'pointer',
+    boxShadow: 'var(--shadow-soft)',
+  },
   hero: {
     display: 'grid',
     gap: '0.75rem',

@@ -171,6 +171,13 @@ function ImageCarousel({
   );
 }
 
+function midSlideDurationMs(ads: AdCreative[], slideIndex: number, count: number): number {
+  const adIndex = slideIndex >= count ? 0 : slideIndex;
+  const sec = ads[adIndex]?.displayDurationSec ?? 4;
+  const clamped = Math.min(60, Math.max(2, Math.round(sec)));
+  return clamped * 1000;
+}
+
 function MidGridAdCarousel({
   ads,
   townId,
@@ -181,7 +188,7 @@ function MidGridAdCarousel({
   onCta?: () => void;
 }) {
   const count = ads.length;
-  const adsKey = ads.map((a) => a.id).join('|');
+  const adsKey = ads.map((a) => `${a.id}:${a.displayDurationSec ?? 4}`).join('|');
   const slides = count > 1 ? [...ads, ads[0]] : ads;
   const [index, setIndex] = useState(0);
   const [enableTransition, setEnableTransition] = useState(true);
@@ -198,13 +205,29 @@ function MidGridAdCarousel({
 
   useEffect(() => {
     if (count <= 1) return;
-    const timer = window.setInterval(() => {
-      if (pausedRef.current || dragging.current || document.hidden) return;
-      setEnableTransition(true);
-      setIndex((i) => i + 1);
-    }, 4500);
-    return () => window.clearInterval(timer);
-  }, [count, adsKey]);
+    let cancelled = false;
+    let timeoutId = 0;
+
+    const schedule = () => {
+      if (cancelled) return;
+      if (pausedRef.current || dragging.current || document.hidden) {
+        timeoutId = window.setTimeout(schedule, 300);
+        return;
+      }
+      const ms = midSlideDurationMs(ads, index, count);
+      timeoutId = window.setTimeout(() => {
+        if (cancelled) return;
+        setEnableTransition(true);
+        setIndex((i) => i + 1);
+      }, ms);
+    };
+
+    schedule();
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeoutId);
+    };
+  }, [index, count, adsKey]);
 
   useEffect(() => {
     if (!enableTransition && index === 0) {
@@ -312,7 +335,7 @@ function MidGridAdCarousel({
                   setIndex(i);
                   window.setTimeout(() => {
                     pausedRef.current = false;
-                  }, 4500);
+                  }, midSlideDurationMs(ads, i, count));
                 }}
               />
             ))}

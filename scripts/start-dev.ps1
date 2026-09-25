@@ -22,6 +22,25 @@ $ErrorActionPreference = "Continue"
 $Root = Split-Path -Parent $PSScriptRoot
 Set-Location $Root
 
+function Import-DotEnv([string]$Path) {
+    if (-not (Test-Path $Path)) { return }
+    Write-Host "==> Loading env from $(Split-Path -Leaf $Path)"
+    Get-Content $Path | ForEach-Object {
+        $line = $_.Trim()
+        if (-not $line -or $line.StartsWith("#")) { return }
+        $eq = $line.IndexOf("=")
+        if ($eq -lt 1) { return }
+        $name = $line.Substring(0, $eq).Trim()
+        $value = $line.Substring($eq + 1).Trim()
+        if (($value.StartsWith('"') -and $value.EndsWith('"')) -or ($value.StartsWith("'") -and $value.EndsWith("'"))) {
+            $value = $value.Substring(1, $value.Length - 2)
+        }
+        Set-Item -Path "Env:$name" -Value $value
+    }
+}
+Import-DotEnv (Join-Path $Root ".env.local")
+Import-DotEnv (Join-Path $Root ".env")
+
 $JarVersion = "1.0.0-SNAPSHOT"
 $NodeHome = "C:\Tools\node"
 $DockerDesktop = "C:\Program Files\Docker\Docker\Docker Desktop.exe"
@@ -45,6 +64,11 @@ function Test-HttpUp([string]$Url) {
 function Test-PortListening([int]$Port) {
     $c = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
     return [bool]$c
+}
+
+function Stop-PortListener([int]$Port) {
+    Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue |
+        ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }
 }
 
 function Ensure-NodePath {
@@ -190,8 +214,9 @@ if ($needBuild) {
 $javaOpts = @(
     "-XX:TieredStopAtLevel=1",
     "-Dmanagement.health.kafka.enabled=false",
-    "-Dspring.datasource.hikari.maximum-pool-size=5",
-    "-Dspring.datasource.hikari.minimum-idle=1"
+    "-Dspring.datasource.hikari.maximum-pool-size=15",
+    "-Dspring.datasource.hikari.minimum-idle=2",
+    "-Dspring.datasource.hikari.connection-timeout=10000"
 )
 
 foreach ($svc in $services) {
@@ -201,8 +226,9 @@ foreach ($svc in $services) {
         continue
     }
     if (Test-PortListening $svc.Port) {
-        Write-Warning "$($svc.Name) port $($svc.Port) is in use but not healthy. Skip (stop it first if you need a restart)."
-        continue
+        Write-Warning "$($svc.Name) port $($svc.Port) in use but not healthy - recycling process."
+        Stop-PortListener $svc.Port
+        Start-Sleep -Seconds 1
     }
 
     $jar = Get-FatJar $svc.Module $svc.Name

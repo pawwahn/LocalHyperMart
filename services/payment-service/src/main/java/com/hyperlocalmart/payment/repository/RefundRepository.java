@@ -10,4 +10,6 @@ import java.util.UUID;
 public interface RefundRepository extends JpaRepository<Refund, UUID> {
 
     Optional<Refund> findFirstByOrderIdAndStatusInOrderByCreatedAtDesc(UUID orderId, Iterable<RefundStatus> statuses);
+
+    Optional<Refund> findByGatewayRefundId(String gatewayRefundId);
 }

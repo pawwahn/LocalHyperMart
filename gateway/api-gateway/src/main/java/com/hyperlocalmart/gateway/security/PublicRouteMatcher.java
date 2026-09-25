@@ -42,7 +42,11 @@ public final class PublicRouteMatcher {
         }
         if (method == HttpMethod.GET && (path.equals("/api/v1/catalog/categories")
                 || path.equals("/api/v1/catalog/master-items")
-                || path.equals("/api/v1/catalog/units"))) {
+                || path.equals("/api/v1/catalog/units")
+                || path.equals("/api/v1/catalog/recipes"))) {
+            return true;
+        }
+        if (method == HttpMethod.GET && path.matches("^/api/v1/catalog/recipes/[0-9a-fA-F-]{36}$")) {
             return true;
         }
         if (method == HttpMethod.POST && path.startsWith("/api/v1/payments/webhooks/")) {

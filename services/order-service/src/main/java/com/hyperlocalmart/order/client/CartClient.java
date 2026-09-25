@@ -1,11 +1,15 @@
 package com.hyperlocalmart.order.client;
 
 import com.hyperlocalmart.common.api.ApiResponse;
+import com.hyperlocalmart.common.exception.BusinessException;
+import com.hyperlocalmart.common.exception.ErrorCode;
 import com.hyperlocalmart.order.config.CartServiceProperties;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientResponseException;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -19,19 +23,29 @@ public class CartClient {
     private final CartServiceProperties cartServiceProperties;
 
     public CartSnapshot getCart(UUID cartId, UUID userId, UUID townId) {
-        RestClient client = restClientBuilder.baseUrl(cartServiceProperties.getBaseUrl()).build();
-        ApiResponse<CartSnapshot> response = client.get()
-                .uri(uriBuilder -> uriBuilder
-                        .path("/api/v1/internal/carts/{cartId}")
-                        .queryParam("userId", userId)
-                        .queryParam("townId", townId)
-                        .build(cartId))
-                .retrieve()
-                .body(new ParameterizedTypeReference<ApiResponse<CartSnapshot>>() {});
-        if (response == null || response.getData() == null) {
-            throw new IllegalStateException("Cart service returned empty response");
+        try {
+            RestClient client = restClientBuilder.baseUrl(cartServiceProperties.getBaseUrl()).build();
+            ApiResponse<CartSnapshot> response = client.get()
+                    .uri(uriBuilder -> uriBuilder
+                            .path("/api/v1/internal/carts/{cartId}")
+                            .queryParam("userId", userId)
+                            .queryParam("townId", townId)
+                            .build(cartId))
+                    .retrieve()
+                    .body(new ParameterizedTypeReference<ApiResponse<CartSnapshot>>() {});
+            if (response == null || response.getData() == null) {
+                throw new BusinessException(ErrorCode.INTERNAL_ERROR, "Cart service returned empty response");
+            }
+            return response.getData();
+        } catch (ResourceAccessException ex) {
+            throw new BusinessException(
+                    ErrorCode.VALIDATION_ERROR,
+                    "Cart service is busy or offline. Run stop-dev then start-dev, refresh, and try checkout again.");
+        } catch (RestClientResponseException ex) {
+            throw new BusinessException(
+                    ErrorCode.VALIDATION_ERROR,
+                    "Could not load your basket for checkout. Refresh the page and try again.");
         }
-        return response.getData();
     }
 
     public void convertCart(UUID cartId, UUID userId, UUID townId) {

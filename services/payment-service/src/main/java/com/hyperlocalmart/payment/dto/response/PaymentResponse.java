@@ -19,4 +19,5 @@ public class PaymentResponse {
     private BigDecimal amount;
     private String upiIntent;
     private String qrPayload;
+    private GatewayCheckoutResponse checkout;
 }

@@ -5,6 +5,7 @@ import com.hyperlocalmart.town.dto.request.CreateTownRequest;
 import com.hyperlocalmart.town.dto.request.UpdateTownConfigRequest;
 import com.hyperlocalmart.town.dto.request.UpdateTownStatusRequest;
 import com.hyperlocalmart.town.dto.response.MembershipConfigResponse;
+import com.hyperlocalmart.town.dto.response.ReferralConfigResponse;
 import com.hyperlocalmart.town.dto.response.MembershipPackRevisionResponse;
 import com.hyperlocalmart.town.dto.response.TownDetailResponse;
 import com.hyperlocalmart.town.dto.response.TownListResponse;
@@ -183,5 +184,10 @@ public class TownController {
     @GetMapping("/api/v1/internal/platform/membership-config")
     public ResponseEntity<ApiResponse<MembershipConfigResponse>> membershipConfig(HttpServletRequest httpRequest) {
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, platformSettingsService.getMembershipConfig()));
+    }
+
+    @GetMapping("/api/v1/internal/platform/referral-config")
+    public ResponseEntity<ApiResponse<ReferralConfigResponse>> referralConfig(HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest, platformSettingsService.getReferralConfig()));
     }
 }

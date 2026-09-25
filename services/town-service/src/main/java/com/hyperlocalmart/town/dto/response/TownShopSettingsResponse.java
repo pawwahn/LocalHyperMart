@@ -22,4 +22,13 @@ public class TownShopSettingsResponse {
 
     @Builder.Default
     private BigDecimal platformFee = BigDecimal.ZERO;
+
+    @Builder.Default
+    private boolean codEnabled = true;
+
+    @Builder.Default
+    private boolean upiEnabled = true;
+
+    @Builder.Default
+    private BigDecimal codCharge = BigDecimal.ZERO;
 }

@@ -1,6 +1,7 @@
 package com.hyperlocalmart.payment.web;
 
 import com.hyperlocalmart.common.api.ApiResponse;
+import com.hyperlocalmart.payment.dto.request.ConfirmGatewayPaymentRequest;
 import com.hyperlocalmart.payment.dto.request.PurchaseMembershipRequest;
 import com.hyperlocalmart.payment.dto.response.MembershipCatalogResponse;
 import com.hyperlocalmart.payment.dto.response.MembershipMeResponse;
@@ -51,5 +52,14 @@ public class MembershipController {
             HttpServletRequest httpRequest) {
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
                 membershipService.purchase(principal.getUserId(), principal.getPhone(), request)));
+    }
+
+    @PostMapping("/confirm")
+    public ResponseEntity<ApiResponse<MembershipPurchaseResponse>> confirmOnline(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @Valid @RequestBody ConfirmGatewayPaymentRequest request,
+            HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                membershipService.confirmOnline(principal.getUserId(), request)));
     }
 }

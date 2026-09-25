@@ -32,4 +32,7 @@ public class TownAdResponse {
     private boolean allTowns;
     /** Towns that share this ad creative (includes townId when part of a multi-town campaign). */
     private List<UUID> targetTownIds;
+
+    /** Seconds this slide stays visible before auto-advancing (mid-grid carousel). */
+    private int displayDurationSec;
 }

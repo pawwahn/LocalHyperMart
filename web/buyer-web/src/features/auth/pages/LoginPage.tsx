@@ -45,6 +45,15 @@ export function LoginPage() {
             </div>
           ) : null}
 
+          {f.mode === 'register' && settings?.referralsEnabled ? (
+            <TextField
+              label="Friend’s referral code (optional)"
+              value={f.referralCode}
+              onChange={(e) => f.setReferralCode(e.target.value)}
+              placeholder="e.g. HLM1A2B3C"
+            />
+          ) : null}
+
           <TextField label="Phone" value={f.phone} onChange={(e) => f.setPhone(e.target.value)} />
           <TextField
             label="Password"

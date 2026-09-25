@@ -31,6 +31,8 @@ type RequestOptions = {
   vendorId?: string | null;
   headers?: Record<string, string>;
   signal?: AbortSignal;
+  /** Abort the request after this many ms (default 30s). */
+  timeoutMs?: number;
 };
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
@@ -51,12 +53,28 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
     headers['X-Vendor-Id'] = options.vendorId;
   }
 
-  const response = await fetch(`${API_BASE}${path}`, {
-    method: options.method ?? (options.body !== undefined ? 'POST' : 'GET'),
-    headers,
-    body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
-    signal: options.signal,
-  });
+  const timeoutMs = options.timeoutMs ?? 30_000;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  const onAbort = () => clearTimeout(timeoutId);
+  options.signal?.addEventListener('abort', onAbort, { once: true });
+
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE}${path}`, {
+      method: options.method ?? (options.body !== undefined ? 'POST' : 'GET'),
+      headers,
+      body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+      signal: options.signal ?? controller.signal,
+    });
+  } catch (err) {
+    onAbort();
+    if (err instanceof Error && err.name === 'AbortError') {
+      throw new ApiError('Request timed out. Check that backend services are running.', 408);
+    }
+    throw err;
+  }
+  onAbort();
 
   let payload: ApiEnvelope<T> | null = null;
   const text = await response.text();

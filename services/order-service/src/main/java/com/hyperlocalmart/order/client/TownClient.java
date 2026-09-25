@@ -77,6 +77,31 @@ public class TownClient {
         }
     }
 
+    public PaymentSettings getPaymentSettings(UUID townId) {
+        try {
+            RestClient client = restClientBuilder.baseUrl(townServiceProperties.getBaseUrl()).build();
+            ApiResponse<Map<String, Object>> response = client.get()
+                    .uri("/api/v1/internal/towns/{townId}/operational-config", townId)
+                    .retrieve()
+                    .body(new ParameterizedTypeReference<ApiResponse<Map<String, Object>>>() {});
+            if (response == null || response.getData() == null) {
+                return PaymentSettings.defaults();
+            }
+            Map<String, Object> data = response.getData();
+            boolean codEnabled = !Boolean.FALSE.equals(data.get("codEnabled"))
+                    && !"false".equalsIgnoreCase(String.valueOf(data.get("codEnabled")));
+            boolean upiEnabled = !Boolean.FALSE.equals(data.get("upiEnabled"))
+                    && !"false".equalsIgnoreCase(String.valueOf(data.get("upiEnabled")));
+            BigDecimal codCharge = money(data.get("codCharge"));
+            if (codCharge == null || codCharge.compareTo(BigDecimal.ZERO) < 0) {
+                codCharge = BigDecimal.ZERO;
+            }
+            return new PaymentSettings(codEnabled, upiEnabled, codCharge);
+        } catch (Exception ex) {
+            return PaymentSettings.defaults();
+        }
+    }
+
     public ScratchSettings getScratchSettings(UUID townId) {
         try {
             RestClient client = restClientBuilder.baseUrl(townServiceProperties.getBaseUrl()).build();
@@ -137,6 +162,12 @@ public class TownClient {
     }
 
     public record CheckoutFees(BigDecimal deliveryFee, BigDecimal platformFee) {
+    }
+
+    public record PaymentSettings(boolean codEnabled, boolean upiEnabled, BigDecimal codCharge) {
+        static PaymentSettings defaults() {
+            return new PaymentSettings(true, true, BigDecimal.ZERO);
+        }
     }
 
     public record ScratchSettings(boolean enabled, BigDecimal rewardMin, BigDecimal rewardMax, BigDecimal minGoodsAmount) {

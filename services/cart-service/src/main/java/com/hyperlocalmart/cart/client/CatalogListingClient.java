@@ -1,5 +1,7 @@
 package com.hyperlocalmart.cart.client;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hyperlocalmart.cart.config.CatalogServiceProperties;
 import com.hyperlocalmart.common.api.ApiResponse;
 import com.hyperlocalmart.common.exception.BusinessException;
@@ -16,6 +18,8 @@ import java.util.UUID;
 @Component
 @RequiredArgsConstructor
 public class CatalogListingClient {
+
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     private final RestClient.Builder restClientBuilder;
     private final CatalogServiceProperties catalogServiceProperties;
@@ -35,7 +39,24 @@ public class CatalogListingClient {
             }
             return response.getData();
         } catch (RestClientResponseException ex) {
-            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Listing is not available");
+            String message = readApiMessage(ex.getResponseBodyAsString());
+            if (message == null || message.isBlank()) {
+                message = "Listing is not available";
+            }
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, message);
+        }
+    }
+
+    private static String readApiMessage(String body) {
+        if (body == null || body.isBlank()) {
+            return null;
+        }
+        try {
+            JsonNode root = OBJECT_MAPPER.readTree(body);
+            JsonNode message = root.get("message");
+            return message != null && message.isTextual() ? message.asText() : null;
+        } catch (Exception ignored) {
+            return null;
         }
     }
 

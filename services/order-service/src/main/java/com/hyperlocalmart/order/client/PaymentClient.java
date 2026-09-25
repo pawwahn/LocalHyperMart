@@ -4,10 +4,12 @@ import com.hyperlocalmart.common.exception.BusinessException;
 import com.hyperlocalmart.common.exception.ErrorCode;
 import com.hyperlocalmart.common.api.ApiResponse;
 import com.hyperlocalmart.order.config.PaymentServiceProperties;
+import com.hyperlocalmart.order.dto.response.GatewayCheckoutResponse;
 import com.hyperlocalmart.order.dto.response.PaymentInfoResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
 
@@ -22,32 +24,82 @@ public class PaymentClient {
     private final RestClient.Builder restClientBuilder;
     private final PaymentServiceProperties paymentServiceProperties;
 
-    public PaymentInfoResponse initiatePayment(UUID buyerId, UUID orderId, UUID townId, String gateway, String idempotencyKey) {
+    public PaymentInfoResponse initiatePayment(
+            UUID buyerId,
+            UUID orderId,
+            UUID townId,
+            String gateway,
+            String idempotencyKey,
+            String buyerPhone,
+            BigDecimal amount,
+            String orderNumber,
+            String orderStatus,
+            String paymentMethod) {
         RestClient client = restClientBuilder.baseUrl(paymentServiceProperties.getBaseUrl()).build();
-        Map<String, Object> body = Map.of(
-                "orderId", orderId,
-                "townId", townId,
-                "gateway", gateway != null ? gateway : "RAZORPAY"
-        );
-        ApiResponse<PaymentInitiateResult> response = client.post()
-                .uri(uriBuilder -> uriBuilder
-                        .path("/api/v1/internal/payments/initiate")
-                        .queryParam("buyerId", buyerId)
-                        .build())
-                .header("Idempotency-Key", idempotencyKey != null ? idempotencyKey : UUID.randomUUID().toString())
-                .body(body)
-                .retrieve()
-                .body(new ParameterizedTypeReference<ApiResponse<PaymentInitiateResult>>() {});
-        if (response == null || response.getData() == null) {
-            throw new IllegalStateException("Payment initiation failed");
+        Map<String, Object> body = new java.util.HashMap<>();
+        body.put("orderId", orderId);
+        body.put("townId", townId);
+        body.put("gateway", gateway != null ? gateway : "RAZORPAY");
+        if (buyerPhone != null && !buyerPhone.isBlank()) {
+            body.put("buyerPhone", buyerPhone);
         }
-        PaymentInitiateResult data = response.getData();
-        return PaymentInfoResponse.builder()
-                .paymentId(data.paymentId())
-                .status(data.status())
-                .upiIntent(data.upiIntent())
-                .qrPayload(data.qrPayload())
-                .build();
+        if (amount != null) {
+            body.put("amount", amount);
+        }
+        if (orderNumber != null) {
+            body.put("orderNumber", orderNumber);
+        }
+        if (orderStatus != null) {
+            body.put("orderStatus", orderStatus);
+        }
+        if (paymentMethod != null) {
+            body.put("paymentMethod", paymentMethod);
+        }
+        try {
+            ApiResponse<PaymentInitiateResult> response = client.post()
+                    .uri(uriBuilder -> uriBuilder
+                            .path("/api/v1/internal/payments/initiate")
+                            .queryParam("buyerId", buyerId)
+                            .build())
+                    .header("Idempotency-Key", idempotencyKey != null ? idempotencyKey : UUID.randomUUID().toString())
+                    .body(body)
+                    .retrieve()
+                    .body(new ParameterizedTypeReference<ApiResponse<PaymentInitiateResult>>() {});
+            if (response == null || response.getData() == null) {
+                throw new BusinessException(ErrorCode.CONFLICT, "Could not start online payment");
+            }
+            PaymentInitiateResult data = response.getData();
+            return PaymentInfoResponse.builder()
+                    .paymentId(data.paymentId())
+                    .status(data.status())
+                    .upiIntent(data.upiIntent())
+                    .qrPayload(data.qrPayload())
+                    .checkout(data.checkout())
+                    .build();
+        } catch (ResourceAccessException ex) {
+            throw new BusinessException(
+                    ErrorCode.CONFLICT,
+                    "Could not start online payment — payment service is busy. Wait a moment, refresh, and try again.");
+        } catch (RestClientResponseException ex) {
+            throw new BusinessException(ErrorCode.CONFLICT, paymentErrorMessage(ex));
+        }
+    }
+
+    private static String paymentErrorMessage(RestClientResponseException ex) {
+        String payload = ex.getResponseBodyAsString();
+        if (payload != null && payload.contains("\"message\"")) {
+            int start = payload.indexOf("\"message\"");
+            int colon = payload.indexOf(':', start);
+            int firstQuote = payload.indexOf('"', colon + 1);
+            int secondQuote = firstQuote >= 0 ? payload.indexOf('"', firstQuote + 1) : -1;
+            if (firstQuote >= 0 && secondQuote > firstQuote) {
+                String msg = payload.substring(firstQuote + 1, secondQuote);
+                if (!msg.isBlank() && !msg.equalsIgnoreCase("Internal server error")) {
+                    return msg;
+                }
+            }
+        }
+        return "Could not start online payment. Try again.";
     }
 
     public void initiateRefund(UUID orderId, UUID buyerId, BigDecimal amount, String reason) {
@@ -200,7 +252,14 @@ public class PaymentClient {
         }
     }
 
-    public record PaymentInitiateResult(UUID paymentId, UUID orderId, String status, String upiIntent, String qrPayload) {
+    public record PaymentInitiateResult(
+            UUID paymentId,
+            UUID orderId,
+            String status,
+            String upiIntent,
+            String qrPayload,
+            GatewayCheckoutResponse checkout
+    ) {
     }
 
     public record WalletBalanceResult(UUID userId, BigDecimal balance, String status) {

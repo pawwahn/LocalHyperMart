@@ -93,6 +93,21 @@ class PlatformSettingsServiceTest {
     }
 
     @Test
+    void settingsChangeParts_includesReferralFields() {
+        Map<String, Object> before = new LinkedHashMap<>();
+        before.put("referralsEnabled", false);
+        before.put("referralRefereeRewardAmount", 25);
+        Map<String, Object> after = new LinkedHashMap<>(before);
+        after.put("referralsEnabled", true);
+        after.put("referralRefereeRewardAmount", 30);
+
+        var parts = PlatformSettingsService.settingsChangeParts(before, after);
+
+        assertThat(parts).anyMatch(s -> s.contains("Referrals"));
+        assertThat(parts).anyMatch(s -> s.contains("Referee reward"));
+    }
+
+    @Test
     void patch_rejectsEmptyTerms() {
         when(platformSettingRepository.findBySettingKey(PlatformSettingsService.KEY_PLATFORM))
                 .thenReturn(Optional.empty());

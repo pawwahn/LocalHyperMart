@@ -31,6 +31,8 @@ export type AdCreative = {
   /** Up to 3 images for swipe carousel. */
   imageUrls?: string[];
   href?: string;
+  /** Mid-grid carousel: seconds this slide stays visible before auto-advance. */
+  displayDurationSec?: number;
 };
 
 export const ADS_ENABLED = true;

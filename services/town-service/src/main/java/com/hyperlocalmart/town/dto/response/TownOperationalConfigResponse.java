@@ -53,6 +53,15 @@ public class TownOperationalConfigResponse {
     @Builder.Default
     private boolean buyerMembershipEnabled = true;
 
+    @Builder.Default
+    private boolean codEnabled = true;
+
+    @Builder.Default
+    private boolean upiEnabled = true;
+
+    @Builder.Default
+    private BigDecimal codCharge = BigDecimal.ZERO;
+
     @Data
     @Builder
     public static class DeliverySlabResponse {

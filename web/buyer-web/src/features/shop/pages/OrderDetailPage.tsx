@@ -6,6 +6,8 @@ import { useAuth } from '@/shared/auth/AuthContext';
 import { useShop } from '../hooks/useShop';
 import { useOrderDetail } from '../hooks/useOrderDetail';
 import { formatBuyerPaymentLabel } from '../lib/formatBuyerPaymentLabel';
+import { CheckoutDismissedError, openRazorpayCheckout } from '../lib/razorpayCheckout';
+import { confirmOnlinePayment, retryOnlinePayment } from '../api/shopApi';
 import { OrderStatusTimeline } from '../components/OrderStatusTimeline';
 import { ReasonDialog } from '../components/ReasonDialog';
 import { ClaimDialog } from '../components/ClaimDialog';
@@ -107,6 +109,7 @@ export function OrderDetailPage() {
   const [draftRatings, setDraftRatings] = useState<Record<string, number>>({});
   const [claimPresetItemId, setClaimPresetItemId] = useState<string | null>(null);
   const [scratchOpen, setScratchOpen] = useState(false);
+  const [payBusy, setPayBusy] = useState(false);
   const [resultDialog, setResultDialog] = useState<{ title: string; description: string } | null>(
     null,
   );
@@ -125,6 +128,10 @@ export function OrderDetailPage() {
       canFileClaim: true,
     }));
   const unitCount = (order?.items ?? []).reduce((sum, item) => sum + Number(item.quantity ?? 0), 0);
+  const canPayOnline =
+    Boolean(order?.canPayOnline) ||
+    ((order?.paymentMethod || '').toUpperCase() === 'ONLINE' &&
+      (order?.status === 'PAYMENT_PENDING' || order?.status === 'PAYMENT_FAILED'));
 
   async function onConfirmCancel(reason: string) {
     if (!cancelTarget) return;
@@ -166,6 +173,29 @@ export function OrderDetailPage() {
         title: 'Couldn’t cancel',
         description: err instanceof Error ? err.message : 'Please try again in a moment.',
       });
+    }
+  }
+
+  async function onPayOnline() {
+    if (!session?.accessToken || !order) return;
+    setPayBusy(true);
+    try {
+      const retry = await retryOnlinePayment(session.accessToken, order.orderId);
+      if (!retry.checkout?.gatewayOrderId) {
+        throw new Error('Could not start online payment');
+      }
+      const paid = await openRazorpayCheckout(retry.checkout, { contact: session.phone });
+      await confirmOnlinePayment(session.accessToken, paid);
+      await reload();
+    } catch (err) {
+      if (!(err instanceof CheckoutDismissedError)) {
+        setResultDialog({
+          title: 'Payment not completed',
+          description: err instanceof Error ? err.message : 'Try again.',
+        });
+      }
+    } finally {
+      setPayBusy(false);
     }
   }
 
@@ -238,8 +268,13 @@ export function OrderDetailPage() {
               </div>
             </div>
             <div style={styles.actions}>
+              {canPayOnline ? (
+                <Button variant="primary" disabled={payBusy} onClick={() => void onPayOnline()}>
+                  {payBusy ? 'Opening payment…' : `Pay ₹${Number(order.totalAmount ?? 0).toFixed(2)}`}
+                </Button>
+              ) : null}
               <Button
-                variant="primary"
+                variant={canPayOnline ? 'ghost' : 'primary'}
                 disabled={!canDownloadInvoice || invoiceBusy}
                 onClick={() => void downloadInvoice()}
               >
@@ -488,6 +523,12 @@ export function OrderDetailPage() {
               <span>Platform fee</span>
               <strong>{money(order.platformFee ?? 0)}</strong>
             </div>
+            {(order.codFee ?? 0) > 0 ? (
+              <div style={styles.totalRow}>
+                <span>COD charge</span>
+                <strong>{money(order.codFee)}</strong>
+              </div>
+            ) : null}
             {(order.storeCreditApplied ?? 0) > 0 ? (
               <div style={styles.totalRow}>
                 <span>Store credit applied</span>

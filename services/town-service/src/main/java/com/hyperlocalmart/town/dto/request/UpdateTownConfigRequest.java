@@ -41,6 +41,15 @@ public class UpdateTownConfigRequest {
     /** When false, buyers cannot purchase membership while this town is selected. Credits still work. */
     private Boolean buyerMembershipEnabled;
 
+    /** Cash on delivery at checkout for this town. */
+    private Boolean codEnabled;
+
+    /** UPI / online pay (Razorpay) at checkout for this town. */
+    private Boolean upiEnabled;
+
+    /** Extra COD charge (₹) added to buyer total when paying on delivery. */
+    private BigDecimal codCharge;
+
     @Data
     public static class DeliverySlabRequest {
         private BigDecimal minOrderValue;

@@ -8,6 +8,8 @@ export type PublicPlatformSettingsVm = {
   supportPhone: string;
   deliveryFee: number;
   membershipEnabled: boolean;
+  referralsEnabled: boolean;
+  mealPlannerEnabled: boolean;
 };
 
 type SettingsDto = Record<string, unknown>;
@@ -35,5 +37,7 @@ export async function getPublicPlatformSettings(): Promise<PublicPlatformSetting
     supportPhone: asString(data?.supportPhone),
     deliveryFee: asNumber(data?.deliveryFee, 40),
     membershipEnabled: data?.membershipEnabled === true,
+    referralsEnabled: data?.referralsEnabled === true,
+    mealPlannerEnabled: data?.mealPlannerEnabled === true,
   };
 }

@@ -10,6 +10,7 @@ import com.hyperlocalmart.order.client.DeliveryClient;
 import com.hyperlocalmart.order.client.NotificationClient;
 import com.hyperlocalmart.order.client.PaymentClient;
 import com.hyperlocalmart.order.client.TownClient;
+import com.hyperlocalmart.order.client.UserReferralClient;
 import com.hyperlocalmart.order.config.CheckoutProperties;
 import com.hyperlocalmart.order.dto.request.CreateOrderRequest;
 import com.hyperlocalmart.order.dto.request.DeliverOrderRequest;
@@ -59,6 +60,12 @@ public class OrderService {
     private final DeliveryClient deliveryClient;
     private final ProductRatingRepository productRatingRepository;
     private final ScratchCardService scratchCardService;
+    private final UserReferralClient userReferralClient;
+
+    @Transactional(readOnly = true)
+    public boolean buyerHasDeliveredOrder(UUID buyerId) {
+        return orderRepository.existsByBuyerIdAndStatus(buyerId, OrderStatus.DELIVERED);
+    }
 
     @Transactional
     public CreateOrderResponse createOrder(UUID buyerId, String buyerPhone, String idempotencyKey, CreateOrderRequest request) {
@@ -104,6 +111,7 @@ public class OrderService {
                 .paymentStatus(order.getPaymentStatus())
                 .paymentMethod(order.getPaymentMethod())
                 .totalAmount(order.getTotalAmount())
+                .buyerPhone(order.getBuyerPhoneSnapshot())
                 .build();
     }
 
@@ -276,6 +284,11 @@ public class OrderService {
         } catch (Exception ex) {
             log.warn("Scratch card not issued for order {}: {}", order.getId(), ex.getMessage());
         }
+        try {
+            userReferralClient.onOrderDelivered(order.getBuyerId(), order.getId());
+        } catch (Exception ex) {
+            log.warn("Referral reward not processed for order {}: {}", order.getId(), ex.getMessage());
+        }
     }
 
     @Transactional(readOnly = true)
@@ -375,6 +388,28 @@ public class OrderService {
                 order.getOrderNumber());
     }
 
+    @Transactional
+    public PaymentInfoResponse retryPayment(UUID buyerId, UUID orderId, String idempotencyKey) {
+        Order order = orderRepository.findByIdAndBuyerId(orderId, buyerId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Order not found"));
+        if (order.getPaymentMethod() != PaymentMethod.ONLINE) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Order is not an online payment order");
+        }
+        if (order.getStatus() != OrderStatus.PAYMENT_PENDING && order.getStatus() != OrderStatus.PAYMENT_FAILED) {
+            throw new BusinessException(ErrorCode.CONFLICT, "Order is not awaiting payment");
+        }
+        PaymentInfoResponse payment = paymentClient.initiatePayment(
+                buyerId, order.getId(), order.getTownId(), "RAZORPAY",
+                idempotencyKey, order.getBuyerPhoneSnapshot(),
+                order.getTotalAmount(), order.getOrderNumber(), order.getStatus().name(), "ONLINE");
+        if (order.getStatus() == OrderStatus.PAYMENT_FAILED) {
+            order.setStatus(OrderStatus.PAYMENT_PENDING);
+            order.setPaymentStatus(PaymentStatus.PENDING);
+            orderRepository.save(order);
+        }
+        return payment;
+    }
+
     private CreateOrderResponse createOrderInternal(UUID buyerId, String buyerPhone, String idempotencyKey, CreateOrderRequest request) {
         CartClient.CartSnapshot cart = cartClient.getCart(request.getCartId(), buyerId, request.getTownId());
         Map<String, Object> addressSnapshot = addressClient.getAddressSnapshot(request.getAddressId(), buyerId, request.getTownId());
@@ -392,11 +427,20 @@ public class OrderService {
         }
         BigDecimal deliveryFee = configuredFee != null ? configuredFee : checkoutProperties.getDeliveryFee();
         BigDecimal platformFee = fees.platformFee() == null ? BigDecimal.ZERO : fees.platformFee();
+        TownClient.PaymentSettings paySettings = townClient.getPaymentSettings(request.getTownId());
+        boolean isCod = request.getPaymentMethod() == PaymentMethod.COD;
+        if (isCod && !paySettings.codEnabled()) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Cash on delivery is not available in this town");
+        }
+        if (!isCod && !paySettings.upiEnabled()) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Online payment is not available in this town");
+        }
+        BigDecimal codFee = isCod ? paySettings.codCharge() : BigDecimal.ZERO;
         boolean membershipCreditUsed = false;
         UUID persistedOrderId = null;
         try {
-        boolean isCod = request.getPaymentMethod() == PaymentMethod.COD;
-        CheckoutTotals totals = totalsFor(payableSubtotal, deliveryFee, platformFee, request.isUseStoreCredit(), buyerId);
+        CheckoutTotals totals = totalsFor(
+                payableSubtotal, deliveryFee, platformFee, codFee, request.isUseStoreCredit(), buyerId);
 
         Order order = Order.builder()
                 .orderNumber(orderNumber)
@@ -411,6 +455,7 @@ public class OrderService {
                 .promoDiscount(promoDiscount)
                 .deliveryFee(deliveryFee)
                 .platformFee(platformFee)
+                .codFee(codFee)
                 .storeCreditApplied(totals.storeCreditApplied())
                 .membershipCreditUsed(false)
                 .membershipDeliveryWaived(BigDecimal.ZERO)
@@ -431,7 +476,8 @@ public class OrderService {
                 membershipCreditUsed = true;
                 BigDecimal waived = consume.waivedAmount() == null ? deliveryFee : consume.waivedAmount();
                 deliveryFee = BigDecimal.ZERO;
-                totals = totalsFor(payableSubtotal, deliveryFee, platformFee, request.isUseStoreCredit(), buyerId);
+                totals = totalsFor(
+                        payableSubtotal, deliveryFee, platformFee, codFee, request.isUseStoreCredit(), buyerId);
                 order.setDeliveryFee(deliveryFee);
                 order.setMembershipCreditUsed(true);
                 order.setMembershipDeliveryWaived(waived);
@@ -470,7 +516,9 @@ public class OrderService {
         boolean fullyCoveredByCredit = totals.fullyCovered();
         if (!isCod && !fullyCoveredByCredit) {
             paymentInfo = paymentClient.initiatePayment(
-                    buyerId, order.getId(), request.getTownId(), request.getPaymentGateway(), idempotencyKey + "-pay");
+                    buyerId, order.getId(), request.getTownId(), request.getPaymentGateway(),
+                    idempotencyKey + "-pay", buyerPhone,
+                    order.getTotalAmount(), order.getOrderNumber(), order.getStatus().name(), "ONLINE");
         }
 
         CreateOrderResponse response = CreateOrderResponse.builder()
@@ -501,9 +549,11 @@ public class OrderService {
             BigDecimal payableSubtotal,
             BigDecimal deliveryFee,
             BigDecimal platformFee,
+            BigDecimal codFee,
             boolean useStoreCredit,
             UUID buyerId) {
-        BigDecimal grossTotal = payableSubtotal.add(deliveryFee).add(platformFee);
+        BigDecimal safeCod = codFee == null ? BigDecimal.ZERO : codFee.max(BigDecimal.ZERO);
+        BigDecimal grossTotal = payableSubtotal.add(deliveryFee).add(platformFee).add(safeCod);
         BigDecimal walletBalance = useStoreCredit
                 ? paymentClient.getWalletBalance(buyerId)
                 : BigDecimal.ZERO;
@@ -664,6 +714,7 @@ public class OrderService {
                 .membershipDeliveryWaived(order.getMembershipDeliveryWaived() == null
                         ? BigDecimal.ZERO : order.getMembershipDeliveryWaived())
                 .platformFee(order.getPlatformFee() == null ? BigDecimal.ZERO : order.getPlatformFee())
+                .codFee(order.getCodFee() == null ? BigDecimal.ZERO : order.getCodFee())
                 .storeCreditApplied(order.getStoreCreditApplied() == null ? BigDecimal.ZERO : order.getStoreCreditApplied())
                 .totalAmount(order.getTotalAmount())
                 .paymentMethod(order.getPaymentMethod())
@@ -673,6 +724,7 @@ public class OrderService {
                 .invoicePdfUrl(orderInvoiceService.invoicePdfUrl(order))
                 .timeline(buildTimeline(order, assignments))
                 .canCancelOrder(canCancelOrder)
+                .canPayOnline(order.getPaymentMethod() == PaymentMethod.ONLINE && unpaidCancellable)
                 .canFileClaim(canFileClaim)
                 .scratchCard(scratchCardService.findForOrder(order.getBuyerId(), order.getId()).orElse(null))
                 .build();

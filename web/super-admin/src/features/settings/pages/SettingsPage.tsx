@@ -16,6 +16,7 @@ import {
 } from '../api/settingsApi';
 
 type LegalTab = 'termsText' | 'privacyText' | 'refundText';
+type PageView = 'settings' | 'history';
 
 const EMPTY: PlatformSettingsVm = {
   mapsEnabled: false,
@@ -43,6 +44,8 @@ export function SettingsPage() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [pageView, setPageView] = useState<PageView>('settings');
+  const [historyTick, setHistoryTick] = useState(0);
 
   const reload = useCallback(async () => {
     if (!token) return;
@@ -65,6 +68,7 @@ export function SettingsPage() {
     try {
       setSettings(await patchPlatformSettings(token, settings));
       setNotice('Settings saved');
+      setHistoryTick((n) => n + 1);
     } catch (err) {
       setError(err instanceof ApiError || err instanceof Error ? err.message : 'Save failed');
     } finally {
@@ -121,6 +125,51 @@ export function SettingsPage() {
       {notice ? <Banner tone="success">{notice}</Banner> : null}
 
       <div style={styles.stack}>
+        <Card padding="sm" style={styles.pageTabsCard}>
+          <div style={styles.pageTabsRow}>
+            <div style={styles.viewTabs} role="tablist" aria-label="Settings or change history">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={pageView === 'settings'}
+                style={pageView === 'settings' ? styles.viewTabActive : styles.viewTab}
+                onClick={() => setPageView('settings')}
+              >
+                Settings
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={pageView === 'history'}
+                style={pageView === 'history' ? styles.viewTabActive : styles.viewTab}
+                onClick={() => {
+                  setPageView('history');
+                  setHistoryTick((n) => n + 1);
+                }}
+              >
+                Change history
+              </button>
+            </div>
+            {pageView === 'settings' ? (
+              <Button disabled={busy} onClick={() => void onSave()}>
+                {busy ? 'Saving…' : 'Save settings'}
+              </Button>
+            ) : null}
+          </div>
+        </Card>
+
+        {pageView === 'history' ? (
+          token ? (
+            <AdminHistoryPanel
+              token={token}
+              screen="settings"
+              refreshTick={historyTick}
+              tall
+              emptyHint="Each save lists every field that changed (previous → new). Referral rewards, delivery fee, and legal version appear here."
+            />
+          ) : null
+        ) : (
+          <>
         <Card padding="sm" style={styles.card}>
           <div style={styles.sectionHead}>
             <h2 style={styles.sectionTitle}>UI theme</h2>
@@ -205,6 +254,55 @@ export function SettingsPage() {
                 </Button>
               </div>
             </div>
+          </div>
+        </Card>
+
+        <Card padding="sm" style={styles.card}>
+          <h2 style={styles.sectionTitle}>Referrals (orders)</h2>
+          <p style={styles.hintInline}>
+            Off by default. Referee wallet on signup/code apply; referrer wallet on first delivery.
+          </p>
+          <div style={styles.formGrid}>
+            <label style={styles.check}>
+              <input
+                type="checkbox"
+                checked={settings.referralsEnabled ?? false}
+                onChange={(e) => setSettings((s) => ({ ...s, referralsEnabled: e.target.checked }))}
+              />
+              Program enabled
+            </label>
+            <TextField
+              label="Referrer reward (₹, on friend’s first delivery)"
+              value={String(settings.referralReferrerRewardAmount ?? 0)}
+              onChange={(e) =>
+                setSettings((s) => ({
+                  ...s,
+                  referralReferrerRewardAmount: Math.max(0, Number(e.target.value) || 0),
+                }))
+              }
+            />
+            <TextField
+              label="Referee reward (₹, on signup / code apply)"
+              value={String(settings.referralRefereeRewardAmount ?? 0)}
+              onChange={(e) =>
+                setSettings((s) => ({
+                  ...s,
+                  referralRefereeRewardAmount: Math.max(0, Number(e.target.value) || 0),
+                }))
+              }
+            />
+            <TextField
+              label="Share link base (e.g. buyer shop URL)"
+              value={settings.referralShareBaseUrl ?? ''}
+              onChange={(e) => setSettings((s) => ({ ...s, referralShareBaseUrl: e.target.value }))}
+            />
+            <TextField
+              label="Share message ({code}, {link})"
+              value={settings.referralShareMessageTemplate ?? ''}
+              onChange={(e) =>
+                setSettings((s) => ({ ...s, referralShareMessageTemplate: e.target.value }))
+              }
+            />
           </div>
         </Card>
 
@@ -300,12 +398,18 @@ export function SettingsPage() {
               />
               Maintenance
             </label>
-            <Button disabled={busy} onClick={() => void onSave()}>
-              {busy ? 'Saving…' : 'Save settings'}
-            </Button>
+            <label style={styles.check}>
+              <input
+                type="checkbox"
+                checked={settings.mealPlannerEnabled ?? false}
+                onChange={(e) => setSettings((s) => ({ ...s, mealPlannerEnabled: e.target.checked }))}
+              />
+              Meal planner (buyer)
+            </label>
           </div>
         </Card>
-        {token ? <AdminHistoryPanel token={token} screen="settings" refreshTick={notice ? notice.length : 0} /> : null}
+          </>
+        )}
       </div>
     </PortalShell>
   );
@@ -313,6 +417,45 @@ export function SettingsPage() {
 
 const styles: Record<string, CSSProperties> = {
   stack: { display: 'grid', gap: '0.55rem' },
+  pageTabsCard: { padding: '0.45rem 0.55rem' },
+  pageTabsRow: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: '0.65rem',
+    flexWrap: 'wrap',
+  },
+  viewTabs: {
+    display: 'flex',
+    gap: 3,
+    padding: 3,
+    border: '1px solid var(--border)',
+    borderRadius: 'var(--radius-md)',
+    background: 'var(--bg)',
+  },
+  viewTab: {
+    appearance: 'none',
+    border: 'none',
+    background: 'transparent',
+    color: 'var(--text-muted)',
+    fontWeight: 700,
+    fontSize: '0.8rem',
+    padding: '0.35rem 0.75rem',
+    borderRadius: 6,
+    cursor: 'pointer',
+  },
+  viewTabActive: {
+    appearance: 'none',
+    border: 'none',
+    background: 'var(--bg-elevated)',
+    color: 'var(--text)',
+    fontWeight: 800,
+    fontSize: '0.8rem',
+    padding: '0.35rem 0.75rem',
+    borderRadius: 6,
+    cursor: 'pointer',
+    boxShadow: 'var(--shadow-card)',
+  },
   card: { display: 'grid', gap: '0.45rem' },
   sectionHead: {
     display: 'flex',

@@ -35,6 +35,8 @@ cd LocalHyperMart
 
 After Java code changes: `.\scripts\start-dev.ps1 -Rebuild`. Stop apps: `.\scripts\stop-dev.ps1`.
 
+**Razorpay (online UPI):** copy `.env.example` → `.env.local`, paste Test Key Id / Key Secret, then restart `payment-service` (`.\scripts\start-dev.ps1 -Rebuild` if you just pulled this). Buyer web checkout → **UPI / Online**. Register webhook `https://<public-host>/api/v1/payments/webhooks/razorpay` with events `order.paid`, `payment.captured`, `payment.failed`, `refund.processed` and put the webhook secret in `.env.local`. Localhost cannot receive Razorpay webhooks; checkout confirm still works without them.
+
 **Prerequisites:** Docker Desktop, Java 21, Maven 3.9+ (first build / `-Rebuild` only), Node for web apps.
 
 This starts:
@@ -171,7 +173,7 @@ Track overall MVP completion. Status: **Done** | **Partial** | **Not started**
 | **Platform** | API gateway + JWT | Done |
 | | Payment stub + refund stub | Partial |
 | | Notification SMS stub | Partial |
-| | Real Razorpay / MSG91 / FCM | Not started |
+| | Real Razorpay / MSG91 / FCM | Razorpay wired (Test keys via env); MSG91/FCM not started |
 | | Kafka event bus | Not started |
 | | OpenSearch catalog search | Not started |
 | | billing / media / reporting services | Not started |
@@ -249,12 +251,17 @@ Authorization: Bearer <token>
 Idempotency-Key: checkout-attempt-001
 { "townId": "...", "cartId": "...", "addressId": "...", "paymentMethod": "COD" }
 
-# 8. Online checkout + simulate payment webhook
+# 8. Online checkout (Razorpay)
 POST http://localhost:8080/api/v1/orders
 Idempotency-Key: checkout-online-001
 { "townId": "...", "cartId": "...", "addressId": "...", "paymentMethod": "ONLINE", "paymentGateway": "RAZORPAY" }
-# → returns payment.upiIntent
+# → returns payment.checkout { keyId, gatewayOrderId, amountPaise }
+# Buyer web opens Razorpay Checkout, then:
+POST http://localhost:8080/api/v1/payments/confirm
+{ "razorpayOrderId": "order_xxx", "razorpayPaymentId": "pay_xxx", "razorpaySignature": "..." }
 
+# Webhook (Dashboard URL: https://<host>/api/v1/payments/webhooks/razorpay)
+# Without keys, local stub still works:
 POST http://localhost:8080/api/v1/payments/webhooks/razorpay
 X-Razorpay-Signature: dev-bypass
 { "orderId": "<orderId>", "gatewayPaymentId": "pay_test_123" }
@@ -433,7 +440,7 @@ Install the above, then run `.\scripts\start-dev.ps1` — Flyway migrations run 
 
 | Item | Status |
 |---|---|
-| Real payment gateway (Razorpay/PhonePe) | Dev webhook bypass only |
+| Real payment gateway (Razorpay/PhonePe) | Razorpay Standard Checkout + webhook HMAC; PhonePe still stub |
 | Real SMS (MSG91) | Logs to `notification_logs` only |
 | Push notifications (FCM) | Not started |
 | Kafka domain events | Config present, not wired |

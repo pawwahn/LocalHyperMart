@@ -21,9 +21,11 @@ import {
   fetchWalletBalance,
   friendlyCartError,
   isCartTownConflict,
+  isListingUnavailableError,
+  isPlaceholderListingId,
   listAddresses,
   listMyOrders,
-  placeCodOrder,
+  placeOrder,
   removeCartItem,
   removePromo,
   updateAddress,
@@ -32,8 +34,15 @@ import {
   type CartLineView,
   type CartView,
   type CatalogItemView,
+  type CreateOrderDto,
   type OrderSummaryDto,
 } from '../api/shopApi';
+import type { GatewayCheckout } from '../lib/razorpayCheckout';
+
+export type CheckoutOutcome =
+  | { ok: false }
+  | { ok: true; kind: 'placed'; orderId: string; orderNumber: string; status: string }
+  | { ok: true; kind: 'pay'; orderId: string; orderNumber: string; checkout: GatewayCheckout };
 
 type ShopContextValue = ReturnType<typeof useShopState>;
 
@@ -250,7 +259,14 @@ function useShopState() {
       }
 
       desiredQtyRef.current.delete(listingId);
-      setError(friendlyCartError(err, 'Could not update cart'));
+      if (isListingUnavailable(err)) {
+        const serverQty =
+          serverCartRef.current?.items.find((i) => i.listingId === listingId)?.quantity ?? 0;
+        patchLocalQuantity(listingId, serverQty);
+        setError('This item is no longer available. Choose another deal or refresh the page.');
+      } else {
+        setError(friendlyCartError(err, 'Could not update cart'));
+      }
       try {
         applyServerCart(await fetchCart(session.accessToken, townId));
       } catch {
@@ -400,6 +416,13 @@ function useShopState() {
   }, [session, townId, hasTown]);
 
   useEffect(() => {
+    desiredQtyRef.current.clear();
+    syncChainRef.current.clear();
+    setItems([]);
+    setError(null);
+  }, [townId]);
+
+  useEffect(() => {
     void reload();
   }, [reload]);
 
@@ -458,6 +481,10 @@ function useShopState() {
 
   async function doIncrease(listingId: string) {
     if (!requireCartSession()) return;
+    if (isPlaceholderListingId(listingId)) {
+      setError('This preview item cannot be added yet. Pick a live product from the shop.');
+      return;
+    }
     setError(null);
     patchLocalQuantity(listingId, quantityFor(listingId) + 1);
     enqueueListingSync(listingId);
@@ -664,38 +691,48 @@ function useShopState() {
     }
   }
 
-  async function doCheckout(opts?: { useStoreCredit?: boolean }) {
+  async function doCheckout(opts?: { useStoreCredit?: boolean; paymentMethod?: 'COD' | 'ONLINE' }): Promise<CheckoutOutcome> {
     if (!session || !cart?.cartId) {
       setError('Cart is empty');
-      return false;
+      return { ok: false };
     }
     if (!hasTown || !townId) {
       setError('Choose your town first');
       openPicker();
-      return false;
+      return { ok: false };
     }
     if (!selectedAddressId) {
       setError('Add / select a delivery address first');
-      return false;
+      return { ok: false };
     }
     const selected = addresses.find((a) => a.id === selectedAddressId);
     if (!selected || selected.townId !== townId) {
       setError('Delivery address must be in the selected town. Add or select an address for this town.');
-      return false;
+      return { ok: false };
     }
     setBusy(true);
     setError(null);
     setNotice(null);
     try {
-      const order = await placeCodOrder(session.accessToken, {
+      const order: CreateOrderDto = await placeOrder(session.accessToken, {
         townId,
         cartId: cart.cartId,
         addressId: selectedAddressId,
         useStoreCredit: Boolean(opts?.useStoreCredit),
+        paymentMethod: opts?.paymentMethod ?? 'COD',
       });
-      setNotice(`Order placed: ${order.orderNumber} (${order.status})`);
+      const checkout = order.payment?.checkout;
+      if (order.status === 'PAYMENT_PENDING' && checkout?.gatewayOrderId) {
+        return {
+          ok: true,
+          kind: 'pay',
+          orderId: order.orderId,
+          orderNumber: order.orderNumber,
+          checkout,
+        };
+      }
       await reload();
-      return true;
+      return { ok: true, kind: 'placed', orderId: order.orderId, orderNumber: order.orderNumber, status: order.status };
     } catch (err) {
       const raw = err instanceof Error ? err.message : 'Checkout failed';
       if (/address must belong/i.test(raw)) {
@@ -707,12 +744,18 @@ function useShopState() {
           /* show the message even if reload fails */
         }
         setError('This basket was already used on a failed checkout. Refresh the page, add the items again, then place the order.');
-      } else if (/internal server error/i.test(raw)) {
-        setError('Checkout failed. Check address and town match, then retry. If it keeps failing, refresh and try again.');
+      } else if (/could not start online payment|payment service is busy/i.test(raw)) {
+        setError(raw);
+      } else if (/cart service is busy|could not load your basket/i.test(raw)) {
+        setError(raw);
+      } else if (/internal server error|request timed out/i.test(raw)) {
+        setError(
+          'Checkout could not reach the server. Refresh the page. If it keeps failing, run stop-dev then start-dev locally.',
+        );
       } else {
         setError(raw);
       }
-      return false;
+      return { ok: false };
     } finally {
       setBusy(false);
     }
@@ -748,6 +791,8 @@ function useShopState() {
     busyKey,
     error,
     notice,
+    setError,
+    setNotice,
     reload,
     rememberItems,
     quantityFor,

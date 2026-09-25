@@ -20,6 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -145,22 +146,60 @@ public class AdminAuditService implements AdminAuditor {
 
     private AdminAuditEntryResponse toResponse(TownHistory row) {
         String summary = row.getChangeSummary();
-        if (summary == null || summary.isBlank() || "Updated settings".equalsIgnoreCase(summary.trim())) {
-            summary = TownConfigService.settingsChangeSummary(
-                    null, row.getBeforeSnapshot(), row.getAfterSnapshot());
+        Map<String, Object> before = row.getBeforeSnapshot();
+        Map<String, Object> after = row.getAfterSnapshot();
+        if (before != null && after != null && !before.isEmpty() && !after.isEmpty()) {
+            if ("town-settings".equals(row.getScreenKey())) {
+                summary = TownConfigService.settingsChangeSummary(null, before, after);
+            } else if ("settings".equals(row.getScreenKey())) {
+                summary = PlatformSettingsService.settingsChangeSummary(before, after);
+            } else if (summary == null || summary.isBlank()
+                    || "Updated settings".equalsIgnoreCase(summary.trim())) {
+                summary = TownConfigService.settingsChangeSummary(null, before, after);
+            }
+        } else if (summary == null || summary.isBlank() || "Updated settings".equalsIgnoreCase(summary.trim())) {
+            summary = TownConfigService.settingsChangeSummary(null, before, after);
         }
+        List<String> changeLines = buildChangeLines(row, before, after, summary);
         return AdminAuditEntryResponse.builder()
                 .id(row.getId())
                 .screenKey(row.getScreenKey())
                 .action(row.getAction())
                 .changeSummary(summary)
+                .changeLines(changeLines)
                 .actorUserId(row.getActorUserId())
                 .actorRole(row.getActorRole())
                 .townId(row.getTownId())
                 .entityType(row.getEntityType())
                 .entityId(row.getEntityId())
                 .createdAt(row.getCreatedAt())
+                .beforeSnapshot(before)
+                .afterSnapshot(after)
                 .build();
+    }
+
+    private List<String> buildChangeLines(
+            TownHistory row,
+            Map<String, Object> before,
+            Map<String, Object> after,
+            String summary) {
+        if ("town-settings".equals(row.getScreenKey()) && before != null && after != null) {
+            List<String> parts = TownConfigService.settingsChangeParts(before, after);
+            if (!parts.isEmpty()) {
+                return parts;
+            }
+        }
+        if ("settings".equals(row.getScreenKey()) && before != null && after != null) {
+            List<String> parts = PlatformSettingsService.settingsChangeParts(before, after);
+            if (!parts.isEmpty()) {
+                return parts;
+            }
+        }
+        String text = summary == null ? "" : summary.trim();
+        if (text.isEmpty()) {
+            return List.of();
+        }
+        return List.of(text);
     }
 
     private Map<String, Object> asMap(Object value) {

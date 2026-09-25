@@ -26,6 +26,7 @@ public class OrderDetailResponse {
     private boolean membershipCreditUsed;
     private BigDecimal membershipDeliveryWaived;
     private BigDecimal platformFee;
+    private BigDecimal codFee;
     private BigDecimal storeCreditApplied;
     private BigDecimal totalAmount;
     private PaymentMethod paymentMethod;
@@ -37,6 +38,8 @@ public class OrderDetailResponse {
     private ScratchCardResponse scratchCard;
     /** True when buyer may cancel the whole order (before any shop marks ready). */
     private boolean canCancelOrder;
+    /** True when buyer may finish an unpaid online order. */
+    private boolean canPayOnline;
     /** True when buyer may file a post-delivery claim (delivered, within window). */
     private boolean canFileClaim;
 }

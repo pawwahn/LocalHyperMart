@@ -3,6 +3,8 @@ package com.hyperlocalmart.town.dto.request;
 import com.hyperlocalmart.town.dto.TownAdImageDto;
 import com.hyperlocalmart.town.entity.TownAdSlot;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
@@ -48,4 +50,9 @@ public class UpsertTownAdRequest {
 
     /** When set (and allTowns is false), replicate this ad to these towns. Current town is always included. */
     private List<UUID> targetTownIds;
+
+    /** Seconds on screen before carousel advances to the next slide (2–60). */
+    @Min(2)
+    @Max(60)
+    private Integer displayDurationSec;
 }

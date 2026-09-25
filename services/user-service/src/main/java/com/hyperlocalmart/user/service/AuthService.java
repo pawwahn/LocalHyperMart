@@ -41,13 +41,24 @@ public class AuthService {
     private final LoginProperties loginProperties;
     private final OtpProperties otpProperties;
     private final InviteProperties inviteProperties;
+    private final ReferralService referralService;
 
     @Transactional
     public RegisterResponse register(RegisterRequest request) {
         if (inviteProperties.isRequireTerms() && !Boolean.TRUE.equals(request.getAcceptedTerms())) {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Accept Terms to register");
         }
-        if (!inviteProperties.isPhoneAllowed(request.getPhone())) {
+        boolean referralInviteBypass = false;
+        if (StringUtils.hasText(request.getReferralCode())) {
+            var referralCheck = referralService.validate(request.getReferralCode());
+            if (referralCheck.isProgramEnabled()) {
+                if (!referralCheck.isValid()) {
+                    throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Invalid referral code");
+                }
+                referralInviteBypass = true;
+            }
+        }
+        if (!inviteProperties.isPhoneAllowed(request.getPhone()) && !referralInviteBypass) {
             throw new BusinessException(ErrorCode.CONFLICT,
                     "Invite-only soft launch. This number is not on the invite list.");
         }
@@ -81,6 +92,9 @@ public class AuthService {
         user.getUserRoles().add(userRole);
 
         userRepository.save(user);
+        if (referralInviteBypass) {
+            referralService.applyAtRegistration(user.getId(), request.getReferralCode());
+        }
         return RegisterResponse.builder()
                 .userId(user.getId())
                 .role(RoleName.BUYER.name())

@@ -44,6 +44,9 @@ const VendorBillingPage = lazy(() =>
 const CatalogPage = lazy(() =>
   import('@/features/catalog/pages/CatalogPage').then((m) => ({ default: m.CatalogPage })),
 );
+const RecipesPage = lazy(() =>
+  import('@/features/recipes/pages/RecipesPage').then((m) => ({ default: m.RecipesPage })),
+);
 const StoreListingsPage = lazy(() =>
   import('@/features/store-listings/pages/StoreListingsPage').then((m) => ({ default: m.StoreListingsPage })),
 );
@@ -85,6 +88,7 @@ export function AppRouter() {
                 <Route path="/vendors" element={<VendorsPage />} />
                 <Route path="/vendor-billing" element={<VendorBillingPage />} />
                 <Route path="/catalog" element={<CatalogPage />} />
+                <Route path="/recipes" element={<RecipesPage />} />
                 <Route path="/store-listings" element={<StoreListingsPage />} />
                 <Route path="/settlements" element={<SettlementsPage />} />
                 <Route path="/hubs" element={<HubsPage />} />

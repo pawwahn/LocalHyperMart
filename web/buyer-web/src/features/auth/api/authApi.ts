@@ -17,6 +17,7 @@ export async function registerBuyer(input: {
   lastName?: string;
   acceptedTerms: boolean;
   acceptedLegalVersion?: number;
+  referralCode?: string;
 }): Promise<void> {
   await apiRequest<unknown>('/api/v1/auth/register', {
     method: 'POST',

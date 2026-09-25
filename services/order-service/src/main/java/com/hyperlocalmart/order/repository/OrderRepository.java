@@ -28,6 +28,8 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
 
     Optional<Order> findByIdAndBuyerId(UUID id, UUID buyerId);
 
+    boolean existsByBuyerIdAndStatus(UUID buyerId, OrderStatus status);
+
     Optional<Order> findByIdAndTownId(UUID id, UUID townId);
 
     @EntityGraph(attributePaths = {"vendorSubOrders"})

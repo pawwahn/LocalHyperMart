@@ -35,4 +35,6 @@ public interface BuyerMembershipPurchaseRepository extends JpaRepository<BuyerMe
             @Param("status") MembershipPurchaseStatus status,
             @Param("phone") String phone,
             @Param("buyerId") UUID buyerId);
+
+    Optional<BuyerMembershipPurchase> findByGatewayOrderId(String gatewayOrderId);
 }

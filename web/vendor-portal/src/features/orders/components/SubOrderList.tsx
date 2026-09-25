@@ -25,6 +25,17 @@ export function SubOrderList({
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(25);
+  /** Empty = every order starts collapsed (minimized). */
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
+
+  function toggleExpanded(orderId: string) {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(orderId)) next.delete(orderId);
+      else next.add(orderId);
+      return next;
+    });
+  }
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -55,6 +66,10 @@ export function SubOrderList({
 
   return (
     <div style={styles.wrap}>
+      <style>{`
+        .vendor-order-toggle:hover { background: color-mix(in srgb, var(--border) 35%, transparent); }
+        .vendor-order-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+      `}</style>
       <div style={{ ...styles.toolbar, ...(narrow ? styles.toolbarNarrow : null) }}>
         <input
           style={styles.search}
@@ -88,24 +103,45 @@ export function SubOrderList({
             {pageItems.map((order) => {
               const busy = actionId === order.id || actionId?.startsWith(`${order.id}:`);
               const canAct = order.status === 'PLACED';
+              const isCollapsed = !expanded.has(order.id);
+              const itemCount = order.items.length;
+              const itemLine =
+                itemCount > 0
+                  ? `${itemCount} item${itemCount === 1 ? '' : 's'}`
+                  : order.itemSummary;
+              const toggleLabel = isCollapsed ? 'Show items' : 'Hide items';
               return (
                 <Card key={order.id} elevated style={styles.row}>
                   <div style={styles.body}>
-                    <div style={styles.titleRow}>
-                      <p style={{ ...styles.orderNo, ...(narrow ? styles.orderNoNarrow : null) }}>
-                        {order.subOrderNumber}
-                      </p>
-                      <p style={styles.placedAt} title={order.placedAt}>
-                        Placed {order.placedAtLabel}
-                      </p>
-                    </div>
-                    <p style={styles.meta}>Parent {order.orderNumber}</p>
-                    <p style={styles.meta}>
-                      <span style={styles.badge}>{statusLabel(order.status)}</span> ·{' '}
-                      {order.subtotalLabel}
-                    </p>
+                    <button
+                      type="button"
+                      className="vendor-order-toggle"
+                      style={styles.headerBtn}
+                      onClick={() => toggleExpanded(order.id)}
+                      aria-expanded={!isCollapsed}
+                      aria-label={`${toggleLabel} for ${order.subOrderNumber}`}
+                    >
+                      <span style={styles.chevron} aria-hidden>{isCollapsed ? '▸' : '▾'}</span>
+                      <span style={styles.headerMain}>
+                        <span style={styles.titleRow}>
+                          <span style={{ ...styles.orderNo, ...(narrow ? styles.orderNoNarrow : null) }}>
+                            {order.subOrderNumber}
+                          </span>
+                          <span style={styles.placedAt} title={order.placedAt}>
+                            Placed {order.placedAtLabel}
+                          </span>
+                        </span>
+                        <span style={styles.meta}>Parent {order.orderNumber}</span>
+                        <span style={styles.meta}>
+                          <span style={styles.badge}>{statusLabel(order.status)}</span> ·{' '}
+                          {order.subtotalLabel}
+                          {isCollapsed && itemLine ? ` · ${itemLine}` : ''}
+                        </span>
+                      </span>
+                      <span style={styles.togglePill}>{toggleLabel}</span>
+                    </button>
 
-                    {order.items.length > 0 ? (
+                    {!isCollapsed && order.items.length > 0 ? (
                       <ul style={styles.itemList}>
                         {order.items.map((item) => (
                           <li key={item.orderItemId} style={styles.itemRow}>
@@ -151,9 +187,9 @@ export function SubOrderList({
                           </li>
                         ))}
                       </ul>
-                    ) : (
+                    ) : !isCollapsed ? (
                       <p style={styles.meta}>{order.itemSummary}</p>
-                    )}
+                    ) : null}
                   </div>
                   {canAct ? (
                     <div style={{ ...styles.actions, ...(narrow ? styles.actionsNarrow : null) }}>
@@ -244,6 +280,42 @@ const styles: Record<string, CSSProperties> = {
     padding: '0.9rem 1rem',
   },
   body: { display: 'grid', gap: '0.25rem', minWidth: 0, flex: '1 1 14rem' },
+  headerBtn: {
+    display: 'flex',
+    gap: '0.45rem',
+    alignItems: 'flex-start',
+    width: '100%',
+    margin: 0,
+    padding: '0.35rem 0.4rem',
+    border: '1px solid transparent',
+    borderRadius: 'var(--radius-md)',
+    background: 'transparent',
+    textAlign: 'left',
+    cursor: 'pointer',
+    color: 'inherit',
+    font: 'inherit',
+  },
+  togglePill: {
+    flex: '0 0 auto',
+    alignSelf: 'center',
+    marginLeft: 'auto',
+    fontSize: '0.72rem',
+    fontWeight: 800,
+    color: 'var(--accent-hover)',
+    whiteSpace: 'nowrap',
+    padding: '0.28rem 0.5rem',
+    borderRadius: 999,
+    border: '1px solid color-mix(in srgb, var(--accent) 35%, var(--border))',
+    background: 'color-mix(in srgb, var(--accent) 8%, var(--bg-elevated))',
+  },
+  chevron: {
+    flex: '0 0 auto',
+    fontWeight: 800,
+    fontSize: '0.9rem',
+    lineHeight: 1.35,
+    color: 'var(--text-muted)',
+  },
+  headerMain: { display: 'grid', gap: '0.2rem', minWidth: 0, flex: 1 },
   titleRow: {
     display: 'flex',
     justifyContent: 'space-between',
@@ -252,19 +324,17 @@ const styles: Record<string, CSSProperties> = {
     flexWrap: 'wrap',
   },
   orderNo: {
-    margin: 0,
     fontWeight: 800,
     fontFamily: 'var(--font-display)',
     overflowWrap: 'anywhere',
   },
   orderNoNarrow: { fontSize: '0.95rem' },
   placedAt: {
-    margin: 0,
     fontWeight: 700,
     fontSize: '0.82rem',
     color: 'var(--text)',
   },
-  meta: { margin: 0, color: 'var(--text-muted)', fontSize: '0.82rem' },
+  meta: { color: 'var(--text-muted)', fontSize: '0.82rem' },
   badge: {
     fontSize: '0.68rem',
     fontWeight: 800,

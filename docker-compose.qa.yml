@@ -155,6 +155,13 @@ services:
     environment:
       <<: *java-env
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/hyperlocalmart_payment
+      RAZORPAY_KEY_ID: ${RAZORPAY_KEY_ID:-}
+      RAZORPAY_KEY_SECRET: ${RAZORPAY_KEY_SECRET:-}
+      RAZORPAY_WEBHOOK_SECRET: ${RAZORPAY_WEBHOOK_SECRET:-}
+      RAZORPAY_CHECKOUT_NAME: ${RAZORPAY_CHECKOUT_NAME:-HyperLocalMart}
+      RAZORPAY_KEY_ID: ${RAZORPAY_KEY_ID:-}
+      RAZORPAY_KEY_SECRET: ${RAZORPAY_KEY_SECRET:-}
+      RAZORPAY_WEBHOOK_SECRET: ${RAZORPAY_WEBHOOK_SECRET:-}
 
   delivery-service:
     <<: *java-svc

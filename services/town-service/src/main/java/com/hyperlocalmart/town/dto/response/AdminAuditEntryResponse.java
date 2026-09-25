@@ -4,6 +4,7 @@ import lombok.Builder;
 import lombok.Value;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -15,6 +16,7 @@ public class AdminAuditEntryResponse {
     String screenKey;
     String action;
     String changeSummary;
+    List<String> changeLines;
     UUID actorUserId;
     String actorRole;
     UUID townId;

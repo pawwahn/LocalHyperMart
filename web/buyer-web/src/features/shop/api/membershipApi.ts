@@ -35,6 +35,16 @@ export type MembershipPurchase = {
   channel: string;
   status: string;
   expiresAtAfter?: string | null;
+  checkout?: {
+    keyId?: string | null;
+    gatewayOrderId: string;
+    amountPaise: number;
+    currency: string;
+    name: string;
+    description?: string | null;
+    prefillContact?: string | null;
+    logoUrl?: string | null;
+  } | null;
 };
 
 export async function fetchMembershipCatalog(token: string, townId?: string): Promise<MembershipCatalog> {
@@ -58,6 +68,17 @@ export async function purchaseMembership(
   input: { slab: string; channel: 'ONLINE' | 'CASH'; townId: string },
 ): Promise<MembershipPurchase> {
   return apiRequest<MembershipPurchase>('/api/v1/payments/memberships/purchase', {
+    token,
+    method: 'POST',
+    body: input,
+  });
+}
+
+export async function confirmMembershipPayment(
+  token: string,
+  input: { razorpayOrderId: string; razorpayPaymentId: string; razorpaySignature: string },
+): Promise<MembershipPurchase> {
+  return apiRequest<MembershipPurchase>('/api/v1/payments/memberships/confirm', {
     token,
     method: 'POST',
     body: input,

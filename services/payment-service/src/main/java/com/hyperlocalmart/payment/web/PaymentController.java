@@ -1,6 +1,7 @@
 package com.hyperlocalmart.payment.web;
 
 import com.hyperlocalmart.common.api.ApiResponse;
+import com.hyperlocalmart.payment.dto.request.ConfirmGatewayPaymentRequest;
 import com.hyperlocalmart.payment.dto.request.InitiatePaymentRequest;
 import com.hyperlocalmart.payment.dto.response.PaymentDetailResponse;
 import com.hyperlocalmart.payment.dto.response.PaymentResponse;
@@ -31,6 +32,15 @@ public class PaymentController {
             HttpServletRequest httpRequest) {
         PaymentResponse response = paymentService.initiate(principal.getUserId(), request, idempotencyKey);
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponses.ok(httpRequest, response));
+    }
+
+    @PostMapping("/confirm")
+    public ResponseEntity<ApiResponse<PaymentResponse>> confirmPayment(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @Valid @RequestBody ConfirmGatewayPaymentRequest request,
+            HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                paymentService.confirmCheckout(principal.getUserId(), request)));
     }
 
     @GetMapping("/{paymentId}")

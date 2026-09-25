@@ -1,9 +1,10 @@
 import type { CSSProperties } from 'react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ThemePicker } from '@hlm-theme';
 import { PortalShell } from '@/shared/layout/PortalShell';
 import { useAuth } from '@/shared/auth/AuthContext';
+import { getPublicPlatformSettings } from '@/features/auth/api/platformSettingsApi';
 import { useShop } from '../hooks/useShop';
 
 export function MorePage() {
@@ -11,19 +12,45 @@ export function MorePage() {
   const { cart } = useShop();
   const navigate = useNavigate();
   const [signingOut, setSigningOut] = useState(false);
+  const [mealPlannerOn, setMealPlannerOn] = useState(false);
 
-  const rows = useMemo(
-    () => [
-      { to: '/orders', label: 'Orders', hint: 'Track deliveries' },
-      { to: '/addresses', label: 'Saved addresses', hint: 'Edit or delete delivery addresses' },
-      { to: '/alerts', label: 'Alerts', hint: 'Order updates' },
-      { to: '/wallet', label: 'Wallet', hint: 'Store credit' },
-      { to: '/spend', label: 'My spend', hint: 'Orders, COD vs online, monthly total' },
-      { to: '/membership', label: 'Free delivery plans', hint: '3 / 6 / 12 months · buy here' },
-      { to: '/legal/terms', label: 'Terms & policies', hint: 'Wallet, membership, claims, refunds' },
-    ],
-    [],
-  );
+  useEffect(() => {
+    let cancelled = false;
+    void getPublicPlatformSettings()
+      .then((s) => {
+        if (!cancelled) setMealPlannerOn(s.mealPlannerEnabled);
+      })
+      .catch(() => {
+        if (!cancelled) setMealPlannerOn(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const rows = useMemo(() => {
+    const links = [
+      ...(mealPlannerOn
+        ? [
+            {
+              key: 'meal-planner',
+              to: '/cart' as const,
+              label: 'Meal planner',
+              hint: 'What are you cooking? Add ingredients to cart',
+            },
+          ]
+        : []),
+      { key: 'orders', to: '/orders' as const, label: 'Orders', hint: 'Track deliveries' },
+      { key: 'addresses', to: '/addresses' as const, label: 'Saved addresses', hint: 'Edit or delete delivery addresses' },
+      { key: 'alerts', to: '/alerts' as const, label: 'Alerts', hint: 'Order updates' },
+      { key: 'wallet', to: '/wallet' as const, label: 'Wallet', hint: 'Store credit' },
+      { key: 'spend', to: '/spend' as const, label: 'My spend', hint: 'Orders, COD vs online, monthly total' },
+      { key: 'membership', to: '/membership' as const, label: 'Free delivery plans', hint: '3 / 6 / 12 months · buy here' },
+      { key: 'invite', to: '/invite' as const, label: 'Invite friends', hint: 'Share code · earn wallet on deliveries' },
+      { key: 'legal', to: '/legal/terms' as const, label: 'Terms & policies', hint: 'Wallet, membership, claims, refunds' },
+    ];
+    return links;
+  }, [mealPlannerOn]);
 
   return (
     <PortalShell
@@ -34,7 +61,7 @@ export function MorePage() {
     >
       <div style={styles.list}>
         {rows.map((row) => (
-          <Link key={row.to} to={row.to} style={styles.row}>
+          <Link key={row.key} to={row.to} style={styles.row} state={row.key === 'meal-planner' ? { mealPlanner: true } : undefined}>
             <span>
               <strong style={styles.rowTitle}>{row.label}</strong>
               <span style={styles.rowHint}>{row.hint}</span>

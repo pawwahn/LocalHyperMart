@@ -1,5 +1,6 @@
 package com.hyperlocalmart.payment.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hyperlocalmart.payment.client.OrderClient;
 import com.hyperlocalmart.payment.config.PaymentProperties;
 import com.hyperlocalmart.payment.dto.request.InitiatePaymentRequest;
@@ -8,6 +9,8 @@ import com.hyperlocalmart.payment.dto.response.PaymentResponse;
 import com.hyperlocalmart.payment.entity.PaymentGateway;
 import com.hyperlocalmart.payment.entity.PaymentStatus;
 import com.hyperlocalmart.payment.entity.RefundStatus;
+import com.hyperlocalmart.payment.razorpay.RazorpayClient;
+import com.hyperlocalmart.payment.razorpay.RazorpayOrder;
 import com.hyperlocalmart.payment.repository.PaymentRepository;
 import com.hyperlocalmart.payment.repository.PaymentWebhookLogRepository;
 import com.hyperlocalmart.payment.repository.RefundRepository;
@@ -23,6 +26,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 
@@ -34,12 +38,15 @@ class PaymentServiceTest {
     @Mock private RefundRepository refundRepository;
     @Mock private OrderClient orderClient;
     @Mock private PaymentProperties paymentProperties;
+    @Mock private RazorpayClient razorpayClient;
+    @Mock private MembershipService membershipService;
+    @Mock private ObjectMapper objectMapper;
 
     @InjectMocks
     private PaymentService paymentService;
 
     @Test
-    void initiate_createsPendingPaymentWithUpiIntent() {
+    void initiate_createsPendingPaymentWithCheckoutOrder() {
         UUID buyerId = UUID.randomUUID();
         UUID orderId = UUID.randomUUID();
         UUID townId = UUID.randomUUID();
@@ -51,19 +58,29 @@ class PaymentServiceTest {
 
         when(orderClient.getOrder(orderId, buyerId)).thenReturn(new OrderClient.OrderSnapshot(
                 orderId, buyerId, townId, "NRPT/2026/00001", "PAYMENT_PENDING", "PENDING", "ONLINE",
-                new BigDecimal("538.00")
+                new BigDecimal("538.00"), "9876543210"
         ));
+        when(paymentRepository.findFirstByOrderIdAndStatusOrderByCreatedAtDesc(orderId, PaymentStatus.PENDING))
+                .thenReturn(Optional.empty());
         when(paymentRepository.save(any())).thenAnswer(invocation -> {
             com.hyperlocalmart.payment.entity.Payment payment = invocation.getArgument(0);
-            payment.setId(UUID.randomUUID());
+            if (payment.getId() == null) {
+                payment.setId(UUID.randomUUID());
+            }
             return payment;
         });
+        when(razorpayClient.createOrder(anyLong(), any(), any()))
+                .thenReturn(new RazorpayOrder("order_test123", 53800L, "INR"));
+        when(paymentProperties.isRazorpayConfigured()).thenReturn(false);
 
         PaymentResponse response = paymentService.initiate(buyerId, request, "idem-1");
 
         assertThat(response.getStatus()).isEqualTo(PaymentStatus.PENDING);
         assertThat(response.getUpiIntent()).contains("upi://pay");
         assertThat(response.getAmount()).isEqualByComparingTo("538.00");
+        assertThat(response.getCheckout()).isNotNull();
+        assertThat(response.getCheckout().getGatewayOrderId()).isEqualTo("order_test123");
+        assertThat(response.getCheckout().getAmountPaise()).isEqualTo(53800L);
     }
 
     @Test
@@ -88,7 +105,7 @@ class PaymentServiceTest {
     }
 
     @Test
-    void initiateRefund_createsInitiatedRefundForSuccessfulPayment() {
+    void initiateRefund_createsRefundForSuccessfulPayment() {
         UUID buyerId = UUID.randomUUID();
         UUID orderId = UUID.randomUUID();
         UUID paymentId = UUID.randomUUID();
@@ -120,7 +137,7 @@ class PaymentServiceTest {
 
         var response = paymentService.initiateRefund(buyerId, request);
 
-        assertThat(response.getStatus()).isEqualTo(RefundStatus.INITIATED);
+        assertThat(response.getStatus()).isEqualTo(RefundStatus.REFUNDED);
         assertThat(response.getAmount()).isEqualByComparingTo("850.00");
         assertThat(response.getExpectedByDate()).isNotNull();
     }

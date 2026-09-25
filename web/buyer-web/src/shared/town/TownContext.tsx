@@ -27,6 +27,9 @@ type TownContextValue = {
   themeColor: string;
   bestDealsEnabled: boolean;
   dealPrices: number[];
+  codEnabled: boolean;
+  upiEnabled: boolean;
+  codCharge: number;
   loading: boolean;
   error: string | null;
   /** One-shot message after a town switch (cart cleared, etc.). */
@@ -67,6 +70,9 @@ export function TownProvider({ children }: { children: ReactNode }) {
   const [themeColor, setThemeColor] = useState(DEFAULT_TOWN_THEME);
   const [bestDealsEnabled, setBestDealsEnabled] = useState(true);
   const [dealPrices, setDealPrices] = useState<number[]>(DEFAULT_DEAL_PRICES);
+  const [codEnabled, setCodEnabled] = useState(true);
+  const [upiEnabled, setUpiEnabled] = useState(true);
+  const [codCharge, setCodCharge] = useState(0);
   const [switchNotice, setSwitchNotice] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
 
@@ -119,11 +125,21 @@ export function TownProvider({ children }: { children: ReactNode }) {
       setThemeColor(DEFAULT_TOWN_THEME);
       setBestDealsEnabled(true);
       setDealPrices(DEFAULT_DEAL_PRICES);
+      setCodEnabled(true);
+      setUpiEnabled(true);
+      setCodCharge(0);
       applyTownTheme(DEFAULT_TOWN_THEME);
       return;
     }
     let cancelled = false;
-    void apiRequest<{ themeColor?: string; bestDealsEnabled?: boolean; dealPrices?: number[] }>(
+    void apiRequest<{
+      themeColor?: string;
+      bestDealsEnabled?: boolean;
+      dealPrices?: number[];
+      codEnabled?: boolean;
+      upiEnabled?: boolean;
+      codCharge?: number;
+    }>(
       `/api/v1/towns/${townId}/shop-settings`,
       { timeoutMs: 8_000 },
     )
@@ -133,6 +149,10 @@ export function TownProvider({ children }: { children: ReactNode }) {
         setThemeColor(color);
         setBestDealsEnabled(data?.bestDealsEnabled !== false);
         setDealPrices(parseDealPrices(data?.dealPrices));
+        setCodEnabled(data?.codEnabled !== false);
+        setUpiEnabled(data?.upiEnabled !== false);
+        const charge = Number(data?.codCharge);
+        setCodCharge(Number.isFinite(charge) && charge >= 0 ? charge : 0);
         applyTownTheme(color);
       })
       .catch(() => {
@@ -140,6 +160,9 @@ export function TownProvider({ children }: { children: ReactNode }) {
         setThemeColor(DEFAULT_TOWN_THEME);
         setBestDealsEnabled(true);
         setDealPrices(DEFAULT_DEAL_PRICES);
+        setCodEnabled(true);
+        setUpiEnabled(true);
+        setCodCharge(0);
         applyTownTheme(DEFAULT_TOWN_THEME);
       });
     return () => {
@@ -194,6 +217,9 @@ export function TownProvider({ children }: { children: ReactNode }) {
       themeColor,
       bestDealsEnabled,
       dealPrices,
+      codEnabled,
+      upiEnabled,
+      codCharge,
       loading,
       error,
       switchNotice,
@@ -216,6 +242,9 @@ export function TownProvider({ children }: { children: ReactNode }) {
       themeColor,
       bestDealsEnabled,
       dealPrices,
+      codEnabled,
+      upiEnabled,
+      codCharge,
       loading,
       error,
       switchNotice,

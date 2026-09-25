@@ -13,7 +13,11 @@ public class GatewayRoutesConfig {
     @Bean
     public RouteLocator gatewayRoutes(RouteLocatorBuilder builder, ServiceUris services) {
         return builder.routes()
-                .route("user-service", r -> r.path("/api/v1/auth/**", "/api/v1/users/**", "/api/v1/addresses/**")
+                .route("user-service", r -> r.path(
+                                "/api/v1/auth/**",
+                                "/api/v1/users/**",
+                                "/api/v1/addresses/**",
+                                "/api/v1/referrals/**")
                         .uri(services.getUser()))
                 .route("town-service", r -> r.path("/api/v1/towns/**", "/api/v1/platform/**", "/api/v1/geo/**")
                         .uri(services.getTown()))

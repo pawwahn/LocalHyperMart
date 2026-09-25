@@ -49,6 +49,7 @@ class AuthServiceTest {
     @Mock private PasswordResetOtpRepository passwordResetOtpRepository;
     @Mock private PasswordEncoder passwordEncoder;
     @Mock private JwtService jwtService;
+    @Mock private ReferralService referralService;
 
     private LoginProperties loginProperties;
     private OtpProperties otpProperties;
@@ -74,7 +75,8 @@ class AuthServiceTest {
                 jwtService,
                 loginProperties,
                 otpProperties,
-                inviteProperties
+                inviteProperties,
+                referralService
         );
     }
 

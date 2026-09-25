@@ -75,4 +75,10 @@ public class TownAd extends BaseAuditEntity {
     /** Links the same creative across multiple selected towns. */
     @Column(name = "campaign_id")
     private UUID campaignId;
+
+    /** Seconds this creative stays on screen before auto-advancing (carousel). */
+    @Column(name = "display_duration_sec", nullable = false)
+    @JdbcTypeCode(SqlTypes.SMALLINT)
+    @Builder.Default
+    private int displayDurationSec = 4;
 }

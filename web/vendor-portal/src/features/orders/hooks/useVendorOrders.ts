@@ -68,7 +68,10 @@ export function useVendorOrders() {
   );
 
   const reload = useCallback(async () => {
-    if (!session) return;
+    if (!session) {
+      setLoading(false);
+      return;
+    }
     const soft = Boolean(ordersCacheFor(session.vendorId, statusFilter));
     if (!soft) setLoading(true);
     setError(null);

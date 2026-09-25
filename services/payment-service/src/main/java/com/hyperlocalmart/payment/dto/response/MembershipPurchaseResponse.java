@@ -23,4 +23,5 @@ public class MembershipPurchaseResponse {
     Instant expiresAtAfter;
     Instant createdAt;
     String note;
+    GatewayCheckoutResponse checkout;
 }

@@ -20,6 +20,7 @@ export type TownAdDto = {
   imageUrl: string | null;
   imageMediaId: string | null;
   enabled: boolean;
+  displayDurationSec?: number;
 };
 
 type TownAdsDto = {
@@ -44,6 +45,14 @@ function imageUrlsFromAd(ad: TownAdDto): string[] {
   return ad.imageUrl ? [ad.imageUrl] : [];
 }
 
+const DEFAULT_DISPLAY_SEC = 4;
+
+function clampDisplaySec(sec: number | undefined): number {
+  const n = Number(sec);
+  if (!Number.isFinite(n)) return DEFAULT_DISPLAY_SEC;
+  return Math.min(60, Math.max(2, Math.round(n)));
+}
+
 export function apiAdToCreative(ad: TownAdDto): AdCreative {
   const slot = (ad.slotKey || 'home_hero') as AdSlotId;
   const imageUrls = imageUrlsFromAd(ad);
@@ -59,6 +68,7 @@ export function apiAdToCreative(ad: TownAdDto): AdCreative {
     emoji: '🛍️',
     imageUrl: imageUrls[0],
     imageUrls,
+    displayDurationSec: clampDisplaySec(ad.displayDurationSec),
   };
 }
 

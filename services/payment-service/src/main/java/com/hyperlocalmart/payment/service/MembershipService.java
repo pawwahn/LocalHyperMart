@@ -4,12 +4,15 @@ import com.hyperlocalmart.common.exception.BusinessException;
 import com.hyperlocalmart.common.exception.ErrorCode;
 import com.hyperlocalmart.payment.client.TownClient;
 import com.hyperlocalmart.payment.client.UserClient;
+import com.hyperlocalmart.payment.config.PaymentProperties;
+import com.hyperlocalmart.payment.dto.request.ConfirmGatewayPaymentRequest;
 import com.hyperlocalmart.payment.dto.request.ConfirmMembershipCashRequest;
 import com.hyperlocalmart.payment.dto.request.ConsumeMembershipRequest;
 import com.hyperlocalmart.payment.dto.request.GiftMembershipRequest;
 import com.hyperlocalmart.payment.dto.request.PurchaseMembershipRequest;
 import com.hyperlocalmart.payment.dto.request.RestoreMembershipRequest;
 import com.hyperlocalmart.payment.dto.response.ConsumeMembershipResponse;
+import com.hyperlocalmart.payment.dto.response.GatewayCheckoutResponse;
 import com.hyperlocalmart.payment.dto.response.MembershipCatalogResponse;
 import com.hyperlocalmart.payment.dto.response.MembershipCatalogResponse.SlabOffer;
 import com.hyperlocalmart.payment.dto.response.MembershipMeResponse;
@@ -27,9 +30,15 @@ import com.hyperlocalmart.payment.entity.MembershipSlab;
 import com.hyperlocalmart.payment.repository.BuyerMembershipLedgerRepository;
 import com.hyperlocalmart.payment.repository.BuyerMembershipPurchaseRepository;
 import com.hyperlocalmart.payment.repository.BuyerMembershipRepository;
+import com.hyperlocalmart.payment.razorpay.RazorpayClient;
+import com.hyperlocalmart.payment.razorpay.RazorpayMoney;
+import com.hyperlocalmart.payment.razorpay.RazorpayOrder;
+import com.hyperlocalmart.payment.razorpay.RazorpayPayment;
+import com.hyperlocalmart.payment.razorpay.RazorpaySignatures;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -57,6 +66,9 @@ public class MembershipService {
     private final BuyerMembershipLedgerRepository ledgerRepository;
     private final TownClient townClient;
     private final UserClient userClient;
+    private final RazorpayClient razorpayClient;
+    private final PaymentProperties paymentProperties;
+    private final TransactionTemplate transactionTemplate;
 
     @Transactional(readOnly = true)
     public MembershipCatalogResponse catalog(UUID buyerId, String phone, UUID townId) {
@@ -123,14 +135,12 @@ public class MembershipService {
                 .build();
     }
 
-    @Transactional
     public MembershipPurchaseResponse purchase(UUID buyerId, String phone, PurchaseMembershipRequest request) {
         MembershipSlab slab = parseSlab(request.getSlab());
         MembershipPaymentChannel channel = parseChannel(request.getChannel());
         if (channel == MembershipPaymentChannel.ADMIN_GIFT) {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Use the gift action in Super Admin");
         }
-        assertNoPendingCash(buyerId);
         TownClient.MembershipConfig config = townClient.membershipConfig();
         if (!config.enabled()) {
             throw new BusinessException(ErrorCode.CONFLICT, "Membership is not on sale right now");
@@ -143,24 +153,58 @@ public class MembershipService {
         }
         TownClient.Slab offer = requireSellableSlab(config, slab);
 
-        BuyerMembershipPurchase purchase = BuyerMembershipPurchase.builder()
-                .buyerId(buyerId)
-                .buyerPhoneSnapshot(phone)
-                .townId(request.getTownId())
-                .slab(slab)
-                .durationMonths(slab.months())
-                .creditsGranted(offer.credits())
-                .priceSnapshot(money(offer.price()))
-                .paymentChannel(channel)
-                .status(channel == MembershipPaymentChannel.CASH
-                        ? MembershipPurchaseStatus.PENDING_CASH
-                        : MembershipPurchaseStatus.PENDING_PAYMENT)
-                .note(channel == MembershipPaymentChannel.CASH ? "Pay cash at hub" : "Online")
-                .build();
-        purchaseRepository.save(purchase);
+        UUID purchaseId = transactionTemplate.execute(status -> {
+            assertNoPendingCash(buyerId);
+            BuyerMembershipPurchase purchase = BuyerMembershipPurchase.builder()
+                    .buyerId(buyerId)
+                    .buyerPhoneSnapshot(phone)
+                    .townId(request.getTownId())
+                    .slab(slab)
+                    .durationMonths(slab.months())
+                    .creditsGranted(offer.credits())
+                    .priceSnapshot(money(offer.price()))
+                    .paymentChannel(channel)
+                    .status(channel == MembershipPaymentChannel.CASH
+                            ? MembershipPurchaseStatus.PENDING_CASH
+                            : MembershipPurchaseStatus.PENDING_PAYMENT)
+                    .note(channel == MembershipPaymentChannel.CASH ? "Pay cash at hub" : "Online")
+                    .build();
+            purchaseRepository.save(purchase);
+            if (channel == MembershipPaymentChannel.ONLINE && paymentProperties.isRazorpayConfigured()) {
+                cancelPendingOnline(buyerId);
+                purchaseRepository.save(purchase);
+            }
+            return purchase.getId();
+        });
+
+        BuyerMembershipPurchase purchase = purchaseRepository.findById(purchaseId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.INTERNAL_ERROR, "Membership purchase missing"));
 
         if (channel == MembershipPaymentChannel.ONLINE) {
-            grantPaid(purchase, null, "Online purchase");
+            if (paymentProperties.isRazorpayConfigured()) {
+                long paise = RazorpayMoney.toPaise(purchase.getPriceSnapshot());
+                Map<String, String> notes = new LinkedHashMap<>();
+                notes.put("hlm_kind", "MEMBERSHIP");
+                notes.put("hlm_purchase_id", purchase.getId().toString());
+                RazorpayOrder rzp = razorpayClient.createOrder(
+                        paise, purchase.getId().toString().replace("-", ""), notes);
+                transactionTemplate.executeWithoutResult(status -> {
+                    BuyerMembershipPurchase row = purchaseRepository.findById(purchaseId)
+                            .orElseThrow(() -> new BusinessException(ErrorCode.INTERNAL_ERROR, "Membership purchase missing"));
+                    row.setGatewayOrderId(rzp.id());
+                    purchaseRepository.save(row);
+                });
+                purchase = purchaseRepository.findById(purchaseId)
+                        .orElseThrow(() -> new BusinessException(ErrorCode.INTERNAL_ERROR, "Membership purchase missing"));
+                return toPurchase(purchase);
+            }
+            transactionTemplate.executeWithoutResult(status -> {
+                BuyerMembershipPurchase row = purchaseRepository.findById(purchaseId)
+                        .orElseThrow(() -> new BusinessException(ErrorCode.INTERNAL_ERROR, "Membership purchase missing"));
+                grantPaid(row, null, "Online purchase");
+            });
+            purchase = purchaseRepository.findById(purchaseId)
+                    .orElseThrow(() -> new BusinessException(ErrorCode.INTERNAL_ERROR, "Membership purchase missing"));
         }
         return toPurchase(purchase);
     }
@@ -199,6 +243,52 @@ public class MembershipService {
         BuyerMembershipPurchase purchase = resolvePendingCash(request);
         grantPaid(purchase, actorId, "Cash received");
         return toPurchase(purchase);
+    }
+
+    @Transactional
+    public MembershipPurchaseResponse confirmOnline(UUID buyerId, ConfirmGatewayPaymentRequest request) {
+        RazorpaySignatures.verifyPayment(
+                request.getRazorpayOrderId(),
+                request.getRazorpayPaymentId(),
+                request.getRazorpaySignature(),
+                paymentProperties.getRazorpayKeySecret());
+        BuyerMembershipPurchase purchase = purchaseRepository.findByGatewayOrderId(request.getRazorpayOrderId())
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Membership payment not found"));
+        if (!purchase.getBuyerId().equals(buyerId)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "Purchase does not belong to buyer");
+        }
+        if (paymentProperties.isRazorpayConfigured()) {
+            RazorpayPayment fetched = razorpayClient.fetchPayment(request.getRazorpayPaymentId());
+            if (fetched.orderId() != null && !fetched.orderId().equals(request.getRazorpayOrderId())) {
+                throw new BusinessException(ErrorCode.UNAUTHORIZED, "Razorpay payment does not match order");
+            }
+            if (!fetched.isSuccessful()) {
+                throw new BusinessException(ErrorCode.CONFLICT, "Razorpay payment is not captured yet");
+            }
+        }
+        purchase.setGatewayPaymentId(request.getRazorpayPaymentId());
+        grantPaid(purchase, null, "Online purchase");
+        return toPurchase(purchase);
+    }
+
+    @Transactional
+    public boolean completeOnlineFromGateway(String gatewayOrderId, String gatewayPaymentId) {
+        if (gatewayOrderId == null || gatewayOrderId.isBlank()) {
+            return false;
+        }
+        BuyerMembershipPurchase purchase = purchaseRepository.findByGatewayOrderId(gatewayOrderId).orElse(null);
+        if (purchase == null) {
+            return false;
+        }
+        if (purchase.getStatus() == MembershipPurchaseStatus.PAID
+                || purchase.getStatus() == MembershipPurchaseStatus.CANCELLED) {
+            return true;
+        }
+        if (gatewayPaymentId != null && !gatewayPaymentId.isBlank()) {
+            purchase.setGatewayPaymentId(gatewayPaymentId);
+        }
+        grantPaid(purchase, null, "Online purchase");
+        return true;
     }
 
     @Transactional
@@ -378,6 +468,12 @@ public class MembershipService {
                 .build();
     }
 
+    private void cancelPendingOnline(UUID buyerId) {
+        purchaseRepository.findByBuyerIdOrderByCreatedAtDesc(buyerId).stream()
+                .filter(p -> p.getStatus() == MembershipPurchaseStatus.PENDING_PAYMENT)
+                .forEach(p -> p.setStatus(MembershipPurchaseStatus.CANCELLED));
+    }
+
     private void grantPaid(BuyerMembershipPurchase purchase, UUID confirmedBy, String note) {
         if (purchase.getStatus() == MembershipPurchaseStatus.PAID) {
             return;
@@ -504,6 +600,26 @@ public class MembershipService {
                 .expiresAtAfter(p.getExpiresAtAfter())
                 .createdAt(p.getCreatedAt())
                 .note(p.getNote())
+                .checkout(checkoutFor(p))
+                .build();
+    }
+
+    private GatewayCheckoutResponse checkoutFor(BuyerMembershipPurchase purchase) {
+        if (purchase.getStatus() != MembershipPurchaseStatus.PENDING_PAYMENT
+                || purchase.getGatewayOrderId() == null
+                || !paymentProperties.isRazorpayConfigured()) {
+            return null;
+        }
+        return GatewayCheckoutResponse.builder()
+                .keyId(paymentProperties.getRazorpayKeyId())
+                .gatewayOrderId(purchase.getGatewayOrderId())
+                .amountPaise(RazorpayMoney.toPaise(purchase.getPriceSnapshot()))
+                .currency("INR")
+                .name(paymentProperties.getCheckoutName())
+                .description("Membership " + purchase.getSlab().name())
+                .prefillContact(purchase.getBuyerPhoneSnapshot())
+                .logoUrl(paymentProperties.getCheckoutLogoUrl() == null || paymentProperties.getCheckoutLogoUrl().isBlank()
+                        ? null : paymentProperties.getCheckoutLogoUrl())
                 .build();
     }
 

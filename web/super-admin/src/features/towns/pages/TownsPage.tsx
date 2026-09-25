@@ -105,7 +105,10 @@ export function TownsPage() {
   }, [page, totalPages]);
 
   const reload = useCallback(async () => {
-    if (!token) return;
+    if (!token) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError(null);
     try {

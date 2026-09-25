@@ -13,6 +13,7 @@ import { OrderDetailPage } from '@/features/shop/pages/OrderDetailPage';
 import { WalletPage } from '@/features/shop/pages/WalletPage';
 import { SpendReportPage } from '@/features/shop/pages/SpendReportPage';
 import { MembershipPage } from '@/features/shop/pages/MembershipPage';
+import { InviteFriendsPage } from '@/features/shop/pages/InviteFriendsPage';
 import { AlertsPage } from '@/features/shop/pages/AlertsPage';
 import { MorePage } from '@/features/shop/pages/MorePage';
 import { AddressesPage } from '@/features/shop/pages/AddressesPage';
@@ -61,6 +62,7 @@ export function AppRouter() {
                     <Route path="/wallet" element={<WalletPage />} />
                     <Route path="/spend" element={<SpendReportPage />} />
                     <Route path="/membership" element={<MembershipPage />} />
+                    <Route path="/invite" element={<InviteFriendsPage />} />
                   </Route>
                   <Route path="*" element={<Navigate to="/shop" replace />} />
                 </Routes>

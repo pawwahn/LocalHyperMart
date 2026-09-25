@@ -4,8 +4,10 @@ import { Button, Card } from '@/shared/ui';
 import {
   formatAuditActor,
   formatAuditChange,
+  formatAuditChangeLines,
   formatAuditWhen,
   listAdminAudit,
+  parseAuditChangeLine,
   type AdminAuditEntry,
 } from './adminAuditApi';
 
@@ -255,7 +257,7 @@ export function AdminHistoryPanel({
             style={styles.search}
             value={qDraft}
             onChange={(e) => setQDraft(e.target.value)}
-            placeholder="Search what changed…"
+            placeholder="Search field name (e.g. referral, delivery)…"
             aria-label="Search history"
           />
           <div style={styles.tabs} role="group" aria-label="Date range">
@@ -307,15 +309,44 @@ export function AdminHistoryPanel({
               </tr>
             </thead>
             <tbody>
-              {rows.map((row) => (
-                <tr key={row.id}>
-                  <td style={styles.tdMuted}>{formatAuditWhen(row.createdAt)}</td>
-                  <td style={styles.tdMuted}>{formatAuditActor(row)}</td>
-                  <td style={styles.td}>
-                    {formatAuditChange(row, row.townId ? townNames?.[row.townId] : undefined)}
-                  </td>
-                </tr>
-              ))}
+              {rows.map((row) => {
+                const townLabel = row.townId ? townNames?.[row.townId] : undefined;
+                const lines = formatAuditChangeLines(row, townLabel);
+                return (
+                  <tr key={row.id}>
+                    <td style={styles.tdMuted}>{formatAuditWhen(row.createdAt)}</td>
+                    <td style={styles.tdMuted}>{formatAuditActor(row)}</td>
+                    <td style={styles.td}>
+                      {lines.length === 0 ? (
+                        '—'
+                      ) : (
+                        <ul style={styles.changeList}>
+                          {lines.map((line, i) => {
+                            const parsed = parseAuditChangeLine(line);
+                            if (parsed.kind === 'field') {
+                              return (
+                                <li key={i} style={styles.changeRow}>
+                                  <span style={styles.changeLabel}>{parsed.label}</span>
+                                  <span style={styles.changeValues}>
+                                    <span style={styles.changeBefore}>{parsed.before}</span>
+                                    <span style={styles.changeArrow} aria-hidden>→</span>
+                                    <span style={styles.changeAfter}>{parsed.after}</span>
+                                  </span>
+                                </li>
+                              );
+                            }
+                            return (
+                              <li key={i} style={styles.changeTextOnly}>
+                                {parsed.text}
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -438,6 +469,45 @@ const styles: Record<string, CSSProperties> = {
     textTransform: 'uppercase',
   },
   td: { padding: '0.32rem 0.45rem', borderBottom: '1px solid var(--border)', verticalAlign: 'top' },
+  changeList: {
+    margin: 0,
+    padding: 0,
+    listStyle: 'none',
+    display: 'grid',
+    gap: '0.35rem',
+    lineHeight: 1.35,
+  },
+  changeRow: {
+    display: 'grid',
+    gap: '0.12rem',
+    padding: '0.28rem 0.4rem',
+    borderRadius: 8,
+    background: 'color-mix(in srgb, var(--accent) 5%, var(--bg-elevated))',
+    border: '1px solid color-mix(in srgb, var(--accent) 12%, var(--border))',
+  },
+  changeLabel: {
+    fontSize: '0.68rem',
+    fontWeight: 800,
+    textTransform: 'uppercase',
+    letterSpacing: '0.04em',
+    color: 'var(--text-muted)',
+  },
+  changeValues: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: '0.35rem',
+    fontSize: '0.8rem',
+    fontWeight: 650,
+  },
+  changeBefore: {
+    color: 'var(--text-muted)',
+    textDecoration: 'line-through',
+    textDecorationColor: 'color-mix(in srgb, var(--text-muted) 55%, transparent)',
+  },
+  changeArrow: { color: 'var(--accent)', fontWeight: 800 },
+  changeAfter: { color: 'var(--text)', fontWeight: 800 },
+  changeTextOnly: { fontSize: '0.8rem', fontWeight: 600 },
   tdMuted: {
     padding: '0.32rem 0.45rem',
     borderBottom: '1px solid var(--border)',

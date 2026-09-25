@@ -24,6 +24,12 @@ export type PlatformSettingsVm = {
   membershipHalfYearCredits?: number;
   membershipAnnualPrice?: number;
   membershipAnnualCredits?: number;
+  referralsEnabled?: boolean;
+  mealPlannerEnabled?: boolean;
+  referralReferrerRewardAmount?: number;
+  referralRefereeRewardAmount?: number;
+  referralShareBaseUrl?: string;
+  referralShareMessageTemplate?: string;
 };
 
 type SettingsDto = Record<string, unknown>;
@@ -68,6 +74,15 @@ function mapSettings(data: SettingsDto): PlatformSettingsVm {
     membershipHalfYearCredits: asNumber(data.membershipHalfYearCredits, 0),
     membershipAnnualPrice: asNumber(data.membershipAnnualPrice, 0),
     membershipAnnualCredits: asNumber(data.membershipAnnualCredits, 0),
+    referralsEnabled: asBool(data.referralsEnabled, false),
+    mealPlannerEnabled: asBool(data.mealPlannerEnabled, false),
+    referralReferrerRewardAmount: asNumber(data.referralReferrerRewardAmount, 0),
+    referralRefereeRewardAmount: asNumber(data.referralRefereeRewardAmount, 0),
+    referralShareBaseUrl: asString(data.referralShareBaseUrl),
+    referralShareMessageTemplate: asString(
+      data.referralShareMessageTemplate,
+      'Order groceries from local shops on HyperLocalMart. Use my code {code}: {link}',
+    ),
   };
 }
 

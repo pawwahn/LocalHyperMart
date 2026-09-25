@@ -27,6 +27,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @RestController
@@ -39,6 +40,14 @@ public class OrderInternalController {
     private final CodDeliveredService codDeliveredService;
     private final OrderHistorySuggestionService orderHistorySuggestionService;
     private final DeliveryCompleteOrderService deliveryCompleteOrderService;
+
+    @GetMapping("/api/v1/internal/buyers/{buyerId}/has-delivered-order")
+    public ResponseEntity<ApiResponse<Map<String, Boolean>>> buyerHasDeliveredOrder(
+            @PathVariable UUID buyerId,
+            HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest, Map.of(
+                "hasDelivered", orderService.buyerHasDeliveredOrder(buyerId))));
+    }
 
     @GetMapping("/api/v1/internal/buyers/{buyerId}/recent-listing-ids")
     public ResponseEntity<ApiResponse<List<UUID>>> recentListingIds(

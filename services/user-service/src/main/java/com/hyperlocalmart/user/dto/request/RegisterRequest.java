@@ -36,4 +36,8 @@ public class RegisterRequest {
 
     /** Version of Platform Settings legal copy the buyer ticked. */
     private Integer acceptedLegalVersion;
+
+    /** Optional friend referral code (invite-only bypass when program is on). */
+    @Size(max = 16)
+    private String referralCode;
 }

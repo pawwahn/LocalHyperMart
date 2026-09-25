@@ -11,6 +11,7 @@ import com.hyperlocalmart.order.dto.response.ClaimResponse;
 import com.hyperlocalmart.order.dto.response.CreateOrderResponse;
 import com.hyperlocalmart.order.dto.response.OrderDetailResponse;
 import com.hyperlocalmart.order.dto.response.OrderSummaryResponse;
+import com.hyperlocalmart.order.dto.response.PaymentInfoResponse;
 import com.hyperlocalmart.order.dto.response.ProductRatingResponse;
 import com.hyperlocalmart.order.dto.response.ReorderResponse;
 import com.hyperlocalmart.order.dto.response.BuyerSpendReportResponse;
@@ -60,6 +61,19 @@ public class OrderController {
         CreateOrderResponse response = orderService.createOrder(
                 principal.getUserId(), principal.getPhone(), idempotencyKey, request);
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponses.ok(httpRequest, response));
+    }
+
+    @PostMapping("/{orderId}/payments/retry")
+    public ResponseEntity<ApiResponse<PaymentInfoResponse>> retryPayment(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @PathVariable UUID orderId,
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+            HttpServletRequest httpRequest) {
+        String key = idempotencyKey != null && !idempotencyKey.isBlank()
+                ? idempotencyKey
+                : "retry-" + orderId + "-" + System.currentTimeMillis();
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                orderService.retryPayment(principal.getUserId(), orderId, key)));
     }
 
     @GetMapping

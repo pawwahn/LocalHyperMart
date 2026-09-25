@@ -21,4 +21,5 @@ public class OrderInternalSnapshotResponse {
     private PaymentStatus paymentStatus;
     private PaymentMethod paymentMethod;
     private BigDecimal totalAmount;
+    private String buyerPhone;
 }

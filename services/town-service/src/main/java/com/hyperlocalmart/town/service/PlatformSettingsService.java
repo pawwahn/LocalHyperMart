@@ -1,6 +1,7 @@
 package com.hyperlocalmart.town.service;
 
 import com.hyperlocalmart.town.dto.response.MembershipConfigResponse;
+import com.hyperlocalmart.town.dto.response.ReferralConfigResponse;
 import com.hyperlocalmart.town.dto.response.MembershipPackRevisionResponse;
 import com.hyperlocalmart.town.entity.MembershipPackRevision;
 import com.hyperlocalmart.town.entity.PlatformSetting;
@@ -63,7 +64,21 @@ public class PlatformSettingsService {
         pub.put("membershipHalfYearCredits", asInt(all.get("membershipHalfYearCredits"), 0));
         pub.put("membershipAnnualPrice", asMoney(all.get("membershipAnnualPrice")));
         pub.put("membershipAnnualCredits", asInt(all.get("membershipAnnualCredits"), 0));
+        pub.put("referralsEnabled", asBool(all.get("referralsEnabled"), false));
+        pub.put("mealPlannerEnabled", asBool(all.get("mealPlannerEnabled"), false));
         return pub;
+    }
+
+    @Transactional(readOnly = true)
+    public ReferralConfigResponse getReferralConfig() {
+        Map<String, Object> all = getSettings();
+        return ReferralConfigResponse.builder()
+                .enabled(asBool(all.get("referralsEnabled"), false))
+                .referrerRewardAmount(asMoney(all.get("referralReferrerRewardAmount")))
+                .refereeRewardAmount(asMoney(all.get("referralRefereeRewardAmount")))
+                .shareBaseUrl(asString(all.get("referralShareBaseUrl")))
+                .shareMessageTemplate(asString(all.get("referralShareMessageTemplate")))
+                .build();
     }
 
     @Transactional(readOnly = true)
@@ -144,10 +159,11 @@ public class PlatformSettingsService {
             row.setCreatedAt(Instant.now());
         }
         platformSettingRepository.save(row);
+        String changeSummary = settingsChangeSummary(before, current);
         adminAuditService.record(
                 "settings",
                 "UPDATE_PLATFORM_SETTINGS",
-                "Updated platform settings",
+                changeSummary,
                 actorId,
                 "SUPER_ADMIN",
                 null,
@@ -156,6 +172,133 @@ public class PlatformSettingsService {
                 before,
                 current);
         return current;
+    }
+
+    /** Human-readable diff lines for platform settings audit (excludes full legal body text). */
+    public static List<String> settingsChangeParts(Map<String, Object> before, Map<String, Object> after) {
+        Map<String, Object> left = before != null ? before : Map.of();
+        Map<String, Object> right = after != null ? after : Map.of();
+        List<String> parts = new ArrayList<>();
+        auditBool(parts, "Referrals", left.get("referralsEnabled"), right.get("referralsEnabled"));
+        auditMoney(parts, "Referrer reward", left.get("referralReferrerRewardAmount"), right.get("referralReferrerRewardAmount"));
+        auditMoney(parts, "Referee reward", left.get("referralRefereeRewardAmount"), right.get("referralRefereeRewardAmount"));
+        auditPlain(parts, "Referral share URL", left.get("referralShareBaseUrl"), right.get("referralShareBaseUrl"));
+        if (!auditTextSame(left.get("referralShareMessageTemplate"), right.get("referralShareMessageTemplate"))) {
+            parts.add("Referral share message updated");
+        }
+        auditMoney(parts, "Delivery fee", left.get("deliveryFee"), right.get("deliveryFee"));
+        auditPlain(parts, "Vendor alert", left.get("vendorOrderAlertMessage"), right.get("vendorOrderAlertMessage"));
+        auditBool(parts, "Maps", left.get("mapsEnabled"), right.get("mapsEnabled"));
+        auditBool(parts, "Maintenance", left.get("maintenanceMode"), right.get("maintenanceMode"));
+        auditBool(parts, "Meal planner", left.get("mealPlannerEnabled"), right.get("mealPlannerEnabled"));
+        auditPlain(parts, "Support phone", left.get("supportPhone"), right.get("supportPhone"));
+        auditPlain(parts, "Grievance officer", left.get("grievanceOfficer"), right.get("grievanceOfficer"));
+        auditPlain(parts, "Terms URL", left.get("termsUrl"), right.get("termsUrl"));
+        auditPlain(parts, "Privacy URL", left.get("privacyUrl"), right.get("privacyUrl"));
+        auditPlain(parts, "Refund URL", left.get("refundUrl"), right.get("refundUrl"));
+        auditBool(parts, "Membership sales", left.get("membershipEnabled"), right.get("membershipEnabled"));
+        auditMoney(parts, "Membership Q price", left.get("membershipQuarterlyPrice"), right.get("membershipQuarterlyPrice"));
+        auditInt(parts, "Membership Q credits", left.get("membershipQuarterlyCredits"), right.get("membershipQuarterlyCredits"));
+        auditMoney(parts, "Membership 6M price", left.get("membershipHalfYearPrice"), right.get("membershipHalfYearPrice"));
+        auditInt(parts, "Membership 6M credits", left.get("membershipHalfYearCredits"), right.get("membershipHalfYearCredits"));
+        auditMoney(parts, "Membership annual price", left.get("membershipAnnualPrice"), right.get("membershipAnnualPrice"));
+        auditInt(parts, "Membership annual credits", left.get("membershipAnnualCredits"), right.get("membershipAnnualCredits"));
+        if (!auditTextSame(left.get("termsText"), right.get("termsText"))
+                || !auditTextSame(left.get("privacyText"), right.get("privacyText"))
+                || !auditTextSame(left.get("refundText"), right.get("refundText"))) {
+            parts.add("Legal copy v"
+                    + auditScalar(left.get("legalVersion"))
+                    + " → v"
+                    + auditScalar(right.get("legalVersion")));
+        } else if (!Objects.equals(left.get("legalVersion"), right.get("legalVersion"))) {
+            auditPlain(parts, "Legal version", left.get("legalVersion"), right.get("legalVersion"));
+        }
+        return parts;
+    }
+
+    public static String settingsChangeSummary(Map<String, Object> before, Map<String, Object> after) {
+        List<String> parts = settingsChangeParts(before, after);
+        if (parts.isEmpty()) {
+            return "Updated platform settings";
+        }
+        String summary = String.join("; ", parts);
+        return summary.length() <= 500 ? summary : summary.substring(0, 500);
+    }
+
+    private static void auditBool(List<String> parts, String label, Object before, Object after) {
+        if (Objects.equals(auditNormalizeBool(before), auditNormalizeBool(after))) {
+            return;
+        }
+        parts.add(label + " " + auditBoolLabel(before) + " → " + auditBoolLabel(after));
+    }
+
+    private static Boolean auditNormalizeBool(Object raw) {
+        if (raw == null) {
+            return null;
+        }
+        if (raw instanceof Boolean b) {
+            return b;
+        }
+        return "true".equalsIgnoreCase(String.valueOf(raw).trim());
+    }
+
+    private static String auditBoolLabel(Object raw) {
+        if (raw == null) {
+            return "not set";
+        }
+        return auditNormalizeBool(raw) ? "on" : "off";
+    }
+
+    private static void auditMoney(List<String> parts, String label, Object before, Object after) {
+        String left = auditMoneyLabel(before);
+        String right = auditMoneyLabel(after);
+        if (!Objects.equals(left, right)) {
+            parts.add(label + " " + left + " → " + right);
+        }
+    }
+
+    private static String auditMoneyLabel(Object raw) {
+        if (raw == null) {
+            return "—";
+        }
+        BigDecimal value;
+        if (raw instanceof Number n) {
+            value = BigDecimal.valueOf(n.doubleValue());
+        } else if (raw instanceof String s && !s.isBlank()) {
+            value = new BigDecimal(s.trim());
+        } else {
+            return String.valueOf(raw);
+        }
+        return "₹" + value.setScale(2, RoundingMode.HALF_UP).stripTrailingZeros().toPlainString();
+    }
+
+    private static void auditInt(List<String> parts, String label, Object before, Object after) {
+        String left = auditScalar(before);
+        String right = auditScalar(after);
+        if (!Objects.equals(left, right)) {
+            parts.add(label + " " + left + " → " + right);
+        }
+    }
+
+    private static void auditPlain(List<String> parts, String label, Object before, Object after) {
+        String left = auditScalar(before);
+        String right = auditScalar(after);
+        if (!Objects.equals(left, right)) {
+            String snippet = right.length() > 48 ? right.substring(0, 45) + "…" : right;
+            parts.add(label + " → " + snippet);
+        }
+    }
+
+    private static String auditScalar(Object raw) {
+        if (raw == null) {
+            return "—";
+        }
+        String s = String.valueOf(raw).trim();
+        return s.isEmpty() ? "—" : s;
+    }
+
+    private static boolean auditTextSame(Object before, Object after) {
+        return Objects.equals(auditScalar(before), auditScalar(after));
     }
 
     @Transactional(readOnly = true)
@@ -276,6 +419,13 @@ public class PlatformSettingsService {
         map.put("membershipHalfYearCredits", 0);
         map.put("membershipAnnualPrice", 0);
         map.put("membershipAnnualCredits", 0);
+        map.put("referralsEnabled", false);
+        map.put("referralReferrerRewardAmount", 0);
+        map.put("referralRefereeRewardAmount", 0);
+        map.put("referralShareBaseUrl", "");
+        map.put("referralShareMessageTemplate",
+                "Order groceries from local shops on HyperLocalMart. Use my code {code}: {link}");
+        map.put("mealPlannerEnabled", false);
         return map;
     }
 
@@ -425,6 +575,10 @@ public class PlatformSettingsService {
             }
         }
         return fallback;
+    }
+
+    private static String asString(Object raw) {
+        return raw == null ? "" : String.valueOf(raw).trim();
     }
 
     private static BigDecimal asMoney(Object raw) {

@@ -13,4 +13,5 @@ public class PaymentInfoResponse {
     private String status;
     private String upiIntent;
     private String qrPayload;
+    private GatewayCheckoutResponse checkout;
 }

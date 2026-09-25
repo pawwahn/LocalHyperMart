@@ -58,6 +58,9 @@ export function TownSettingsDialog({
   const [scratchRewardMax, setScratchRewardMax] = useState('50');
   const [scratchMinGoodsAmount, setScratchMinGoodsAmount] = useState('499');
   const [buyerMembershipEnabled, setBuyerMembershipEnabled] = useState(true);
+  const [codEnabled, setCodEnabled] = useState(true);
+  const [upiEnabled, setUpiEnabled] = useState(true);
+  const [codCharge, setCodCharge] = useState('0');
   const [savedNotice, setSavedNotice] = useState<string | null>(null);
   const [historyTick, setHistoryTick] = useState(0);
   const [panel, setPanel] = useState<'edit' | 'log'>('edit');
@@ -85,6 +88,9 @@ export function TownSettingsDialog({
         setScratchRewardMax(String(cfg.scratchRewardMax ?? 50));
         setScratchMinGoodsAmount(String(cfg.scratchMinGoodsAmount ?? 499));
         setBuyerMembershipEnabled(cfg.buyerMembershipEnabled !== false);
+        setCodEnabled(cfg.codEnabled !== false);
+        setUpiEnabled(cfg.upiEnabled !== false);
+        setCodCharge(String(cfg.codCharge ?? 0));
       })
       .catch((err) => {
         if (cancelled) return;
@@ -137,6 +143,15 @@ export function TownSettingsDialog({
       setError('Scratch card needs reward min, max, and goods threshold. Max must be ≥ min.');
       return;
     }
+    const codAmt = Math.round(Number(codCharge) * 100) / 100;
+    if (!Number.isFinite(codAmt) || codAmt < 0) {
+      setError('COD charge must be ₹0 or more.');
+      return;
+    }
+    if (!codEnabled && !upiEnabled) {
+      setError('Enable at least one payment method (COD or UPI).');
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -153,6 +168,9 @@ export function TownSettingsDialog({
         scratchRewardMax: Number.isFinite(y) ? y : 50,
         scratchMinGoodsAmount: Number.isFinite(z) ? z : 499,
         buyerMembershipEnabled,
+        codEnabled,
+        upiEnabled,
+        codCharge: codAmt,
       });
       setSavedNotice('Saved and logged.');
       setHistoryTick((n) => n + 1);
@@ -337,6 +355,67 @@ export function TownSettingsDialog({
                   </label>
                 </div>
                 <p style={styles.hint}>Shown on the buyer basket below delivery fee</p>
+              </div>
+
+              <div style={styles.scratchBlock}>
+              <h3 style={styles.sectionTitle}>Payments</h3>
+              <div style={styles.toggleRow}>
+                <span>
+                  <strong style={styles.toggleTitle}>Cash on delivery (COD)</strong>
+                  <span style={styles.toggleHint}>Buyer can pay at the door</span>
+                </span>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={codEnabled}
+                  style={codEnabled ? styles.switchOn : styles.switchOff}
+                  onClick={() => setCodEnabled((v) => !v)}
+                >
+                  <span style={codEnabled ? styles.knobOn : styles.knobOff} />
+                </button>
+              </div>
+              {codEnabled ? (
+                <div>
+                  <p style={styles.label}>COD charge (₹)</p>
+                  <div className="town-settings-deal-row">
+                    <label style={styles.dealField}>
+                      <span style={styles.dealPrefix}>₹</span>
+                      <input
+                        style={styles.dealInput}
+                        inputMode="decimal"
+                        maxLength={6}
+                        value={codCharge}
+                        aria-label="COD charge"
+                        onChange={(e) => {
+                          const next = e.target.value.replace(/[^\d.]/g, '');
+                          const parts = next.split('.');
+                          const clean =
+                            parts.length > 1
+                              ? `${parts[0].slice(0, 4)}.${parts.slice(1).join('').slice(0, 2)}`
+                              : parts[0].slice(0, 5);
+                          setCodCharge(clean);
+                        }}
+                      />
+                    </label>
+                  </div>
+                  <p style={styles.hint}>Added to buyer total when they choose COD. Changes appear in the change log.</p>
+                </div>
+              ) : null}
+              <div style={styles.toggleRow}>
+                <span>
+                  <strong style={styles.toggleTitle}>UPI / online pay</strong>
+                  <span style={styles.toggleHint}>Razorpay checkout before order is placed</span>
+                </span>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={upiEnabled}
+                  style={upiEnabled ? styles.switchOn : styles.switchOff}
+                  onClick={() => setUpiEnabled((v) => !v)}
+                >
+                  <span style={upiEnabled ? styles.knobOn : styles.knobOff} />
+                </button>
+              </div>
               </div>
 
               <div style={styles.toggleRow}>

@@ -129,6 +129,7 @@ public class TownConfigService {
         if (request.getBuyerMembershipEnabled() != null) {
             value.put("buyerMembershipEnabled", request.getBuyerMembershipEnabled());
         }
+        applyPaymentSettings(value, request);
 
         config.setConfigValue(value);
         config.setUpdatedAt(Instant.now());
@@ -305,6 +306,9 @@ public class TownConfigService {
                 .scratchRewardMax(DEFAULT_SCRATCH_MAX)
                 .scratchMinGoodsAmount(DEFAULT_SCRATCH_Z)
                 .buyerMembershipEnabled(true)
+                .codEnabled(true)
+                .upiEnabled(true)
+                .codCharge(BigDecimal.ZERO)
                 .build();
     }
 
@@ -326,6 +330,9 @@ public class TownConfigService {
         value.put("scratchRewardMax", DEFAULT_SCRATCH_MAX);
         value.put("scratchMinGoodsAmount", DEFAULT_SCRATCH_Z);
         value.put("buyerMembershipEnabled", true);
+        value.put("codEnabled", true);
+        value.put("upiEnabled", true);
+        value.put("codCharge", BigDecimal.ZERO);
         return value;
     }
 
@@ -369,6 +376,9 @@ public class TownConfigService {
                 .scratchRewardMax(readMoney(value, "scratchRewardMax", DEFAULT_SCRATCH_MAX))
                 .scratchMinGoodsAmount(readMoney(value, "scratchMinGoodsAmount", DEFAULT_SCRATCH_Z))
                 .buyerMembershipEnabled(readBuyerMembershipEnabled(value))
+                .codEnabled(readCodEnabled(value))
+                .upiEnabled(readUpiEnabled(value))
+                .codCharge(readCodCharge(value))
                 .build();
     }
 
@@ -382,7 +392,61 @@ public class TownConfigService {
                 .bestDealsEnabled(cfg.isBestDealsEnabled())
                 .dealPrices(cfg.getDealPrices())
                 .platformFee(cfg.getPlatformFee())
+                .codEnabled(cfg.isCodEnabled())
+                .upiEnabled(cfg.isUpiEnabled())
+                .codCharge(cfg.getCodCharge())
                 .build();
+    }
+
+    private void applyPaymentSettings(Map<String, Object> value, UpdateTownConfigRequest request) {
+        boolean codEnabled = request.getCodEnabled() != null
+                ? request.getCodEnabled()
+                : readCodEnabled(value);
+        boolean upiEnabled = request.getUpiEnabled() != null
+                ? request.getUpiEnabled()
+                : readUpiEnabled(value);
+        BigDecimal codCharge = request.getCodCharge() != null
+                ? normalizeCodCharge(request.getCodCharge())
+                : readCodCharge(value);
+        if (!codEnabled && !upiEnabled) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR,
+                    "Enable at least one payment method (COD or UPI)");
+        }
+        value.put("codEnabled", codEnabled);
+        value.put("upiEnabled", upiEnabled);
+        value.put("codCharge", codCharge);
+    }
+
+    static BigDecimal normalizeCodCharge(BigDecimal raw) {
+        if (raw == null || raw.compareTo(BigDecimal.ZERO) < 0) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "COD charge must be ₹0 or more");
+        }
+        return raw.setScale(2, RoundingMode.HALF_UP);
+    }
+
+    private static boolean readCodEnabled(Map<String, Object> value) {
+        if (value == null || value.get("codEnabled") == null) {
+            return true;
+        }
+        return truthy(value.get("codEnabled"));
+    }
+
+    private static boolean readUpiEnabled(Map<String, Object> value) {
+        if (value == null || value.get("upiEnabled") == null) {
+            return true;
+        }
+        return truthy(value.get("upiEnabled"));
+    }
+
+    private BigDecimal readCodCharge(Map<String, Object> value) {
+        if (value == null) {
+            return BigDecimal.ZERO;
+        }
+        BigDecimal n = asDecimal(value.get("codCharge"));
+        if (n == null || n.compareTo(BigDecimal.ZERO) < 0) {
+            return BigDecimal.ZERO;
+        }
+        return n.setScale(2, RoundingMode.HALF_UP);
     }
 
     private static String readThemeColor(Map<String, Object> value) {
@@ -562,22 +626,34 @@ public class TownConfigService {
         return null;
     }
 
-    static String settingsChangeSummary(String townName, Map<String, Object> before, Map<String, Object> after) {
+    static List<String> settingsChangeParts(Map<String, Object> before, Map<String, Object> after) {
+        Map<String, Object> left = before != null ? before : Map.of();
+        Map<String, Object> right = after != null ? after : Map.of();
         List<String> parts = new ArrayList<>();
-        addMoneyChange(parts, "min order", before.get("minOrderValue"), after.get("minOrderValue"));
-        addMoneyChange(parts, "platform fee", before.get("platformFee"), after.get("platformFee"));
-        addPlainChange(parts, "delivery", before.get("deliveryMode"), after.get("deliveryMode"));
-        addPlainChange(parts, "theme", before.get("themeColor"), after.get("themeColor"));
-        addBoolChange(parts, "best deals", before.get("bestDealsEnabled"), after.get("bestDealsEnabled"));
-        addBoolChange(parts, "buyer membership", before.get("buyerMembershipEnabled"), after.get("buyerMembershipEnabled"));
-        addBoolChange(parts, "scratch card", before.get("scratchCardEnabled"), after.get("scratchCardEnabled"));
-        if (!Objects.equals(stringify(before.get("dealPrices")), stringify(after.get("dealPrices")))) {
-            parts.add("deal prices changed");
+        addMoneyChange(parts, "Min order", left.get("minOrderValue"), right.get("minOrderValue"));
+        addMoneyChange(parts, "Platform fee", left.get("platformFee"), right.get("platformFee"));
+        addPlainChange(parts, "Delivery mode", left.get("deliveryMode"), right.get("deliveryMode"));
+        addPlainChange(parts, "Theme color", left.get("themeColor"), right.get("themeColor"));
+        addBoolChange(parts, "Best deals", left.get("bestDealsEnabled"), right.get("bestDealsEnabled"));
+        addBoolChange(parts, "Buyer membership", left.get("buyerMembershipEnabled"), right.get("buyerMembershipEnabled"));
+        addBoolChange(parts, "Scratch card", left.get("scratchCardEnabled"), right.get("scratchCardEnabled"));
+        addBoolChange(parts, "COD", left.get("codEnabled"), right.get("codEnabled"));
+        addBoolChange(parts, "UPI / online pay", left.get("upiEnabled"), right.get("upiEnabled"));
+        addMoneyChange(parts, "COD charge", left.get("codCharge"), right.get("codCharge"));
+        if (!Objects.equals(stringify(left.get("dealPrices")), stringify(right.get("dealPrices")))) {
+            parts.add("Deal prices: " + summarizeDealPrices(left.get("dealPrices"))
+                    + " → " + summarizeDealPrices(right.get("dealPrices")));
         }
-        if (!Objects.equals(stringify(before.get("deliverySlabs")), stringify(after.get("deliverySlabs")))) {
-            parts.add("delivery slabs changed");
+        if (!Objects.equals(stringify(left.get("deliverySlabs")), stringify(right.get("deliverySlabs")))) {
+            parts.add("Delivery slabs: " + summarizeDeliverySlabs(left.get("deliverySlabs"))
+                    + " → " + summarizeDeliverySlabs(right.get("deliverySlabs")));
         }
-        String body = parts.isEmpty() ? "Updated settings" : String.join(", ", parts);
+        return parts;
+    }
+
+    static String settingsChangeSummary(String townName, Map<String, Object> before, Map<String, Object> after) {
+        List<String> parts = settingsChangeParts(before, after);
+        String body = parts.isEmpty() ? "Updated settings" : String.join("; ", parts);
         String prefix = townName == null || townName.isBlank() ? "" : townName.trim() + " · ";
         String summary = prefix + body;
         return summary.length() <= 500 ? summary : summary.substring(0, 500);
@@ -600,10 +676,56 @@ public class TownConfigService {
     }
 
     private static void addBoolChange(List<String> parts, String label, Object before, Object after) {
-        if (Objects.equals(stringify(before), stringify(after))) {
+        if (Objects.equals(normalizeBool(before), normalizeBool(after))) {
             return;
         }
-        parts.add(label + " " + (truthy(after) ? "on" : "off"));
+        parts.add(label + " " + boolLabel(before) + " → " + boolLabel(after));
+    }
+
+    private static Boolean normalizeBool(Object raw) {
+        if (raw == null) {
+            return null;
+        }
+        return truthy(raw);
+    }
+
+    private static String boolLabel(Object raw) {
+        if (raw == null) {
+            return "not set";
+        }
+        return truthy(raw) ? "on" : "off";
+    }
+
+    private static String summarizeDealPrices(Object raw) {
+        if (!(raw instanceof List<?> list) || list.isEmpty()) {
+            return "not set";
+        }
+        List<String> prices = new ArrayList<>();
+        for (Object item : list) {
+            Integer n = asWholeRupees(item);
+            if (n != null) {
+                prices.add("₹" + n);
+            }
+        }
+        return prices.isEmpty() ? "not set" : String.join(", ", prices);
+    }
+
+    private static String summarizeDeliverySlabs(Object raw) {
+        if (!(raw instanceof List<?> list) || list.isEmpty()) {
+            return "none";
+        }
+        List<String> parts = new ArrayList<>();
+        for (Object item : list) {
+            if (!(item instanceof Map<?, ?> map)) {
+                continue;
+            }
+            String min = moneyLabel(map.get("minOrderValue"));
+            Object maxRaw = map.get("maxOrderValue");
+            String max = maxRaw == null ? "∞" : moneyLabel(maxRaw);
+            String fee = moneyLabel(map.get("deliveryFee"));
+            parts.add(min + "–" + max + " @ " + fee);
+        }
+        return parts.isEmpty() ? "none" : String.join("; ", parts);
     }
 
     private static boolean truthy(Object raw) {
