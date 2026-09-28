@@ -48,10 +48,11 @@ export function ProductCard({
   const visual = productVisual(name);
   const badge = specialOfferActive ? 'SALE' : discountPercent && discountPercent > 0 ? `${discountPercent}% OFF` : null;
   const showRating = ratingCount > 0 && avgRating > 0;
+  const rail = layout === 'rail';
 
   return (
-    <article className="hlm-product-card" style={layout === 'rail' ? styles.cardRail : styles.card}>
-      <div style={{ ...styles.media, background: visual.tint }}>
+    <article className="hlm-product-card" style={rail ? styles.cardRail : styles.card}>
+      <div style={{ ...(rail ? styles.mediaRail : styles.media), background: visual.tint }}>
         <button type="button" style={styles.mediaHit} onClick={onOpen} aria-label={`View ${name}`} />
         {badge ? (
           <span style={specialOfferActive ? styles.sale : styles.offer}>{badge}</span>
@@ -59,34 +60,34 @@ export function ProductCard({
         {imageUrl ? (
           <img src={imageUrl} alt="" style={styles.photoContain} />
         ) : (
-          <span style={styles.emoji} aria-hidden>
+          <span style={rail ? styles.emojiRail : styles.emoji} aria-hidden>
             {visual.emoji}
           </span>
         )}
-        {imageCount > 1 ? <span style={styles.multi}>{imageCount}</span> : null}
-        <div style={styles.stepperWrap}>
+        {imageCount > 1 ? <span style={rail ? styles.multiRail : styles.multi}>{imageCount}</span> : null}
+        <div style={rail ? styles.stepperWrapRail : styles.stepperWrap}>
           <QuantityStepper
             quantity={quantity}
             disabled={busy}
             onIncrease={onIncrease}
             onDecrease={onDecrease}
-            size="sm"
+            size={rail ? 'xs' : 'sm'}
           />
         </div>
       </div>
       <button type="button" style={styles.bodyHit} onClick={onOpen} aria-label={`View ${name} details`}>
-        <div style={styles.body}>
-          <p style={styles.shop}>{shopName}</p>
-          <h3 style={styles.name}>{name}</h3>
-          <p style={styles.unit}>{unit}</p>
-          {showRating ? (
+        <div style={rail ? styles.bodyRail : styles.body}>
+          {shopName ? <p style={styles.shop}>{shopName}</p> : null}
+          <h3 style={rail ? styles.nameRail : styles.name}>{name}</h3>
+          <p style={rail ? styles.unitRail : styles.unit}>{unit}</p>
+          {showRating && !rail ? (
             <div style={styles.ratingRow}>
               <span style={styles.ratingChip}>★ {avgRating.toFixed(1)}</span>
             </div>
           ) : null}
-          {vendorNote ? <p style={styles.note}>{vendorNote}</p> : null}
-          <div style={styles.priceRow}>
-            <span style={styles.price}>{priceLabel}</span>
+          {vendorNote && !rail ? <p style={styles.note}>{vendorNote}</p> : null}
+          <div style={rail ? styles.priceRowRail : styles.priceRow}>
+            <span style={rail ? styles.priceRail : styles.price}>{priceLabel}</span>
             {mrpLabel ? <span style={styles.mrp}>{mrpLabel}</span> : null}
           </div>
         </div>
@@ -110,18 +111,25 @@ const styles: Record<string, CSSProperties> = {
   cardRail: {
     background: '#fff',
     border: '1px solid var(--border)',
-    borderRadius: 12,
+    borderRadius: 10,
     overflow: 'hidden',
     display: 'grid',
     gridTemplateRows: 'auto 1fr',
-    width: 148,
-    flex: '0 0 148px',
-    minWidth: 148,
+    width: 118,
+    flex: '0 0 118px',
+    minWidth: 118,
     boxShadow: 'var(--shadow-card)',
   },
   media: {
     position: 'relative',
     aspectRatio: '1 / 1',
+    display: 'grid',
+    placeItems: 'center',
+    overflow: 'hidden',
+  },
+  mediaRail: {
+    position: 'relative',
+    aspectRatio: '1 / 0.92',
     display: 'grid',
     placeItems: 'center',
     overflow: 'hidden',
@@ -148,6 +156,7 @@ const styles: Record<string, CSSProperties> = {
     display: 'block',
   },
   emoji: { fontSize: '2.25rem', lineHeight: 1 },
+  emojiRail: { fontSize: '1.65rem', lineHeight: 1 },
   multi: {
     position: 'absolute',
     top: 8,
@@ -163,6 +172,23 @@ const styles: Record<string, CSSProperties> = {
     display: 'grid',
     placeItems: 'center',
     padding: '0 0.3rem',
+    pointerEvents: 'none',
+  },
+  multiRail: {
+    position: 'absolute',
+    top: 5,
+    right: 5,
+    zIndex: 2,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 999,
+    background: 'rgba(2, 6, 12, 0.72)',
+    color: '#fff',
+    fontSize: '0.55rem',
+    fontWeight: 800,
+    display: 'grid',
+    placeItems: 'center',
+    padding: '0 0.22rem',
     pointerEvents: 'none',
   },
   offer: {
@@ -208,6 +234,12 @@ const styles: Record<string, CSSProperties> = {
     bottom: 8,
     zIndex: 3,
   },
+  stepperWrapRail: {
+    position: 'absolute',
+    right: 5,
+    bottom: 5,
+    zIndex: 3,
+  },
   bodyHit: {
     border: 'none',
     background: 'transparent',
@@ -223,6 +255,13 @@ const styles: Record<string, CSSProperties> = {
     padding: '0.55rem 0.6rem 0.7rem',
     display: 'grid',
     gap: '0.1rem',
+    alignContent: 'start',
+    minWidth: 0,
+  },
+  bodyRail: {
+    padding: '0.32rem 0.4rem 0.4rem',
+    display: 'grid',
+    gap: '0.04rem',
     alignContent: 'start',
     minWidth: 0,
   },
@@ -251,9 +290,31 @@ const styles: Record<string, CSSProperties> = {
     WebkitBoxOrient: 'vertical',
     wordBreak: 'break-word',
   },
+  nameRail: {
+    margin: 0,
+    fontFamily: 'var(--font-display)',
+    fontSize: '0.74rem',
+    fontWeight: 700,
+    lineHeight: 1.2,
+    letterSpacing: '-0.02em',
+    color: 'var(--text)',
+    overflow: 'hidden',
+    display: '-webkit-box',
+    WebkitLineClamp: 2,
+    WebkitBoxOrient: 'vertical',
+    wordBreak: 'break-word',
+  },
   unit: {
     margin: 0,
     fontSize: '0.72rem',
+    color: 'var(--text-muted)',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  },
+  unitRail: {
+    margin: 0,
+    fontSize: '0.62rem',
     color: 'var(--text-muted)',
     overflow: 'hidden',
     textOverflow: 'ellipsis',
@@ -292,6 +353,13 @@ const styles: Record<string, CSSProperties> = {
     flexWrap: 'wrap',
     minWidth: 0,
   },
+  priceRowRail: {
+    display: 'flex',
+    alignItems: 'baseline',
+    gap: '0.22rem',
+    marginTop: '0.12rem',
+    minWidth: 0,
+  },
   price: {
     fontFamily: 'var(--font-display)',
     fontWeight: 800,
@@ -299,9 +367,16 @@ const styles: Record<string, CSSProperties> = {
     letterSpacing: '-0.03em',
     color: 'var(--text)',
   },
+  priceRail: {
+    fontFamily: 'var(--font-display)',
+    fontWeight: 800,
+    fontSize: '0.86rem',
+    letterSpacing: '-0.03em',
+    color: 'var(--text)',
+  },
   mrp: {
     fontSize: '0.72rem',
-    color: 'var(--text-muted)',
+    color: 'var(--danger)',
     textDecoration: 'line-through',
   },
 };

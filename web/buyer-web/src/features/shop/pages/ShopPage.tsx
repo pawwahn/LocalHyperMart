@@ -376,7 +376,6 @@ export function ShopPage({ browseOnly = false }: Props) {
         <>
           {browseOnly || searching ? null : (
             <DeliveryHero
-              townLabel={townLabel}
               showPlans={membershipOnSale}
               onOpenPlans={() => {
                 if (isAuthenticated) setPlansOpen(true);
@@ -395,7 +394,11 @@ export function ShopPage({ browseOnly = false }: Props) {
               onDecrease={(id) => void doDecrease(id)}
             />
           )}
-          {browseOnly || searching ? null : <AdSlot slot="home_hero" variant="strip" />}
+          {browseOnly || searching ? null : (
+            <div style={styles.homeHeroAd}>
+              <AdSlot slot="home_hero" variant="strip" />
+            </div>
+          )}
           {!searching || aisles.length > 0 ? (
             aisles.length === 0 ? (
               <EmptyState
@@ -564,12 +567,13 @@ const styles: Record<string, CSSProperties> = {
     display: 'flex',
     alignItems: 'center',
     gap: '0.45rem',
+    marginTop: '-0.2rem',
     background: '#fff',
     border: '1px solid var(--border)',
-    borderRadius: 12,
+    borderRadius: 14,
     padding: '0 0.85rem',
-    minHeight: 44,
-    boxShadow: '0 2px 10px rgba(16, 24, 40, 0.05)',
+    minHeight: 46,
+    boxShadow: '0 8px 22px rgba(16, 24, 40, 0.08)',
   },
   searchIcon: { color: 'var(--accent)', fontSize: '1.15rem', fontWeight: 700 },
   search: {
@@ -680,6 +684,11 @@ const styles: Record<string, CSSProperties> = {
     fontWeight: 800,
     letterSpacing: '-0.03em',
     color: 'var(--text)',
+  },
+  homeHeroAd: {
+    position: 'relative',
+    zIndex: 0,
+    marginTop: '0.15rem',
   },
   midAdWrap: {
     gridColumn: '1 / -1',

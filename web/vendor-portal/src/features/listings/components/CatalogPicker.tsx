@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { Button, Card, ConfirmDialog } from '@/shared/ui';
 import type { CategoryView, DraftPricing, ListingView, MasterItemView } from '../api/listingsApi';
-import type { PublishResult } from '../hooks/useVendorListings';
+import type { PublishFailure, PublishResult } from '../hooks/useVendorListings';
 import { TableScrollShell } from './TableScrollShell';
 import { SortableTh } from './SortableTh';
 import { TablePager } from './TablePager';
@@ -81,6 +81,7 @@ export function CatalogPicker({
   const [publishConfirmOpen, setPublishConfirmOpen] = useState(false);
   const [publishSuccessCount, setPublishSuccessCount] = useState<number | null>(null);
   const [publishFailedCount, setPublishFailedCount] = useState(0);
+  const [publishFailures, setPublishFailures] = useState<PublishFailure[]>([]);
   const [refreshing, setRefreshing] = useState(false);
 
   async function handlePublishConfirm() {
@@ -89,6 +90,7 @@ export function CatalogPicker({
     if (result.ok) {
       setPublishSuccessCount(result.count);
       setPublishFailedCount(result.failed);
+      setPublishFailures(result.failures);
     }
   }
 
@@ -101,8 +103,36 @@ export function CatalogPicker({
       setRefreshing(false);
       setPublishSuccessCount(null);
       setPublishFailedCount(0);
+      setPublishFailures([]);
     }
   }
+
+  const publishResultDescription =
+    publishSuccessCount == null
+      ? ''
+      : publishFailedCount > 0
+        ? (
+            <div style={styles.publishResultBody}>
+              <p style={styles.publishResultLead}>
+                {publishSuccessCount} product{publishSuccessCount === 1 ? '' : 's'} listed in your town.
+              </p>
+              <p style={styles.publishResultLead}>
+                <strong>{publishFailedCount}</strong> could not be listed — fix the rows below (they stay
+                selected in the table):
+              </p>
+              <ul style={styles.publishFailList}>
+                {publishFailures.map((f) => (
+                  <li key={f.masterItemId}>
+                    <strong style={styles.publishFailName}>{f.name}</strong>
+                    <span style={styles.publishFailDetail}>{f.message}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )
+        : publishSuccessCount === 1
+          ? '1 product is now in your town listing. Check My listings to review or hide it.'
+          : `${publishSuccessCount} products are now in your town listing. Check My listings to review or hide them.`;
 
   useEffect(() => {
     setPage(0);
@@ -189,7 +219,7 @@ export function CatalogPicker({
           style={styles.search}
           value={query}
           onChange={(e) => onQueryChange(e.target.value)}
-          placeholder="Search name, category, unit…"
+          placeholder="Search name, other names, category…"
           aria-label="Search admin catalog"
         />
         <select
@@ -280,6 +310,7 @@ export function CatalogPicker({
                   style={styles.thNum}
                 />
                 <SortableTh label="Note" column="note" sort={sort} onSort={onSort} style={styles.thNote} />
+                <th style={styles.thNote}>Other names</th>
               </tr>
             </thead>
             <tbody>
@@ -386,6 +417,21 @@ export function CatalogPicker({
                         <span style={styles.placeholder}>—</span>
                       )}
                     </td>
+                    <td style={{ ...styles.tdNote, ...cellBg }}>
+                      {checked ? (
+                        <input
+                          style={styles.cellInputWide}
+                          value={draft?.searchNames ?? ''}
+                          onChange={(e) => onDraftChange(item.id, { searchNames: e.target.value })}
+                          placeholder="bru coffee, green label"
+                          aria-label={`${item.name} other names`}
+                        />
+                      ) : (
+                        <span style={styles.placeholder} title={existing?.searchNames || undefined}>
+                          {existing?.searchNames || '—'}
+                        </span>
+                      )}
+                    </td>
                   </tr>
                 );
               })}
@@ -436,13 +482,7 @@ export function CatalogPicker({
     <ConfirmDialog
       open={publishSuccessCount != null}
       title={publishFailedCount > 0 ? 'Some products listed' : 'Published to town'}
-      description={
-        publishFailedCount > 0
-          ? `${publishSuccessCount} listed. ${publishFailedCount} still need a valid MRP or selling price — those rows stay selected.`
-          : publishSuccessCount === 1
-            ? '1 product is now in your town listing. Check My listings to review or hide it.'
-            : `${publishSuccessCount} products are now in your town listing. Check My listings to review or hide them.`
-      }
+      description={publishResultDescription}
       confirmLabel="OK"
       alertOnly
       busy={refreshing}
@@ -456,6 +496,18 @@ export function CatalogPicker({
 }
 
 const styles: Record<string, CSSProperties> = {
+  publishResultBody: { display: 'grid', gap: '0.5rem' },
+  publishResultLead: { margin: 0 },
+  publishFailList: {
+    margin: 0,
+    paddingLeft: '1.1rem',
+    display: 'grid',
+    gap: '0.45rem',
+    maxHeight: 'min(40vh, 16rem)',
+    overflowY: 'auto',
+  },
+  publishFailName: { display: 'block', color: 'var(--text)', fontSize: '0.9rem' },
+  publishFailDetail: { display: 'block', fontSize: '0.86rem', color: 'var(--danger)', fontWeight: 650 },
   card: { padding: '1rem', display: 'grid', gap: '0.65rem' },
   head: {
     display: 'flex',

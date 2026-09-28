@@ -1,10 +1,10 @@
-import { useEffect, useId, type CSSProperties } from 'react';
+import { useEffect, useId, type CSSProperties, type ReactNode } from 'react';
 import { Button } from './Button';
 
 export type ConfirmDialogProps = {
   open: boolean;
   title: string;
-  description: string;
+  description: ReactNode;
   confirmLabel?: string;
   cancelLabel?: string;
   danger?: boolean;
@@ -59,7 +59,9 @@ export function ConfirmDialog({
         <h2 id={titleId} style={styles.title}>
           {title}
         </h2>
-        <p style={styles.description}>{description}</p>
+        <div style={styles.description}>
+          {typeof description === 'string' ? <p style={styles.descriptionP}>{description}</p> : description}
+        </div>
         <div style={styles.actions}>
           {alertOnly ? null : (
             <Button type="button" variant="ghost" disabled={busy} onClick={onClose}>
@@ -109,11 +111,11 @@ const styles: Record<string, CSSProperties> = {
     color: 'var(--text)',
   },
   description: {
-    margin: 0,
     color: 'var(--text-muted)',
     fontSize: '0.92rem',
     lineHeight: 1.45,
   },
+  descriptionP: { margin: 0 },
   actions: {
     display: 'flex',
     justifyContent: 'flex-end',

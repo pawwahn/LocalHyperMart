@@ -29,9 +29,23 @@ type ListingsCache = {
   selected: Record<string, boolean>;
 };
 
+export type PublishFailure = { masterItemId: string; name: string; message: string };
+
 export type PublishResult =
-  | { ok: true; count: number; failed: number }
+  | { ok: true; count: number; failed: number; failures: PublishFailure[] }
   | { ok: false };
+
+function publishFailureRows(
+  masterItems: { id: string; name: string }[],
+  errors: Record<string, string>,
+): PublishFailure[] {
+  return Object.entries(errors).map(([masterItemId, message]) => {
+    const name = masterItems.find((m) => m.id === masterItemId)?.name ?? 'Product';
+    const prefix = `${name}: `;
+    const detail = message.startsWith(prefix) ? message.slice(prefix.length) : message;
+    return { masterItemId, name, message: detail };
+  });
+}
 
 let listingsCache: ListingsCache | null = null;
 
@@ -56,7 +70,7 @@ export function useVendorListings() {
   const [catalogQuery, setCatalogQuery] = useState('');
   const [catalogStatus, setCatalogStatus] = useState<'all' | 'not_listed' | 'live' | 'hidden'>('all');
   const [listingQuery, setListingQuery] = useState('');
-  const [listingStatus, setListingStatus] = useState<'all' | 'live' | 'hidden'>('all');
+  const [listingStatus, setListingStatus] = useState<'live' | 'hidden'>('live');
   const [selected, setSelected] = useState<Record<string, boolean>>(cached?.selected ?? {});
   const [drafts, setDrafts] = useState<Record<string, DraftPricing>>(cached?.drafts ?? {});
   const [loading, setLoading] = useState(!cached);
@@ -123,6 +137,7 @@ export function useVendorListings() {
             price: existing.price,
             discountPrice: existing.discountPrice,
             vendorNote: existing.note,
+            searchNames: existing.searchNames,
           };
         } else {
           nextDrafts[master.id] = emptyDraft(master.mrp);
@@ -176,8 +191,10 @@ export function useVendorListings() {
       if (!q) return true;
       return (
         item.name.toLowerCase().includes(q) ||
+        item.searchNames.toLowerCase().includes(q) ||
         item.category.toLowerCase().includes(q) ||
-        item.unit.toLowerCase().includes(q)
+        item.unit.toLowerCase().includes(q) ||
+        (existing?.searchNames.toLowerCase().includes(q) ?? false)
       );
     });
   }, [masterItems, categoryId, catalogQuery, catalogStatus, listedByMaster]);
@@ -192,7 +209,8 @@ export function useVendorListings() {
         listing.name.toLowerCase().includes(q) ||
         listing.category.toLowerCase().includes(q) ||
         listing.unit.toLowerCase().includes(q) ||
-        listing.note.toLowerCase().includes(q)
+        listing.note.toLowerCase().includes(q) ||
+        listing.searchNames.toLowerCase().includes(q)
       );
     });
   }, [listings, listingQuery, listingStatus]);
@@ -262,6 +280,7 @@ export function useVendorListings() {
       price: number;
       discountPrice: number | null;
       vendorNote: string | null;
+      searchNames: string | null;
     }> = [];
 
     for (const masterItemId of ids) {
@@ -276,6 +295,7 @@ export function useVendorListings() {
           price: pricing.price,
           discountPrice: pricing.discountPrice,
           vendorNote: pricing.vendorNote,
+          searchNames: pricing.searchNames,
         });
       } catch (err) {
         const message = err instanceof Error ? err.message : `${productName}: invalid pricing`;
@@ -329,7 +349,12 @@ export function useVendorListings() {
             : `${payload.length} products listed in your town.`,
         );
       }
-      return { ok: true, count: payload.length, failed: failedIds.length };
+      return {
+        ok: true,
+        count: payload.length,
+        failed: failedIds.length,
+        failures: publishFailureRows(masterItems, nextRowErrors),
+      };
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Could not publish listings';
       setError(message);
@@ -358,6 +383,55 @@ export function useVendorListings() {
       return next;
     });
     setRowErrors(pending.errors);
+  }
+
+  async function setSelectedListingsActive(listingIds: string[], active: boolean) {
+    if (!session || listingIds.length === 0) return;
+    const targets = listings.filter((l) => listingIds.includes(l.id) && l.active !== active);
+    if (targets.length === 0) {
+      setNotice(
+        active
+          ? 'Selected listings are already live in town.'
+          : 'Selected listings are already hidden.',
+      );
+      return;
+    }
+    setActionId('bulk');
+    setError(null);
+    setNotice(null);
+    try {
+      for (const listing of targets) {
+        await updateListingActive(session.accessToken, session.vendorId, listing.id, active);
+      }
+      setNotice(
+        active
+          ? targets.length === 1
+            ? `“${targets[0].name}” is live in town again.`
+            : `Showed ${targets.length} listings in town.`
+          : targets.length === 1
+            ? `Hidden “${targets[0].name}” from town listing.`
+            : `Hidden ${targets.length} listings from town.`,
+      );
+      await reload();
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : active
+            ? 'Could not show selected listings'
+            : 'Could not hide selected listings',
+      );
+    } finally {
+      setActionId(null);
+    }
+  }
+
+  async function hideSelectedListings(listingIds: string[]) {
+    await setSelectedListingsActive(listingIds, false);
+  }
+
+  async function showSelectedListings(listingIds: string[]) {
+    await setSelectedListingsActive(listingIds, true);
   }
 
   async function toggleActive(listing: ListingView) {
@@ -487,6 +561,8 @@ export function useVendorListings() {
     publishSelected,
     acknowledgePublish,
     toggleActive,
+    hideSelectedListings,
+    showSelectedListings,
     saveListingPricing,
     saveListingPhotos,
     uploadPhoto,

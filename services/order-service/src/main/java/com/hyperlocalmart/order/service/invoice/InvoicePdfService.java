@@ -94,19 +94,29 @@ public class InvoicePdfService {
     }
 
     private PdfPTable buildLineItemsTable(InvoiceDocument invoice) throws DocumentException {
-        PdfPTable table = new PdfPTable(new float[]{4f, 2f, 1f, 1.5f, 1.5f});
+        PdfPTable table = new PdfPTable(new float[]{3f, 1.2f, 0.8f, 0.8f, 1f, 0.8f, 0.8f, 0.8f, 1f});
         table.setWidthPercentage(100);
         addHeaderCell(table, "Item");
-        addHeaderCell(table, "Shop");
+        addHeaderCell(table, "HSN");
         addHeaderCell(table, "Qty");
+        addHeaderCell(table, "GST%");
         addHeaderCell(table, "Rate");
+        addHeaderCell(table, "CGST");
+        addHeaderCell(table, "SGST");
+        addHeaderCell(table, "Cess");
         addHeaderCell(table, "Amount");
 
         for (InvoiceDocument.InvoiceLineItem item : invoice.getLineItems()) {
             addBodyCell(table, item.getItemName());
-            addBodyCell(table, nullToDash(item.getShopName()));
+            addBodyCell(table, nullToDash(item.getHsnCode()));
             addBodyCell(table, String.valueOf(item.getQuantity()));
+            addBodyCell(table, item.getGstPercent() != null
+                    ? item.getGstPercent().stripTrailingZeros().toPlainString()
+                    : "-");
             addBodyCell(table, formatMoney(item.getUnitPrice()));
+            addBodyCell(table, formatMoney(item.getCgstAmount()));
+            addBodyCell(table, formatMoney(item.getSgstAmount()));
+            addBodyCell(table, formatMoney(item.getCessAmount()));
             addBodyCell(table, formatMoney(item.getLineTotal()));
         }
         return table;
@@ -123,7 +133,7 @@ public class InvoicePdfService {
             addTotalRow(table, "Platform Fee", invoice.getPlatformFee());
         }
         if (isPositive(invoice.getTaxAmount())) {
-            addTotalRow(table, "Tax", invoice.getTaxAmount());
+            addTotalRow(table, "GST (incl. in item prices)", invoice.getTaxAmount());
         }
         if (isPositive(invoice.getStoreCreditApplied())) {
             addTotalRow(table, "Store Credit Applied", invoice.getStoreCreditApplied().negate());

@@ -8,6 +8,8 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
 import java.math.BigDecimal;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @Component
@@ -91,6 +93,19 @@ public class TownClient {
 
     public void appendAdminAudit(
             String screenKey, String action, String summary, UUID actorId, UUID townId, UUID entityId) {
+        appendAdminAudit(screenKey, action, summary, actorId, townId, entityId, null, null, null);
+    }
+
+    public void appendAdminAudit(
+            String screenKey,
+            String action,
+            String summary,
+            UUID actorId,
+            UUID townId,
+            UUID entityId,
+            Map<String, Object> before,
+            Map<String, Object> after,
+            List<String> changeLines) {
         try {
             java.util.Map<String, Object> body = new java.util.LinkedHashMap<>();
             body.put("screenKey", screenKey);
@@ -98,8 +113,12 @@ public class TownClient {
             body.put("changeSummary", summary);
             body.put("actorUserId", actorId);
             body.put("actorRole", "SUPER_ADMIN");
+            if (changeLines != null) body.put("entityType", "MEMBERSHIP");
             if (townId != null) body.put("townId", townId);
             if (entityId != null) body.put("entityId", entityId);
+            if (before != null) body.put("beforeSnapshot", before);
+            if (after != null) body.put("afterSnapshot", after);
+            if (changeLines != null && !changeLines.isEmpty()) body.put("changeLines", changeLines);
             restClientBuilder.baseUrl(townServiceProperties.getBaseUrl()).build()
                     .post()
                     .uri("/api/v1/internal/admin-audit")

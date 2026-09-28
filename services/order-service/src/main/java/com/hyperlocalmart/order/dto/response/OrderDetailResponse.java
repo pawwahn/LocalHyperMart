@@ -36,6 +36,8 @@ public class OrderDetailResponse {
     private String invoicePdfUrl;
     private List<OrderTimelineStepResponse> timeline;
     private ScratchCardResponse scratchCard;
+    /** Present after delivery when a last-mile agent exists, or after the buyer has rated. */
+    private DeliveryAgentRatingView deliveryAgentRating;
     /** True when buyer may cancel the whole order (before any shop marks ready). */
     private boolean canCancelOrder;
     /** True when buyer may finish an unpaid online order. */

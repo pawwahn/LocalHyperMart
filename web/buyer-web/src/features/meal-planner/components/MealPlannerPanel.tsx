@@ -1,19 +1,28 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { Banner, Button } from '@/shared/ui';
 import { QuantityStepper } from '@/features/shop/components/QuantityStepper';
-import { fetchRecipePlan, searchRecipes, type RecipeShopLine, type RecipeSummary } from '../api/mealPlannerApi';
+import type { CatalogItemView } from '@/features/shop/api/shopApi';
+import { fetchRecipePlan, recipeLineToCatalogItem, searchRecipes, type RecipeSummary } from '../api/mealPlannerApi';
 
 type Props = {
   townId: string;
   quantityFor: (listingId: string) => number;
   busyKey: string | null;
+  rememberItems: (next: CatalogItemView[], mode: 'replace' | 'append') => void;
   onIncrease: (listingId: string) => void;
   onDecrease: (listingId: string) => void;
 };
 
 const HINTS = ['Chicken biryani', 'Dal tadka', 'Poha', 'Paneer butter masala'];
 
-export function MealPlannerPanel({ townId, quantityFor, busyKey, onIncrease, onDecrease }: Props) {
+export function MealPlannerPanel({
+  townId,
+  quantityFor,
+  busyKey,
+  rememberItems,
+  onIncrease,
+  onDecrease,
+}: Props) {
   const [query, setQuery] = useState('');
   const [debounced, setDebounced] = useState('');
   const [suggestions, setSuggestions] = useState<RecipeSummary[]>([]);
@@ -42,6 +51,10 @@ export function MealPlannerPanel({ townId, quantityFor, busyKey, onIncrease, onD
       try {
         const next = await fetchRecipePlan(recipe.id, townId);
         setPlan(next);
+        rememberItems(
+          next.ingredients.map(recipeLineToCatalogItem).filter((i): i is CatalogItemView => Boolean(i)),
+          'append',
+        );
       } catch (err) {
         setPlan(null);
         setError(err instanceof Error ? err.message : 'Could not load ingredients');
@@ -49,7 +62,7 @@ export function MealPlannerPanel({ townId, quantityFor, busyKey, onIncrease, onD
         setLoading(false);
       }
     },
-    [townId],
+    [townId, rememberItems],
   );
 
   useEffect(() => {
@@ -90,6 +103,10 @@ export function MealPlannerPanel({ townId, quantityFor, busyKey, onIncrease, onD
       setNotice('All in-stock ingredients are already in your cart.');
       return;
     }
+    rememberItems(
+      pending.map(recipeLineToCatalogItem).filter((i): i is CatalogItemView => Boolean(i)),
+      'append',
+    );
     pending.forEach((l) => onIncrease(l.listingId!));
     setNotice(`Added ${pending.length} item${pending.length === 1 ? '' : 's'} to cart.`);
   }
@@ -172,7 +189,12 @@ export function MealPlannerPanel({ townId, quantityFor, busyKey, onIncrease, onD
                 line={line}
                 quantity={line.listingId ? quantityFor(line.listingId) : 0}
                 busy={Boolean(line.listingId && busyKey === line.listingId)}
-                onIncrease={() => line.listingId && onIncrease(line.listingId)}
+                onIncrease={() => {
+                  if (!line.listingId) return;
+                  const catalog = recipeLineToCatalogItem(line);
+                  if (catalog) rememberItems([catalog], 'append');
+                  onIncrease(line.listingId);
+                }}
                 onDecrease={() => line.listingId && onDecrease(line.listingId)}
               />
             ))}

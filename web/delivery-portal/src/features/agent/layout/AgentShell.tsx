@@ -14,6 +14,7 @@ const NAV = [
   { to: '/agent/pickups', label: 'From shop', icon: '🛍️', end: false },
   { to: '/agent/deliveries', label: 'To home', icon: '🛵', end: false },
   { to: '/agent/history', label: 'Done', icon: '✅', end: false },
+  { to: '/agent/pay', label: 'Pay', icon: '₹', end: false },
 ] as const;
 
 export function AgentShell({ title, subtitle, onRefresh, children }: Props) {
@@ -42,6 +43,10 @@ export function AgentShell({ title, subtitle, onRefresh, children }: Props) {
       }
     >
       {children}
+      <div
+        aria-hidden
+        style={{ height: 'calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px) + 2.75rem)', flexShrink: 0 }}
+      />
     </PortalShell>
   );
 }
@@ -57,7 +62,7 @@ const styles: Record<string, CSSProperties> = {
     height: 'calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px))',
     paddingBottom: 'env(safe-area-inset-bottom, 0px)',
     display: 'grid',
-    gridTemplateColumns: 'repeat(4, 1fr)',
+    gridTemplateColumns: 'repeat(5, 1fr)',
     background: 'var(--bg-elevated)',
     borderTop: '1px solid var(--border)',
     zIndex: 50,

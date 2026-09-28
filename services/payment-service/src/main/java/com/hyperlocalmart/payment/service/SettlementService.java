@@ -41,8 +41,9 @@ public class SettlementService {
     private final OrderClient orderClient;
     private final VendorClient vendorClient;
     private final TownClient townClient;
+    private final ServiceInvoiceNumberService serviceInvoiceNumberService;
 
-    @Transactional(readOnly = true)
+    /** Order lookup stays outside a DB transaction so a slow call cannot pin the pool. */
     public SettlementCandidateView listCandidates(UUID townId, UUID vendorId, LocalDate from, LocalDate to) {
         var candidates = orderClient.getSettlementCandidates(vendorId, townId, from, to);
         List<UUID> ids = candidates.items() == null ? List.of()
@@ -365,6 +366,11 @@ public class SettlementService {
         settlement.setTransactionNotes(transactionNotes);
         settlement.setPaidAt(paidAt == null ? Instant.now() : paidAt);
         settlement.setPaidBy(actorId);
+        if (settlement.getPayeeType() == SettlementPayeeType.VENDOR
+                && (settlement.getServiceInvoiceNumber() == null
+                || settlement.getServiceInvoiceNumber().isBlank())) {
+            settlement.setServiceInvoiceNumber(serviceInvoiceNumberService.allocate(settlement.getPaidAt()));
+        }
     }
 
     private SettlementResponse toResponse(Settlement settlement) {
@@ -421,6 +427,7 @@ public class SettlementService {
                 .transactionNotes(settlement.getTransactionNotes())
                 .paidAt(settlement.getPaidAt())
                 .paidBy(settlement.getPaidBy())
+                .serviceInvoiceNumber(settlement.getServiceInvoiceNumber())
                 .createdAt(settlement.getCreatedAt())
                 .lines(lines)
                 .build();

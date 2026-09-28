@@ -6,8 +6,10 @@ import com.hyperlocalmart.order.dto.request.CancelOrderItemRequest;
 import com.hyperlocalmart.order.dto.request.CancelOrderRequest;
 import com.hyperlocalmart.order.dto.request.CreateClaimRequest;
 import com.hyperlocalmart.order.dto.request.CreateOrderRequest;
+import com.hyperlocalmart.order.dto.request.RateDeliveryAgentRequest;
 import com.hyperlocalmart.order.dto.request.RateOrderItemRequest;
 import com.hyperlocalmart.order.dto.response.ClaimResponse;
+import com.hyperlocalmart.order.dto.response.DeliveryAgentRatingResponse;
 import com.hyperlocalmart.order.dto.response.CreateOrderResponse;
 import com.hyperlocalmart.order.dto.response.OrderDetailResponse;
 import com.hyperlocalmart.order.dto.response.OrderSummaryResponse;
@@ -23,6 +25,7 @@ import com.hyperlocalmart.order.service.OrderClaimService;
 import com.hyperlocalmart.order.service.OrderInvoiceService;
 import com.hyperlocalmart.order.service.OrderService;
 import com.hyperlocalmart.order.service.ProductRatingService;
+import com.hyperlocalmart.order.service.DeliveryAgentRatingService;
 import com.hyperlocalmart.order.service.ScratchCardService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -49,6 +52,7 @@ public class OrderController {
     private final BuyerOrderCancelService buyerOrderCancelService;
     private final OrderClaimService orderClaimService;
     private final ProductRatingService productRatingService;
+    private final DeliveryAgentRatingService deliveryAgentRatingService;
     private final ScratchCardService scratchCardService;
     private final BuyerSpendReportService buyerSpendReportService;
 
@@ -191,6 +195,16 @@ public class OrderController {
             HttpServletRequest httpRequest) {
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
                 productRatingService.rateItem(principal.getUserId(), orderId, request)));
+    }
+
+    @PostMapping("/{orderId}/delivery-rating")
+    public ResponseEntity<ApiResponse<DeliveryAgentRatingResponse>> rateDeliveryAgent(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @PathVariable UUID orderId,
+            @Valid @RequestBody RateDeliveryAgentRequest request,
+            HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                deliveryAgentRatingService.rate(principal.getUserId(), orderId, request)));
     }
 
     @GetMapping("/{orderId}/invoice")

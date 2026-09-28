@@ -37,7 +37,7 @@ public class CodCloseDayService {
     private final OrderClient orderClient;
     private final DeliveryClient deliveryClient;
 
-    @Transactional(readOnly = true)
+    /** Order lookup stays outside a DB transaction so a slow call cannot pin the pool. */
     public CodCandidateResponse listCandidates(
             UUID townId, UUID hubId, UUID agentId, LocalDate date, UUID actorUserId, boolean superAdmin) {
         assertHubScope(actorUserId, townId, hubId, superAdmin);

@@ -155,6 +155,9 @@ public class MembershipService {
 
         UUID purchaseId = transactionTemplate.execute(status -> {
             assertNoPendingCash(buyerId);
+            if (channel == MembershipPaymentChannel.ONLINE) {
+                cancelPendingOnline(buyerId);
+            }
             BuyerMembershipPurchase purchase = BuyerMembershipPurchase.builder()
                     .buyerId(buyerId)
                     .buyerPhoneSnapshot(phone)
@@ -170,10 +173,6 @@ public class MembershipService {
                     .note(channel == MembershipPaymentChannel.CASH ? "Pay cash at hub" : "Online")
                     .build();
             purchaseRepository.save(purchase);
-            if (channel == MembershipPaymentChannel.ONLINE && paymentProperties.isRazorpayConfigured()) {
-                cancelPendingOnline(buyerId);
-                purchaseRepository.save(purchase);
-            }
             return purchase.getId();
         });
 
@@ -234,14 +233,52 @@ public class MembershipService {
                 .note(request.getNote() == null || request.getNote().isBlank() ? "Admin gift" : request.getNote().trim())
                 .build();
         purchaseRepository.save(purchase);
+        BuyerMembership beforeGift = membershipRepository.findByBuyerId(user.id()).orElse(null);
+        int creditsBefore = beforeGift == null ? 0 : beforeGift.getCreditsRemaining();
+        String slabBefore = beforeGift == null || beforeGift.getLastSlab() == null ? "—" : slabLabel(beforeGift.getLastSlab());
         grantPaid(purchase, adminId, purchase.getNote());
+        auditMemberChange(
+                adminId,
+                "GIFT_MEMBERSHIP",
+                purchase.getId(),
+                user.phone(),
+                "None",
+                "Paid",
+                slabBefore,
+                slabLabel(slab),
+                creditsBefore,
+                creditsBefore + offer.credits(),
+                java.util.List.of("Amount: — → ₹0.00"));
         return toPurchase(purchase);
     }
 
     @Transactional
-    public MembershipPurchaseResponse confirmCash(UUID actorId, ConfirmMembershipCashRequest request) {
+    public MembershipPurchaseResponse confirmCash(UUID actorId, String actorPhone, ConfirmMembershipCashRequest request) {
+        String seller = normalizePhone(actorPhone);
+        if (seller.isBlank()) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Sign in again. The person who collected the cash must be on the sale.");
+        }
         BuyerMembershipPurchase purchase = resolvePendingCash(request);
+        BuyerMembership beforeCash = membershipRepository.findByBuyerId(purchase.getBuyerId()).orElse(null);
+        int creditsBefore = beforeCash == null ? 0 : beforeCash.getCreditsRemaining();
+        String slabBefore = beforeCash == null || beforeCash.getLastSlab() == null ? "—" : slabLabel(beforeCash.getLastSlab());
+        purchase.setSellerPhoneSnapshot(seller);
+        String amount = "₹" + money(purchase.getPriceSnapshot()).toPlainString();
         grantPaid(purchase, actorId, "Cash received");
+        auditMemberChange(
+                actorId,
+                "CONFIRM_MEMBERSHIP_CASH",
+                purchase.getId(),
+                purchase.getBuyerPhoneSnapshot(),
+                "Pending cash",
+                "Paid",
+                slabBefore,
+                slabLabel(purchase.getSlab()),
+                creditsBefore,
+                creditsBefore + purchase.getCreditsGranted(),
+                java.util.List.of(
+                        "Amount: — → " + amount,
+                        "Collected by: — → " + seller));
         return toPurchase(purchase);
     }
 
@@ -298,9 +335,23 @@ public class MembershipService {
         if (purchase.getStatus() != MembershipPurchaseStatus.PENDING_CASH) {
             throw new BusinessException(ErrorCode.CONFLICT, "Only a pending cash request can be cancelled");
         }
+        BuyerMembership beforeCancel = membershipRepository.findByBuyerId(purchase.getBuyerId()).orElse(null);
+        int credits = beforeCancel == null ? 0 : beforeCancel.getCreditsRemaining();
         purchase.setStatus(MembershipPurchaseStatus.CANCELLED);
         purchase.setConfirmedBy(actorId);
         purchase.setNote("Cash request cancelled");
+        auditMemberChange(
+                actorId,
+                "CANCEL_MEMBERSHIP_CASH",
+                purchase.getId(),
+                purchase.getBuyerPhoneSnapshot(),
+                "Pending cash",
+                "Cancelled",
+                slabLabel(purchase.getSlab()),
+                slabLabel(purchase.getSlab()),
+                credits,
+                credits,
+                java.util.List.of());
         return toPurchase(purchase);
     }
 
@@ -600,6 +651,7 @@ public class MembershipService {
                 .expiresAtAfter(p.getExpiresAtAfter())
                 .createdAt(p.getCreatedAt())
                 .note(p.getNote())
+                .sellerPhone(p.getSellerPhoneSnapshot())
                 .checkout(checkoutFor(p))
                 .build();
     }
@@ -621,6 +673,68 @@ public class MembershipService {
                 .logoUrl(paymentProperties.getCheckoutLogoUrl() == null || paymentProperties.getCheckoutLogoUrl().isBlank()
                         ? null : paymentProperties.getCheckoutLogoUrl())
                 .build();
+    }
+
+    private void auditMemberChange(
+            UUID actorId,
+            String action,
+            UUID purchaseId,
+            String phone,
+            String statusBefore,
+            String statusAfter,
+            String slabBefore,
+            String slabAfter,
+            int creditsBefore,
+            int creditsAfter,
+            java.util.List<String> extraLines) {
+        if (actorId == null) {
+            return;
+        }
+        java.util.Map<String, Object> before = new java.util.LinkedHashMap<>();
+        java.util.Map<String, Object> after = new java.util.LinkedHashMap<>();
+        before.put("status", statusBefore);
+        after.put("status", statusAfter);
+        before.put("slab", slabBefore);
+        after.put("slab", slabAfter);
+        before.put("credits", creditsBefore);
+        after.put("credits", creditsAfter);
+        if (phone != null && !phone.isBlank()) {
+            before.put("phone", phone);
+            after.put("phone", phone);
+        }
+        java.util.List<String> lines = new java.util.ArrayList<>();
+        if (!statusBefore.equals(statusAfter)) {
+            lines.add("Status: " + statusBefore + " → " + statusAfter);
+        }
+        if (!slabBefore.equals(slabAfter)) {
+            lines.add("Slab: " + slabBefore + " → " + slabAfter);
+        }
+        if (creditsBefore != creditsAfter) {
+            lines.add("Credits: " + creditsBefore + " → " + creditsAfter);
+        }
+        if (extraLines != null) {
+            lines.addAll(extraLines);
+        }
+        if (lines.isEmpty()) {
+            return;
+        }
+        String who = phone == null || phone.isBlank() ? "buyer" : phone;
+        townClient.appendAdminAudit(
+                "memberships",
+                action,
+                who + " — " + String.join("; ", lines),
+                actorId,
+                null,
+                purchaseId,
+                before,
+                after,
+                lines);
+    }
+
+    private static String slabLabel(MembershipSlab slab) {
+        if (slab == MembershipSlab.HALF_YEAR) return "6 months";
+        if (slab == MembershipSlab.ANNUAL) return "Annual";
+        return "3 months";
     }
 
     private static int usableCredits(BuyerMembership membership) {

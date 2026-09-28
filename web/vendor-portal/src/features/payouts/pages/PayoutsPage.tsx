@@ -4,6 +4,17 @@ import { Banner, Card } from '@/shared/ui';
 import { useAuth } from '@/shared/auth/AuthContext';
 import { ApiError } from '@/shared/api/http';
 import { fetchSalesReport, formatMoney } from '@/features/reports/api/reportsApi';
+import { fetchSupplierBillProfile } from '@/features/orders/api/platformSettingsApi';
+import { fetchMyShop } from '@/features/shop/api/shopApi';
+import { listEnabledTowns } from '@/features/towns/api/townsApi';
+import { apiRequest } from '@/shared/api/http';
+import {
+  downloadVendorServiceBill,
+  gstStateCodeFromGstin,
+  gstStateCodeFromTown,
+  stateNameFor,
+  type BillParty,
+} from '@/features/payouts/vendorBill';
 import {
   listMyClaimAdjustments,
   listMySettlements,
@@ -134,6 +145,8 @@ export function PayoutsPage() {
   const [pageSize, setPageSize] = useState(25);
   const [sort, setSort] = useState<SortState<SortKey>>({ key: 'period', dir: 'desc' });
   const [claimsOpen, setClaimsOpen] = useState(false);
+  const [supplier, setSupplier] = useState<BillParty | null>(null);
+  const [recipient, setRecipient] = useState<BillParty | null>(null);
 
   function applyDatePreset(next: DatePreset) {
     setDatePreset(next);
@@ -157,6 +170,67 @@ export function PayoutsPage() {
       setPeriodTo(isoToday());
       return;
     }
+  }
+
+  const loadBillParties = useCallback(
+    async (token: string, vendorId: string, shopName?: string, phone?: string) => {
+      const [shop, me, towns, from] = await Promise.all([
+        fetchMyShop(token, vendorId).catch(() => null),
+        apiRequest<{ gstNumber?: string | null; businessName?: string | null; phone?: string | null }>(
+          '/api/v1/vendors/me',
+          { token },
+        ).catch(() => null),
+        listEnabledTowns().catch(() => []),
+        fetchSupplierBillProfile().catch(() => null),
+      ]);
+      const town = towns.find((t) => t.id === shop?.townId);
+      const vendorGst = (me?.gstNumber ?? '').trim().toUpperCase();
+      const vendorStateCode = gstStateCodeFromGstin(vendorGst) || gstStateCodeFromTown(town?.stateCode);
+      setRecipient({
+        legalName: shop?.shopName || shopName || me?.businessName || 'Shop',
+        gstin: vendorGst,
+        address: [shop?.address, shop?.pincode].filter(Boolean).join(', '),
+        phone: shop?.phone || phone || me?.phone || '',
+        stateName: stateNameFor(vendorStateCode, town?.state ?? ''),
+        gstStateCode: vendorStateCode,
+      });
+      const supplierCode = gstStateCodeFromGstin(from?.gstin ?? '') || from?.gstStateCode || '';
+      setSupplier({
+        legalName: from?.legalName || 'HyperLocalMart',
+        gstin: (from?.gstin ?? '').trim().toUpperCase(),
+        address: from?.address || '',
+        phone: from?.phone || '',
+        stateName: stateNameFor(supplierCode, from?.stateName || ''),
+        gstStateCode: supplierCode,
+      });
+    },
+    [],
+  );
+
+  function supplierParty(): BillParty {
+    return (
+      supplier ?? {
+        legalName: 'HyperLocalMart',
+        gstin: '',
+        address: '',
+        phone: '',
+        stateName: '',
+        gstStateCode: '',
+      }
+    );
+  }
+
+  function recipientParty(): BillParty {
+    return (
+      recipient ?? {
+        legalName: session?.shopName || 'Shop',
+        gstin: '',
+        address: '',
+        phone: session?.phone || '',
+        stateName: '',
+        gstStateCode: '',
+      }
+    );
   }
 
   const reload = useCallback(async () => {
@@ -192,6 +266,7 @@ export function PayoutsPage() {
       }
       setSalesAwaitingNet(waiting);
       setSalesAwaitingOrders(waitingOrders);
+      void loadBillParties(session.accessToken, session.vendorId, session.shopName, session.phone);
     } catch (err) {
       setError(err instanceof ApiError || err instanceof Error ? err.message : 'Failed to load payouts');
       setSalesAwaitingNet(0);
@@ -465,6 +540,8 @@ export function PayoutsPage() {
             {' '}
             <strong style={styles.hintStrong}>Paid on</strong> = when money was sent (can be days later).
             Windows can overlap when hub picks different orders in each batch.
+            {' '}
+            <strong style={styles.hintStrong}>Bill</strong> is the GST invoice for the service fee on a paid row.
             {periodFrom || periodTo
               ? ` Showing windows overlapping ${formatDay(periodFrom || null)} → ${formatDay(periodTo || null)}.`
               : ''}
@@ -496,6 +573,7 @@ export function PayoutsPage() {
                       <SortableTh label="Status" column="status" sort={sort} onSort={(c) => setSort((p) => toggleSort(p, c))} style={styles.th} />
                       <SortableTh label="Paid on" column="paidAt" sort={sort} onSort={(c) => setSort((p) => toggleSort(p, c))} style={styles.th} />
                       <th style={styles.thPlain}>Mode / txn</th>
+                      <th style={styles.thPlain}>Bill</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -570,6 +648,19 @@ export function PayoutsPage() {
                             </>
                           ) : (
                             <span style={styles.sub}>Not paid yet</span>
+                          )}
+                        </td>
+                        <td style={styles.td}>
+                          {s.status === 'PAID' ? (
+                            <button
+                              type="button"
+                              style={styles.billBtn}
+                              onClick={() => downloadVendorServiceBill(s, supplierParty(), recipientParty())}
+                            >
+                              Bill
+                            </button>
+                          ) : (
+                            <span style={styles.sub}>—</span>
                           )}
                         </td>
                       </tr>
@@ -734,6 +825,17 @@ const styles: Record<string, CSSProperties> = {
     verticalAlign: 'top',
   },
   sub: { color: 'var(--text-muted)', fontSize: '0.75rem', fontWeight: 500 },
+  billBtn: {
+    minHeight: 32,
+    padding: '0.2rem 0.55rem',
+    borderRadius: 8,
+    border: '1px solid #166534',
+    background: '#f0fdf4',
+    color: '#14532d',
+    fontWeight: 800,
+    fontSize: '0.75rem',
+    cursor: 'pointer',
+  },
   paid: {
     fontSize: '0.68rem',
     color: '#047857',

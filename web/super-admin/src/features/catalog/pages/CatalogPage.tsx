@@ -8,6 +8,7 @@ import {
   createMasterItem,
   deleteCategory,
   deleteMasterItem,
+  fetchMasterItem,
   listCategories,
   listMasterItemsPage,
   listUnits,
@@ -27,8 +28,99 @@ import { CategoryTownVisibilityDialog } from '../components/CategoryTownVisibili
 
 const PAGE_SIZE = 25;
 const CAT_PAGE_SIZE = 15;
+const GST_SLAB_OPTIONS = ['0', '0.25', '3', '5', '12', '18', '28'] as const;
 
-type Tab = 'items' | 'categories';
+function formatGstSlab(value: number | null | undefined): string {
+  if (value == null || Number.isNaN(value)) return '18';
+  const match = GST_SLAB_OPTIONS.find((g) => Number(g) === Number(value));
+  return match ?? String(value);
+}
+
+function isValidHsn(value: string): boolean {
+  return /^[0-9]{4,8}$/.test(value.trim());
+}
+
+function enrichMasterItemRow(
+  item: MasterItemVm,
+  categories: CategoryVm[],
+  units: UnitVm[],
+): MasterItemVm {
+  return {
+    ...item,
+    categoryName:
+      item.categoryName ??
+      categories.find((c) => c.id === item.categoryId)?.name ??
+      null,
+    unitName:
+      item.unitName ??
+      units.find((u) => u.id === item.unitId)?.displayName ??
+      units.find((u) => u.id === item.unitId)?.label ??
+      units.find((u) => u.id === item.unitId)?.code ??
+      null,
+  };
+}
+
+const GST_FILTER_OPTIONS = [
+  { value: '', label: 'All GST' },
+  { value: '0', label: '0%' },
+  { value: '5', label: '5%' },
+  { value: '12', label: '12%' },
+  { value: '18', label: '18%' },
+  { value: '28', label: '28%' },
+] as const;
+
+function patchMasterItemRow(
+  prev: MasterItemVm[],
+  updated: MasterItemVm,
+  categories: CategoryVm[],
+  units: UnitVm[],
+  filterCategoryId: string,
+  filterGstPercent: string,
+): MasterItemVm[] {
+  const row = enrichMasterItemRow(updated, categories, units);
+  if (filterCategoryId && row.categoryId !== filterCategoryId) {
+    return prev.filter((i) => i.id !== row.id);
+  }
+  if (filterGstPercent) {
+    const slab = Number(filterGstPercent);
+    const rowGst = row.gstPercent ?? null;
+    if (rowGst == null || rowGst !== slab) {
+      return prev.filter((i) => i.id !== row.id);
+    }
+  }
+  const idx = prev.findIndex((i) => i.id === row.id);
+  if (idx < 0) return prev;
+  const next = [...prev];
+  next[idx] = {
+    ...next[idx],
+    ...row,
+    hsnCode: row.hsnCode ?? next[idx].hsnCode,
+    gstPercent: row.gstPercent ?? next[idx].gstPercent,
+    cessPercent: row.cessPercent ?? next[idx].cessPercent,
+    priceIncludesTax: row.priceIncludesTax ?? next[idx].priceIncludesTax,
+    countryOfOrigin: row.countryOfOrigin ?? next[idx].countryOfOrigin,
+    imageUrls: row.imageUrls?.length ? row.imageUrls : next[idx].imageUrls,
+  };
+  return next;
+}
+
+function mergeItemTaxFromPrior(prev: MasterItemVm[], incoming: MasterItemVm[]): MasterItemVm[] {
+  const prevById = new Map(prev.map((i) => [i.id, i]));
+  return incoming.map((row) => {
+    const prior = prevById.get(row.id);
+    if (!prior) return row;
+    return {
+      ...row,
+      hsnCode: row.hsnCode ?? prior.hsnCode,
+      gstPercent: row.gstPercent ?? prior.gstPercent,
+      cessPercent: row.cessPercent ?? prior.cessPercent,
+      priceIncludesTax: row.priceIncludesTax ?? prior.priceIncludesTax,
+      countryOfOrigin: row.countryOfOrigin ?? prior.countryOfOrigin,
+    };
+  });
+}
+
+type Tab = 'items' | 'categories' | 'history';
 type ItemSortKey = 'name' | 'category' | 'unit' | 'mrp';
 type CatSortKey = 'name' | 'description';
 type SortDir = 'asc' | 'desc';
@@ -48,6 +140,7 @@ export function CatalogPage() {
   const [qDraft, setQDraft] = useState('');
   const [filterCategoryId, setFilterCategoryId] = useState('');
   const [filterUnitId, setFilterUnitId] = useState('');
+  const [filterGstPercent, setFilterGstPercent] = useState('');
   const [itemSort, setItemSort] = useState<ItemSortKey>('name');
   const [itemDir, setItemDir] = useState<SortDir>('asc');
   const [catQuery, setCatQuery] = useState('');
@@ -57,10 +150,17 @@ export function CatalogPage() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [itemCreateToast, setItemCreateToast] = useState<string | null>(null);
+  const [historyRefresh, setHistoryRefresh] = useState(0);
   const [busy, setBusy] = useState(false);
 
   const [itemName, setItemName] = useState('');
+  const [itemSearchNames, setItemSearchNames] = useState('');
   const [itemMrp, setItemMrp] = useState('');
+  const [itemHsn, setItemHsn] = useState('');
+  const [itemGst, setItemGst] = useState('18');
+  const [itemCess, setItemCess] = useState('0');
+  const [itemTaxIncl, setItemTaxIncl] = useState(true);
+  const [itemOrigin, setItemOrigin] = useState('IN');
   const [itemCategoryId, setItemCategoryId] = useState('');
   const [itemUnitId, setItemUnitId] = useState('');
 
@@ -78,9 +178,15 @@ export function CatalogPage() {
   const [editDesc, setEditDesc] = useState('');
   const [editingItem, setEditingItem] = useState<MasterItemVm | null>(null);
   const [editItemName, setEditItemName] = useState('');
+  const [editItemSearchNames, setEditItemSearchNames] = useState('');
   const [editItemCategoryId, setEditItemCategoryId] = useState('');
   const [editItemUnitId, setEditItemUnitId] = useState('');
   const [editItemMrp, setEditItemMrp] = useState('');
+  const [editItemHsn, setEditItemHsn] = useState('');
+  const [editItemGst, setEditItemGst] = useState('18');
+  const [editItemCess, setEditItemCess] = useState('0');
+  const [editItemTaxIncl, setEditItemTaxIncl] = useState(true);
+  const [editItemOrigin, setEditItemOrigin] = useState('IN');
   const [catPage, setCatPage] = useState(0);
   const [imageItemId, setImageItemId] = useState<string | null>(null);
   const [imageCategoryId, setImageCategoryId] = useState<string | null>(null);
@@ -199,10 +305,11 @@ export function CatalogPage() {
         q,
         categoryId: filterCategoryId || undefined,
         unitId: filterUnitId || undefined,
+        gstPercent: filterGstPercent ? Number(filterGstPercent) : undefined,
         sort: itemSort,
         dir: itemDir,
       });
-      setItems(data.items);
+      setItems((prev) => mergeItemTaxFromPrior(prev, data.items ?? []));
       setTotalPages(data.totalPages);
       setTotalElements(data.totalElements);
     } catch (err) {
@@ -213,7 +320,7 @@ export function CatalogPage() {
     } finally {
       setLoading(false);
     }
-  }, [token, page, q, filterCategoryId, filterUnitId, itemSort, itemDir]);
+  }, [token, page, q, filterCategoryId, filterUnitId, filterGstPercent, itemSort, itemDir]);
 
   useEffect(() => {
     void loadLookups();
@@ -262,6 +369,10 @@ export function CatalogPage() {
 
   async function onCreateItem(e: FormEvent) {
     e.preventDefault();
+    if (!isValidHsn(itemHsn)) {
+      setError('Enter a valid HSN code (4–8 digits) before creating this product.');
+      return;
+    }
     setBusy(true);
     setError(null);
     setNotice(null);
@@ -270,13 +381,24 @@ export function CatalogPage() {
     try {
       await createMasterItem(token, {
         name: createdName,
+        searchNames: itemSearchNames.trim(),
         categoryId: itemCategoryId,
         unitId: itemUnitId,
         mrp: itemMrp ? Number(itemMrp) : undefined,
+        hsnCode: itemHsn.trim(),
+        gstPercent: Number(itemGst),
+        cessPercent: itemCess ? Number(itemCess) : 0,
+        priceIncludesTax: itemTaxIncl,
+        countryOfOrigin: itemOrigin.trim() || 'IN',
       });
+      setHistoryRefresh((n) => n + 1);
       setItemCreateToast(`${createdName} created in master table`);
       setItemName('');
+      setItemSearchNames('');
       setItemMrp('');
+      setItemHsn('');
+      setItemGst('18');
+      setItemCess('0');
       setPage(0);
       setLoading(true);
       try {
@@ -286,6 +408,7 @@ export function CatalogPage() {
           q,
           categoryId: filterCategoryId || undefined,
           unitId: filterUnitId || undefined,
+          gstPercent: filterGstPercent ? Number(filterGstPercent) : undefined,
           sort: itemSort,
           dir: itemDir,
         });
@@ -320,6 +443,7 @@ export function CatalogPage() {
         name,
         description: catDesc.trim() || undefined,
       });
+      setHistoryRefresh((n) => n + 1);
       setNotice(`Category “${created.name}” created`);
       setCatName('');
       setCatDesc('');
@@ -339,6 +463,7 @@ export function CatalogPage() {
     setNotice(null);
     try {
       await deleteCategory(token, pendingDelete.id);
+      setHistoryRefresh((n) => n + 1);
       setNotice(`Category “${pendingDelete.name}” deleted`);
       if (imageCategoryId === pendingDelete.id) setImageCategoryId(null);
       setFilterCategoryId((prev) => (prev === pendingDelete.id ? '' : prev));
@@ -359,6 +484,7 @@ export function CatalogPage() {
     setNotice(null);
     try {
       await deleteMasterItem(token, pendingItemDelete.id);
+      setHistoryRefresh((n) => n + 1);
       setNotice(`Item “${pendingItemDelete.name}” deleted`);
       if (imageItemId === pendingItemDelete.id) setImageItemId(null);
       setPendingItemDelete(null);
@@ -446,6 +572,7 @@ export function CatalogPage() {
         name,
         description: editDesc.trim() || undefined,
       });
+      setHistoryRefresh((n) => n + 1);
       setNotice(`Category “${updated.name}” updated`);
       setEditing(null);
       await loadLookups();
@@ -456,13 +583,29 @@ export function CatalogPage() {
     }
   }
 
-  function openEditItem(item: MasterItemVm) {
-    setEditingItem(item);
+  function applyEditFormFromItem(item: MasterItemVm) {
     setEditItemName(item.name);
+    setEditItemSearchNames(item.searchNames ?? '');
     setEditItemCategoryId(item.categoryId ?? itemCategoryId);
     setEditItemUnitId(item.unitId ?? itemUnitId);
     setEditItemMrp(item.mrp != null ? String(item.mrp) : '');
+    setEditItemHsn(item.hsnCode?.trim() ?? '');
+    setEditItemGst(formatGstSlab(item.gstPercent));
+    setEditItemCess(item.cessPercent != null ? String(item.cessPercent) : '0');
+    setEditItemTaxIncl(item.priceIncludesTax !== false);
+    setEditItemOrigin(item.countryOfOrigin?.trim() || 'IN');
+  }
+
+  function openEditItem(item: MasterItemVm) {
+    setEditingItem(item);
+    applyEditFormFromItem(item);
     setError(null);
+    if (!token) return;
+    void fetchMasterItem(token, item.id)
+      .then((fresh) => applyEditFormFromItem(fresh))
+      .catch(() => {
+        /* keep list row data if detail fetch fails */
+      });
   }
 
   async function onSaveEditItem(e: FormEvent) {
@@ -470,19 +613,41 @@ export function CatalogPage() {
     if (!editingItem || !token) return;
     const name = editItemName.trim();
     if (!name || !editItemCategoryId || !editItemUnitId) return;
+    if (!isValidHsn(editItemHsn)) {
+      setError('Enter a valid HSN code (4–8 digits). Save is blocked until HSN is set for GST invoices.');
+      return;
+    }
     setBusy(true);
     setError(null);
     setNotice(null);
     try {
       const updated = await updateMasterItem(token, editingItem.id, {
         name,
+        searchNames: editItemSearchNames.trim(),
         categoryId: editItemCategoryId,
         unitId: editItemUnitId,
         mrp: editItemMrp ? Number(editItemMrp) : undefined,
+        hsnCode: editItemHsn.trim(),
+        gstPercent: Number(editItemGst),
+        cessPercent: editItemCess ? Number(editItemCess) : 0,
+        priceIncludesTax: editItemTaxIncl,
+        countryOfOrigin: editItemOrigin.trim() || 'IN',
       });
-      setNotice(`Item “${updated.name}” updated`);
+      const rowForList: MasterItemVm = {
+        ...updated,
+        hsnCode: updated.hsnCode ?? editItemHsn.trim(),
+        gstPercent: updated.gstPercent ?? Number(editItemGst),
+        cessPercent: updated.cessPercent ?? (editItemCess ? Number(editItemCess) : 0),
+        priceIncludesTax: updated.priceIncludesTax ?? editItemTaxIncl,
+        countryOfOrigin: updated.countryOfOrigin ?? (editItemOrigin.trim() || 'IN'),
+      };
       setEditingItem(null);
-      await loadItems();
+      setItems((prev) =>
+        patchMasterItemRow(prev, rowForList, categories, units, filterCategoryId, filterGstPercent),
+      );
+      setHistoryRefresh((n) => n + 1);
+      setNotice(`Item “${updated.name}” updated`);
+      void loadItems();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Update item failed');
     } finally {
@@ -628,64 +793,147 @@ export function CatalogPage() {
         >
           Categories
         </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === 'history'}
+          style={tab === 'history' ? styles.tabActive : styles.tab}
+          onClick={() => setTab('history')}
+        >
+          Change history
+        </button>
       </div>
 
+      {tab === 'history' && token ? (
+        <div style={styles.historyPane}>
+          <AdminHistoryPanel
+            token={token}
+            screen="catalog"
+            refreshTick={historyRefresh}
+            fullPage
+            searchPlaceholder="Search changes (GST, HSN, name, category)…"
+            emptyHint="Each save lists every field that changed (previous → new). GST %, HSN, MRP, category, and unit appear here."
+          />
+        </div>
+      ) : null}
+
       {tab === 'items' ? (
-        <>
-          <section style={styles.panel}>
-            <h2 style={styles.h2}>Add item</h2>
-            <form style={styles.formRow} onSubmit={(e) => void onCreateItem(e)}>
-              <TextField
-                label="Name"
-                value={itemName}
-                onChange={(e) => setItemName(e.target.value)}
-                placeholder="e.g. Tomato"
-              />
-              <SearchSelect
-                compact
-                label="Category"
-                noun="categories"
-                value={itemCategoryId}
-                options={categoryOptions}
-                onChange={setItemCategoryId}
-                placeholder="Search category"
-              />
-              <SearchSelect
-                compact
-                label="Unit"
-                noun="units"
-                value={itemUnitId}
-                options={unitOptions}
-                onChange={setItemUnitId}
-                placeholder="Search unit"
-              />
-              <TextField
-                label="MRP"
-                value={itemMrp}
-                onChange={(e) => setItemMrp(e.target.value)}
-                inputMode="decimal"
-                placeholder="Optional"
-              />
-              <div style={styles.formAction}>
-                <Button
-                  type="submit"
-                  disabled={busy || !itemName.trim() || !itemCategoryId || !itemUnitId}
-                >
-                  Create
-                </Button>
+        <div style={styles.itemsPage}>
+          <section style={styles.sectionCard} aria-labelledby="catalog-add-item-heading">
+            <div style={styles.addStripHead}>
+              <h2 id="catalog-add-item-heading" style={styles.addTitle}>Add item</h2>
+              <span style={styles.addHintInline}>
+                HSN required (4–8 digits) · GST-inclusive MRP usual
+              </span>
+            </div>
+            <form style={styles.addForm} onSubmit={(e) => void onCreateItem(e)}>
+              <div style={styles.addRowPrimary}>
+                <TextField
+                  label="Name"
+                  value={itemName}
+                  onChange={(e) => setItemName(e.target.value)}
+                  placeholder="e.g. Tomato"
+                />
+                <TextField
+                  label="Other names"
+                  value={itemSearchNames}
+                  onChange={(e) => setItemSearchNames(e.target.value)}
+                  placeholder="tamatar, tomato local"
+                />
+                <SearchSelect
+                  compact
+                  label="Category"
+                  noun="categories"
+                  value={itemCategoryId}
+                  options={categoryOptions}
+                  onChange={setItemCategoryId}
+                  placeholder="Category"
+                />
+                <SearchSelect
+                  compact
+                  label="Unit"
+                  noun="units"
+                  value={itemUnitId}
+                  options={unitOptions}
+                  onChange={setItemUnitId}
+                  placeholder="Unit"
+                />
+                <TextField
+                  label="MRP"
+                  value={itemMrp}
+                  onChange={(e) => setItemMrp(e.target.value)}
+                  inputMode="decimal"
+                  placeholder="Opt."
+                />
+                <TextField
+                  label="HSN"
+                  value={itemHsn}
+                  onChange={(e) => setItemHsn(e.target.value.replace(/\D/g, '').slice(0, 8))}
+                  inputMode="numeric"
+                  placeholder="4–8 digits"
+                />
               </div>
+              <div style={styles.addRowSecondary}>
+                <label style={styles.fieldMini}>
+                  GST %
+                  <select
+                    style={styles.miniSelectCompact}
+                    value={itemGst}
+                    onChange={(e) => setItemGst(e.target.value)}
+                  >
+                    {GST_SLAB_OPTIONS.map((g) => (
+                      <option key={g} value={g}>
+                        {g}%
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <TextField
+                  label="Cess %"
+                  value={itemCess}
+                  onChange={(e) => setItemCess(e.target.value)}
+                  inputMode="decimal"
+                  placeholder="0"
+                />
+                <TextField
+                  label="Origin"
+                  value={itemOrigin}
+                  onChange={(e) => setItemOrigin(e.target.value.toUpperCase().slice(0, 2))}
+                  placeholder="IN"
+                />
+                <label style={styles.checkMini}>
+                  <input
+                    type="checkbox"
+                    checked={itemTaxIncl}
+                    onChange={(e) => setItemTaxIncl(e.target.checked)}
+                  />
+                  Incl. GST
+                </label>
+                <div style={styles.addCreateWrap}>
+                  <Button
+                    type="submit"
+                    size="sm"
+                    disabled={busy || !itemName.trim() || !itemCategoryId || !itemUnitId}
+                  >
+                    Create
+                  </Button>
+                </div>
+              </div>
+              {!itemHsn.trim() || isValidHsn(itemHsn) ? null : (
+                <p style={styles.fieldError}>HSN must be 4–8 digits.</p>
+              )}
             </form>
           </section>
 
-          <section style={styles.panel}>
-            <div style={styles.toolbar}>
-              <div style={styles.toolbarTop}>
-                <h2 style={styles.h2}>
-                  Master items
-                  <span style={styles.countInline}>
-                    {loading ? 'Loading…' : `${totalElements}`}
-                  </span>
-                </h2>
+          <section style={styles.listSection} aria-labelledby="catalog-master-items-heading">
+          <div style={styles.toolbar}>
+            <div style={styles.toolbarTop}>
+              <h2 id="catalog-master-items-heading" style={styles.h2}>
+                Master items
+                <span style={styles.countInline}>
+                  {loading ? 'Loading…' : `${totalElements}`}
+                </span>
+              </h2>
                 <label style={styles.sortInline}>
                   Sort
                   <select
@@ -719,7 +967,7 @@ export function CatalogPage() {
                     style={styles.searchInput}
                     value={qDraft}
                     onChange={(e) => setQDraft(e.target.value)}
-                    placeholder="Search items"
+                    placeholder="Search name or other names"
                     aria-label="Search master items"
                   />
                 </label>
@@ -745,10 +993,28 @@ export function CatalogPage() {
                   }}
                   placeholder="Unit"
                 />
+                <label style={styles.gstFilter}>
+                  <span style={styles.gstFilterLabel}>GST</span>
+                  <select
+                    style={styles.gstFilterSelect}
+                    value={filterGstPercent}
+                    aria-label="Filter by GST percent"
+                    onChange={(e) => {
+                      setFilterGstPercent(e.target.value);
+                      setPage(0);
+                    }}
+                  >
+                    {GST_FILTER_OPTIONS.map((opt) => (
+                      <option key={opt.value || 'all'} value={opt.value}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
               </form>
             </div>
 
-            <div style={styles.tableWrap}>
+            <div style={styles.tableWrapFill}>
               <table style={styles.table}>
                 <thead>
                   <tr>
@@ -781,13 +1047,15 @@ export function CatalogPage() {
                       onSort={toggleItemSort}
                       align="right"
                     />
+                    <th style={styles.thRight}>HSN</th>
+                    <th style={styles.thRight}>GST</th>
                     <th style={styles.thRight}> </th>
                   </tr>
                 </thead>
                 <tbody>
                   {items.length === 0 && !loading ? (
                     <tr>
-                      <td colSpan={5} style={styles.empty}>
+                      <td colSpan={7} style={styles.empty}>
                         No master items match.
                       </td>
                     </tr>
@@ -805,13 +1073,26 @@ export function CatalogPage() {
                             >
                               <Thumb urls={item.imageUrls} />
                             </button>
-                            <strong>{item.name}</strong>
+                            <span style={styles.itemText}>
+                              <strong>{item.name}</strong>
+                              {item.searchNames ? (
+                                <span style={styles.aliasLine} title={item.searchNames}>
+                                  {item.searchNames}
+                                </span>
+                              ) : null}
+                            </span>
                           </div>
                         </td>
                         <td style={styles.tdMuted}>{item.categoryName ?? '—'}</td>
                         <td style={styles.tdMuted}>{item.unitName ?? '—'}</td>
                         <td style={{ ...styles.td, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
                           {item.mrp != null ? `₹${Number(item.mrp).toFixed(0)}` : '—'}
+                        </td>
+                        <td style={{ ...styles.tdMuted, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                          {item.hsnCode?.trim() ? item.hsnCode : '—'}
+                        </td>
+                        <td style={{ ...styles.tdMuted, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                          {item.gstPercent != null ? `${item.gstPercent}%` : '—'}
                         </td>
                         <td style={styles.tdRight}>
                           <div style={styles.rowActions}>
@@ -852,37 +1133,42 @@ export function CatalogPage() {
               onNext={() => setPage((p) => p + 1)}
             />
           </section>
-        </>
-      ) : (
-        <section style={styles.panel}>
-          <h2 style={styles.h2}>Add category</h2>
-          <p style={styles.meta}>Categories group master items (Vegetables, Dairy, Snacks…).</p>
-          <form style={styles.catForm} onSubmit={(e) => void onCreateCategory(e)}>
-            <TextField
-              label="Name"
-              value={catName}
-              onChange={(e) => setCatName(e.target.value)}
-              placeholder="e.g. Dairy"
-            />
-            <TextField
-              label="Description"
-              value={catDesc}
-              onChange={(e) => setCatDesc(e.target.value)}
-              placeholder="Optional"
-            />
-            <div style={styles.formAction}>
-              <Button type="submit" disabled={busy || !catNameNormalized || catNameTaken}>
-                Create category
-              </Button>
-              {catNameTaken ? (
-                <span style={styles.dupHint}>“{catNameNormalized}” already exists</span>
-              ) : null}
+        </div>
+      ) : tab === 'categories' ? (
+        <div style={styles.itemsPage}>
+          <section style={styles.sectionCard} aria-labelledby="catalog-add-category-heading">
+            <div style={styles.addStripHead}>
+              <h2 id="catalog-add-category-heading" style={styles.addTitle}>Add category</h2>
+              <span style={styles.addHintInline}>Groups items (Vegetables, Dairy…)</span>
             </div>
-          </form>
+            <form style={styles.catFormInline} onSubmit={(e) => void onCreateCategory(e)}>
+              <TextField
+                label="Name"
+                value={catName}
+                onChange={(e) => setCatName(e.target.value)}
+                placeholder="e.g. Dairy"
+              />
+              <TextField
+                label="Description"
+                value={catDesc}
+                onChange={(e) => setCatDesc(e.target.value)}
+                placeholder="Optional"
+              />
+              <div style={styles.addCreateWrap}>
+                <Button type="submit" size="sm" disabled={busy || !catNameNormalized || catNameTaken}>
+                  Create
+                </Button>
+              </div>
+              {catNameTaken ? (
+                <span style={styles.dupHint}>“{catNameNormalized}” exists</span>
+              ) : null}
+            </form>
+          </section>
 
+          <section style={styles.listSection} aria-labelledby="catalog-categories-heading">
           <div style={styles.toolbar}>
             <div style={styles.toolbarTop}>
-              <h2 style={styles.h2}>
+              <h2 id="catalog-categories-heading" style={styles.h2}>
                 Categories
                 <span style={styles.countInline}>{filteredCategories.length}</span>
               </h2>
@@ -938,7 +1224,7 @@ export function CatalogPage() {
               />
             </label>
           </div>
-          <div style={styles.tableWrap}>
+          <div style={styles.tableWrapFill}>
             <table style={styles.table}>
               <thead>
                 <tr>
@@ -1040,8 +1326,9 @@ export function CatalogPage() {
             onPrev={() => setCatPage((p) => Math.max(0, p - 1))}
             onNext={() => setCatPage((p) => p + 1)}
           />
-        </section>
-      )}
+          </section>
+        </div>
+      ) : null}
 
       {imageItem ? (
         <div
@@ -1203,6 +1490,13 @@ export function CatalogPage() {
                 value={editItemName}
                 onChange={(e) => setEditItemName(e.target.value)}
               />
+              <TextField
+                label="Other names"
+                value={editItemSearchNames}
+                onChange={(e) => setEditItemSearchNames(e.target.value)}
+                placeholder="tamatar, tomato local"
+                disabled={busy}
+              />
               <SearchSelect
                 compact
                 label="Category"
@@ -1230,6 +1524,55 @@ export function CatalogPage() {
                 inputMode="decimal"
                 placeholder="Optional"
               />
+              <TextField
+                label="HSN code"
+                value={editItemHsn}
+                onChange={(e) => setEditItemHsn(e.target.value.replace(/\D/g, '').slice(0, 8))}
+                inputMode="numeric"
+                placeholder="4–8 digits"
+              />
+              {!isValidHsn(editItemHsn) ? (
+                <p style={styles.fieldError}>
+                  HSN is required (4–8 digits) for GST invoices — e.g. 18069010 for chocolate.
+                </p>
+              ) : null}
+              <label style={styles.fieldMini}>
+                GST %
+                <select
+                  style={styles.miniSelect}
+                  value={editItemGst}
+                  disabled={busy}
+                  onChange={(e) => setEditItemGst(e.target.value)}
+                >
+                  {GST_SLAB_OPTIONS.map((g) => (
+                    <option key={g} value={g}>
+                      {g}%
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <TextField
+                label="Cess %"
+                value={editItemCess}
+                onChange={(e) => setEditItemCess(e.target.value)}
+                inputMode="decimal"
+                disabled={busy}
+              />
+              <TextField
+                label="Country of origin"
+                value={editItemOrigin}
+                onChange={(e) => setEditItemOrigin(e.target.value.toUpperCase().slice(0, 2))}
+                disabled={busy}
+              />
+              <label style={styles.checkMini}>
+                <input
+                  type="checkbox"
+                  checked={editItemTaxIncl}
+                  disabled={busy}
+                  onChange={(e) => setEditItemTaxIncl(e.target.checked)}
+                />
+                Price includes GST
+              </label>
             </div>
             <div style={styles.editActions}>
               <Button type="button" variant="ghost" disabled={busy} onClick={() => setEditingItem(null)}>
@@ -1394,7 +1737,6 @@ export function CatalogPage() {
         message={itemCreateToast ?? ''}
         onClose={() => setItemCreateToast(null)}
       />
-      {token ? <AdminHistoryPanel token={token} screen="catalog" refreshTick={notice ? notice.length : 0} /> : null}
     </PortalShell>
   );
 }
@@ -1488,6 +1830,91 @@ function Pager({
 }
 
 const styles: Record<string, CSSProperties> = {
+  historyPane: {
+    display: 'flex',
+    flexDirection: 'column',
+    flex: 1,
+    minHeight: 'calc(100vh - 11rem)',
+  },
+  itemsPage: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '0.7rem',
+    flex: 1,
+    minHeight: 'calc(100vh - 11rem)',
+  },
+  sectionCard: {
+    background: 'var(--bg-elevated)',
+    border: '1px solid var(--border)',
+    borderRadius: 14,
+    padding: '0.65rem 0.85rem',
+    display: 'grid',
+    gap: '0.4rem',
+    boxShadow: 'var(--shadow-soft)',
+    flexShrink: 0,
+  },
+  listSection: {
+    background: 'var(--bg-elevated)',
+    border: '1px solid var(--border)',
+    borderRadius: 14,
+    padding: '0.55rem 0.75rem 0.65rem',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '0.45rem',
+    flex: 1,
+    minHeight: 0,
+    boxShadow: 'var(--shadow-soft)',
+  },
+  addStripHead: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    alignItems: 'baseline',
+    gap: '0.35rem 0.65rem',
+  },
+  addTitle: {
+    margin: 0,
+    fontFamily: 'var(--font-display)',
+    fontSize: '0.92rem',
+    fontWeight: 800,
+  },
+  addHintInline: {
+    fontSize: '0.72rem',
+    fontWeight: 600,
+    color: 'var(--text-muted)',
+  },
+  addForm: {
+    display: 'grid',
+    gap: '0.35rem',
+    width: '100%',
+  },
+  addRowPrimary: {
+    display: 'grid',
+    width: '100%',
+    gridTemplateColumns:
+      'minmax(0, 2.4fr) minmax(0, 1.45fr) minmax(0, 1.15fr) minmax(0, 0.85fr) minmax(0, 1fr)',
+    gap: '0.4rem',
+    alignItems: 'end',
+  },
+  addRowSecondary: {
+    display: 'grid',
+    width: '100%',
+    gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr) minmax(0, 0.75fr) auto minmax(0, 1.35fr)',
+    gap: '0.4rem',
+    alignItems: 'end',
+  },
+  catFormInline: {
+    display: 'grid',
+    width: '100%',
+    gridTemplateColumns: 'minmax(0, 1.2fr) minmax(0, 2fr) minmax(120px, auto)',
+    gap: '0.4rem',
+    alignItems: 'end',
+  },
+  addCreateWrap: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    minHeight: 42,
+  },
   tabs: {
     display: 'inline-flex',
     gap: '0.25rem',
@@ -1538,6 +1965,17 @@ const styles: Record<string, CSSProperties> = {
   },
   meta: { margin: '0.15rem 0 0', color: 'var(--text-muted)', fontSize: '0.82rem' },
   itemCell: { display: 'flex', alignItems: 'center', gap: '0.55rem', minWidth: 0 },
+  itemText: { display: 'grid', gap: '0.05rem', minWidth: 0 },
+  aliasLine: {
+    display: 'block',
+    maxWidth: 220,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+    color: 'var(--text-muted)',
+    fontSize: '0.72rem',
+    lineHeight: 1.2,
+  },
   thumbBtn: {
     border: 'none',
     background: 'transparent',
@@ -1662,6 +2100,44 @@ const styles: Record<string, CSSProperties> = {
     alignItems: 'end',
   },
   formAction: { display: 'flex', alignItems: 'center', gap: '0.55rem', flexWrap: 'wrap' },
+  fieldError: { margin: 0, fontSize: '0.76rem', color: 'var(--danger)', fontWeight: 700, gridColumn: '1 / -1' },
+  fieldHint: { margin: 0, fontSize: '0.72rem', color: 'var(--text-muted)', gridColumn: '1 / -1' },
+  taxHint: { margin: '0 0 0.45rem', fontSize: '0.78rem', color: 'var(--text-muted)', lineHeight: 1.35 },
+  fieldMini: {
+    display: 'grid',
+    gap: '0.3rem',
+    fontSize: '0.82rem',
+    color: 'var(--text-muted)',
+    fontWeight: 600,
+    minWidth: 0,
+    width: '100%',
+  },
+  miniSelect: {
+    padding: '0.7rem 0.85rem',
+    borderRadius: 'var(--radius-md)',
+    border: '1px solid var(--border)',
+    background: 'var(--bg)',
+    color: 'var(--text)',
+  },
+  miniSelectCompact: {
+    width: '100%',
+    padding: '0.45rem 0.55rem',
+    borderRadius: 8,
+    border: '1px solid var(--border)',
+    background: 'var(--bg)',
+    color: 'var(--text)',
+    fontSize: '0.85rem',
+    minHeight: 42,
+    boxSizing: 'border-box',
+  },
+  checkMini: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.35rem',
+    fontSize: '0.78rem',
+    fontWeight: 600,
+    minHeight: 42,
+  },
   dupHint: { fontSize: '0.8rem', fontWeight: 700, color: 'var(--danger)' },
   label: {
     display: 'grid',
@@ -1741,6 +2217,34 @@ const styles: Record<string, CSSProperties> = {
     gap: '0.4rem',
     alignItems: 'stretch',
   },
+  gstFilter: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '0.35rem',
+    minHeight: 36,
+    padding: '0 0.45rem',
+    borderRadius: 8,
+    border: '1px solid var(--border)',
+    background: 'var(--bg)',
+    flex: '0 1 auto',
+  },
+  gstFilterLabel: {
+    fontSize: '0.72rem',
+    fontWeight: 800,
+    color: 'var(--text-muted)',
+    textTransform: 'uppercase',
+    letterSpacing: '0.03em',
+  },
+  gstFilterSelect: {
+    border: 'none',
+    background: 'transparent',
+    color: 'var(--text)',
+    fontSize: '0.82rem',
+    fontWeight: 650,
+    padding: '0.2rem 0',
+    minWidth: '4.5rem',
+    cursor: 'pointer',
+  },
   searchLead: {
     display: 'flex',
     alignItems: 'center',
@@ -1787,6 +2291,13 @@ const styles: Record<string, CSSProperties> = {
   },
   tableWrap: {
     overflowX: 'auto',
+    border: '1px solid var(--border)',
+    borderRadius: 10,
+  },
+  tableWrapFill: {
+    flex: 1,
+    minHeight: 0,
+    overflow: 'auto',
     border: '1px solid var(--border)',
     borderRadius: 10,
   },

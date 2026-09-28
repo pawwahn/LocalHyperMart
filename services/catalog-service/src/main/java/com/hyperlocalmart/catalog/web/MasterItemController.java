@@ -29,6 +29,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -45,6 +46,7 @@ public class MasterItemController {
     public ResponseEntity<ApiResponse<PageResponse<MasterItemSummaryResponse>>> listMasterItems(
             @RequestParam(required = false) UUID categoryId,
             @RequestParam(required = false) UUID unitId,
+            @RequestParam(required = false) BigDecimal gstPercent,
             @RequestParam(required = false) String q,
             @RequestParam(defaultValue = "0") @Min(0) int page,
             @RequestParam(defaultValue = "25") @Min(1) @Max(200) int size,
@@ -52,7 +54,7 @@ public class MasterItemController {
             @RequestParam(defaultValue = "asc") String dir,
             HttpServletRequest httpRequest) {
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
-                vendorListingService.listMasterItems(categoryId, unitId, q, page, size, sort, dir)));
+                vendorListingService.listMasterItems(categoryId, unitId, gstPercent, q, page, size, sort, dir)));
     }
 
     @PostMapping("/master-items")
@@ -63,6 +65,13 @@ public class MasterItemController {
         requireSuperAdmin(principal);
         MasterItemSummaryResponse created = vendorListingService.createMasterItem(request, principal.getUserId());
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponses.ok(httpRequest, created));
+    }
+
+    @GetMapping("/master-items/{masterItemId}")
+    public ResponseEntity<ApiResponse<MasterItemSummaryResponse>> getMasterItem(
+            @PathVariable UUID masterItemId,
+            HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest, vendorListingService.getMasterItem(masterItemId)));
     }
 
     @PatchMapping("/master-items/{masterItemId}")

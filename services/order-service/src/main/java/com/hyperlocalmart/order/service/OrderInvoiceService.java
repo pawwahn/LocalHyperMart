@@ -73,6 +73,11 @@ public class OrderInvoiceService {
                         .quantity(item.getQuantity())
                         .unitPrice(item.getDiscountPrice() != null ? item.getDiscountPrice() : item.getUnitPrice())
                         .lineTotal(item.getLineTotal())
+                        .hsnCode(item.getHsnCodeSnapshot())
+                        .gstPercent(item.getGstPercentSnapshot())
+                        .cgstAmount(item.getCgstAmount())
+                        .sgstAmount(item.getSgstAmount())
+                        .cessAmount(item.getCessAmount())
                         .build());
             }
         }

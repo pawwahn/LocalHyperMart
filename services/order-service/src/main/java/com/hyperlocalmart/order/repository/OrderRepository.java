@@ -32,8 +32,18 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
 
     Optional<Order> findByIdAndTownId(UUID id, UUID townId);
 
-    @EntityGraph(attributePaths = {"vendorSubOrders"})
+    /** Buyer basket/history list — no collection fetch so LIMIT stays in SQL. */
     Page<Order> findByBuyerIdAndTownIdOrderByCreatedAtDesc(UUID buyerId, UUID townId, Pageable pageable);
+
+    @Query("""
+            SELECT so.order.id, COALESCE(SUM(i.quantity), 0)
+            FROM OrderItem i
+            JOIN i.vendorSubOrder so
+            WHERE so.order.id IN :orderIds
+              AND (i.status IS NULL OR i.status = com.hyperlocalmart.order.entity.OrderItemStatus.ACTIVE)
+            GROUP BY so.order.id
+            """)
+    List<Object[]> sumActiveQtyByOrderId(@Param("orderIds") Collection<UUID> orderIds);
 
     @EntityGraph(attributePaths = {"vendorSubOrders"})
     Page<Order> findByBuyerIdOrderByCreatedAtDesc(UUID buyerId, Pageable pageable);

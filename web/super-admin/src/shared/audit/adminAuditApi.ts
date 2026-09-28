@@ -70,6 +70,7 @@ const MONEY_KEYS = new Set([
   'unitOneTown',
   'unitExtraTown',
   'unitAllTowns',
+  'mrp',
 ]);
 
 const SKIP_DIFF_KEYS = new Set(['termsText', 'privacyText', 'refundText']);
@@ -128,11 +129,75 @@ const FIELD_LABELS: Record<string, string> = {
   termsUrl: 'Terms URL',
   privacyUrl: 'Privacy URL',
   refundUrl: 'Refund URL',
+  name: 'Name',
+  description: 'Description',
+  categoryName: 'Category',
+  unitCode: 'Unit',
+  mrp: 'MRP',
+  hsnCode: 'HSN',
+  gstPercent: 'GST %',
+  cessPercent: 'Cess %',
+  priceIncludesTax: 'Price includes tax',
+  countryOfOrigin: 'Country of origin',
+  shopName: 'Shop',
+  businessName: 'Business',
+  ownerName: 'Owner',
+  phone: 'Phone',
+  address: 'Address',
+  gstNumber: 'GST',
+  fssaiNumber: 'FSSAI',
+  bankAccount: 'Bank account',
+  ifsc: 'IFSC',
+  disabledReason: 'Disable reason',
+  rejectReason: 'Reject reason',
+  completedOrderAmount: 'To customer',
+  pickupAmount: 'Vendor → hub',
+  lastMileAmount: 'Return → shop',
 };
+
+const VENDOR_KEY_ORDER = [
+  'status',
+  'shopName',
+  'businessName',
+  'ownerName',
+  'phone',
+  'address',
+  'gstNumber',
+  'fssaiNumber',
+  'bankAccount',
+  'ifsc',
+  'disabledReason',
+  'rejectReason',
+];
+
+const CATALOG_KEY_ORDER = [
+  'name',
+  'categoryName',
+  'unitCode',
+  'mrp',
+  'hsnCode',
+  'gstPercent',
+  'cessPercent',
+  'priceIncludesTax',
+  'countryOfOrigin',
+  'description',
+];
 
 function prettyVal(key: string, raw: unknown): string {
   if (raw == null) return '—';
   if (typeof raw === 'boolean') return raw ? 'on' : 'off';
+  if (key === 'status') {
+    const status = String(raw).trim().toUpperCase();
+    if (status === 'ACTIVE') return 'Active';
+    if (status === 'DISABLED') return 'Disabled';
+    if (status === 'PENDING') return 'Pending';
+    if (status === 'APPROVED') return 'Approved';
+    if (status === 'REJECTED') return 'Rejected';
+  }
+  if (key === 'gstPercent' || key === 'cessPercent') {
+    const n = Number(raw);
+    if (Number.isFinite(n)) return `${n}%`;
+  }
   if (MONEY_KEYS.has(key) && (typeof raw === 'number' || typeof raw === 'string')) {
     const n = Number(raw);
     if (Number.isFinite(n)) return `₹${n}`;
@@ -163,7 +228,12 @@ function valuesEqual(a: unknown, b: unknown): boolean {
 
 function isGenericSummary(text: string): boolean {
   const s = text.trim().toLowerCase();
-  return s === 'updated platform settings' || s === 'updated settings' || s === '';
+  if (s === 'updated platform settings' || s === 'updated settings' || s === '') return true;
+  if (/^updated item [^;]+$/.test(s)) return true;
+  if (/^updated category [^;]+$/.test(s)) return true;
+  if (/^created item [^;]+$/.test(s)) return true;
+  if (/^created category [^;]+$/.test(s)) return true;
+  return false;
 }
 
 function splitSummaryLines(summary: string): string[] {
@@ -174,6 +244,26 @@ function splitSummaryLines(summary: string): string[] {
 }
 
 function orderKeys(keys: string[], screenKey: string): string[] {
+  if (screenKey === 'vendors') {
+    return [...keys].sort((a, b) => {
+      const ia = VENDOR_KEY_ORDER.indexOf(a);
+      const ib = VENDOR_KEY_ORDER.indexOf(b);
+      const ra = ia === -1 ? 999 : ia;
+      const rb = ib === -1 ? 999 : ib;
+      if (ra !== rb) return ra - rb;
+      return a.localeCompare(b);
+    });
+  }
+  if (screenKey === 'catalog') {
+    return [...keys].sort((a, b) => {
+      const ia = CATALOG_KEY_ORDER.indexOf(a);
+      const ib = CATALOG_KEY_ORDER.indexOf(b);
+      const ra = ia === -1 ? 999 : ia;
+      const rb = ib === -1 ? 999 : ib;
+      if (ra !== rb) return ra - rb;
+      return a.localeCompare(b);
+    });
+  }
   if (screenKey !== 'settings') return keys;
   return [...keys].sort((a, b) => {
     const ia = PLATFORM_KEY_ORDER.indexOf(a);
@@ -242,14 +332,74 @@ export function parseAuditChangeLine(line: string): ParsedAuditChange {
   return { kind: 'text', text: trimmed };
 }
 
+function hasFieldLevelLines(lines: string[]): boolean {
+  return lines.some((l) => l.includes('→'));
+}
+
+/** Older vendor rows stored only “Approved P Mart”. Turn those into old → new when the action is known. */
+function vendorLegacyLines(row: AdminAuditEntry): string[] | null {
+  if (row.screenKey !== 'vendors') return null;
+  if (row.beforeSnapshot && Object.keys(row.beforeSnapshot).length && row.afterSnapshot && Object.keys(row.afterSnapshot).length) {
+    return null;
+  }
+  const action = (row.action || '').toUpperCase();
+  const summary = (row.changeSummary || '').trim();
+  if (action === 'APPROVE_VENDOR') return ['Status: Pending → Approved'];
+  if (action === 'REJECT_VENDOR') return ['Status: Pending → Rejected'];
+  if (action === 'UPDATE_VENDOR_STATUS') {
+    const matched = summary.match(/→\s*(ACTIVE|DISABLED)\b/i);
+    if (!matched) return null;
+    const next = matched[1].toUpperCase() === 'ACTIVE' ? 'Active' : 'Disabled';
+    const prev = next === 'Active' ? 'Disabled' : 'Active';
+    return [`Status: ${prev} → ${next}`];
+  }
+  return null;
+}
+
+/** Older billing rows stored only “P Mart terms from 2026-09-28”. */
+function vendorBillingLegacyLines(row: AdminAuditEntry): string[] | null {
+  if (row.screenKey !== 'vendor-billing') return null;
+  if (row.changeLines?.some((line) => line.includes('→'))) return null;
+  const summary = (row.changeSummary || '').trim();
+  const matched = summary.match(/^(.+?) terms from (\d{4}-\d{2}-\d{2})$/);
+  if (!matched) return null;
+  return [`Starts from: — → ${matched[2]}`];
+}
+
+/** Short title above the field diffs, such as “Approved P Mart”. */
+export function formatAuditHeadline(row: AdminAuditEntry, lines: string[]): string | null {
+  const summary = (row.changeSummary || '').trim();
+  if (!summary) return null;
+  const head = summary.split(';')[0].trim();
+  if (!head || head.includes('→')) return null;
+  if (/ terms from \d{4}-\d{2}-\d{2}$/.test(head) && lines.some((line) => line.includes('→'))) return null;
+  if (lines.length === 1 && lines[0] === head) return null;
+  if (lines.includes(head)) return null;
+  return head;
+}
+
 /** Structured lines: field-level old → new (never only a generic sentence). */
 export function formatAuditChangeLines(row: AdminAuditEntry, townName?: string | null): string[] {
   const summaryText = (row.changeSummary || '').trim();
+  const fromApi = row.changeLines?.map((line) => line.trim()).filter(Boolean) ?? [];
+  if (fromApi.length && hasFieldLevelLines(fromApi)) {
+    const town = (townName || '').trim();
+    if (town && !fromApi.some((l) => l.toLowerCase().includes(town.split(',')[0].trim().toLowerCase()))) {
+      return [`Town: ${town}`, ...fromApi];
+    }
+    return fromApi;
+  }
+
   const fromSnaps = diffFromSnapshots(row, townName);
   if (fromSnaps.length) return fromSnaps;
 
-  const fromApi = row.changeLines?.map((line) => line.trim()).filter(Boolean);
-  if (fromApi?.length && !isGenericSummary(fromApi[0]) && !fromApi.every((l) => isGenericSummary(l))) {
+  const legacy = vendorLegacyLines(row);
+  if (legacy?.length) return legacy;
+
+  const billingLegacy = vendorBillingLegacyLines(row);
+  if (billingLegacy?.length) return billingLegacy;
+
+  if (fromApi.length && !isGenericSummary(fromApi[0]) && !fromApi.every((l) => isGenericSummary(l))) {
     const town = (townName || '').trim();
     if (town && !fromApi.some((l) => l.toLowerCase().includes(town.split(',')[0].trim().toLowerCase()))) {
       return [`Town: ${town}`, ...fromApi];
@@ -258,6 +408,15 @@ export function formatAuditChangeLines(row: AdminAuditEntry, townName?: string |
   }
 
   if (summaryText && !isGenericSummary(summaryText)) {
+    const semi = summaryText.indexOf(';');
+    if (semi > 0) {
+      const tail = summaryText
+        .slice(semi + 1)
+        .split(/;\s*/)
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (tail.length) return tail;
+    }
     const parts = splitSummaryLines(summaryText);
     if (parts.length) return parts;
   }
@@ -286,7 +445,16 @@ export type AdminAuditPage = {
 export async function listAdminAudit(
   token: string,
   screen: string,
-  params?: { townId?: string; page?: number; size?: number; from?: string; to?: string; q?: string },
+  params?: {
+    townId?: string;
+    page?: number;
+    size?: number;
+    from?: string;
+    to?: string;
+    q?: string;
+    actions?: string[];
+    prefixes?: string[];
+  },
 ): Promise<AdminAuditPage> {
   const q = new URLSearchParams();
   q.set('screen', screen);
@@ -296,6 +464,8 @@ export async function listAdminAudit(
   if (params?.from) q.set('from', params.from);
   if (params?.to) q.set('to', params.to);
   if (params?.q?.trim()) q.set('q', params.q.trim());
+  if (params?.actions?.length) q.set('action', params.actions.join(','));
+  if (params?.prefixes?.length) q.set('prefix', params.prefixes.join(','));
   const data = await apiRequest<AdminAuditPage>(
     `/api/v1/platform/admin-audit?${q.toString()}`,
     { token },

@@ -116,6 +116,7 @@ export function VendorBillingPage() {
     { uptoAmount: 10000, percent: 5 },
     { uptoAmount: null, percent: 3 },
   ]);
+  const [tab, setTab] = useState<'fees' | 'history'>('fees');
   const [loading, setLoading] = useState(true);
   const [loadingTerms, setLoadingTerms] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -303,15 +304,50 @@ export function VendorBillingPage() {
         </div>
       </Card>
 
-      {!vendorId ? (
+      <div style={styles.tabs} role="tablist" aria-label="Vendor billing sections">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === 'fees'}
+          style={tab === 'fees' ? styles.tabActive : styles.tab}
+          onClick={() => setTab('fees')}
+        >
+          Fees
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === 'history'}
+          style={tab === 'history' ? styles.tabActive : styles.tab}
+          onClick={() => setTab('history')}
+        >
+          Change history
+        </button>
+      </div>
+
+      {tab === 'history' && token ? (
+        <AdminHistoryPanel
+          token={token}
+          screen="vendor-billing"
+          townId={townId || undefined}
+          fullPage
+          refreshTick={notice ? notice.length : 0}
+          searchPlaceholder="Search field or value"
+          emptyHint="No fee changes yet. Saving a fee model writes the old value and the new value here."
+        />
+      ) : null}
+
+      {tab === 'fees' && !vendorId ? (
         <Card padding="sm">
           <p style={styles.muted}>{loading ? 'Loading…' : 'Select town and vendor.'}</p>
         </Card>
-      ) : loadingTerms ? (
+      ) : null}
+      {tab === 'fees' && vendorId && loadingTerms ? (
         <Card padding="sm">
           <p style={styles.muted}>Loading terms…</p>
         </Card>
-      ) : (
+      ) : null}
+      {tab === 'fees' && vendorId && !loadingTerms ? (
         <div className="vb-layout">
           <Card padding="sm" style={styles.card}>
             {current ? (
@@ -561,9 +597,8 @@ export function VendorBillingPage() {
               </div>
             )}
           </Card>
-          {token ? <AdminHistoryPanel token={token} screen="vendor-billing" refreshTick={notice ? notice.length : 0} /> : null}
         </div>
-      )}
+      ) : null}
     </PortalShell>
   );
 }
@@ -605,6 +640,35 @@ const css = `
 `;
 
 const styles: Record<string, CSSProperties> = {
+  tabs: {
+    display: 'inline-flex',
+    gap: '0.25rem',
+    padding: '0.2rem',
+    background: 'var(--bg-muted)',
+    borderRadius: 999,
+    width: 'fit-content',
+  },
+  tab: {
+    border: 'none',
+    background: 'transparent',
+    color: 'var(--text-muted)',
+    fontWeight: 700,
+    fontSize: '0.85rem',
+    padding: '0.4rem 0.85rem',
+    borderRadius: 999,
+    cursor: 'pointer',
+  },
+  tabActive: {
+    border: 'none',
+    background: 'var(--bg-elevated)',
+    color: 'var(--text)',
+    fontWeight: 800,
+    fontSize: '0.85rem',
+    padding: '0.4rem 0.85rem',
+    borderRadius: 999,
+    cursor: 'pointer',
+    boxShadow: 'var(--shadow-soft)',
+  },
   card: { display: 'grid', gap: '0.55rem' },
   muted: { margin: 0, color: 'var(--text-muted)', fontSize: '0.85rem' },
   h2: { margin: 0, fontSize: '0.95rem', fontWeight: 800 },

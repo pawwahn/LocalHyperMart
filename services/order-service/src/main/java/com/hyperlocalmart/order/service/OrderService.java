@@ -3,6 +3,8 @@ package com.hyperlocalmart.order.service;
 import com.hyperlocalmart.common.api.PageResponse;
 import com.hyperlocalmart.common.exception.BusinessException;
 import com.hyperlocalmart.common.exception.ErrorCode;
+import com.hyperlocalmart.common.tax.GstLineTaxBreakdown;
+import com.hyperlocalmart.common.tax.GstTaxCalculator;
 import com.hyperlocalmart.order.client.AddressClient;
 import com.hyperlocalmart.order.client.CartClient;
 import com.hyperlocalmart.order.client.CatalogClient;
@@ -26,7 +28,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -36,6 +40,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -59,15 +64,20 @@ public class OrderService {
     private final OrderInvoiceService orderInvoiceService;
     private final DeliveryClient deliveryClient;
     private final ProductRatingRepository productRatingRepository;
+    private final DeliveryAgentRatingService deliveryAgentRatingService;
     private final ScratchCardService scratchCardService;
     private final UserReferralClient userReferralClient;
+    private final PlatformTransactionManager transactionManager;
 
     @Transactional(readOnly = true)
     public boolean buyerHasDeliveredOrder(UUID buyerId) {
         return orderRepository.existsByBuyerIdAndStatus(buyerId, OrderStatus.DELIVERED);
     }
 
-    @Transactional
+    /**
+     * Not @Transactional end-to-end: cart/payment/notification HTTP must run after the order row is committed,
+     * otherwise payment-service and internal order reads block on an open transaction (pool exhaustion / stuck checkout).
+     */
     public CreateOrderResponse createOrder(UUID buyerId, String buyerPhone, String idempotencyKey, CreateOrderRequest request) {
         if (idempotencyKey == null || idempotencyKey.isBlank()) {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Idempotency-Key header is required");
@@ -88,7 +98,16 @@ public class OrderService {
     public PageResponse<OrderSummaryResponse> listOrders(UUID buyerId, UUID townId, int page, int size) {
         PageRequest pageable = PageRequest.of(page, size);
         Page<Order> orders = orderRepository.findByBuyerIdAndTownIdOrderByCreatedAtDesc(buyerId, townId, pageable);
-        List<OrderSummaryResponse> items = orders.getContent().stream().map(this::toSummary).toList();
+        List<UUID> ids = orders.getContent().stream().map(Order::getId).toList();
+        Map<UUID, Integer> itemCounts = ids.isEmpty()
+                ? Map.of()
+                : orderRepository.sumActiveQtyByOrderId(ids).stream().collect(Collectors.toMap(
+                        row -> (UUID) row[0],
+                        row -> ((Number) row[1]).intValue(),
+                        (a, b) -> a));
+        List<OrderSummaryResponse> items = orders.getContent().stream()
+                .map(order -> toSummary(order, itemCounts.getOrDefault(order.getId(), 0)))
+                .toList();
         return PageResponse.<OrderSummaryResponse>builder()
                 .items(items)
                 .page(orders.getNumber())
@@ -466,7 +485,8 @@ public class OrderService {
                 .build();
 
         buildVendorSubOrders(order, cart);
-        orderRepository.saveAndFlush(order);
+        order.setTaxAmount(sumOrderLineTax(order));
+        inWriteTransaction(() -> orderRepository.saveAndFlush(order));
         persistedOrderId = order.getId();
 
         if (deliveryFee.compareTo(BigDecimal.ZERO) > 0) {
@@ -486,7 +506,7 @@ public class OrderService {
                 order.setStatus(totals.orderStatus(isCod));
                 order.setPaymentStatus(totals.paymentStatus());
                 order.setPlacedAt(totals.placedAt(isCod));
-                orderRepository.saveAndFlush(order);
+                inWriteTransaction(() -> orderRepository.saveAndFlush(order));
             }
         }
 
@@ -500,15 +520,16 @@ public class OrderService {
                     "Store credit applied on order " + order.getOrderNumber());
         }
 
-        orderStatusHistoryRepository.saveAndFlush(OrderStatusHistory.builder()
+        CheckoutTotals totalsForHistory = totals;
+        inWriteTransaction(() -> orderStatusHistoryRepository.saveAndFlush(OrderStatusHistory.builder()
                 .orderId(order.getId())
                 .toStatus(order.getStatus().name())
                 .changedBy(buyerId)
                 .changedByRole("BUYER")
-                .note(totals.storeCreditApplied().compareTo(BigDecimal.ZERO) > 0
-                        ? "Order created; store credit " + totals.storeCreditApplied().toPlainString()
+                .note(totalsForHistory.storeCreditApplied().compareTo(BigDecimal.ZERO) > 0
+                        ? "Order created; store credit " + totalsForHistory.storeCreditApplied().toPlainString()
                         : "Order created")
-                .build());
+                .build()));
 
         cartClient.convertCart(request.getCartId(), buyerId, request.getTownId());
 
@@ -532,9 +553,18 @@ public class OrderService {
         idempotencyService.save(idempotencyKey, buyerId, order.getId(), response);
 
         if (isCod || fullyCoveredByCredit) {
-            notificationClient.notifyOrderPlaced(
-                    order.getTownId(), order.getId(), buyerId, buyerPhone,
-                    order.getOrderNumber(), order.getTotalAmount());
+            final UUID notifyTownId = order.getTownId();
+            final UUID notifyOrderId = order.getId();
+            final String notifyNumber = order.getOrderNumber();
+            final BigDecimal notifyTotal = order.getTotalAmount();
+            CompletableFuture.runAsync(() -> {
+                try {
+                    notificationClient.notifyOrderPlaced(
+                            notifyTownId, notifyOrderId, buyerId, buyerPhone, notifyNumber, notifyTotal);
+                } catch (Exception ex) {
+                    log.warn("Order placed notification failed for {}: {}", notifyNumber, ex.getMessage());
+                }
+            });
         }
         return response;
         } catch (RuntimeException ex) {
@@ -582,6 +612,10 @@ public class OrderService {
         }
     }
 
+    private void inWriteTransaction(Runnable work) {
+        new TransactionTemplate(transactionManager).executeWithoutResult(status -> work.run());
+    }
+
     private void buildVendorSubOrders(Order order, CartClient.CartSnapshot cart) {
         List<List<CartClient.CartItemSnapshot>> groups = cart.items().stream()
                 .collect(Collectors.groupingBy(item -> item.vendorId() + ":" + item.shopId()))
@@ -609,7 +643,7 @@ public class OrderService {
                     .build();
 
             for (CartClient.CartItemSnapshot item : groupItems) {
-                subOrder.getItems().add(OrderItem.builder()
+                OrderItem line = OrderItem.builder()
                         .vendorSubOrder(subOrder)
                         .listingId(item.listingId())
                         .masterItemId(item.masterItemId())
@@ -620,18 +654,62 @@ public class OrderService {
                         .unitPrice(item.unitPrice())
                         .discountPrice(item.discountPrice())
                         .lineTotal(item.lineTotal())
-                        .build());
+                        .build();
+                applyTaxSnapshot(line, item);
+                subOrder.getItems().add(line);
             }
             order.getVendorSubOrders().add(subOrder);
         }
     }
 
+    private static BigDecimal sumOrderLineTax(Order order) {
+        BigDecimal total = BigDecimal.ZERO;
+        for (VendorSubOrder sub : order.getVendorSubOrders()) {
+            for (OrderItem item : sub.getItems()) {
+                if (item.getLineTaxTotal() != null) {
+                    total = total.add(item.getLineTaxTotal());
+                }
+            }
+        }
+        return total;
+    }
+
+    private static void applyTaxSnapshot(OrderItem line, CartClient.CartItemSnapshot item) {
+        if (item.hsnCode() == null || item.hsnCode().isBlank()) {
+            return;
+        }
+        GstLineTaxBreakdown tax = GstTaxCalculator.computeLineTax(
+                item.hsnCode(),
+                item.gstPercent(),
+                item.cessPercent(),
+                item.priceIncludesTax(),
+                item.countryOfOrigin(),
+                line.getLineTotal());
+        line.setHsnCodeSnapshot(tax.getHsnCode());
+        line.setGstPercentSnapshot(tax.getGstPercent());
+        line.setCessPercentSnapshot(tax.getCessPercent());
+        line.setPriceIncludesTaxSnapshot(tax.isPriceIncludesTax());
+        line.setCountryOfOriginSnapshot(tax.getCountryOfOrigin());
+        line.setTaxableValue(tax.getTaxableValue());
+        line.setCgstAmount(tax.getCgstAmount());
+        line.setSgstAmount(tax.getSgstAmount());
+        line.setIgstAmount(tax.getIgstAmount());
+        line.setCessAmount(tax.getCessAmount());
+        line.setLineTaxTotal(tax.getTotalTaxAmount());
+    }
+
     private OrderSummaryResponse toSummary(Order order) {
-        int itemCount = order.getVendorSubOrders().stream()
-                .flatMap(sub -> sub.getItems().stream())
-                .filter(OrderItem::isActiveLine)
-                .mapToInt(OrderItem::getQuantity)
-                .sum();
+        int itemCount = order.getVendorSubOrders() == null
+                ? 0
+                : order.getVendorSubOrders().stream()
+                        .flatMap(sub -> sub.getItems().stream())
+                        .filter(OrderItem::isActiveLine)
+                        .mapToInt(OrderItem::getQuantity)
+                        .sum();
+        return toSummary(order, itemCount);
+    }
+
+    private OrderSummaryResponse toSummary(Order order, int itemCount) {
         return OrderSummaryResponse.builder()
                 .orderId(order.getId())
                 .orderNumber(order.getOrderNumber())
@@ -727,6 +805,7 @@ public class OrderService {
                 .canPayOnline(order.getPaymentMethod() == PaymentMethod.ONLINE && unpaidCancellable)
                 .canFileClaim(canFileClaim)
                 .scratchCard(scratchCardService.findForOrder(order.getBuyerId(), order.getId()).orElse(null))
+                .deliveryAgentRating(deliveryAgentRatingService.buyerView(order, assignments))
                 .build();
     }
 

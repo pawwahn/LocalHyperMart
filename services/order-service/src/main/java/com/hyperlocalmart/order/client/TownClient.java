@@ -137,6 +137,30 @@ public class TownClient {
         return null;
     }
 
+    /** Whether hub admins may see buyer ratings of delivery agents. Defaults to true if town-service is unreachable. */
+    public boolean hubAdminCanSeeAgentRatings() {
+        try {
+            RestClient client = restClientBuilder.baseUrl(townServiceProperties.getBaseUrl()).build();
+            ApiResponse<Map<String, Object>> response = client.get()
+                    .uri("/api/v1/internal/platform/settings-flags")
+                    .retrieve()
+                    .body(new ParameterizedTypeReference<ApiResponse<Map<String, Object>>>() {});
+            if (response == null || response.getData() == null) {
+                return true;
+            }
+            Object raw = response.getData().get("hubAdminCanSeeAgentRatings");
+            if (raw instanceof Boolean b) {
+                return b;
+            }
+            if (raw == null) {
+                return true;
+            }
+            return !"false".equalsIgnoreCase(String.valueOf(raw).trim());
+        } catch (Exception ex) {
+            return true;
+        }
+    }
+
     public void appendAdminAudit(
             String screenKey, String action, String summary, UUID actorId, UUID townId, UUID entityId) {
         try {

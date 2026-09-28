@@ -47,8 +47,10 @@ public class ListingLookupService {
             if (category == null || !categoryVisibilityService.isVisibleInTown(category, townId)) {
                 throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Listing is not available");
             }
+            ProductTaxCompliance.validateForSale(listing.getMasterItem());
         }
 
+        var master = listing.getMasterItem();
         return ListingSnapshotResponse.builder()
                 .listingId(listing.getId())
                 .townId(listing.getTownId())
@@ -57,6 +59,11 @@ public class ListingLookupService {
                 .masterItemId(listing.getMasterItem().getId())
                 .name(listing.getMasterItem().getName())
                 .unit(listing.getMasterItem().getUnit().getCode())
+                .hsnCode(master.getHsnCode())
+                .gstPercent(master.getGstPercent())
+                .cessPercent(master.getCessPercent())
+                .priceIncludesTax(master.isPriceIncludesTax())
+                .countryOfOrigin(master.getCountryOfOrigin())
                 .price(listing.getPrice())
                 .discountPrice(listing.getDiscountPrice())
                 .effectivePrice(ListingPricing.resolveEffectivePrice(listing))

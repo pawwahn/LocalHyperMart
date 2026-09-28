@@ -50,6 +50,16 @@ function isPlacedInRange(placedAt: string | null | undefined, from: string, to: 
   return day >= from && day <= to;
 }
 
+/** Oldest placed time first so the list reads top to bottom through the range. */
+function oldestFirst(a: SettlementCandidate, b: SettlementCandidate): number {
+  const ta = a.placedAt ? Date.parse(a.placedAt) : Number.POSITIVE_INFINITY;
+  const tb = b.placedAt ? Date.parse(b.placedAt) : Number.POSITIVE_INFINITY;
+  const left = Number.isNaN(ta) ? Number.POSITIVE_INFINITY : ta;
+  const right = Number.isNaN(tb) ? Number.POSITIVE_INFINITY : tb;
+  if (left !== right) return left - right;
+  return (a.orderNumber ?? '').localeCompare(b.orderNumber ?? '');
+}
+
 function rangeForPreset(preset: PeriodPreset): { from: string; to: string; periodType: 'DAY' | 'WEEK' | 'MONTH' | 'CUSTOM' } {
   const to = isoDateInIst();
   if (preset === 'day') return { from: to, to, periodType: 'DAY' };
@@ -207,7 +217,9 @@ export function SettlementsPage() {
     }
     const data = await fetchSettlementCandidates(token, { townId, vendorId, from, to });
     // Strict placed-date filter (IST calendar day) so UI matches the From/To pickers.
-    const items = (data.items ?? []).filter((i) => isPlacedInRange(i.placedAt, from, to));
+    const items = (data.items ?? [])
+      .filter((i) => isPlacedInRange(i.placedAt, from, to))
+      .sort(oldestFirst);
     setCandidates(items);
     setPendingClaimChargebacks(Number(data.pendingClaimChargebacks ?? 0));
     setPendingClaims(data.pendingClaims ?? []);
@@ -896,7 +908,36 @@ export function SettlementsPage() {
       </Card>
       </>
       ) : null}
-      {token ? <AdminHistoryPanel token={token} screen="settlements" refreshTick={deliveryRefreshTick} /> : null}
+      {token ? (
+        <AdminHistoryPanel
+          key={tab}
+          token={token}
+          screen="settlements"
+          townId={townId || undefined}
+          refreshTick={deliveryRefreshTick}
+          actions={
+            tab === 'AGENT'
+              ? ['DELIVERY_PAYOUT', 'AGENT_PAYOUT']
+              : tab === 'HUB'
+                ? ['FRANCHISE_COLLECT', 'DELIVERY_PAYOUT', 'HUB_PAYOUT']
+                : ['VENDOR_PAYOUT']
+          }
+          prefixes={
+            tab === 'AGENT'
+              ? ['Paid AGENT', 'Paid agent']
+              : tab === 'HUB'
+                ? ['Collected franchise', 'Paid HUB', 'Paid hub']
+                : undefined
+          }
+          emptyHint={
+            tab === 'AGENT'
+              ? 'No agent payout changes for this town.'
+              : tab === 'HUB'
+                ? 'No hub payout or franchise collection changes for this town.'
+                : 'No vendor payout changes for this town.'
+          }
+        />
+      ) : null}
     </PortalShell>
   );
 }

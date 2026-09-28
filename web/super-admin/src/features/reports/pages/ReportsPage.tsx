@@ -5,9 +5,39 @@ import { ApiError } from '@/shared/api/http';
 import { Banner, Button, Card } from '@/shared/ui';
 import { listTowns, type TownVm } from '@/features/towns/api/townsApi';
 import { fetchPlatformReport, type PlatformReport } from '../api/platformReportsApi';
+import { coverMonth, DailyCalendar } from '../components/DailyCalendar';
 import { fetchMembershipReport, type MembershipReport } from '@/features/memberships/api/membershipsApi';
 
 type Preset = 'today' | 'week' | 'month' | 'custom';
+type ReportTab = 'sales' | 'membership' | 'towns' | 'vendors' | 'daily' | 'mix';
+
+const REPORT_TABS: { id: ReportTab; label: string }[] = [
+  { id: 'sales', label: 'Sales' },
+  { id: 'membership', label: 'Membership' },
+  { id: 'towns', label: 'Towns' },
+  { id: 'vendors', label: 'Vendors' },
+  { id: 'daily', label: 'Daily' },
+  { id: 'mix', label: 'Mix' },
+];
+
+function labelOf(name: string): string {
+  const known: Record<string, string> = {
+    ONLINE: 'Online',
+    COD: 'Cash on delivery',
+    UNKNOWN: 'Unknown',
+    PAYMENT_PENDING: 'Waiting for payment',
+    PLACED: 'Placed',
+    PAYMENT_FAILED: 'Payment failed',
+    CANCELLED: 'Cancelled',
+    DELIVERED: 'Delivered',
+    QUARTERLY: '3 months',
+    HALF_YEAR: '6 months',
+    ANNUAL: 'Annual',
+    CASH: 'Cash',
+    ADMIN_GIFT: 'Gift',
+  };
+  return known[name] ?? name;
+}
 
 function isoIst(d = new Date()): string {
   return new Intl.DateTimeFormat('en-CA', {
@@ -50,6 +80,7 @@ export function ReportsPage() {
   const [to, setTo] = useState(initial.to);
   const [report, setReport] = useState<PlatformReport | null>(null);
   const [membership, setMembership] = useState<MembershipReport | null>(null);
+  const [tab, setTab] = useState<ReportTab>('sales');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -190,57 +221,106 @@ export function ReportsPage() {
           <p style={styles.range}>
             {report.from} → {report.to} · {townLabel}
           </p>
-          <div style={styles.kpis}>
-            <Kpi label="GMV placed" value={money(report.placedGmv)} hint="All orders in range" />
-            <Kpi label="GMV delivered" value={money(report.deliveredGmv)} hint="Reached buyer" />
-            <Kpi label="AOV" value={money(report.averageOrderValue)} hint="Average order value" />
-            <Kpi label="Orders" value={String(report.ordersPlaced)} hint={`${report.uniqueBuyers} buyers`} />
-            <Kpi label="Delivered" value={String(report.ordersDelivered)} hint={`${report.deliveryRate}%`} />
-            <Kpi label="Cancelled" value={String(report.ordersCancelled)} hint={`${report.cancelRate}%`} />
-            <Kpi label="COD collected" value={money(report.codGmv)} hint="Delivered COD" />
-            <Kpi label="Online GMV" value={money(report.onlineGmv)} hint="UPI/card delivered" />
-            <Kpi label="Platform fees" value={money(report.platformFees)} hint="Buyer fee" />
-            <Kpi label="Promo given" value={money(report.promoDiscounts)} hint="Discounts" />
-            <Kpi
-              label="Vendor ready"
-              value={report.avgReadyMinutes == null ? '—' : `${report.avgReadyMinutes}m`}
-              hint="Avg place → packed"
-            />
-            <Kpi
-              label="Delivery cycle"
-              value={report.avgDeliveryMinutes == null ? '—' : `${report.avgDeliveryMinutes}m`}
-              hint="Avg place → delivered"
-            />
-            <Kpi
-              label="Member deliveries"
-              value={String(report.membershipDeliveriesWaived ?? 0)}
-              hint="Orders that used a credit"
-            />
-            <Kpi
-              label="Delivery waived"
-              value={money(report.membershipFeeWaived)}
-              hint="Fee not collected"
-            />
+          <div style={styles.tabs} role="tablist" aria-label="Report sections">
+            {REPORT_TABS.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                role="tab"
+                aria-selected={tab === item.id}
+                style={tab === item.id ? styles.tabActive : styles.tab}
+                onClick={() => setTab(item.id)}
+              >
+                {item.label}
+              </button>
+            ))}
           </div>
-          {membership ? (
-            <>
-              <h2 style={styles.h2}>Membership</h2>
-              <div style={styles.kpis}>
-                <Kpi label="Active members" value={String(membership.activeMembers)} hint="Usable now" />
-                <Kpi label="Packs sold" value={String(membership.packsSold)} hint={money(membership.paidRevenue)} />
-                <Kpi label="Gifts" value={String(membership.gifts)} hint="Admin granted" />
-                <Kpi label="Credits granted" value={String(membership.creditsGranted)} hint="In this range" />
-                <Kpi label="Credits used" value={String(membership.deliveriesWaived)} hint={money(membership.deliveryFeeWaived)} />
-                <Kpi label="Credits restored" value={String(membership.creditsRestored)} hint="We cancelled / failed" />
-                <Kpi label="Credits left" value={String(membership.usableCreditsOutstanding)} hint="Outstanding" />
-                <Kpi label="Expiring 7d" value={String(membership.expiringIn7Days)} hint="Need renew" />
-              </div>
-            </>
+
+          {tab === 'sales' ? (
+            <div style={styles.kpis}>
+              <Kpi label="GMV placed" value={money(report.placedGmv)} hint="All orders in range" />
+              <Kpi label="GMV delivered" value={money(report.deliveredGmv)} hint="Reached buyer" />
+              <Kpi label="AOV" value={money(report.averageOrderValue)} hint="Average order value" />
+              <Kpi label="Orders" value={String(report.ordersPlaced)} hint={`${report.uniqueBuyers} buyers`} />
+              <Kpi label="Delivered" value={String(report.ordersDelivered)} hint={`${report.deliveryRate}%`} />
+              <Kpi label="Cancelled" value={String(report.ordersCancelled)} hint={`${report.cancelRate}%`} />
+              <Kpi label="COD collected" value={money(report.codGmv)} hint="Delivered COD" />
+              <Kpi label="Online GMV" value={money(report.onlineGmv)} hint="UPI/card delivered" />
+              <Kpi label="Platform fees" value={money(report.platformFees)} hint="Buyer fee" />
+              <Kpi label="Promo given" value={money(report.promoDiscounts)} hint="Discounts" />
+              <Kpi
+                label="Vendor ready"
+                value={report.avgReadyMinutes == null ? '—' : `${report.avgReadyMinutes}m`}
+                hint="Avg place → packed"
+              />
+              <Kpi
+                label="Delivery cycle"
+                value={report.avgDeliveryMinutes == null ? '—' : `${report.avgDeliveryMinutes}m`}
+                hint="Avg place → delivered"
+              />
+              <Kpi
+                label="Member deliveries"
+                value={String(report.membershipDeliveriesWaived ?? 0)}
+                hint="Orders that used a credit"
+              />
+              <Kpi label="Delivery waived" value={money(report.membershipFeeWaived)} hint="Fee not collected" />
+            </div>
           ) : null}
 
-          <div style={styles.split}>
+          {tab === 'membership' ? (
+            membership ? (
+              <>
+                <div style={styles.kpis}>
+                  <Kpi label="Active members" value={String(membership.activeMembers)} hint="Usable now" />
+                  <Kpi label="Packs sold" value={String(membership.packsSold)} hint={`${money(membership.paidRevenue)} collected for the app`} />
+                  <Kpi label="Gifts" value={String(membership.gifts)} hint="Free. Not a sale" />
+                  <Kpi label="Cash pending" value={String(membership.cashPending)} hint="Hub to confirm" />
+                  <Kpi label="Credits granted" value={String(membership.creditsGranted)} hint="In this range" />
+                  <Kpi label="Credits used" value={String(membership.deliveriesWaived)} hint={money(membership.deliveryFeeWaived)} />
+                  <Kpi label="Credits restored" value={String(membership.creditsRestored)} hint="We cancelled / failed" />
+                  <Kpi label="Credits left" value={String(membership.usableCreditsOutstanding)} hint="Outstanding" />
+                  <Kpi label="Expiring 7d" value={String(membership.expiringIn7Days)} hint="Need renew" />
+                </div>
+                <div style={styles.split}>
+                  <Card style={styles.tableCard}>
+                    <h2 style={styles.h2}>Plans sold</h2>
+                    {(membership.slabMix ?? []).length === 0 ? (
+                      <p style={styles.empty}>None in this range.</p>
+                    ) : (
+                      membership.slabMix.map((row) => (
+                        <p key={row.name} style={styles.mixRow}>
+                          <strong>{labelOf(row.name)}</strong>
+                          <span>
+                            {row.count} · {money(row.amount)}
+                          </span>
+                        </p>
+                      ))
+                    )}
+                  </Card>
+                  <Card style={styles.tableCard}>
+                    <h2 style={styles.h2}>How paid</h2>
+                    {(membership.channelMix ?? []).length === 0 ? (
+                      <p style={styles.empty}>None in this range.</p>
+                    ) : (
+                      membership.channelMix.map((row) => (
+                        <p key={row.name} style={styles.mixRow}>
+                          <strong>{labelOf(row.name)}</strong>
+                          <span>
+                            {row.count} · {money(row.amount)}
+                          </span>
+                        </p>
+                      ))
+                    )}
+                  </Card>
+                </div>
+              </>
+            ) : (
+              <p style={styles.muted}>Membership figures did not load.</p>
+            )
+          ) : null}
+
+          {tab === 'towns' ? (
             <Card style={styles.tableCard}>
-              <h2 style={styles.h2}>Towns</h2>
               <table style={styles.table}>
                 <thead>
                   <tr>
@@ -274,8 +354,10 @@ export function ReportsPage() {
                 </tbody>
               </table>
             </Card>
+          ) : null}
+
+          {tab === 'vendors' ? (
             <Card style={styles.tableCard}>
-              <h2 style={styles.h2}>Vendors</h2>
               <table style={styles.table}>
                 <thead>
                   <tr>
@@ -307,61 +389,71 @@ export function ReportsPage() {
                 </tbody>
               </table>
             </Card>
-          </div>
+          ) : null}
 
-          <Card style={styles.tableCard}>
-            <h2 style={styles.h2}>Daily (Instamart-style trend)</h2>
-            <table style={styles.table}>
-              <thead>
-                <tr>
-                  <th style={styles.th}>Date</th>
-                  <th style={styles.th}>Orders</th>
-                  <th style={styles.th}>Delivered</th>
-                  <th style={styles.th}>Cancelled</th>
-                  <th style={styles.th}>GMV</th>
-                </tr>
-              </thead>
-              <tbody>
-                {report.daily.map((row) => (
-                  <tr key={row.date}>
-                    <td style={styles.td}>{row.date}</td>
-                    <td style={styles.td}>{row.orders}</td>
-                    <td style={styles.td}>{row.delivered}</td>
-                    <td style={styles.td}>{row.cancelled}</td>
-                    <td style={styles.td}>{money(row.gmv)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </Card>
+          {tab === 'daily' ? (
+            <Card style={styles.tableCard}>
+              <DailyCalendar
+                rows={report.daily}
+                from={from}
+                to={to}
+                today={isoIst()}
+                onEnsureMonth={(monthKey) => {
+                  const covered = coverMonth(from, to, monthKey, isoIst());
+                  setPreset('custom');
+                  setFrom(covered.from);
+                  setTo(covered.to);
+                }}
+              />
+            </Card>
+          ) : null}
 
-          <div style={styles.split}>
-            <Card style={styles.tableCard}>
-              <h2 style={styles.h2}>Payment mix</h2>
-              {report.paymentMix.map((row) => (
-                <p key={row.name} style={styles.mixRow}>
-                  <strong>{row.name}</strong>
-                  <span>
-                    {row.count} · {money(row.amount)}
-                  </span>
-                </p>
-              ))}
-            </Card>
-            <Card style={styles.tableCard}>
-              <h2 style={styles.h2}>Cancel reasons</h2>
-              {report.cancelReasons.length === 0 ? (
-                <p style={styles.empty}>None</p>
-              ) : (
-                report.cancelReasons.map((row) => (
-                  <p key={row.name} style={styles.mixRow}>
-                    <strong>{row.name}</strong>
-                    <span>{row.count}</span>
-                  </p>
-                ))
-              )}
-              <p style={styles.hint}>Bag reject rate {report.rejectRate}%</p>
-            </Card>
-          </div>
+          {tab === 'mix' ? (
+            <div style={styles.split}>
+              <Card style={styles.tableCard}>
+                <h2 style={styles.h2}>How buyers paid</h2>
+                {report.paymentMix.length === 0 ? (
+                  <p style={styles.empty}>None</p>
+                ) : (
+                  report.paymentMix.map((row) => (
+                    <p key={row.name} style={styles.mixRow}>
+                      <strong>{labelOf(row.name)}</strong>
+                      <span>
+                        {row.count} · {money(row.amount)}
+                      </span>
+                    </p>
+                  ))
+                )}
+              </Card>
+              <Card style={styles.tableCard}>
+                <h2 style={styles.h2}>Order status</h2>
+                {(report.statusMix ?? []).length === 0 ? (
+                  <p style={styles.empty}>None</p>
+                ) : (
+                  report.statusMix.map((row) => (
+                    <p key={row.name} style={styles.mixRow}>
+                      <strong>{labelOf(row.name)}</strong>
+                      <span>{row.count}</span>
+                    </p>
+                  ))
+                )}
+              </Card>
+              <Card style={styles.tableCard}>
+                <h2 style={styles.h2}>Cancel reasons</h2>
+                {report.cancelReasons.length === 0 ? (
+                  <p style={styles.empty}>None</p>
+                ) : (
+                  report.cancelReasons.map((row) => (
+                    <p key={row.name} style={styles.mixRow}>
+                      <strong>{labelOf(row.name)}</strong>
+                      <span>{row.count}</span>
+                    </p>
+                  ))
+                )}
+                <p style={styles.hint}>Bag reject rate {report.rejectRate}%</p>
+              </Card>
+            </div>
+          ) : null}
         </>
       ) : null}
     </PortalShell>
@@ -416,6 +508,37 @@ const styles: Record<string, CSSProperties> = {
     cursor: 'pointer',
   },
   range: { margin: '0.2rem 0 0', fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)' },
+  tabs: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: '0.25rem',
+    padding: '0.2rem',
+    background: 'var(--bg-muted)',
+    borderRadius: 999,
+    width: 'fit-content',
+    maxWidth: '100%',
+  },
+  tab: {
+    border: 'none',
+    background: 'transparent',
+    color: 'var(--text-muted)',
+    fontWeight: 700,
+    fontSize: '0.78rem',
+    padding: '0.35rem 0.7rem',
+    borderRadius: 999,
+    cursor: 'pointer',
+  },
+  tabActive: {
+    border: 'none',
+    background: 'var(--bg-elevated)',
+    color: 'var(--text)',
+    fontWeight: 800,
+    fontSize: '0.78rem',
+    padding: '0.35rem 0.7rem',
+    borderRadius: 999,
+    cursor: 'pointer',
+    boxShadow: 'var(--shadow-soft)',
+  },
   muted: { margin: 0, color: 'var(--text-muted)' },
   kpis: {
     display: 'grid',

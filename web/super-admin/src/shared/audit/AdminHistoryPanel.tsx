@@ -5,6 +5,7 @@ import {
   formatAuditActor,
   formatAuditChange,
   formatAuditChangeLines,
+  formatAuditHeadline,
   formatAuditWhen,
   listAdminAudit,
   parseAuditChangeLine,
@@ -27,9 +28,16 @@ type Props = {
   title?: string;
   refreshTick?: number;
   tall?: boolean;
+  /** Use most of the viewport for the table (catalog history tab). */
+  fullPage?: boolean;
   requireTown?: boolean;
+  searchPlaceholder?: string;
   embedded?: boolean;
   emptyHint?: string;
+  /** Keep only these audit actions (e.g. VENDOR_PAYOUT). */
+  actions?: string[];
+  /** Keep rows whose summary starts with one of these (case-insensitive). */
+  prefixes?: string[];
 };
 
 function screenKeys(screen?: string, screens?: string[], tabs?: HistoryTab[]): string[] {
@@ -108,9 +116,13 @@ export function AdminHistoryPanel({
   title = 'Change history',
   refreshTick = 0,
   tall = false,
+  fullPage = false,
   requireTown = false,
   embedded = false,
   emptyHint,
+  searchPlaceholder,
+  actions,
+  prefixes,
 }: Props) {
   const [rows, setRows] = useState<AdminAuditEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -125,6 +137,8 @@ export function AdminHistoryPanel({
   const [q, setQ] = useState('');
   const allKeys = screenKeys(screen, screens, tabs).join('|');
   const activeScreen = tabs?.length ? (tabs.find((t) => t.id === tabId) ?? tabs[0]).screen : allKeys.split('|')[0];
+  const actionKey = (actions ?? []).join(',');
+  const prefixKey = (prefixes ?? []).join(',');
 
   useEffect(() => {
     const t = window.setTimeout(() => setQ(qDraft.trim()), 350);
@@ -134,7 +148,7 @@ export function AdminHistoryPanel({
   useEffect(() => {
     setPage(0);
     setPageDraft('1');
-  }, [activeScreen, townId, refreshTick, range, q]);
+  }, [activeScreen, townId, refreshTick, range, q, actionKey, prefixKey]);
 
   const load = useCallback(async () => {
     if (!token || !activeScreen) return;
@@ -155,18 +169,26 @@ export function AdminHistoryPanel({
         size: PAGE_SIZE,
         from: rangeFrom(range),
         q: q || undefined,
+        actions: actionKey ? actionKey.split(',') : undefined,
+        prefixes: prefixKey ? prefixKey.split(',') : undefined,
       });
       setRows(data.items);
       setTotal(data.totalElements);
       setTotalPages(Math.max(data.totalPages, 1));
     } catch (err) {
-      setError(err instanceof ApiError || err instanceof Error ? err.message : 'Could not load history');
+      if (err instanceof ApiError && err.status === 401) {
+        setError('Session expired — log in again, then reopen this page.');
+      } else if (err instanceof ApiError && /missing or invalid jwt/i.test(err.message)) {
+        setError('Session expired — log in again, then reopen this page.');
+      } else {
+        setError(err instanceof ApiError || err instanceof Error ? err.message : 'Could not load history');
+      }
       setRows([]);
       setTotal(0);
     } finally {
       setLoading(false);
     }
-  }, [token, activeScreen, townId, requireTown, page, range, q]);
+  }, [token, activeScreen, townId, requireTown, page, range, q, actionKey, prefixKey]);
 
   useEffect(() => {
     void load();
@@ -257,7 +279,7 @@ export function AdminHistoryPanel({
             style={styles.search}
             value={qDraft}
             onChange={(e) => setQDraft(e.target.value)}
-            placeholder="Search field name (e.g. referral, delivery)…"
+            placeholder={searchPlaceholder ?? 'Search field name (e.g. referral, delivery)…'}
             aria-label="Search history"
           />
           <div style={styles.tabs} role="group" aria-label="Date range">
@@ -296,11 +318,20 @@ export function AdminHistoryPanel({
         <p style={styles.muted}>Loading history…</p>
       ) : rows.length === 0 ? (
         <p style={styles.muted}>
-          {embedded ? 'No changes in this range. Save to create the first audit row.' : 'No changes in this filter yet.'}
+          {emptyHint
+            ? emptyHint
+            : embedded
+              ? 'No changes in this range. Save to create the first audit row.'
+              : 'No changes in this filter yet.'}
         </p>
       ) : (
-        <div style={tall || embedded ? styles.wrapFill : styles.wrap}>
-          <table style={styles.table}>
+        <div style={fullPage ? styles.wrapFullPage : tall || embedded ? styles.wrapFill : styles.wrap}>
+          <table style={fullPage ? styles.tableFull : styles.table}>
+            <colgroup>
+              <col style={{ width: fullPage ? '11rem' : '9rem' }} />
+              <col style={{ width: fullPage ? '10rem' : '8rem' }} />
+              <col />
+            </colgroup>
             <thead>
               <tr>
                 <th style={styles.th}>When</th>
@@ -312,6 +343,7 @@ export function AdminHistoryPanel({
               {rows.map((row) => {
                 const townLabel = row.townId ? townNames?.[row.townId] : undefined;
                 const lines = formatAuditChangeLines(row, townLabel);
+                const headline = formatAuditHeadline(row, lines);
                 return (
                   <tr key={row.id}>
                     <td style={styles.tdMuted}>{formatAuditWhen(row.createdAt)}</td>
@@ -320,28 +352,36 @@ export function AdminHistoryPanel({
                       {lines.length === 0 ? (
                         '—'
                       ) : (
-                        <ul style={styles.changeList}>
-                          {lines.map((line, i) => {
-                            const parsed = parseAuditChangeLine(line);
-                            if (parsed.kind === 'field') {
+                        <>
+                          {headline ? <div style={styles.changeHeadline}>{headline}</div> : null}
+                          <ul style={styles.changeList}>
+                            {lines.map((line, i) => {
+                              const parsed = parseAuditChangeLine(line);
+                              if (parsed.kind === 'field') {
+                                return (
+                                  <li key={i} style={styles.changeRow}>
+                                    <span style={styles.changeLabel}>{parsed.label}</span>
+                                    <span style={styles.changeValues}>
+                                      <span style={styles.changePair}>
+                                        <span style={styles.changeTag}>Old</span>
+                                        <span style={styles.changeBefore}>{parsed.before}</span>
+                                      </span>
+                                      <span style={styles.changePair}>
+                                        <span style={styles.changeTag}>New</span>
+                                        <span style={styles.changeAfter}>{parsed.after}</span>
+                                      </span>
+                                    </span>
+                                  </li>
+                                );
+                              }
                               return (
-                                <li key={i} style={styles.changeRow}>
-                                  <span style={styles.changeLabel}>{parsed.label}</span>
-                                  <span style={styles.changeValues}>
-                                    <span style={styles.changeBefore}>{parsed.before}</span>
-                                    <span style={styles.changeArrow} aria-hidden>→</span>
-                                    <span style={styles.changeAfter}>{parsed.after}</span>
-                                  </span>
+                                <li key={i} style={styles.changeTextOnly}>
+                                  {parsed.text}
                                 </li>
                               );
-                            }
-                            return (
-                              <li key={i} style={styles.changeTextOnly}>
-                                {parsed.text}
-                              </li>
-                            );
-                          })}
-                        </ul>
+                            })}
+                          </ul>
+                        </>
                       )}
                     </td>
                   </tr>
@@ -358,7 +398,7 @@ export function AdminHistoryPanel({
     return <div style={styles.embed}>{body}</div>;
   }
   return (
-    <Card padding="sm" style={styles.card}>
+    <Card padding="sm" style={fullPage ? styles.cardFullPage : styles.card}>
       {body}
     </Card>
   );
@@ -366,6 +406,13 @@ export function AdminHistoryPanel({
 
 const styles: Record<string, CSSProperties> = {
   card: { display: 'grid', gap: '0.4rem' },
+  cardFullPage: {
+    display: 'grid',
+    gap: '0.45rem',
+    flex: 1,
+    gridTemplateRows: 'auto auto auto minmax(0, 1fr)',
+    minHeight: 'calc(100vh - 10.5rem)',
+  },
   embed: { display: 'grid', gap: '0.4rem', minHeight: 0, alignContent: 'start' },
   headRow: {
     display: 'flex',
@@ -454,7 +501,21 @@ const styles: Record<string, CSSProperties> = {
     maxHeight: 'min(58vh, 28rem)',
     overflowY: 'auto',
   },
+  wrapFullPage: {
+    overflow: 'auto',
+    border: '1px solid var(--border)',
+    borderRadius: 'var(--radius-md)',
+    minHeight: 0,
+    height: '100%',
+    maxHeight: 'none',
+  },
   table: { width: '100%', borderCollapse: 'separate', borderSpacing: 0, fontSize: '0.78rem' },
+  tableFull: {
+    width: '100%',
+    borderCollapse: 'separate',
+    borderSpacing: 0,
+    fontSize: '0.82rem',
+  },
   th: {
     position: 'sticky',
     top: 0,
@@ -492,21 +553,37 @@ const styles: Record<string, CSSProperties> = {
     letterSpacing: '0.04em',
     color: 'var(--text-muted)',
   },
-  changeValues: {
-    display: 'flex',
-    flexWrap: 'wrap',
-    alignItems: 'center',
-    gap: '0.35rem',
+  changeHeadline: {
     fontSize: '0.8rem',
-    fontWeight: 650,
+    fontWeight: 800,
+    marginBottom: '0.28rem',
+  },
+  changeValues: {
+    display: 'grid',
+    gap: '0.12rem',
+  },
+  changePair: {
+    display: 'grid',
+    gridTemplateColumns: '2.2rem minmax(0, 1fr)',
+    alignItems: 'baseline',
+    columnGap: '0.35rem',
+    fontSize: '0.78rem',
+  },
+  changeTag: {
+    fontSize: '0.62rem',
+    fontWeight: 800,
+    letterSpacing: '0.04em',
+    textTransform: 'uppercase',
+    color: 'var(--text-muted)',
   },
   changeBefore: {
     color: 'var(--text-muted)',
+    fontWeight: 650,
     textDecoration: 'line-through',
     textDecorationColor: 'color-mix(in srgb, var(--text-muted) 55%, transparent)',
+    overflowWrap: 'anywhere',
   },
-  changeArrow: { color: 'var(--accent)', fontWeight: 800 },
-  changeAfter: { color: 'var(--text)', fontWeight: 800 },
+  changeAfter: { color: 'var(--text)', fontWeight: 800, overflowWrap: 'anywhere' },
   changeTextOnly: { fontSize: '0.8rem', fontWeight: 600 },
   tdMuted: {
     padding: '0.32rem 0.45rem',

@@ -39,6 +39,11 @@ public class InvoiceDocument {
         int quantity;
         BigDecimal unitPrice;
         BigDecimal lineTotal;
+        String hsnCode;
+        BigDecimal gstPercent;
+        BigDecimal cgstAmount;
+        BigDecimal sgstAmount;
+        BigDecimal cessAmount;
     }
 
     @Value

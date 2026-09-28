@@ -1,8 +1,10 @@
 import type { CSSProperties, ReactNode } from 'react';
 import { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { HeaderIconButton } from '@hlm-theme';
 import { useAuth } from '@/shared/auth/AuthContext';
+import { useBuyerDisplayName } from '@/features/auth/hooks/useBuyerProfile';
 import { useTown } from '@/shared/town/TownContext';
 import { StickyCartBar } from '@/features/shop/components/StickyCartBar';
 import { useShop } from '@/features/shop/hooks/useShop';
@@ -48,6 +50,7 @@ export function PortalShell({
   footerSlot,
 }: Props) {
   const { session, logout } = useAuth();
+  const buyerName = useBuyerDisplayName();
   const { townLabel, openPicker } = useTown();
   const { cart } = useShop();
   const location = useLocation();
@@ -128,71 +131,83 @@ export function PortalShell({
         )}
 
         {showTownPicker ? (
-          <div style={shopChrome ? styles.shopLocateRow : undefined}>
-            <button
-              type="button"
-              style={shopChrome ? styles.locationBtnShop : styles.locationBtn}
-              aria-label={`Change town. Currently ${townLabel}`}
-              title="Tap to change town"
-              onClick={openPicker}
-            >
-              {shopChrome ? (
-                <span style={styles.etaChip}>Same-day</span>
-              ) : (
-                <span style={styles.pin} aria-hidden>
-                  📍
-                </span>
-              )}
-              <span style={styles.locationCopy}>
-                {shopChrome ? (
-                  <span style={styles.locationEyebrow}>Delivering to</span>
-                ) : (
+          shopChrome ? (
+            <div style={styles.shopHeaderCard}>
+              <div style={styles.shopHeaderRow}>
+                <button
+                  type="button"
+                  style={styles.shopLocationBtn}
+                  aria-label={`Change town. Currently ${townLabel}`}
+                  title="Tap to change town"
+                  onClick={openPicker}
+                >
+                  <span style={styles.shopLocPin} aria-hidden>📍</span>
+                  <span style={styles.shopLocCopy}>
+                    <span style={styles.shopLocMeta}>
+                      <span style={styles.shopEtaPill}>Same day</span>
+                      {session && buyerName ? (
+                        <span style={styles.shopHiName}>Hi, {buyerName}</span>
+                      ) : (
+                        <span style={styles.shopHiName}>Your home town</span>
+                      )}
+                    </span>
+                    <span style={styles.shopLocTitle}>
+                      {townLabel}
+                      <span style={styles.shopLocChevron} aria-hidden>▾</span>
+                    </span>
+                  </span>
+                </button>
+                <div style={styles.shopHeaderActions}>
+                  {session ? (
+                    <>
+                      <HeaderIconButton
+                        label="Order alerts"
+                        onClick={() => navigate('/alerts')}
+                        style={styles.shopIconBtn}
+                      >
+                        🔔
+                      </HeaderIconButton>
+                      <button
+                        type="button"
+                        style={styles.shopAvatar}
+                        aria-label="Account and settings"
+                        onClick={() => navigate('/more')}
+                      >
+                        {(buyerName || 'U').charAt(0).toUpperCase()}
+                      </button>
+                    </>
+                  ) : (
+                    <Link to="/login" style={styles.shopLoginBtn}>
+                      Login
+                    </Link>
+                  )}
+                </div>
+              </div>
+              <p style={styles.shopSupporterRibbon}>
+                <span style={styles.shopSupporterEm} aria-hidden>♥</span>
+                Proud supporter of local business
+              </p>
+            </div>
+          ) : (
+            <div>
+              <button
+                type="button"
+                style={styles.locationBtn}
+                aria-label={`Change town. Currently ${townLabel}`}
+                title="Tap to change town"
+                onClick={openPicker}
+              >
+                <span style={styles.pin} aria-hidden>📍</span>
+                <span style={styles.locationCopy}>
                   <span style={styles.locationEyebrow}>Deliver to </span>
-                )}
-                <span style={styles.locationValue}>
-                  {townLabel}
-                  <span style={styles.chevron} aria-hidden>
-                    ▾
+                  <span style={styles.locationValue}>
+                    {townLabel}
+                    <span style={styles.chevron} aria-hidden>▾</span>
                   </span>
                 </span>
-              </span>
-            </button>
-            {shopChrome ? (
-              <div style={styles.headerActions}>
-                {session ? (
-                  <HeaderIconButton
-                    label="Order alerts"
-                    onClick={() => navigate('/alerts')}
-                    style={styles.headerIcon}
-                  >
-                    🔔
-                  </HeaderIconButton>
-                ) : null}
-                {onRefresh ? (
-                  <HeaderIconButton
-                    label={refreshing ? 'Refreshing…' : 'Refresh'}
-                    onClick={() => void handleRefresh()}
-                    disabled={refreshing}
-                    style={{
-                      ...styles.headerIcon,
-                      ...(refreshing ? { opacity: 0.65 } : null),
-                    }}
-                  >
-                    {refreshing ? '…' : '↻'}
-                  </HeaderIconButton>
-                ) : null}
-                {session ? (
-                  <HeaderIconButton label="Sign out" onClick={logout} style={styles.headerIcon}>
-                    <span style={{ fontSize: '0.58rem', fontWeight: 800, letterSpacing: '0.02em' }}>OUT</span>
-                  </HeaderIconButton>
-                ) : (
-                  <Link to="/login" style={styles.signIn}>
-                    Login
-                  </Link>
-                )}
-              </div>
-            ) : null}
-          </div>
+              </button>
+            </div>
+          )
         ) : null}
       </header>
 
@@ -207,7 +222,7 @@ export function PortalShell({
 
       <main style={styles.main}>{children}</main>
 
-      {footerSlot}
+      {footerSlot ? createPortal(footerSlot, document.body) : null}
 
       {showFloatingCart ? (
         <StickyCartBar itemCount={resolvedCount} totalLabel={resolvedTotal} />
@@ -300,20 +315,161 @@ const styles: Record<string, CSSProperties> = {
     top: 0,
     zIndex: 40,
     margin: '0 -0.85rem',
-    padding: '0.4rem 0.85rem 0.35rem',
-    background: 'color-mix(in srgb, var(--bg) 88%, #fff)',
-    backdropFilter: 'blur(14px)',
-    WebkitBackdropFilter: 'blur(14px)',
-    display: 'grid',
-    gap: '0.2rem',
+    padding: '0 0.85rem 0.5rem',
+    background: 'var(--bg)',
     minWidth: 0,
   },
-  shopLocateRow: {
+  shopHeaderCard: {
+    display: 'grid',
+    gap: '0.45rem',
+    padding: '0.55rem 0.65rem 0.5rem',
+    borderRadius: '0 0 18px 18px',
+    background: 'linear-gradient(145deg, #0A6B1A 0%, #0C831F 42%, #0A7520 100%)',
+    boxShadow: '0 10px 28px rgba(12, 131, 31, 0.22)',
+    color: '#fff',
+  },
+  shopHeaderRow: {
     display: 'flex',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: '0.4rem',
+    gap: '0.45rem',
     minWidth: 0,
+  },
+  shopLocationBtn: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.4rem',
+    flex: '1 1 auto',
+    minWidth: 0,
+    border: 'none',
+    background: 'transparent',
+    padding: 0,
+    margin: 0,
+    textAlign: 'left',
+    cursor: 'pointer',
+    color: 'inherit',
+  },
+  shopLocPin: {
+    fontSize: '1.15rem',
+    lineHeight: 1,
+    flexShrink: 0,
+    filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.15))',
+  },
+  shopLocCopy: {
+    display: 'grid',
+    gap: '0.12rem',
+    minWidth: 0,
+    flex: '1 1 auto',
+  },
+  shopLocMeta: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.35rem',
+    minWidth: 0,
+    flexWrap: 'wrap',
+  },
+  shopEtaPill: {
+    flexShrink: 0,
+    background: 'var(--highlight)',
+    color: '#1A1C1A',
+    fontSize: '0.58rem',
+    fontWeight: 800,
+    letterSpacing: '0.04em',
+    textTransform: 'uppercase',
+    borderRadius: 6,
+    padding: '0.18rem 0.38rem',
+    lineHeight: 1.1,
+  },
+  shopHiName: {
+    fontSize: '0.68rem',
+    fontWeight: 600,
+    opacity: 0.92,
+    letterSpacing: '-0.01em',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+    minWidth: 0,
+  },
+  shopLocTitle: {
+    fontFamily: 'var(--font-display)',
+    fontWeight: 800,
+    fontSize: '1.12rem',
+    letterSpacing: '-0.03em',
+    lineHeight: 1.15,
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.15rem',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  },
+  shopLocChevron: {
+    fontSize: '0.9rem',
+    fontWeight: 800,
+    opacity: 0.95,
+    flexShrink: 0,
+  },
+  shopHeaderActions: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.35rem',
+    flexShrink: 0,
+  },
+  shopIconBtn: {
+    width: 36,
+    height: 36,
+    minWidth: 36,
+    fontSize: '0.95rem',
+    background: 'rgba(255, 255, 255, 0.18)',
+    border: '1px solid rgba(255, 255, 255, 0.28)',
+    color: '#fff',
+  },
+  shopAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 'var(--radius-full)',
+    border: '2px solid rgba(255, 255, 255, 0.55)',
+    background: 'rgba(255, 255, 255, 0.95)',
+    color: '#0C831F',
+    fontFamily: 'var(--font-display)',
+    fontWeight: 800,
+    fontSize: '0.88rem',
+    cursor: 'pointer',
+    display: 'grid',
+    placeItems: 'center',
+    flexShrink: 0,
+  },
+  shopLoginBtn: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    padding: '0.4rem 0.75rem',
+    borderRadius: 999,
+    background: '#fff',
+    color: '#0C831F',
+    textDecoration: 'none',
+    fontWeight: 800,
+    fontSize: '0.75rem',
+    whiteSpace: 'nowrap',
+  },
+  shopSupporterRibbon: {
+    margin: 0,
+    padding: '0.38rem 0.55rem',
+    borderRadius: 10,
+    background: 'linear-gradient(90deg, rgba(255,255,255,0.22) 0%, rgba(247,206,70,0.35) 50%, rgba(255,255,255,0.18) 100%)',
+    border: '1px solid rgba(255, 255, 255, 0.28)',
+    fontFamily: 'Georgia, "Times New Roman", serif',
+    fontStyle: 'italic',
+    fontWeight: 700,
+    fontSize: '0.72rem',
+    letterSpacing: '0.02em',
+    color: '#FFFDF5',
+    textAlign: 'center',
+    lineHeight: 1.35,
+    textShadow: '0 1px 2px rgba(0,0,0,0.12)',
+  },
+  shopSupporterEm: {
+    marginRight: '0.28rem',
+    color: '#F7CE46',
+    fontStyle: 'normal',
   },
   locationCopy: {
     display: 'grid',
@@ -402,19 +558,14 @@ const styles: Record<string, CSSProperties> = {
     boxSizing: 'border-box',
     minWidth: 0,
   },
-  locationBtnShop: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '0.45rem',
-    flex: '1 1 auto',
-    minWidth: 0,
-    border: 'none',
-    background: 'transparent',
-    padding: '0.1rem 0',
-    minHeight: 40,
-    textAlign: 'left',
-    cursor: 'pointer',
-    boxSizing: 'border-box',
+  buyerName: {
+    fontFamily: 'var(--font-display)',
+    fontWeight: 800,
+    fontSize: '0.88rem',
+    color: 'var(--text)',
+    letterSpacing: '-0.02em',
+    lineHeight: 1.15,
+    flexShrink: 0,
   },
   locationEyebrow: {
     fontWeight: 700,

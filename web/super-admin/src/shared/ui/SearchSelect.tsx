@@ -298,6 +298,7 @@ const styles: Record<string, CSSProperties> = {
     display: 'grid',
     gap: '0.2rem',
     minWidth: 0,
+    width: '100%',
     flex: '1 1 148px',
     zIndex: 1,
   },

@@ -110,7 +110,11 @@ public interface VendorListingRepository extends JpaRepository<VendorListing, UU
                             )
                           )
                       AND (:categoryId IS NULL OR cat.id = :categoryId)
-                      AND LOWER(mi.name) LIKE LOWER(CONCAT('%', :q, '%'))
+                      AND (
+                            LOWER(mi.name) LIKE LOWER(CONCAT('%', :q, '%'))
+                            OR LOWER(COALESCE(mi.searchNames, '')) LIKE LOWER(CONCAT('%', :q, '%'))
+                            OR LOWER(COALESCE(vl.searchNames, '')) LIKE LOWER(CONCAT('%', :q, '%'))
+                          )
                     """,
             countQuery = """
                     SELECT count(vl) FROM VendorListing vl
@@ -136,7 +140,11 @@ public interface VendorListingRepository extends JpaRepository<VendorListing, UU
                             )
                           )
                       AND (:categoryId IS NULL OR cat.id = :categoryId)
-                      AND LOWER(mi.name) LIKE LOWER(CONCAT('%', :q, '%'))
+                      AND (
+                            LOWER(mi.name) LIKE LOWER(CONCAT('%', :q, '%'))
+                            OR LOWER(COALESCE(mi.searchNames, '')) LIKE LOWER(CONCAT('%', :q, '%'))
+                            OR LOWER(COALESCE(vl.searchNames, '')) LIKE LOWER(CONCAT('%', :q, '%'))
+                          )
                     """)
     Page<VendorListing> searchActive(
             @Param("townId") UUID townId,
@@ -160,7 +168,11 @@ public interface VendorListingRepository extends JpaRepository<VendorListing, UU
             WHERE vl.townId = :townId
               AND vl.active = true
               AND mi.status = com.hyperlocalmart.catalog.entity.CatalogItemStatus.ACTIVE
-              AND LOWER(mi.name) LIKE LOWER(CONCAT('%', :q, '%'))
+              AND (
+                    LOWER(mi.name) LIKE LOWER(CONCAT('%', :q, '%'))
+                    OR LOWER(COALESCE(mi.searchNames, '')) LIKE LOWER(CONCAT('%', :q, '%'))
+                    OR LOWER(COALESCE(vl.searchNames, '')) LIKE LOWER(CONCAT('%', :q, '%'))
+                  )
             ORDER BY mi.name ASC
             """)
     Page<VendorListing> searchActiveByTown(@Param("townId") UUID townId, @Param("q") String q, Pageable pageable);

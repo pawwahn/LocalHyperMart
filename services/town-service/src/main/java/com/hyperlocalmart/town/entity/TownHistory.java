@@ -15,6 +15,7 @@ import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -71,6 +72,10 @@ public class TownHistory {
 
     @Column(name = "change_summary", length = 500)
     private String changeSummary;
+
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "change_lines", columnDefinition = "jsonb")
+    private List<String> changeLines;
 
     @Column(name = "created_at", nullable = false)
     @Builder.Default

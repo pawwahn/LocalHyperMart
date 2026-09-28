@@ -118,7 +118,18 @@ export function HubIncentivesPage() {
             <Card>
               <h2 style={styles.h2}>Delivery agent {onOff(cfg.agent.enabled)}</h2>
               <RateRow
-                label="Shop pickup"
+                label="To customer"
+                value={cfg.agent.perOrder.completedOrderAmount}
+                disabled={!canEdit || !cfg.agent.perOrder.enabled}
+                onChange={(n) =>
+                  patchAgent({
+                    ...cfg.agent,
+                    perOrder: { ...cfg.agent.perOrder, completedOrderAmount: n },
+                  })
+                }
+              />
+              <RateRow
+                label="Vendor → hub"
                 value={cfg.agent.perOrder.pickupAmount}
                 disabled={!canEdit || !cfg.agent.perOrder.enabled}
                 onChange={(n) =>
@@ -129,24 +140,13 @@ export function HubIncentivesPage() {
                 }
               />
               <RateRow
-                label="Home delivery"
+                label="Return → shop"
                 value={cfg.agent.perOrder.lastMileAmount}
                 disabled={!canEdit || !cfg.agent.perOrder.enabled}
                 onChange={(n) =>
                   patchAgent({
                     ...cfg.agent,
                     perOrder: { ...cfg.agent.perOrder, lastMileAmount: n },
-                  })
-                }
-              />
-              <RateRow
-                label="Full order"
-                value={cfg.agent.perOrder.completedOrderAmount}
-                disabled={!canEdit || !cfg.agent.perOrder.enabled}
-                onChange={(n) =>
-                  patchAgent({
-                    ...cfg.agent,
-                    perOrder: { ...cfg.agent.perOrder, completedOrderAmount: n },
                   })
                 }
               />
@@ -191,9 +191,9 @@ export function HubIncentivesPage() {
             <Card>
               <h2 style={styles.h2}>Delivery hub {onOff(cfg.hub.enabled)}</h2>
               <p style={styles.muted}>Read only</p>
-              <p style={styles.line}>Bag at hub {money(cfg.hub.perOrder.pickupAmount)}</p>
-              <p style={styles.line}>Home delivery {money(cfg.hub.perOrder.lastMileAmount)}</p>
-              <p style={styles.line}>Full order {money(cfg.hub.perOrder.completedOrderAmount)}</p>
+              <p style={styles.line}>To customer {money(cfg.hub.perOrder.completedOrderAmount)}</p>
+              <p style={styles.line}>Vendor → hub {money(cfg.hub.perOrder.pickupAmount)}</p>
+              <p style={styles.line}>Return → shop {money(cfg.hub.perOrder.lastMileAmount)}</p>
               <p style={styles.line}>
                 Day {cfg.hub.perDay.enabled ? money(cfg.hub.perDay.amount) : 'off'}
               </p>

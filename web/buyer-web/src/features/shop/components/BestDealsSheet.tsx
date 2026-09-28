@@ -407,7 +407,7 @@ const styles: Record<string, CSSProperties> = {
     lineHeight: 1.15,
   },
   mrp: {
-    color: '#9ca3af',
+    color: 'var(--danger)',
     fontSize: '0.72rem',
     fontWeight: 600,
     textDecoration: 'line-through',

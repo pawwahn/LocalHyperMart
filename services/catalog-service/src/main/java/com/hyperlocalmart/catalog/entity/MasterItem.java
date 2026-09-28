@@ -3,6 +3,8 @@ package com.hyperlocalmart.catalog.entity;
 import com.hyperlocalmart.common.domain.BaseAuditEntity;
 import jakarta.persistence.*;
 import lombok.*;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.math.BigDecimal;
 import java.util.UUID;
@@ -27,6 +29,10 @@ public class MasterItem extends BaseAuditEntity {
     @Column(nullable = false)
     private String name;
 
+    /** Comma-separated alternate names. Search-only; the product card still uses name. */
+    @Column(name = "search_names", length = 500)
+    private String searchNames;
+
     private String description;
 
     @ManyToOne(fetch = FetchType.EAGER, optional = false)
@@ -34,6 +40,26 @@ public class MasterItem extends BaseAuditEntity {
     private Unit unit;
 
     private BigDecimal mrp;
+
+    @Column(name = "hsn_code", nullable = false, length = 8)
+    private String hsnCode;
+
+    @Column(name = "gst_percent", nullable = false, precision = 5, scale = 2)
+    @Builder.Default
+    private BigDecimal gstPercent = new BigDecimal("18.00");
+
+    @Column(name = "cess_percent", nullable = false, precision = 5, scale = 2)
+    @Builder.Default
+    private BigDecimal cessPercent = BigDecimal.ZERO;
+
+    @Column(name = "price_includes_tax", nullable = false)
+    @Builder.Default
+    private boolean priceIncludesTax = true;
+
+    @JdbcTypeCode(SqlTypes.CHAR)
+    @Column(name = "country_of_origin", nullable = false, length = 2)
+    @Builder.Default
+    private String countryOfOrigin = "IN";
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 30)

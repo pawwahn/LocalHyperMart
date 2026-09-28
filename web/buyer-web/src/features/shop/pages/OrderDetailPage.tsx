@@ -1,4 +1,4 @@
-import { useState, type CSSProperties } from 'react';
+import { useEffect, useState, type CSSProperties } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { PortalShell } from '@/shared/layout/PortalShell';
 import { Badge, Banner, Button, Card, EmptyState, LoadingBlock } from '@/shared/ui';
@@ -96,23 +96,33 @@ export function OrderDetailPage() {
     cancelBusy,
     claimBusy,
     ratingBusyId,
+    agentRatingBusy,
     reload,
     downloadInvoice,
     cancelWholeOrder,
     cancelItem,
     fileClaim,
     submitRating,
+    submitDeliveryRating,
   } = useOrderDetail(orderId, preview);
 
   const [cancelTarget, setCancelTarget] = useState<CancelTarget>(null);
   const [claimOpen, setClaimOpen] = useState(false);
   const [draftRatings, setDraftRatings] = useState<Record<string, number>>({});
+  const [agentStars, setAgentStars] = useState(5);
+  const [agentComment, setAgentComment] = useState('');
   const [claimPresetItemId, setClaimPresetItemId] = useState<string | null>(null);
   const [scratchOpen, setScratchOpen] = useState(false);
   const [payBusy, setPayBusy] = useState(false);
   const [resultDialog, setResultDialog] = useState<{ title: string; description: string } | null>(
     null,
   );
+
+  useEffect(() => {
+    const rating = order?.deliveryAgentRating;
+    if (rating?.stars) setAgentStars(rating.stars);
+    if (rating?.comment) setAgentComment(rating.comment);
+  }, [order?.orderId, order?.deliveryAgentRating?.stars, order?.deliveryAgentRating?.comment]);
 
   const canDownloadInvoice = Boolean(order?.invoicePdfUrl);
   const blockedClaimItemIds = new Set(
@@ -336,6 +346,76 @@ export function OrderDetailPage() {
             </Card>
           ) : null}
 
+          {order.deliveryAgentRating ? (
+            <Card elevated style={styles.agentCard}>
+              <div style={styles.agentHead}>
+                <p style={styles.scratchTitle}>
+                  {order.deliveryAgentRating.stars ? 'Your delivery rating' : 'Rate this delivery'}
+                </p>
+                {order.deliveryAgentRating.agentName ? (
+                  <span style={styles.meta}>{order.deliveryAgentRating.agentName}</span>
+                ) : null}
+              </div>
+              {order.deliveryAgentRating.stars && !order.deliveryAgentRating.canRate ? (
+                <div style={styles.agentRated}>
+                  <StarRating
+                    value={order.deliveryAgentRating.stars}
+                    readOnly
+                    size="md"
+                    label={`You rated delivery ${order.deliveryAgentRating.stars} stars`}
+                  />
+                  {order.deliveryAgentRating.comment ? (
+                    <p style={styles.agentComment}>“{order.deliveryAgentRating.comment}”</p>
+                  ) : (
+                    <p style={styles.agentCommentMuted}>No comment</p>
+                  )}
+                </div>
+              ) : (
+                <div style={styles.agentForm}>
+                  <StarRating
+                    value={order.deliveryAgentRating.stars ?? agentStars}
+                    onChange={setAgentStars}
+                    size="md"
+                    label="Rate the delivery agent"
+                  />
+                  <label style={styles.agentLabel}>
+                    Comment (optional)
+                    <textarea
+                      style={styles.agentInput}
+                      maxLength={400}
+                      rows={2}
+                      placeholder="On time, polite, careful with the bag…"
+                      value={agentComment}
+                      onChange={(e) => setAgentComment(e.target.value)}
+                    />
+                  </label>
+                  <Button
+                    size="sm"
+                    fullWidth
+                    disabled={agentRatingBusy}
+                    onClick={() => {
+                      void submitDeliveryRating(agentStars, agentComment)
+                        .then(() =>
+                          setResultDialog({
+                            title: 'Thanks for rating',
+                            description: 'Your delivery rating was saved for this order.',
+                          }),
+                        )
+                        .catch((err) =>
+                          setResultDialog({
+                            title: 'Could not save rating',
+                            description: err instanceof Error ? err.message : 'Please try again.',
+                          }),
+                        );
+                    }}
+                  >
+                    {agentRatingBusy ? 'Saving…' : 'Submit rating'}
+                  </Button>
+                </div>
+              )}
+            </Card>
+          ) : null}
+
           {order.timeline && order.timeline.length > 0 ? (
             <OrderStatusTimeline
               steps={order.timeline}
@@ -353,93 +433,45 @@ export function OrderDetailPage() {
             {(order.items?.length ?? 0) === 0 ? (
               <LoadingBlock label="Loading items…" />
             ) : (
-              <div style={styles.list}>
+              <Card padding="sm" style={styles.itemList}>
                 {order.items.map((item, index) => {
                   const cancelled = (item.status ?? 'ACTIVE').toUpperCase() === 'CANCELLED';
+                  const canClaim =
+                    Boolean(item.canFileClaim && item.orderItemId) &&
+                    !blockedClaimItemIds.has(item.orderItemId!);
+                  const last = index === (order.items?.length ?? 0) - 1;
                   return (
-                    <Card
+                    <div
                       key={item.orderItemId ?? `${item.name}-${item.shopName}-${index}`}
-                      style={styles.itemRow}
+                      style={{ ...styles.itemRow, ...(last ? styles.itemRowLast : {}) }}
                     >
-                      <div style={styles.itemBody}>
-                        <p
-                          style={
-                            cancelled ? { ...styles.itemName, ...styles.cancelled } : styles.itemName
-                          }
-                        >
+                      <div style={styles.itemTop}>
+                        <p style={cancelled ? { ...styles.itemName, ...styles.cancelled } : styles.itemName}>
                           {item.name}
-                          {cancelled ? ' (cancelled)' : ''}
+                          {cancelled ? ' · cancelled' : ''}
                         </p>
-                        <p style={styles.meta}>{item.shopName}</p>
-                        {cancelled && item.storeCreditAmount ? (
-                          <p style={styles.creditNote}>
-                            ₹{Number(item.storeCreditAmount).toFixed(2)} added to your wallet as store
-                            credit
-                            {item.cancelReason ? ` · ${item.cancelReason}` : ''}
-                            {' · '}
-                            <Link to="/wallet" style={styles.walletLink}>
-                              Open wallet
-                            </Link>
-                          </p>
-                        ) : null}
-                        {item.canCancel && item.orderItemId ? (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            disabled={cancelBusy}
-                            onClick={() =>
-                              setCancelTarget({
-                                kind: 'item',
-                                itemId: item.orderItemId!,
-                                itemName: item.name,
-                              })
-                            }
-                          >
-                            Cancel item
-                          </Button>
-                        ) : null}
-                        {item.canFileClaim &&
-                        item.orderItemId &&
-                        !blockedClaimItemIds.has(item.orderItemId) ? (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            disabled={claimBusy}
-                            onClick={() => {
-                              setClaimPresetItemId(item.orderItemId!);
-                              setClaimOpen(true);
-                            }}
-                          >
-                            Report issue
-                          </Button>
-                        ) : null}
-                        {item.orderItemId && item.myRating ? (
-                          <div style={styles.rateBox}>
-                            <p style={styles.rateLabel}>Your rating</p>
+                        <strong style={cancelled ? { ...styles.lineTotal, ...styles.cancelled } : styles.lineTotal}>
+                          {money(item.lineTotal)}
+                        </strong>
+                      </div>
+                      <div style={styles.itemFoot}>
+                        <span style={styles.shopLine}>
+                          {item.shopName} · ×{item.quantity}
+                        </span>
+                        <div style={styles.itemActions}>
+                          {item.orderItemId && item.myRating ? (
                             <StarRating
                               value={item.myRating}
                               readOnly
-                              size="md"
+                              size="sm"
                               label={`You rated ${item.name} ${item.myRating} stars`}
                             />
-                          </div>
-                        ) : null}
-                        {item.canRate && item.orderItemId && !item.myRating ? (
-                          <div style={styles.rateBox}>
-                            <p style={styles.rateLabel}>Rate this product</p>
+                          ) : null}
+                          {item.canRate && item.orderItemId && !item.myRating ? (
                             <StarRating
-                              value={draftRatings[item.orderItemId] ?? 5}
-                              onChange={(stars) =>
-                                setDraftRatings((prev) => ({ ...prev, [item.orderItemId!]: stars }))
-                              }
-                              size="md"
-                              label={`Rate ${item.name}`}
-                            />
-                            <Button
-                              size="sm"
-                              disabled={ratingBusyId === item.orderItemId}
-                              onClick={() => {
-                                const stars = draftRatings[item.orderItemId!] ?? 5;
+                              value={draftRatings[item.orderItemId] ?? 0}
+                              onChange={(stars) => {
+                                setDraftRatings((prev) => ({ ...prev, [item.orderItemId!]: stars }));
                                 void submitRating(item.orderItemId!, stars)
                                   .then(() =>
                                     setResultDialog({
@@ -450,63 +482,100 @@ export function OrderDetailPage() {
                                   .catch((err) =>
                                     setResultDialog({
                                       title: 'Could not save rating',
-                                      description:
-                                        err instanceof Error ? err.message : 'Please try again.',
+                                      description: err instanceof Error ? err.message : 'Please try again.',
                                     }),
                                   );
                               }}
+                              size="sm"
+                              label={`Rate ${item.name}`}
+                            />
+                          ) : null}
+                          {item.canCancel && item.orderItemId ? (
+                            <button
+                              type="button"
+                              style={styles.textAction}
+                              disabled={cancelBusy}
+                              onClick={() =>
+                                setCancelTarget({
+                                  kind: 'item',
+                                  itemId: item.orderItemId!,
+                                  itemName: item.name,
+                                })
+                              }
                             >
-                              {ratingBusyId === item.orderItemId ? 'Saving…' : 'Submit rating'}
-                            </Button>
-                          </div>
-                        ) : null}
+                              Cancel
+                            </button>
+                          ) : null}
+                          {canClaim ? (
+                            <button
+                              type="button"
+                              style={styles.textAction}
+                              disabled={claimBusy}
+                              onClick={() => {
+                                setClaimPresetItemId(item.orderItemId!);
+                                setClaimOpen(true);
+                              }}
+                            >
+                              Issue
+                            </button>
+                          ) : null}
+                        </div>
                       </div>
-                      <span style={styles.itemQty}>×{item.quantity}</span>
-                      <strong style={styles.lineTotal}>{money(item.lineTotal)}</strong>
-                    </Card>
+                      {cancelled && item.storeCreditAmount ? (
+                        <p style={styles.creditNote}>
+                          ₹{Number(item.storeCreditAmount).toFixed(2)} store credit
+                          {item.cancelReason ? ` · ${item.cancelReason}` : ''}
+                          {' · '}
+                          <Link to="/wallet" style={styles.walletLink}>
+                            Wallet
+                          </Link>
+                        </p>
+                      ) : null}
+                    </div>
                   );
                 })}
-              </div>
+              </Card>
             )}
           </section>
 
           {claims.length > 0 ? (
             <section style={styles.section}>
               <h2 style={styles.h2}>Your claims</h2>
-              <div style={styles.list}>
-                {claims.map((c) => (
-                  <Card key={c.claimId} style={styles.itemRow}>
-                    <div style={styles.itemBody}>
-                      <p style={styles.itemName}>
-                        {claimTypeLabel(c.claimType)}
-                        {c.itemName ? ` · ${c.itemName}` : ''}
-                        {c.shopName ? ` (${c.shopName})` : ''}
+              <Card padding="sm" style={styles.itemList}>
+                {claims.map((c, index) => (
+                  <div
+                    key={c.claimId}
+                    style={{ ...styles.itemRow, ...(index === claims.length - 1 ? styles.itemRowLast : {}) }}
+                  >
+                    <p style={styles.itemName}>
+                      {claimTypeLabel(c.claimType)}
+                      {c.itemName ? ` · ${c.itemName}` : ''}
+                      {c.shopName ? ` · ${c.shopName}` : ''}
+                    </p>
+                    <p style={{ ...styles.shopLine, whiteSpace: 'normal' }}>
+                      {c.status}
+                      {c.suggestedCreditAmount != null && c.status === 'OPEN'
+                        ? ` · up to ₹${Number(c.suggestedCreditAmount).toFixed(2)}`
+                        : ''}
+                      {c.resolvedAmount != null && Number(c.resolvedAmount) > 0
+                        ? ` · ₹${Number(c.resolvedAmount).toFixed(2)} store credit`
+                        : ''}
+                      {c.reason ? ` · ${c.reason}` : ''}
+                    </p>
+                    {c.status === 'REJECTED' && c.resolutionNote ? (
+                      <p style={styles.creditNote}>Hub: {c.resolutionNote}</p>
+                    ) : null}
+                    {c.status === 'RESOLVED' ? (
+                      <p style={styles.creditNote}>
+                        Credit in wallet ·{' '}
+                        <Link to="/wallet" style={styles.walletLink}>
+                          Wallet
+                        </Link>
                       </p>
-                      <p style={styles.meta}>
-                        {c.status}
-                        {c.suggestedCreditAmount != null && c.status === 'OPEN'
-                          ? ` · up to ₹${Number(c.suggestedCreditAmount).toFixed(2)}`
-                          : ''}
-                        {c.resolvedAmount != null && Number(c.resolvedAmount) > 0
-                          ? ` · ₹${Number(c.resolvedAmount).toFixed(2)} store credit`
-                          : ''}
-                      </p>
-                      <p style={styles.meta}>{c.reason}</p>
-                      {c.status === 'REJECTED' && c.resolutionNote ? (
-                        <p style={styles.meta}>Hub: {c.resolutionNote}</p>
-                      ) : null}
-                      {c.status === 'RESOLVED' ? (
-                        <p style={styles.creditNote}>
-                          Credit added to your wallet ·{' '}
-                          <Link to="/wallet" style={styles.walletLink}>
-                            Open wallet
-                          </Link>
-                        </p>
-                      ) : null}
-                    </div>
-                  </Card>
+                    ) : null}
+                  </div>
                 ))}
-              </div>
+              </Card>
             </section>
           ) : null}
 
@@ -633,50 +702,71 @@ const styles: Record<string, CSSProperties> = {
   actions: { display: 'grid', gap: '0.45rem', marginTop: '0.85rem' },
   hint: { margin: 0, color: 'var(--text-muted)', fontSize: '0.78rem' },
   cancelHint: { margin: '0.55rem 0 0', color: 'var(--text-muted)', fontSize: '0.8rem', lineHeight: 1.4 },
-  section: { display: 'grid', gap: '0.55rem' },
+  section: { display: 'grid', gap: '0.4rem' },
   h2: {
     margin: 0,
     fontSize: '0.95rem',
     fontWeight: 800,
     fontFamily: 'var(--font-display)',
   },
-  list: { display: 'grid', gap: '0.55rem' },
+  list: { display: 'grid', gap: '0.4rem' },
+  itemList: { padding: '0.15rem 0.85rem', display: 'grid' },
   itemRow: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    gap: '0.75rem',
-    padding: '0.8rem 0.9rem',
-    alignItems: 'flex-start',
-  },
-  itemBody: { display: 'grid', gap: '0.25rem', minWidth: 0, flex: 1 },
-  itemName: { margin: 0, fontWeight: 700 },
-  cancelled: { textDecoration: 'line-through', color: 'var(--text-muted)' },
-  creditNote: { margin: 0, fontSize: '0.8rem', color: 'var(--text-muted)', lineHeight: 1.4 },
-  rateBox: {
     display: 'grid',
-    gap: '0.35rem',
-    marginTop: '0.45rem',
-    paddingTop: '0.45rem',
-    borderTop: '1px dashed var(--border)',
-    justifyItems: 'start',
+    gap: '0.12rem',
+    padding: '0.55rem 0',
+    borderBottom: '1px solid var(--border)',
   },
-  rateLabel: {
-    margin: 0,
-    fontSize: '0.78rem',
-    fontWeight: 700,
+  itemRowLast: { borderBottom: 'none' },
+  itemTop: {
+    display: 'flex',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    gap: '0.65rem',
+  },
+  itemFoot: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: '0.45rem',
+    minWidth: 0,
+  },
+  itemActions: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.15rem',
+    flexShrink: 0,
+  },
+  shopLine: {
+    minWidth: 0,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
     color: 'var(--text-muted)',
+    fontSize: '0.75rem',
+    fontWeight: 600,
+  },
+  itemName: { margin: 0, fontWeight: 700, fontSize: '0.92rem', lineHeight: 1.25, minWidth: 0 },
+  cancelled: { textDecoration: 'line-through', color: 'var(--text-muted)' },
+  creditNote: { margin: '0.1rem 0 0', fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.35 },
+  textAction: {
+    appearance: 'none',
+    border: 'none',
+    background: 'transparent',
+    color: 'var(--accent)',
+    fontWeight: 700,
+    fontSize: '0.75rem',
+    padding: '0.35rem 0.35rem',
+    minHeight: 36,
+    cursor: 'pointer',
   },
   walletLink: { color: 'var(--accent)', fontWeight: 700, textDecoration: 'none' },
-  itemQty: {
+  lineTotal: {
     fontWeight: 800,
     whiteSpace: 'nowrap',
+    fontSize: '0.92rem',
     fontVariantNumeric: 'tabular-nums',
-    minWidth: '2.1rem',
-    textAlign: 'right',
-    alignSelf: 'flex-start',
-    paddingTop: 2,
   },
-  lineTotal: { fontWeight: 800, whiteSpace: 'nowrap' },
   totals: { padding: '0.9rem 1rem', display: 'grid', gap: '0.4rem' },
   totalRow: {
     display: 'flex',
@@ -695,4 +785,38 @@ const styles: Record<string, CSSProperties> = {
     gap: '0.75rem',
   },
   scratchTitle: { margin: 0, fontWeight: 800, fontSize: '0.92rem' },
+  agentCard: { padding: '0.65rem 0.85rem', display: 'grid', gap: '0.4rem' },
+  agentHead: {
+    display: 'flex',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    gap: '0.5rem',
+    flexWrap: 'wrap',
+  },
+  agentRated: { display: 'grid', gap: '0.2rem' },
+  agentForm: { display: 'grid', gap: '0.4rem' },
+  agentLabel: {
+    display: 'grid',
+    gap: '0.2rem',
+    fontSize: '0.72rem',
+    fontWeight: 700,
+    color: 'var(--text-muted)',
+  },
+  agentInput: {
+    width: '100%',
+    boxSizing: 'border-box',
+    minHeight: 44,
+    resize: 'vertical',
+    padding: '0.4rem 0.5rem',
+    borderRadius: 'var(--radius-md)',
+    border: '1px solid var(--border)',
+    background: 'var(--bg)',
+    color: 'var(--text)',
+    fontFamily: 'inherit',
+    fontSize: '0.82rem',
+    fontWeight: 500,
+    lineHeight: 1.35,
+  },
+  agentComment: { margin: 0, fontSize: '0.82rem', color: 'var(--text)', lineHeight: 1.35 },
+  agentCommentMuted: { margin: 0, fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 600 },
 };

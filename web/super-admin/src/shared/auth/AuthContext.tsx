@@ -1,4 +1,6 @@
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { AUTH_UNAUTHORIZED_EVENT, setTokenRefreshHandler } from '@/shared/api/http';
+import { refreshAccessToken } from '@/features/auth/api/authApi';
 import { clearSession, loadSession, saveSession, type AuthSession } from './session';
 
 type AuthContextValue = {
@@ -22,6 +24,42 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     clearSession();
     setSessionState(null);
   }, []);
+
+  useEffect(() => {
+    setTokenRefreshHandler(async () => {
+      const current = loadSession();
+      if (!current?.refreshToken) {
+        logout();
+        return null;
+      }
+      try {
+        const data = await refreshAccessToken(current.refreshToken);
+        const next: AuthSession = {
+          ...current,
+          accessToken: data.accessToken,
+          refreshToken: data.refreshToken ?? current.refreshToken,
+          expiresIn: data.expiresIn,
+          userId: data.userId,
+          roles: data.roles ?? current.roles,
+        };
+        saveSession(next);
+        setSessionState(next);
+        return next.accessToken;
+      } catch {
+        logout();
+        return null;
+      }
+    });
+    return () => setTokenRefreshHandler(null);
+  }, [logout]);
+
+  useEffect(() => {
+    function onUnauthorized() {
+      logout();
+    }
+    window.addEventListener(AUTH_UNAUTHORIZED_EVENT, onUnauthorized);
+    return () => window.removeEventListener(AUTH_UNAUTHORIZED_EVENT, onUnauthorized);
+  }, [logout]);
 
   const value = useMemo(
     () => ({

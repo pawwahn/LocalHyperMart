@@ -190,4 +190,11 @@ public class TownController {
     public ResponseEntity<ApiResponse<ReferralConfigResponse>> referralConfig(HttpServletRequest httpRequest) {
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, platformSettingsService.getReferralConfig()));
     }
+
+    @GetMapping("/api/v1/internal/platform/settings-flags")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> settingsFlags(HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest, Map.of(
+                "hubAdminCanSeeAgentRatings", platformSettingsService.hubAdminCanSeeAgentRatings()
+        )));
+    }
 }

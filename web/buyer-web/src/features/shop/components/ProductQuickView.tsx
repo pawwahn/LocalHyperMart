@@ -367,7 +367,7 @@ const styles: Record<string, CSSProperties> = {
   },
   mrp: {
     fontSize: '0.78rem',
-    color: 'var(--text-muted)',
+    color: 'var(--danger)',
     textDecoration: 'line-through',
   },
 };

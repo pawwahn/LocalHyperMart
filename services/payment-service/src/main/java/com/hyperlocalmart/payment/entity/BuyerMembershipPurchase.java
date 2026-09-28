@@ -57,6 +57,10 @@ public class BuyerMembershipPurchase extends BaseAuditEntity {
     @Column(name = "confirmed_by")
     private UUID confirmedBy;
 
+    /** Phone of the hub or admin who collected cash for this sale. Gifts and online payments leave this blank. */
+    @Column(name = "seller_phone_snapshot", length = 15)
+    private String sellerPhoneSnapshot;
+
     @Column(name = "expires_at_after")
     private Instant expiresAtAfter;
 

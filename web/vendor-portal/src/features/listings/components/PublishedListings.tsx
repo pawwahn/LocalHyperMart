@@ -14,7 +14,7 @@ import {
   type SortState,
 } from './tableControls';
 
-type ListingStatusFilter = 'all' | 'live' | 'hidden';
+type ListingStatusFilter = 'live' | 'hidden';
 type ListingSortKey = 'name' | 'unit' | 'status' | 'sell' | 'mrp' | 'note';
 
 type Props = {
@@ -25,16 +25,26 @@ type Props = {
   statusFilter: ListingStatusFilter;
   onStatusFilterChange: (value: ListingStatusFilter) => void;
   actionId: string | null;
+  bulkBusy?: boolean;
   onToggle: (listing: ListingView) => void;
+  onHideSelected: (listingIds: string[]) => Promise<void>;
+  onShowSelected: (listingIds: string[]) => Promise<void>;
   onSavePricing: (listing: ListingView, draft: DraftPricing) => Promise<boolean>;
   onUploadPhoto: (file: File) => Promise<UploadedMedia>;
   onSavePhotos: (listing: ListingView, images: UploadedMedia[]) => Promise<boolean>;
 };
 
-const STATUS_FILTERS: Array<{ id: ListingStatusFilter; label: string }> = [
-  { id: 'all', label: 'All' },
-  { id: 'live', label: 'Live' },
-  { id: 'hidden', label: 'Hidden' },
+const LISTING_VIEW_TABS: Array<{ id: ListingStatusFilter; label: string; hint: string }> = [
+  {
+    id: 'live',
+    label: 'Live in town',
+    hint: 'Buyers can see and order these in your town shop.',
+  },
+  {
+    id: 'hidden',
+    label: 'Hidden',
+    hint: 'Not visible to buyers — show again when you are ready.',
+  },
 ];
 
 function moneyValue(label: string | null | undefined): number | null {
@@ -51,7 +61,10 @@ export function PublishedListings({
   statusFilter,
   onStatusFilterChange,
   actionId,
+  bulkBusy = false,
   onToggle,
+  onHideSelected,
+  onShowSelected,
   onSavePricing,
   onUploadPhoto,
   onSavePhotos,
@@ -65,6 +78,7 @@ export function PublishedListings({
   const [imageBusy, setImageBusy] = useState(false);
   const [imageError, setImageError] = useState<string | null>(null);
   const [pendingSlot, setPendingSlot] = useState<number | null>(null);
+  const [selected, setSelected] = useState<Record<string, boolean>>({});
   const liveCount = listings.filter((l) => l.active).length;
   const hiddenCount = listings.length - liveCount;
   const imageListing = imageListingId
@@ -78,6 +92,7 @@ export function PublishedListings({
       price: listing.price,
       discountPrice: listing.discountPrice,
       vendorNote: listing.note,
+      searchNames: listing.searchNames,
     });
   }
 
@@ -167,7 +182,11 @@ export function PublishedListings({
 
   useEffect(() => {
     setPage(0);
+    setSelected({});
   }, [query, statusFilter, pageSize, sort]);
+
+  const activeView = LISTING_VIEW_TABS.find((t) => t.id === statusFilter) ?? LISTING_VIEW_TABS[0];
+  const onLiveTab = statusFilter === 'live';
 
   useEffect(() => {
     setImageError(null);
@@ -222,6 +241,43 @@ export function PublishedListings({
     setSort((prev) => toggleSort(prev, column));
   }
 
+  const selectedIds = useMemo(
+    () => Object.keys(selected).filter((id) => selected[id]),
+    [selected],
+  );
+  const selectedCount = selectedIds.length;
+  const multiSelected = selectedCount > 1;
+  const pageSelectedCount = pageItems.filter((l) => selected[l.id]).length;
+  const allPageSelected = pageItems.length > 0 && pageSelectedCount === pageItems.length;
+
+  function toggleRow(listingId: string, checked: boolean) {
+    setSelected((prev) => ({ ...prev, [listingId]: checked }));
+  }
+
+  function togglePage(checked: boolean) {
+    setSelected((prev) => {
+      const next = { ...prev };
+      for (const row of pageItems) {
+        if (checked) next[row.id] = true;
+        else delete next[row.id];
+      }
+      return next;
+    });
+    if (checked && editingId) cancelEdit();
+  }
+
+  async function handleHideSelected() {
+    if (!onLiveTab || selectedIds.length === 0) return;
+    await onHideSelected(selectedIds);
+    setSelected({});
+  }
+
+  async function handleShowSelected() {
+    if (onLiveTab || selectedIds.length === 0) return;
+    await onShowSelected(selectedIds);
+    setSelected({});
+  }
+
   if (listings.length === 0) {
     return (
       <Card style={{ textAlign: 'center', padding: '1.25rem' }}>
@@ -236,34 +292,43 @@ export function PublishedListings({
   return (
     <Card elevated style={styles.card}>
       <div style={styles.head}>
-        <h3 style={styles.title}>
-          {listings.length} in town
-          {liveCount > 0 || hiddenCount > 0
-            ? ` · ${liveCount} live · ${hiddenCount} hidden`
-            : ''}
-        </h3>
+        <div>
+          <h3 style={styles.title}>My town listings</h3>
+          <p style={styles.hint}>
+            {listings.length} published · {liveCount} live · {hiddenCount} hidden
+          </p>
+        </div>
       </div>
+
+      <div style={styles.viewTabs} role="tablist" aria-label="Live or hidden listings">
+        {LISTING_VIEW_TABS.map((tab) => {
+          const count = tab.id === 'live' ? liveCount : hiddenCount;
+          const active = statusFilter === tab.id;
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              style={active ? styles.viewTabActive : styles.viewTab}
+              onClick={() => onStatusFilterChange(tab.id)}
+            >
+              {tab.label}
+              <span style={styles.viewTabCount}>{count}</span>
+            </button>
+          );
+        })}
+      </div>
+      <p style={styles.viewHint}>{activeView.hint}</p>
 
       <div style={styles.toolbar}>
         <input
           style={styles.search}
           value={query}
           onChange={(e) => onQueryChange(e.target.value)}
-          placeholder="Search name, category…"
+          placeholder="Search name, other names, category…"
           aria-label="Search town listings"
         />
-        <select
-          style={styles.select}
-          value={statusFilter}
-          onChange={(e) => onStatusFilterChange(e.target.value as ListingStatusFilter)}
-          aria-label="Listing status"
-        >
-          {STATUS_FILTERS.map((filter) => (
-            <option key={filter.id} value={filter.id}>
-              {filter.label}
-            </option>
-          ))}
-        </select>
         <select
           style={styles.select}
           value={pageSize}
@@ -278,13 +343,58 @@ export function PublishedListings({
         </select>
       </div>
 
+      {selectedCount > 0 ? (
+        <div style={styles.bulkBar}>
+          <span style={styles.bulkText}>{selectedCount} selected on this tab</span>
+          <div style={styles.bulkActions}>
+            {onLiveTab ? (
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={bulkBusy || selectedCount === 0}
+                onClick={() => void handleHideSelected()}
+              >
+                {bulkBusy ? 'Updating…' : `Hide selected (${selectedCount})`}
+              </Button>
+            ) : (
+              <Button
+                size="sm"
+                disabled={bulkBusy || selectedCount === 0}
+                onClick={() => void handleShowSelected()}
+              >
+                {bulkBusy ? 'Updating…' : `Show selected (${selectedCount})`}
+              </Button>
+            )}
+          </div>
+        </div>
+      ) : null}
+
       {filteredListings.length === 0 ? (
-        <p style={styles.empty}>No listings match your search or filters.</p>
+        <p style={styles.empty}>
+          {query.trim()
+            ? 'No products match your search on this tab.'
+            : onLiveTab
+              ? liveCount === 0
+                ? 'Nothing is live yet. Open the Hidden tab to show items, or publish from Add products.'
+                : 'No live listings on this page.'
+              : hiddenCount === 0
+                ? 'You have no hidden listings — everything published is live for buyers.'
+                : 'No hidden listings on this page.'}
+        </p>
       ) : (
         <TableScrollShell label="My listings table" maxHeight="min(68vh, 720px)">
           <table style={styles.table}>
             <thead>
               <tr>
+                <th style={styles.thCheck}>
+                  <input
+                    type="checkbox"
+                    checked={allPageSelected}
+                    disabled={bulkBusy || Boolean(editingId)}
+                    onChange={(e) => togglePage(e.target.checked)}
+                    aria-label="Select all on this page"
+                  />
+                </th>
                 <th style={styles.thPhoto}>Photo</th>
                 <SortableTh
                   label="Product"
@@ -294,7 +404,6 @@ export function PublishedListings({
                   style={styles.thProduct}
                 />
                 <SortableTh label="Unit" column="unit" sort={sort} onSort={onSort} style={styles.th} />
-                <SortableTh label="Status" column="status" sort={sort} onSort={onSort} style={styles.th} />
                 <SortableTh
                   label="Sell"
                   column="sell"
@@ -312,19 +421,35 @@ export function PublishedListings({
                   style={styles.thRight}
                 />
                 <SortableTh label="Note" column="note" sort={sort} onSort={onSort} style={styles.th} />
+                <th style={styles.th}>Other names</th>
                 <th style={styles.thAction}>Action</th>
               </tr>
             </thead>
             <tbody>
               {pageItems.map((listing) => {
-                const busy = actionId === listing.id;
+                const busy = actionId === listing.id || bulkBusy;
+                const checked = Boolean(selected[listing.id]);
                 const editing = editingId === listing.id && editDraft;
                 const cellBg = {
-                  background: editing ? 'var(--accent-soft)' : 'var(--bg-elevated)',
+                  background: editing
+                    ? 'var(--accent-soft)'
+                    : checked
+                      ? 'var(--accent-soft)'
+                      : 'var(--bg-elevated)',
                   backgroundClip: 'padding-box' as const,
                 };
+                const editDisabled = busy || Boolean(editingId) || multiSelected;
                 return (
                   <tr key={listing.id} style={styles.tr}>
+                    <td style={{ ...styles.tdCheck, ...cellBg }}>
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        disabled={busy || Boolean(editingId)}
+                        onChange={(e) => toggleRow(listing.id, e.target.checked)}
+                        aria-label={`Select ${listing.name}`}
+                      />
+                    </td>
                     <td style={{ ...styles.tdPhoto, ...cellBg }}>
                       <button
                         type="button"
@@ -350,11 +475,6 @@ export function PublishedListings({
                       </div>
                     </td>
                     <td style={{ ...styles.tdMuted, ...cellBg }}>{listing.unit}</td>
-                    <td style={{ ...styles.td, ...cellBg }}>
-                      <span style={listing.active ? styles.on : styles.off}>
-                        {listing.active ? 'LIVE' : 'HIDDEN'}
-                      </span>
-                    </td>
                     <td style={{ ...styles.tdRight, ...cellBg }}>
                       {editing ? (
                         <input
@@ -394,6 +514,19 @@ export function PublishedListings({
                         listing.note || '—'
                       )}
                     </td>
+                    <td style={{ ...styles.tdMuted, ...cellBg }} title={listing.searchNames || undefined}>
+                      {editing ? (
+                        <input
+                          style={styles.cellInputWide}
+                          value={editDraft.searchNames}
+                          onChange={(e) => setEditDraft({ ...editDraft, searchNames: e.target.value })}
+                          placeholder="bru coffee, green label"
+                          aria-label={`${listing.name} other names`}
+                        />
+                      ) : (
+                        listing.searchNames || '—'
+                      )}
+                    </td>
                     <td style={{ ...styles.tdAction, ...cellBg }}>
                       {editing ? (
                         <div style={styles.actionRow}>
@@ -406,11 +539,21 @@ export function PublishedListings({
                         </div>
                       ) : (
                         <div style={styles.actionRow}>
-                          <Button variant="ghost" size="sm" disabled={busy || Boolean(editingId)} onClick={() => startEdit(listing)}>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            disabled={editDisabled}
+                            onClick={() => startEdit(listing)}
+                          >
                             Edit
                           </Button>
-                          <Button variant="ghost" size="sm" disabled={busy || Boolean(editingId)} onClick={() => onToggle(listing)}>
-                            {listing.active ? 'Hide' : 'Show'}
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            disabled={busy || Boolean(editingId)}
+                            onClick={() => onToggle(listing)}
+                          >
+                            {onLiveTab ? 'Hide' : 'Show'}
                           </Button>
                         </div>
                       )}
@@ -430,6 +573,7 @@ export function PublishedListings({
           to={to}
           page={safePage}
           totalPages={totalPages}
+          selectedLabel={selectedCount > 0 ? `${selectedCount} selected` : undefined}
           onPageChange={setPage}
         />
       ) : null}
@@ -565,12 +709,104 @@ export function PublishedListings({
 
 const styles: Record<string, CSSProperties> = {
   card: { padding: '1rem', display: 'grid', gap: '0.65rem' },
-  head: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
+  head: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' },
   title: { margin: 0, fontFamily: 'var(--font-display)', fontSize: '1.05rem', fontWeight: 800 },
+  hint: { margin: '0.2rem 0 0', color: 'var(--text-muted)', fontSize: '0.85rem' },
+  viewTabs: {
+    display: 'grid',
+    gridTemplateColumns: '1fr 1fr',
+    gap: '0.35rem',
+    padding: '0.25rem',
+    borderRadius: 'var(--radius-lg)',
+    border: '1px solid var(--border)',
+    background: 'var(--bg-muted)',
+  },
+  viewTab: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '0.4rem',
+    flexWrap: 'wrap',
+    border: 'none',
+    background: 'transparent',
+    color: 'var(--text-muted)',
+    borderRadius: 'var(--radius-md)',
+    padding: '0.5rem 0.65rem',
+    cursor: 'pointer',
+    fontSize: '0.88rem',
+    fontWeight: 700,
+    fontFamily: 'inherit',
+  },
+  viewTabActive: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '0.4rem',
+    flexWrap: 'wrap',
+    border: '1px solid var(--border)',
+    background: 'var(--bg-elevated)',
+    color: 'var(--text)',
+    borderRadius: 'var(--radius-md)',
+    padding: '0.5rem 0.65rem',
+    cursor: 'pointer',
+    fontSize: '0.88rem',
+    fontWeight: 800,
+    fontFamily: 'inherit',
+    boxShadow: 'var(--shadow-card)',
+  },
+  viewTabCount: {
+    fontSize: '0.75rem',
+    fontWeight: 700,
+    color: 'var(--text-muted)',
+    padding: '0.1rem 0.4rem',
+    borderRadius: 999,
+    background: 'var(--bg-muted)',
+  },
+  viewHint: {
+    margin: 0,
+    fontSize: '0.8rem',
+    fontWeight: 600,
+    color: 'var(--text-muted)',
+    lineHeight: 1.35,
+  },
   toolbar: {
     display: 'grid',
     gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
     gap: '0.5rem',
+  },
+  bulkBar: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: '0.5rem',
+    padding: '0.45rem 0.65rem',
+    borderRadius: 'var(--radius-md)',
+    border: '1px solid var(--border)',
+    background: 'var(--bg-muted)',
+  },
+  bulkText: { fontSize: '0.85rem', fontWeight: 700, color: 'var(--text)' },
+  bulkActions: { display: 'flex', flexWrap: 'wrap', gap: '0.4rem' },
+  thCheck: {
+    position: 'sticky',
+    top: 0,
+    left: 0,
+    zIndex: 7,
+    background: 'var(--bg-muted)',
+    backgroundClip: 'padding-box',
+    padding: '0.45rem 0.35rem',
+    textAlign: 'center',
+    borderBottom: '1px solid var(--border)',
+    width: 40,
+    minWidth: 40,
+  },
+  tdCheck: {
+    padding: '0.4rem 0.35rem',
+    textAlign: 'center',
+    borderBottom: '1px solid var(--border)',
+    verticalAlign: 'middle',
+    width: 40,
+    minWidth: 40,
   },
   search: {
     padding: '0.55rem 0.7rem',

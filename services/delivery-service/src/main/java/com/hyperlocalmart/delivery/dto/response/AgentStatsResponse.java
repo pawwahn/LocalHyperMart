@@ -13,4 +13,24 @@ public class AgentStatsResponse {
     long vendorPickupsCollectedToday;
     long vendorPickupsAtHubToday;
     long buyerDeliveriesCompletedToday;
+
+    long openShopPickups;
+    long openHomeDeliveries;
+    long returnsToHub;
+    long returnsToHubToday;
+
+    AgentPeriodStats today;
+    AgentPeriodStats week;
+    AgentPeriodStats month;
+    AgentPeriodStats allTime;
+
+    @Value
+    @Builder
+    public static class AgentPeriodStats {
+        long shopPicked;
+        long droppedAtHub;
+        long homeDelivered;
+        long returnsToHub;
+        long cancelledPickups;
+    }
 }

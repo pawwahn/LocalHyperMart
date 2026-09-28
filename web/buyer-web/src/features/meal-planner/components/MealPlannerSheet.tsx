@@ -1,4 +1,5 @@
 import { useEffect, type CSSProperties } from 'react';
+import type { CatalogItemView } from '@/features/shop/api/shopApi';
 import { MealPlannerPanel } from './MealPlannerPanel';
 
 type Props = {
@@ -6,6 +7,7 @@ type Props = {
   townId: string;
   busyKey: string | null;
   quantityFor: (listingId: string) => number;
+  rememberItems: (next: CatalogItemView[], mode: 'replace' | 'append') => void;
   onIncrease: (listingId: string) => void;
   onDecrease: (listingId: string) => void;
   onClose: () => void;
@@ -16,6 +18,7 @@ export function MealPlannerSheet({
   townId,
   busyKey,
   quantityFor,
+  rememberItems,
   onIncrease,
   onDecrease,
   onClose,
@@ -56,6 +59,7 @@ export function MealPlannerSheet({
             townId={townId}
             busyKey={busyKey}
             quantityFor={quantityFor}
+            rememberItems={rememberItems}
             onIncrease={onIncrease}
             onDecrease={onDecrease}
           />

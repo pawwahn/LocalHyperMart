@@ -19,6 +19,7 @@ export type ListingDto = {
   specialDiscountPrice?: number | null;
   effectivePrice?: number;
   vendorNote?: string | null;
+  searchNames?: string | null;
   active: boolean;
   imageUrls?: string[] | null;
   listingImageUrls?: string[] | null;
@@ -30,6 +31,7 @@ export type MasterItemDto = {
   masterItemId: string;
   categoryId?: string;
   name: string;
+  searchNames?: string | null;
   unit: string;
   category?: string;
   mrp?: number | null;
@@ -54,6 +56,7 @@ export type ListingView = {
   discountLabel: string | null;
   effectiveLabel: string;
   note: string;
+  searchNames: string;
   active: boolean;
   vendorMrp: string;
   price: string;
@@ -69,6 +72,7 @@ export type MasterItemView = {
   categoryId: string;
   category: string;
   name: string;
+  searchNames: string;
   unit: string;
   mrp: number | null;
   mrpLabel: string | null;
@@ -85,6 +89,7 @@ export type DraftPricing = {
   price: string;
   discountPrice: string;
   vendorNote: string;
+  searchNames: string;
 };
 
 function money(value: number | null | undefined): string {
@@ -97,6 +102,7 @@ export function emptyDraft(mrp?: number | null): DraftPricing {
     price: mrp != null ? String(mrp) : '',
     discountPrice: '',
     vendorNote: '',
+    searchNames: '',
   };
 }
 
@@ -124,6 +130,7 @@ export function toListingView(dto: ListingDto): ListingView {
     // Prefer regular sell price for vendor list; effective may be an old discount.
     effectiveLabel: money(dto.price),
     note: dto.vendorNote?.trim() || '',
+    searchNames: dto.searchNames?.trim() || '',
     active: dto.active,
     vendorMrp: vendorMrp != null ? String(vendorMrp) : '',
     price: String(dto.price ?? ''),
@@ -155,6 +162,7 @@ export function toMasterItemView(dto: MasterItemDto): MasterItemView {
     categoryId: dto.categoryId ?? '',
     category: dto.category ?? 'Other',
     name: dto.name,
+    searchNames: dto.searchNames?.trim() || '',
     unit: dto.unit,
     mrp: dto.mrp ?? null,
     mrpLabel: dto.mrp != null ? money(dto.mrp) : null,
@@ -173,6 +181,7 @@ export function parseDraftPricing(draft: DraftPricing, productName = 'This produ
   price: number;
   discountPrice: number | null;
   vendorNote: string | null;
+  searchNames: string | null;
 } {
   const price = Number(draft.price);
   if (!Number.isFinite(price) || price <= 0) {
@@ -196,11 +205,16 @@ export function parseDraftPricing(draft: DraftPricing, productName = 'This produ
       `${productName}: discount price (₹${discountPrice}) cannot exceed selling price (₹${price}).`,
     );
   }
+  const searchNames = draft.searchNames.trim();
+  if (searchNames.length > 500) {
+    throw new Error(`${productName}: other names must be 500 characters or less`);
+  }
   return {
     vendorMrp,
     price,
     discountPrice,
     vendorNote: draft.vendorNote.trim() || null,
+    searchNames: searchNames || null,
   };
 }
 
@@ -261,6 +275,7 @@ export async function bulkPublishListings(
     price: number;
     discountPrice?: number | null;
     vendorNote?: string | null;
+    searchNames?: string | null;
   }>,
 ): Promise<ListingView[]> {
   const data = await apiRequest<ListingDto[]>('/api/v1/catalog/vendors/me/listings/bulk', {
@@ -274,6 +289,7 @@ export async function bulkPublishListings(
         price: item.price,
         discountPrice: item.discountPrice ?? null,
         vendorNote: item.vendorNote ?? null,
+        searchNames: item.searchNames ?? null,
         active: true,
       })),
     },
@@ -305,6 +321,7 @@ export async function updateListingPricing(
     price: number;
     discountPrice: number | null;
     vendorNote: string | null;
+    searchNames: string | null;
   },
 ): Promise<ListingView> {
   const data = await apiRequest<ListingDto>(`/api/v1/catalog/vendors/me/listings/${listingId}`, {
@@ -318,6 +335,7 @@ export async function updateListingPricing(
       // (effective price) matches the price the vendor just saved.
       discountPrice: pricing.discountPrice,
       vendorNote: pricing.vendorNote,
+      searchNames: pricing.searchNames ?? '',
       replacePricing: true,
     },
   });

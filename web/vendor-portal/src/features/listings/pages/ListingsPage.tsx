@@ -40,6 +40,8 @@ export function ListingsPage({ active = true }: { active?: boolean }) {
     publishSelected,
     acknowledgePublish,
     toggleActive,
+    hideSelectedListings,
+    showSelectedListings,
     saveListingPricing,
     saveListingPhotos,
     uploadPhoto,
@@ -124,6 +126,9 @@ export function ListingsPage({ active = true }: { active?: boolean }) {
               onStatusFilterChange={setListingStatus}
               actionId={actionId}
               onToggle={(listing) => void toggleActive(listing)}
+              onHideSelected={(ids) => hideSelectedListings(ids)}
+              onShowSelected={(ids) => showSelectedListings(ids)}
+              bulkBusy={actionId === 'bulk'}
               onSavePricing={saveListingPricing}
               onUploadPhoto={uploadPhoto}
               onSavePhotos={saveListingPhotos}

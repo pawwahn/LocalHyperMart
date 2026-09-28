@@ -1,5 +1,7 @@
 package com.hyperlocalmart.catalog.service;
 
+import com.hyperlocalmart.catalog.audit.CatalogAuditChangeLines;
+import com.hyperlocalmart.catalog.audit.CatalogAuditSnapshots;
 import com.hyperlocalmart.catalog.client.AdminAuditClient;
 import com.hyperlocalmart.catalog.client.VendorShopClient;
 import com.hyperlocalmart.catalog.dto.request.BulkCreateVendorListingsRequest;
@@ -39,6 +41,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -140,6 +143,9 @@ public class VendorListingService {
         if (request.getVendorNote() != null) {
             listing.setVendorNote(request.getVendorNote());
         }
+        if (request.getSearchNames() != null) {
+            listing.setSearchNames(SearchNames.normalize(request.getSearchNames()));
+        }
         if (request.getActive() != null) {
             listing.setActive(request.getActive());
         }
@@ -184,7 +190,14 @@ public class VendorListingService {
         category.setCreatedBy(actorUserId);
         category.setUpdatedBy(actorUserId);
         Category saved = categoryRepository.save(category);
-        adminAuditClient.record("catalog", "CREATE_CATEGORY", "Created category " + name, actorUserId, null, saved.getId());
+        recordCatalogAudit(
+                "CREATE_CATEGORY",
+                "Created category " + name,
+                "CATEGORY",
+                saved.getId(),
+                actorUserId,
+                null,
+                CatalogAuditSnapshots.category(saved));
         return CategoryVisibilityService.toCategory(saved, 0, 0);
     }
 
@@ -200,14 +213,23 @@ public class VendorListingService {
                             + (itemCount == 1 ? " item uses" : " items use")
                             + " this category. Move or delete those items first.");
         }
+        Map<String, Object> beforeCategory = CatalogAuditSnapshots.category(category);
         categoryRepository.delete(category);
-        adminAuditClient.record("catalog", "DELETE_CATEGORY", "Deleted category " + category.getName(), actorUserId, null, categoryId);
+        recordCatalogAudit(
+                "DELETE_CATEGORY",
+                "Deleted category " + category.getName(),
+                "CATEGORY",
+                categoryId,
+                actorUserId,
+                beforeCategory,
+                null);
     }
 
     @Transactional
     public CategoryResponse updateCategory(UUID categoryId, CreateCategoryRequest request, UUID actorUserId) {
         Category category = categoryRepository.findById(categoryId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Category not found"));
+        Map<String, Object> beforeCategory = CatalogAuditSnapshots.category(category);
         String name = normalizeCategoryName(request.getName());
         if (name.isEmpty()) {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Category name is required");
@@ -221,7 +243,15 @@ public class VendorListingService {
                 : request.getDescription().trim());
         category.setUpdatedBy(actorUserId);
         Category saved = categoryRepository.save(category);
-        adminAuditClient.record("catalog", "UPDATE_CATEGORY", "Updated category " + name, actorUserId, null, categoryId);
+        Map<String, Object> afterCategory = CatalogAuditSnapshots.category(saved);
+        recordCatalogAudit(
+                "UPDATE_CATEGORY",
+                "Updated category " + name,
+                "CATEGORY",
+                categoryId,
+                actorUserId,
+                beforeCategory,
+                afterCategory);
         return toCategory(saved);
     }
 
@@ -251,11 +281,19 @@ public class VendorListingService {
 
     @Transactional(readOnly = true)
     public PageResponse<MasterItemSummaryResponse> listMasterItems(
-            UUID categoryId, UUID unitId, String q, int page, int size, String sort, String dir) {
+            UUID categoryId,
+            UUID unitId,
+            BigDecimal gstPercent,
+            String q,
+            int page,
+            int size,
+            String sort,
+            String dir) {
         PageRequest pageable = PageRequest.of(page, size, masterItemSort(sort, dir));
         String query = q == null ? "" : q.trim();
+        BigDecimal gstFilter = gstPercent == null ? null : gstPercent.setScale(2, RoundingMode.UNNECESSARY);
         Page<MasterItem> items = masterItemRepository.searchActive(
-                CatalogItemStatus.ACTIVE, categoryId, unitId, query, pageable);
+                CatalogItemStatus.ACTIVE, categoryId, unitId, gstFilter, query, pageable);
         List<MasterItemSummaryResponse> summaries = items.getContent().stream()
                 .map(this::toMasterSummary)
                 .toList();
@@ -360,6 +398,18 @@ public class VendorListingService {
         return listVendorListingImageUrls(vendorId, listingId);
     }
 
+    @Transactional(readOnly = true)
+    public MasterItemSummaryResponse getMasterItem(UUID masterItemId) {
+        MasterItem item = masterItemRepository.findById(masterItemId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Master item not found"));
+        if (item.getStatus() != CatalogItemStatus.ACTIVE) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Master item is not active");
+        }
+        MasterItemSummaryResponse summary = toMasterSummary(item);
+        attachImageUrls(List.of(summary));
+        return summary;
+    }
+
     @Transactional
     public MasterItemSummaryResponse createMasterItem(CreateMasterItemRequest request, UUID actorUserId) {
         Category category = categoryRepository.findById(request.getCategoryId())
@@ -374,15 +424,31 @@ public class VendorListingService {
                 .category(category)
                 .unit(unit)
                 .name(request.getName().trim())
+                .searchNames(SearchNames.normalize(request.getSearchNames()))
                 .description(blankToNull(request.getDescription()))
                 .mrp(request.getMrp())
                 .status(CatalogItemStatus.ACTIVE)
                 .build();
+        ProductTaxCompliance.applyTaxFields(
+                item,
+                request.getHsnCode(),
+                request.getGstPercent(),
+                request.getCessPercent(),
+                request.getPriceIncludesTax(),
+                request.getCountryOfOrigin());
         item.setCreatedBy(actorUserId);
         item.setUpdatedBy(actorUserId);
-        MasterItemSummaryResponse created = toMasterSummary(masterItemRepository.save(item));
+        MasterItem savedItem = masterItemRepository.save(item);
+        MasterItemSummaryResponse created = toMasterSummary(savedItem);
         created.setImageUrls(List.of());
-        adminAuditClient.record("catalog", "CREATE_MASTER_ITEM", "Created item " + created.getName(), actorUserId, null, created.getMasterItemId());
+        recordCatalogAudit(
+                "CREATE_MASTER_ITEM",
+                "Created item " + created.getName(),
+                "MASTER_ITEM",
+                created.getMasterItemId(),
+                actorUserId,
+                null,
+                CatalogAuditSnapshots.masterItem(savedItem));
         return created;
     }
 
@@ -394,6 +460,7 @@ public class VendorListingService {
         if (item.getStatus() != CatalogItemStatus.ACTIVE) {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Master item is not active");
         }
+        Map<String, Object> beforeItem = CatalogAuditSnapshots.masterItem(item);
         Category category = categoryRepository.findById(request.getCategoryId())
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Category not found"));
         Unit unit = unitRepository.findById(request.getUnitId())
@@ -404,12 +471,28 @@ public class VendorListingService {
         item.setCategory(category);
         item.setUnit(unit);
         item.setName(request.getName().trim());
+        item.setSearchNames(SearchNames.normalize(request.getSearchNames()));
         item.setDescription(blankToNull(request.getDescription()));
         item.setMrp(request.getMrp());
+        ProductTaxCompliance.applyTaxFields(
+                item,
+                request.getHsnCode(),
+                request.getGstPercent(),
+                request.getCessPercent(),
+                request.getPriceIncludesTax(),
+                request.getCountryOfOrigin());
         item.setUpdatedBy(actorUserId);
-        MasterItemSummaryResponse updated = toMasterSummary(masterItemRepository.save(item));
+        MasterItem savedItem = masterItemRepository.save(item);
+        MasterItemSummaryResponse updated = toMasterSummary(savedItem);
         attachImageUrls(List.of(updated));
-        adminAuditClient.record("catalog", "UPDATE_MASTER_ITEM", "Updated item " + updated.getName(), actorUserId, null, masterItemId);
+        recordCatalogAudit(
+                "UPDATE_MASTER_ITEM",
+                "Updated item " + updated.getName(),
+                "MASTER_ITEM",
+                masterItemId,
+                actorUserId,
+                beforeItem,
+                CatalogAuditSnapshots.masterItem(savedItem));
         return updated;
     }
 
@@ -425,9 +508,43 @@ public class VendorListingService {
                             + (listingCount == 1 ? " vendor listing uses" : " vendor listings use")
                             + " this item. Remove those listings first.");
         }
+        Map<String, Object> beforeItem = CatalogAuditSnapshots.masterItem(item);
         masterItemImageRepository.deleteByMasterItemId(masterItemId);
         masterItemRepository.delete(item);
-        adminAuditClient.record("catalog", "DELETE_MASTER_ITEM", "Deleted item " + item.getName(), actorUserId, null, masterItemId);
+        recordCatalogAudit(
+                "DELETE_MASTER_ITEM",
+                "Deleted item " + item.getName(),
+                "MASTER_ITEM",
+                masterItemId,
+                actorUserId,
+                beforeItem,
+                null);
+    }
+
+    private void recordCatalogAudit(
+            String action,
+            String headline,
+            String entityType,
+            UUID entityId,
+            UUID actorUserId,
+            Map<String, Object> before,
+            Map<String, Object> after) {
+        List<String> lines = CatalogAuditChangeLines.diff(before, after);
+        if (lines.isEmpty() && action.contains("UPDATE")) {
+            return;
+        }
+        String summary = CatalogAuditChangeLines.appendDetails(headline, lines);
+        adminAuditClient.record(
+                "catalog",
+                action,
+                summary,
+                actorUserId,
+                null,
+                entityType,
+                entityId,
+                before,
+                after,
+                lines);
     }
 
     private String blankToNull(String value) {
@@ -475,6 +592,7 @@ public class VendorListingService {
             CreateVendorListingRequest request) {
         MasterItem masterItem = masterItemRepository.findByIdAndStatus(request.getMasterItemId(), CatalogItemStatus.ACTIVE)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Master item not found"));
+        ProductTaxCompliance.validateForSale(masterItem);
 
         BigDecimal vendorMrp = request.getVendorMrp() != null ? request.getVendorMrp() : masterItem.getMrp();
         ListingPricing.validatePricing(
@@ -506,6 +624,7 @@ public class VendorListingService {
         listing.setSpecialDiscountValidFrom(request.getSpecialDiscountValidFrom());
         listing.setSpecialDiscountValidTo(request.getSpecialDiscountValidTo());
         listing.setVendorNote(request.getVendorNote());
+        listing.setSearchNames(SearchNames.normalize(request.getSearchNames()));
         listing.setActive(request.getActive() == null || request.getActive());
         listing.setPriceUpdatedAt(Instant.now());
         listing.setUpdatedBy(actorUserId);
@@ -584,9 +703,15 @@ public class VendorListingService {
                 .categoryId(item.getCategory().getId())
                 .unitId(item.getUnit().getId())
                 .name(item.getName())
+                .searchNames(item.getSearchNames())
                 .unit(item.getUnit().getCode())
                 .category(item.getCategory().getName())
                 .mrp(item.getMrp())
+                .hsnCode(item.getHsnCode())
+                .gstPercent(item.getGstPercent())
+                .cessPercent(item.getCessPercent())
+                .priceIncludesTax(item.isPriceIncludesTax())
+                .countryOfOrigin(item.getCountryOfOrigin())
                 .imageUrls(List.of())
                 .build();
     }
@@ -660,6 +785,7 @@ public class VendorListingService {
                 .specialDiscountActive(specialActive)
                 .effectivePrice(effectivePrice)
                 .vendorNote(listing.getVendorNote())
+                .searchNames(listing.getSearchNames())
                 .active(listing.isActive())
                 .imageUrls(List.of())
                 .listingImageUrls(List.of())

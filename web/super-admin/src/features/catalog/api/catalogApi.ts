@@ -3,11 +3,17 @@ import { apiRequest, type PageData } from '@/shared/api/http';
 export type MasterItemVm = {
   id: string;
   name: string;
+  searchNames?: string | null;
   categoryId?: string | null;
   categoryName?: string | null;
   unitId?: string | null;
   unitName?: string | null;
   mrp?: number | null;
+  hsnCode?: string | null;
+  gstPercent?: number | null;
+  cessPercent?: number | null;
+  priceIncludesTax?: boolean | null;
+  countryOfOrigin?: string | null;
   status: string;
   imageUrls: string[];
 };
@@ -46,12 +52,18 @@ type MasterItemDto = {
   categoryId?: string | null;
   unitId?: string | null;
   name: string;
+  searchNames?: string | null;
   category?: string | null;
   categoryName?: string | null;
   unit?: string | null;
   unitName?: string | null;
   unitCode?: string | null;
   mrp?: number | null;
+  hsnCode?: string | null;
+  gstPercent?: number | null;
+  cessPercent?: number | null;
+  priceIncludesTax?: boolean | null;
+  countryOfOrigin?: string | null;
   status?: string;
   imageUrls?: string[] | null;
 };
@@ -60,8 +72,14 @@ export type CreateMasterItemInput = {
   categoryId: string;
   unitId: string;
   name: string;
+  searchNames?: string;
   description?: string;
   mrp?: number;
+  hsnCode: string;
+  gstPercent: number;
+  cessPercent?: number;
+  priceIncludesTax?: boolean;
+  countryOfOrigin?: string;
 };
 
 export type CreateCategoryInput = {
@@ -70,14 +88,21 @@ export type CreateCategoryInput = {
 };
 
 function mapMaster(i: MasterItemDto): MasterItemVm {
+  const raw = i as MasterItemDto & { hsn_code?: string; gst_percent?: number; cess_percent?: number };
   return {
     id: i.id ?? i.masterItemId ?? '',
     name: i.name,
+    searchNames: i.searchNames?.trim() || null,
     categoryId: i.categoryId ?? null,
     categoryName: i.categoryName ?? i.category,
     unitId: i.unitId ?? null,
     unitName: i.unitName ?? i.unit ?? i.unitCode,
     mrp: i.mrp,
+    hsnCode: i.hsnCode ?? raw.hsn_code ?? null,
+    gstPercent: i.gstPercent ?? raw.gst_percent ?? null,
+    cessPercent: i.cessPercent ?? raw.cess_percent ?? null,
+    priceIncludesTax: i.priceIncludesTax ?? null,
+    countryOfOrigin: i.countryOfOrigin ?? null,
     status: i.status ?? 'ACTIVE',
     imageUrls: i.imageUrls ?? [],
   };
@@ -91,6 +116,8 @@ export async function listMasterItemsPage(
     q?: string;
     categoryId?: string;
     unitId?: string;
+    /** Exact GST % slab (e.g. 5, 12, 18). */
+    gstPercent?: number;
     sort?: string;
     dir?: string;
   } = {},
@@ -104,6 +131,9 @@ export async function listMasterItemsPage(
   if (opts.q?.trim()) params.set('q', opts.q.trim());
   if (opts.categoryId) params.set('categoryId', opts.categoryId);
   if (opts.unitId) params.set('unitId', opts.unitId);
+  if (opts.gstPercent != null && Number.isFinite(opts.gstPercent)) {
+    params.set('gstPercent', String(opts.gstPercent));
+  }
   const data = await apiRequest<PageData<MasterItemDto>>(
     `/api/v1/catalog/master-items?${params}`,
     { token },
@@ -137,6 +167,11 @@ export async function createMasterItem(
     body: input,
   });
   return mapMaster(created);
+}
+
+export async function fetchMasterItem(token: string, masterItemId: string): Promise<MasterItemVm> {
+  const data = await apiRequest<MasterItemDto>(`/api/v1/catalog/master-items/${masterItemId}`, { token });
+  return mapMaster(data);
 }
 
 export async function updateMasterItem(

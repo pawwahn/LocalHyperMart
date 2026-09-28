@@ -33,6 +33,8 @@ public class VendorListingResponse {
     private boolean specialDiscountActive;
     private BigDecimal effectivePrice;
     private String vendorNote;
+    /** Alternate names for search. Returned to the vendor only. */
+    private String searchNames;
     private boolean active;
     /** Effective images shown to buyers (listing override or master fallback). */
     private List<String> imageUrls;

@@ -477,7 +477,7 @@ const styles: Record<string, CSSProperties> = {
     fontSize: '0.92rem',
     cursor: 'pointer',
     width: '100%',
-    minHeight: 44,
+    minHeight: 48,
   },
   ctaAccent: {
     background: 'var(--accent)',

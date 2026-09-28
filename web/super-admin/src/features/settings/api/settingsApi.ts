@@ -17,6 +17,12 @@ export type PlatformSettingsVm = {
   deliveryFee: number;
   /** Spoken and displayed for every vendor's new-order alert. */
   vendorOrderAlertMessage: string;
+  /** Legal name printed on vendor service-fee invoices. */
+  supplierLegalName: string;
+  supplierGstin: string;
+  supplierAddress: string;
+  supplierState: string;
+  supplierGstStateCode: string;
   membershipEnabled?: boolean;
   membershipQuarterlyPrice?: number;
   membershipQuarterlyCredits?: number;
@@ -26,6 +32,7 @@ export type PlatformSettingsVm = {
   membershipAnnualCredits?: number;
   referralsEnabled?: boolean;
   mealPlannerEnabled?: boolean;
+  hubAdminCanSeeAgentRatings?: boolean;
   referralReferrerRewardAmount?: number;
   referralRefereeRewardAmount?: number;
   referralShareBaseUrl?: string;
@@ -67,6 +74,11 @@ function mapSettings(data: SettingsDto): PlatformSettingsVm {
     supportPhone: asString(data.supportPhone),
     deliveryFee: asNumber(data.deliveryFee, 40),
     vendorOrderAlertMessage: asString(data.vendorOrderAlertMessage, 'Order received'),
+    supplierLegalName: asString(data.supplierLegalName, 'HyperLocalMart') || 'HyperLocalMart',
+    supplierGstin: asString(data.supplierGstin).toUpperCase(),
+    supplierAddress: asString(data.supplierAddress),
+    supplierState: asString(data.supplierState),
+    supplierGstStateCode: asString(data.supplierGstStateCode),
     membershipEnabled: asBool(data.membershipEnabled, false),
     membershipQuarterlyPrice: asNumber(data.membershipQuarterlyPrice, 0),
     membershipQuarterlyCredits: asNumber(data.membershipQuarterlyCredits, 0),
@@ -76,6 +88,7 @@ function mapSettings(data: SettingsDto): PlatformSettingsVm {
     membershipAnnualCredits: asNumber(data.membershipAnnualCredits, 0),
     referralsEnabled: asBool(data.referralsEnabled, false),
     mealPlannerEnabled: asBool(data.mealPlannerEnabled, false),
+    hubAdminCanSeeAgentRatings: asBool(data.hubAdminCanSeeAgentRatings, true),
     referralReferrerRewardAmount: asNumber(data.referralReferrerRewardAmount, 0),
     referralRefereeRewardAmount: asNumber(data.referralRefereeRewardAmount, 0),
     referralShareBaseUrl: asString(data.referralShareBaseUrl),

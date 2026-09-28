@@ -70,6 +70,7 @@ export type MembershipPurchase = {
   expiresAtAfter?: string | null;
   createdAt?: string | null;
   note?: string | null;
+  sellerPhone?: string | null;
 };
 
 function asNum(v: unknown, fallback = 0): number {

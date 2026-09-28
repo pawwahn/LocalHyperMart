@@ -33,9 +33,30 @@ type RequestOptions = {
   signal?: AbortSignal;
   /** Abort the request after this many ms (default 30s). */
   timeoutMs?: number;
+  /** Internal: do not attempt refresh retry (auth endpoints). */
+  skipAuthRetry?: boolean;
+  /** Internal: set when retrying after refresh. */
+  authRetried?: boolean;
 };
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
+
+/** Fired when refresh fails or a protected call is rejected as unauthorized. */
+export const AUTH_UNAUTHORIZED_EVENT = 'hlm:superadmin:unauthorized';
+
+type TokenRefreshHandler = () => Promise<string | null>;
+
+let tokenRefreshHandler: TokenRefreshHandler | null = null;
+
+export function setTokenRefreshHandler(handler: TokenRefreshHandler | null): void {
+  tokenRefreshHandler = handler;
+}
+
+function notifyUnauthorized(): void {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent(AUTH_UNAUTHORIZED_EVENT));
+  }
+}
 
 export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const headers: Record<string, string> = {
@@ -87,6 +108,21 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   }
 
   if (!response.ok) {
+    if (
+      response.status === 401 &&
+      options.token &&
+      !options.skipAuthRetry &&
+      !options.authRetried &&
+      tokenRefreshHandler
+    ) {
+      const nextToken = await tokenRefreshHandler();
+      if (nextToken) {
+        return apiRequest<T>(path, { ...options, token: nextToken, authRetried: true });
+      }
+    }
+    if (response.status === 401 && options.token) {
+      notifyUnauthorized();
+    }
     throw new ApiError(payload?.message || response.statusText || 'Request failed', response.status);
   }
 

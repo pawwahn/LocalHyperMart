@@ -16,6 +16,8 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.Instant;
+import java.util.Arrays;
+import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -33,10 +35,22 @@ public class AdminAuditController {
             @RequestParam(required = false) Instant from,
             @RequestParam(required = false) Instant to,
             @RequestParam(required = false) String q,
+            @RequestParam(required = false) String action,
+            @RequestParam(required = false) String prefix,
             HttpServletRequest httpRequest) {
         AdminAuth.requireSuperAdmin(httpRequest);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
-                adminAuditService.list(screen, townId, page, size, from, to, q)));
+                adminAuditService.list(screen, townId, page, size, from, to, q, splitCsv(action), splitCsv(prefix))));
+    }
+
+    private static List<String> splitCsv(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return List.of();
+        }
+        return Arrays.stream(raw.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .toList();
     }
 
     @PostMapping("/api/v1/internal/admin-audit")

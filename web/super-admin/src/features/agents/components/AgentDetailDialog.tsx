@@ -5,8 +5,10 @@ import { Banner, Button } from '@/shared/ui';
 import { AdminHistoryPanel } from '@/shared/audit/AdminHistoryPanel';
 import {
   listAgentAssignments,
+  listAgentRatings,
   type AdminAgentVm,
   type AgentAssignmentVm,
+  type AgentRatingListVm,
 } from '../api/agentsApi';
 
 type Props = {
@@ -68,6 +70,19 @@ function parseYmd(value: string, end = false): Date {
   return end ? endOfDay(dt) : startOfDay(dt);
 }
 
+function StarMarks({ value, size = 13 }: { value: number; size?: number }) {
+  const n = Math.max(0, Math.min(5, Math.round(Number(value) || 0)));
+  return (
+    <span aria-label={`${n} of 5 stars`} style={{ display: 'inline-flex', gap: 1, fontSize: size, lineHeight: 1 }}>
+      {[1, 2, 3, 4, 5].map((i) => (
+        <span key={i} style={{ color: i <= n ? '#D97706' : '#D1D5DB' }}>
+          ★
+        </span>
+      ))}
+    </span>
+  );
+}
+
 function formatWhen(iso?: string | null): string {
   if (!iso) return '—';
   const d = new Date(iso);
@@ -111,6 +126,10 @@ export function AgentDetailDialog({
   const [completedHomes, setCompletedHomes] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [ratings, setRatings] = useState<AgentRatingListVm | null>(null);
+  const [ratingsLoading, setRatingsLoading] = useState(false);
+  const [ratingsError, setRatingsError] = useState<string | null>(null);
+  const [ratingsPage, setRatingsPage] = useState(0);
 
   const fromIso = useMemo(() => {
     const now = new Date();
@@ -186,6 +205,32 @@ export function AgentDetailDialog({
       ac.abort();
     };
   }, [token, agent.agentId, fromIso, toIso, panel]);
+
+  useEffect(() => {
+    setRatingsPage(0);
+  }, [agent.agentId]);
+
+  useEffect(() => {
+    if (panel !== 'ratings') return;
+    let cancelled = false;
+    setRatingsLoading(true);
+    setRatingsError(null);
+    void listAgentRatings(token, agent.agentId, ratingsPage)
+      .then((data) => {
+        if (!cancelled) setRatings(data);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setRatings(null);
+        setRatingsError(err instanceof ApiError || err instanceof Error ? err.message : 'Could not load ratings');
+      })
+      .finally(() => {
+        if (!cancelled) setRatingsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [token, agent.agentId, panel, ratingsPage]);
 
   const visible = useMemo(() => {
     return rows
@@ -412,20 +457,85 @@ export function AgentDetailDialog({
         ) : null}
 
         {panel === 'ratings' ? (
-          <div style={styles.placeholder}>
-            <p style={styles.placeTitle}>Ratings</p>
-            <p style={styles.placeBody}>
-              Buyer ratings for delivery boys are not live yet. This tab will show average stars and recent
-              comments when we turn that on.
-            </p>
-            <div style={styles.starRow} aria-hidden>
-              {'★★★★★'.split('').map((s, i) => (
-                <span key={i} style={styles.star}>
-                  {s}
-                </span>
-              ))}
-              <span style={styles.placeMeta}>— · 0 ratings</span>
-            </div>
+          <div style={styles.ratePanel}>
+            {ratingsError ? <Banner tone="danger">{ratingsError}</Banner> : null}
+            {ratingsLoading && !ratings ? (
+              <p style={styles.placeMeta}>Loading ratings…</p>
+            ) : ratings ? (
+              <>
+                <div style={styles.rateSummary}>
+                  <div style={styles.rateScoreBox}>
+                    <span style={styles.avgStars}>
+                      {ratings.ratingCount > 0 ? ratings.averageStars.toFixed(1) : '—'}
+                    </span>
+                    <span style={styles.rateScoreLbl}>avg</span>
+                  </div>
+                  <div style={styles.rateSummaryCopy}>
+                    <StarMarks value={ratings.ratingCount > 0 ? ratings.averageStars : 0} size={16} />
+                    <span style={styles.placeMeta}>
+                      {ratings.ratingCount === 0
+                        ? 'No buyer ratings yet'
+                        : `${ratings.ratingCount} buyer rating${ratings.ratingCount === 1 ? '' : 's'}`}
+                      {ratings.visibleToHub ? '' : ' · hidden from hub'}
+                    </span>
+                  </div>
+                </div>
+                {ratings.items.length === 0 ? (
+                  <p style={styles.placeBody}>Ratings appear here after a buyer rates a delivered order.</p>
+                ) : (
+                  <div style={styles.tableWrap}>
+                    <table style={styles.table}>
+                      <thead>
+                        <tr>
+                          <th style={styles.th}>Order</th>
+                          <th style={styles.th}>Rating</th>
+                          <th style={styles.th}>Comment</th>
+                          <th style={{ ...styles.th, textAlign: 'right' }}>When</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {ratings.items.map((row) => (
+                          <tr key={row.ratingId}>
+                            <td style={styles.td}>{row.orderNumber || row.orderId}</td>
+                            <td style={styles.td}>
+                              <span style={styles.rateStarsCell}>
+                                <StarMarks value={row.stars} />
+                                <span style={styles.placeMeta}>{row.stars}</span>
+                              </span>
+                            </td>
+                            <td style={styles.td}>{row.comment?.trim() ? row.comment : '—'}</td>
+                            <td style={styles.tdMuted}>{formatWhen(row.createdAt)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+                {ratings.totalPages > 1 ? (
+                  <div style={styles.pager}>
+                    <span style={{ ...styles.placeMeta, marginRight: 'auto' }}>
+                      Page {ratingsPage + 1} of {ratings.totalPages}
+                    </span>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled={ratingsPage <= 0 || ratingsLoading}
+                      onClick={() => setRatingsPage((p) => Math.max(0, p - 1))}
+                    >
+                      Prev
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled={ratingsPage + 1 >= ratings.totalPages || ratingsLoading}
+                      onClick={() => setRatingsPage((p) => p + 1)}
+                    >
+                      Next
+                    </Button>
+                  </div>
+                ) : null}
+              </>
+            ) : null}
           </div>
         ) : null}
 
@@ -645,8 +755,35 @@ const styles: Record<string, CSSProperties> = {
   placeTitle: { margin: 0, fontWeight: 800, fontSize: '0.9rem' },
   placeBody: { margin: 0, color: 'var(--text-muted)', fontSize: '0.8rem', lineHeight: 1.4 },
   placeMeta: { color: 'var(--text-muted)', fontSize: '0.78rem', fontWeight: 650 },
-  starRow: { display: 'flex', alignItems: 'center', gap: 4 },
   star: { color: 'var(--border)', fontSize: '1.1rem', lineHeight: 1 },
+  ratePanel: { display: 'grid', gap: '0.45rem', alignContent: 'start' },
+  rateSummary: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.7rem',
+    padding: '0.4rem 0.5rem',
+    borderRadius: 10,
+    border: '1px solid var(--border)',
+    background: 'var(--bg)',
+  },
+  rateScoreBox: {
+    display: 'grid',
+    justifyItems: 'center',
+    minWidth: 52,
+    padding: '0.15rem 0.4rem',
+    borderRadius: 8,
+    background: '#FEF3C7',
+  },
+  rateScoreLbl: {
+    fontSize: '0.62rem',
+    fontWeight: 800,
+    color: '#92400E',
+    letterSpacing: '0.04em',
+    textTransform: 'uppercase',
+  },
+  rateSummaryCopy: { display: 'grid', gap: 2 },
+  avgStars: { fontWeight: 800, fontSize: '1.2rem', color: '#92400E', lineHeight: 1.1, fontVariantNumeric: 'tabular-nums' },
+  rateStarsCell: { display: 'inline-flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' },
   log: { display: 'grid', gap: '0.45rem' },
   footer: { display: 'flex', justifyContent: 'flex-end', gap: '0.4rem', flexWrap: 'wrap' },
   pillOn: {

@@ -33,6 +33,11 @@ const EMPTY: PlatformSettingsVm = {
   supportPhone: '',
   deliveryFee: 40,
   vendorOrderAlertMessage: 'Order received',
+  supplierLegalName: 'HyperLocalMart',
+  supplierGstin: '',
+  supplierAddress: '',
+  supplierState: '',
+  supplierGstStateCode: '',
 };
 
 export function SettingsPage() {
@@ -62,6 +67,16 @@ export function SettingsPage() {
   }, [reload]);
 
   async function onSave() {
+    const gstin = settings.supplierGstin.trim().toUpperCase();
+    const stateCode = settings.supplierGstStateCode.trim();
+    if (gstin && !/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/.test(gstin)) {
+      setError('GSTIN must be 15 characters.');
+      return;
+    }
+    if (stateCode && !/^[0-9]{2}$/.test(stateCode)) {
+      setError('GST state code is 2 digits, for example 37 for Andhra Pradesh.');
+      return;
+    }
     setBusy(true);
     setError(null);
     setNotice(null);
@@ -258,6 +273,47 @@ export function SettingsPage() {
         </Card>
 
         <Card padding="sm" style={styles.card}>
+          <div style={styles.sectionHead}>
+            <h2 style={styles.sectionTitle}>Service bills</h2>
+            <span style={styles.hintInline}>Printed on the vendor payout bill. Fee is GST-inclusive at 18%.</span>
+          </div>
+          <div style={styles.formGrid}>
+            <TextField
+              label="Legal name"
+              value={settings.supplierLegalName}
+              onChange={(e) => setSettings((s) => ({ ...s, supplierLegalName: e.target.value }))}
+            />
+            <TextField
+              label="GSTIN"
+              value={settings.supplierGstin}
+              maxLength={15}
+              placeholder="15 characters"
+              onChange={(e) => setSettings((s) => ({ ...s, supplierGstin: e.target.value.toUpperCase() }))}
+            />
+            <TextField
+              label="Address"
+              value={settings.supplierAddress}
+              onChange={(e) => setSettings((s) => ({ ...s, supplierAddress: e.target.value }))}
+            />
+            <TextField
+              label="State"
+              value={settings.supplierState}
+              placeholder="Andhra Pradesh"
+              onChange={(e) => setSettings((s) => ({ ...s, supplierState: e.target.value }))}
+            />
+            <TextField
+              label="GST state code"
+              value={settings.supplierGstStateCode}
+              maxLength={2}
+              placeholder="37"
+              onChange={(e) =>
+                setSettings((s) => ({ ...s, supplierGstStateCode: e.target.value.replace(/\D/g, '').slice(0, 2) }))
+              }
+            />
+          </div>
+        </Card>
+
+        <Card padding="sm" style={styles.card}>
           <h2 style={styles.sectionTitle}>Referrals (orders)</h2>
           <p style={styles.hintInline}>
             Off by default. Referee wallet on signup/code apply; referrer wallet on first delivery.
@@ -405,6 +461,14 @@ export function SettingsPage() {
                 onChange={(e) => setSettings((s) => ({ ...s, mealPlannerEnabled: e.target.checked }))}
               />
               Meal planner (buyer)
+            </label>
+            <label style={styles.check}>
+              <input
+                type="checkbox"
+                checked={settings.hubAdminCanSeeAgentRatings ?? true}
+                onChange={(e) => setSettings((s) => ({ ...s, hubAdminCanSeeAgentRatings: e.target.checked }))}
+              />
+              Hub admin can see delivery ratings
             </label>
           </div>
         </Card>

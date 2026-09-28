@@ -26,11 +26,16 @@ import { applyReferralCode, getReferralMe, type ReferralMeVm } from '../api/refe
 import { ApiError } from '@/shared/api/http';
 
 const STICKY_CSS = `
-  @media (max-width: 400px) {
-    .cart-place-btn {
-      padding-left: 0.7rem !important;
-      padding-right: 0.7rem !important;
-    }
+  .cart-sticky-mid {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  .cart-sticky-mid .cart-unlock {
+    flex: 1 1 auto;
+    min-width: 0;
   }
 `;
 
@@ -66,10 +71,11 @@ export function CartPage() {
     setNotice,
   } = useShop();
   const [pickerOpen, setPickerOpen] = useState(false);
-  const [couponCode, setCouponCode] = useState('');
-  const [couponError, setCouponError] = useState<string | null>(null);
+  const [promoInput, setPromoInput] = useState('');
+  const [promoError, setPromoError] = useState<string | null>(null);
   const [useStoreCredit, setUseStoreCredit] = useState(false);
   const [confirmCheckout, setConfirmCheckout] = useState(false);
+  const [checkoutBusy, setCheckoutBusy] = useState(false);
   const [showCelebration, setShowCelebration] = useState(false);
   const [dealsOpen, setDealsOpen] = useState(false);
   const [mealPlannerOpen, setMealPlannerOpen] = useState(false);
@@ -89,16 +95,14 @@ export function CartPage() {
   const [plansOpen, setPlansOpen] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<'COD' | 'ONLINE'>('COD');
   const [referralInfo, setReferralInfo] = useState<ReferralMeVm | null>(null);
-  const [referralInput, setReferralInput] = useState('');
-  const [referralError, setReferralError] = useState<string | null>(null);
-  const [referralBusy, setReferralBusy] = useState(false);
+  const [promoBusy, setPromoBusy] = useState(false);
   const couponSectionRef = useRef<HTMLDivElement | null>(null);
   const checkoutErrorRef = useRef<HTMLDivElement | null>(null);
   const suggestionsRequestRef = useRef(0);
   const rememberItemsRef = useRef(rememberItems);
   rememberItemsRef.current = rememberItems;
 
-  const hasCartItems = Boolean(cart?.cartId && cart.items.length > 0);
+  const hasCartItems = Boolean(cart && cart.items.length > 0);
 
   useEffect(() => {
     const token = session?.accessToken;
@@ -132,18 +136,53 @@ export function CartPage() {
     navigate(location.pathname, { replace: true, state: null });
   }, [location.pathname, location.state, mealPlannerOn, navigate]);
 
-  async function handleApplyReferral() {
-    const token = session?.accessToken;
-    if (!token || !referralInput.trim()) return;
-    setReferralBusy(true);
-    setReferralError(null);
+  async function handleApplyCode() {
+    const code = promoInput.trim();
+    if (!code) {
+      setPromoError('Enter a referral or coupon code.');
+      couponSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      return;
+    }
+    setPromoError(null);
+    setPromoBusy(true);
     try {
-      setReferralInfo(await applyReferralCode(token, referralInput.trim()));
-      setReferralInput('');
-    } catch (err) {
-      setReferralError(err instanceof ApiError || err instanceof Error ? err.message : 'Invalid code');
+      if (!cart?.promoCode) {
+        const promo = await doApplyPromo(code);
+        if (promo.ok) {
+          setPromoInput('');
+          return;
+        }
+        const canTryReferral =
+          Boolean(session?.accessToken) &&
+          Boolean(referralInfo?.programEnabled) &&
+          !referralInfo?.hasAppliedCode;
+        if (canTryReferral) {
+          try {
+            setReferralInfo(await applyReferralCode(session!.accessToken, code));
+            setPromoInput('');
+            return;
+          } catch {
+            setPromoError(promo.message || 'This code isn’t valid as a coupon or referral.');
+            couponSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            return;
+          }
+        }
+        setPromoError(promo.message);
+        couponSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        return;
+      }
+      if (session?.accessToken && referralInfo?.programEnabled && !referralInfo.hasAppliedCode) {
+        try {
+          setReferralInfo(await applyReferralCode(session.accessToken, code));
+          setPromoInput('');
+          return;
+        } catch (err) {
+          setPromoError(err instanceof ApiError || err instanceof Error ? err.message : 'Invalid code');
+          couponSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }
     } finally {
-      setReferralBusy(false);
+      setPromoBusy(false);
     }
   }
 
@@ -177,9 +216,9 @@ export function CartPage() {
   const showCodOption = codEnabled && payOnDelivery > 0;
   const showUpiOption = upiEnabled && payOnDelivery > 0;
   const showPayMethods = showCodOption || showUpiOption;
-  const showDealsLink = memberCredits > 0 && bestDealsEnabled;
   const showMealPlannerLink = mealPlannerOn && Boolean(townId);
-  const showAuxLinks = showDealsLink || showMealPlannerLink;
+  const showStickyMembershipOffer =
+    showMembershipOffer && !membershipCatalog?.mine?.active;
 
   useEffect(() => {
     if (!hasCartItems || payOnDelivery <= 0) return;
@@ -286,24 +325,6 @@ export function CartPage() {
     };
   }, [townId, bestDealsEnabled, rememberItems]);
 
-  async function handleApplyCoupon() {
-    const code = couponCode.trim();
-    if (!code) {
-      setCouponError('Enter a coupon code to apply.');
-      couponSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      return;
-    }
-    setCouponError(null);
-    const result = await doApplyPromo(code);
-    if (result.ok) {
-      setCouponCode('');
-      setCouponError(null);
-      return;
-    }
-    setCouponError(result.message);
-    couponSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  }
-
   async function handleCheckout() {
     if (!hasCartItems) return;
 
@@ -321,7 +342,24 @@ export function CartPage() {
   }
 
   async function confirmAndPlaceOrder() {
-    const result = await doCheckout({ useStoreCredit, paymentMethod: online ? 'ONLINE' : 'COD' });
+    setCheckoutBusy(true);
+    let result: Awaited<ReturnType<typeof doCheckout>>;
+    try {
+      result = await Promise.race([
+        doCheckout({ useStoreCredit, paymentMethod: online ? 'ONLINE' : 'COD' }),
+        new Promise<never>((_, reject) => {
+          window.setTimeout(() => {
+            reject(new Error('Checkout is taking too long. Open My orders — if the order is there, you are done.'));
+          }, 18_000);
+        }),
+      ]);
+    } catch (err) {
+      setCheckoutBusy(false);
+      setConfirmCheckout(false);
+      setError(err instanceof Error ? err.message : 'Could not place the order. Try again.');
+      return;
+    }
+    setCheckoutBusy(false);
     if (!result.ok) {
       setConfirmCheckout(false);
       requestAnimationFrame(() => {
@@ -373,35 +411,28 @@ export function CartPage() {
                 <p style={styles.payLabel}>{payModeLabel}</p>
                 <p style={styles.payTotal}>{payLabel}</p>
               </div>
-              {showAuxLinks ? (
-                <div style={styles.auxLinks}>
-                  {showDealsLink ? (
-                    <button type="button" style={styles.dealsLinkInline} onClick={openDeals}>
-                      Best deals in town
-                    </button>
-                  ) : null}
-                  {showDealsLink && showMealPlannerLink ? (
-                    <span style={styles.auxDivider} aria-hidden="true">
-                      |
-                    </span>
-                  ) : null}
-                  {showMealPlannerLink ? (
-                    <button type="button" style={styles.dealsLinkInline} onClick={openMealPlanner}>
-                      Meal planner
-                    </button>
-                  ) : null}
-                </div>
-              ) : memberCredits > 0 ? (
-                <span style={styles.unlockSpacer} />
-              ) : deliveryNudge ? (
-                <DeliveryUnlockChip
-                  addMore={deliveryNudge.addMore}
-                  nextFee={deliveryNudge.nextFee}
-                  progress={unlockProgress}
-                />
-              ) : (
-                <span style={styles.unlockSpacer} />
-              )}
+              <div className="cart-sticky-mid">
+                {deliveryNudge ? (
+                  <DeliveryUnlockChip
+                    layout="compact"
+                    addMore={deliveryNudge.addMore}
+                    nextFee={deliveryNudge.nextFee}
+                    progress={unlockProgress}
+                  />
+                ) : (
+                  <span style={styles.unlockSpacer} />
+                )}
+                {showStickyMembershipOffer ? (
+                  <button type="button" style={styles.stickyLink} onClick={() => setPlansOpen(true)}>
+                    Free delivery ₹{Number(starterPlan?.price ?? 0).toFixed(0)}
+                  </button>
+                ) : null}
+                {showMealPlannerLink ? (
+                  <button type="button" style={styles.stickyLink} onClick={openMealPlanner}>
+                    Meal planner
+                  </button>
+                ) : null}
+              </div>
               <button
                 type="button"
                 className="cart-place-btn"
@@ -409,7 +440,7 @@ export function CartPage() {
                 disabled={busy}
                 onClick={() => void handleCheckout()}
               >
-                Place Order
+                Place order
               </button>
             </div>
           </div>
@@ -441,9 +472,9 @@ export function CartPage() {
         }
         confirmLabel={online ? 'Pay now' : 'Yes, place order'}
         cancelLabel="Review order"
-        busy={busy}
+        busy={checkoutBusy}
         onConfirm={() => void confirmAndPlaceOrder()}
-        onClose={() => setConfirmCheckout(false)}
+        onClose={() => !checkoutBusy && setConfirmCheckout(false)}
       />
       <OrderCelebration
         open={showCelebration}
@@ -467,6 +498,7 @@ export function CartPage() {
         townId={townId ?? ''}
         busyKey={busyKey}
         quantityFor={quantityFor}
+        rememberItems={rememberItems}
         onIncrease={(listingId) => void doIncrease(listingId)}
         onDecrease={(listingId) => void doDecrease(listingId)}
         onClose={() => setMealPlannerOpen(false)}
@@ -484,7 +516,7 @@ export function CartPage() {
         }}
       />
 
-      {error ? (
+      {error && error !== 'Cart is empty' ? (
         <div ref={checkoutErrorRef}>
           <Banner tone="danger">{error}</Banner>
         </div>
@@ -554,48 +586,12 @@ export function CartPage() {
           ) : null}
 
           <Card padding="md" style={styles.billCard}>
-            {referralInfo?.programEnabled && hasCartItems ? (
-              <div style={styles.couponBlock}>
-                {referralInfo.hasAppliedCode ? (
-                  <Banner tone="success" style={{ margin: 0 }}>
-                    Referral {referralInfo.appliedCode} applied — wallet credit if eligible
-                  </Banner>
-                ) : (
-                  <>
-                    <div style={styles.couponRow}>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <TextField
-                          aria-label="Referral code"
-                          placeholder="Friend’s referral code"
-                          value={referralInput}
-                          onChange={(e) => {
-                            setReferralInput(e.target.value);
-                            if (referralError) setReferralError(null);
-                          }}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') void handleApplyReferral();
-                          }}
-                          style={styles.couponInput}
-                        />
-                      </div>
-                      <Button
-                        size="sm"
-                        disabled={referralBusy || !referralInput.trim()}
-                        onClick={() => void handleApplyReferral()}
-                      >
-                        Apply
-                      </Button>
-                    </div>
-                    {referralError ? (
-                      <Banner tone="danger" style={styles.couponAlert}>
-                        {referralError}
-                      </Banner>
-                    ) : null}
-                  </>
-                )}
-              </div>
-            ) : null}
             <div ref={couponSectionRef} style={styles.couponBlock}>
+              {referralInfo?.hasAppliedCode ? (
+                <Banner tone="success" style={{ margin: 0 }}>
+                  Referral {referralInfo.appliedCode} applied — wallet credit if eligible
+                </Banner>
+              ) : null}
               <div style={styles.couponRow}>
                 {cart.promoCode ? (
                   <>
@@ -609,7 +605,7 @@ export function CartPage() {
                       size="sm"
                       disabled={busyKey === 'promo'}
                       onClick={() => {
-                        setCouponError(null);
+                        setPromoError(null);
                         void doRemovePromo();
                       }}
                     >
@@ -620,32 +616,32 @@ export function CartPage() {
                   <>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <TextField
-                        aria-label="Coupon code"
-                        placeholder="Coupon code e.g. WELCOME50"
-                        value={couponCode}
+                        aria-label="Referral or coupon code"
+                        placeholder="Referral / coupon code"
+                        value={promoInput}
                         onChange={(e) => {
-                          setCouponCode(e.target.value);
-                          if (couponError) setCouponError(null);
+                          setPromoInput(e.target.value);
+                          if (promoError) setPromoError(null);
                         }}
                         onKeyDown={(e) => {
-                          if (e.key === 'Enter') void handleApplyCoupon();
+                          if (e.key === 'Enter') void handleApplyCode();
                         }}
                         style={styles.couponInput}
                       />
                     </div>
                     <Button
                       size="sm"
-                      disabled={busyKey === 'promo' || !couponCode.trim()}
-                      onClick={() => void handleApplyCoupon()}
+                      disabled={promoBusy || busyKey === 'promo' || !promoInput.trim()}
+                      onClick={() => void handleApplyCode()}
                     >
                       Apply
                     </Button>
                   </>
                 )}
               </div>
-              {couponError ? (
+              {promoError ? (
                 <Banner tone="danger" style={styles.couponAlert}>
-                  {couponError}
+                  {promoError}
                 </Banner>
               ) : null}
             </div>
@@ -763,6 +759,17 @@ export function CartPage() {
                 </span>
               </label>
             ) : null}
+            {hasCartItems ? (
+              <button
+                type="button"
+                className="cart-place-btn"
+                style={styles.billPlaceBtn}
+                disabled={busy}
+                onClick={() => void handleCheckout()}
+              >
+                {online ? 'Pay now' : 'Place order'}
+              </button>
+            ) : null}
           </Card>
 
           {bestDealsEnabled ? (
@@ -785,7 +792,11 @@ export function CartPage() {
 }
 
 const styles: Record<string, CSSProperties> = {
-  page: { display: 'grid', gap: '0.55rem', paddingBottom: 0 },
+  page: {
+    display: 'grid',
+    gap: '0.55rem',
+    paddingBottom: 'calc(var(--sticky-cart-h) + 0.35rem)',
+  },
   deliverRow: {
     display: 'flex',
     alignItems: 'center',
@@ -929,10 +940,10 @@ const styles: Record<string, CSSProperties> = {
     left: 0,
     right: 0,
     bottom: 'calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px))',
-    zIndex: 40,
+    zIndex: 55,
     display: 'flex',
     justifyContent: 'center',
-    padding: '0 0.85rem 0.45rem',
+    padding: '0 0.75rem 0.35rem',
     pointerEvents: 'none',
   },
   stickyInner: {
@@ -941,59 +952,56 @@ const styles: Record<string, CSSProperties> = {
     maxWidth: 'var(--shell-max)',
     display: 'flex',
     alignItems: 'center',
-    gap: '0.45rem',
-    background: '#1C1C1C',
+    gap: '0.4rem',
+    background: '#0C831F',
     color: '#fff',
     borderRadius: 12,
-    padding: '0.45rem 0.45rem 0.45rem 0.8rem',
-    boxShadow: '0 10px 28px rgba(0,0,0,0.28)',
+    padding: '0.35rem 0.35rem 0.35rem 0.65rem',
+    boxShadow: '0 8px 20px rgba(12, 131, 31, 0.32)',
+    minHeight: 48,
   },
-  payBlock: { flex: '0 0 auto', minWidth: '4.4rem' },
-  payLabel: { margin: 0, fontSize: '0.68rem', opacity: 0.75, fontWeight: 700 },
-  payTotal: { margin: 0, fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: '1.05rem' },
+  payBlock: { flex: '0 0 auto', minWidth: 0, lineHeight: 1.15 },
+  payLabel: { margin: 0, fontSize: '0.6rem', opacity: 0.85, fontWeight: 800, letterSpacing: '0.03em', textTransform: 'uppercase' },
+  payTotal: { margin: 0, fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: '0.92rem', letterSpacing: '-0.02em' },
   unlockSpacer: { flex: '1 1 auto', minWidth: 0 },
-  auxLinks: {
-    flex: '1 1 auto',
-    minWidth: 0,
-    display: 'flex',
-    flexWrap: 'wrap',
-    alignItems: 'center',
-    gap: '0.15rem',
-    color: '#B7E4C4',
-    fontSize: '0.78rem',
-    fontWeight: 800,
-    lineHeight: 1.25,
-    minHeight: 36,
-  },
-  auxDivider: {
-    flexShrink: 0,
-    padding: '0 0.5rem',
-    opacity: 0.75,
-    fontWeight: 700,
-    letterSpacing: '0.02em',
-  },
-  dealsLinkInline: {
+  stickyLink: {
     margin: 0,
-    padding: '0 0.15rem',
+    padding: 0,
     border: 'none',
     background: 'none',
-    color: 'inherit',
-    font: 'inherit',
+    color: '#F7CE46',
+    fontWeight: 800,
+    fontSize: '0.62rem',
     textDecoration: 'underline',
-    textUnderlineOffset: 3,
+    textUnderlineOffset: 2,
     cursor: 'pointer',
     whiteSpace: 'nowrap',
+    flexShrink: 0,
   },
   placeBtn: {
+    border: 'none',
+    background: '#F7CE46',
+    color: '#0a1a08',
+    fontWeight: 800,
+    borderRadius: 999,
+    padding: '0.38rem 0.7rem',
+    minHeight: 32,
+    cursor: 'pointer',
+    whiteSpace: 'nowrap',
+    fontSize: '0.78rem',
+    flex: '0 0 auto',
+  },
+  billPlaceBtn: {
+    marginTop: '0.5rem',
+    width: '100%',
     border: 'none',
     background: 'var(--accent)',
     color: '#fff',
     fontWeight: 800,
     borderRadius: 10,
-    padding: '0.8rem 1.05rem',
-    minHeight: 44,
+    padding: '0.85rem 1rem',
+    minHeight: 48,
     cursor: 'pointer',
-    whiteSpace: 'nowrap',
-    flex: '0 0 auto',
+    fontSize: '0.95rem',
   },
 };

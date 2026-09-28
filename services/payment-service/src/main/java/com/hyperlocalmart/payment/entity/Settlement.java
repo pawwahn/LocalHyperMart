@@ -82,6 +82,10 @@ public class Settlement extends BaseAuditEntity {
     @Column(name = "paid_by")
     private UUID paidBy;
 
+    /** Vendor service-fee tax invoice, e.g. HLM/SF/26-27/0001. Blank for hub and agent payouts. */
+    @Column(name = "service_invoice_number", length = 32)
+    private String serviceInvoiceNumber;
+
     @OneToMany(mappedBy = "settlement", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     @Builder.Default
     private List<SettlementLineItem> lineItems = new ArrayList<>();

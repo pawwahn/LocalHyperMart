@@ -18,7 +18,7 @@ import {
   type VendorVm,
 } from '../api/vendorsApi';
 
-type Tab = 'pending' | 'vendors';
+type Tab = 'pending' | 'vendors' | 'history';
 
 function townLabel(t: TownVm): string {
   const place = t.displayName || t.townCode;
@@ -475,17 +475,37 @@ export function VendorsPage() {
               Vendors
               <span style={styles.badge}>{vendorCount}</span>
             </button>
+            <button
+              type="button"
+              style={tab === 'history' ? styles.tabActive : styles.tab}
+              onClick={() => setTab('history')}
+            >
+              History
+            </button>
           </div>
-          <input
-            style={styles.listSearch}
-            value={listQuery}
-            onChange={(e) => setListQuery(e.target.value)}
-            placeholder={tab === 'pending' ? 'Filter pending…' : 'Filter vendors…'}
-            aria-label={tab === 'pending' ? 'Filter pending' : 'Filter vendors'}
-          />
+          {tab === 'history' ? null : (
+            <input
+              style={styles.listSearch}
+              value={listQuery}
+              onChange={(e) => setListQuery(e.target.value)}
+              placeholder={tab === 'pending' ? 'Filter pending…' : 'Filter vendors…'}
+              aria-label={tab === 'pending' ? 'Filter pending' : 'Filter vendors'}
+            />
+          )}
         </div>
 
-        {tab === 'pending' ? (
+        {tab === 'history' && token ? (
+          <AdminHistoryPanel
+            embedded
+            tall
+            token={token}
+            screen="vendors"
+            townId={townId || undefined}
+            refreshTick={notice ? notice.length : 0}
+            searchPlaceholder="Search shop, field, or status…"
+            emptyHint="Each save lists the previous value and the new value for every field that changed."
+          />
+        ) : tab === 'pending' ? (
           <div style={styles.list}>
             {loading && pendingForTown.length === 0 ? (
               <p style={styles.empty}>Loading…</p>
@@ -745,7 +765,6 @@ export function VendorsPage() {
           if (!statusBusyId) setPendingEnable(null);
         }}
       />
-      {token ? <AdminHistoryPanel token={token} screen="vendors" refreshTick={notice ? notice.length : 0} /> : null}
     </PortalShell>
   );
 }

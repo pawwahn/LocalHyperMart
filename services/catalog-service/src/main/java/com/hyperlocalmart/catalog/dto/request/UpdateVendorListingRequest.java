@@ -27,6 +27,9 @@ public class UpdateVendorListingRequest {
 
     private String vendorNote;
 
+    /** Comma-separated alternate names. Null leaves the stored value unchanged; blank clears it. */
+    private String searchNames;
+
     private Boolean active;
 
     /** When true, nullable pricing fields are cleared instead of ignored. */

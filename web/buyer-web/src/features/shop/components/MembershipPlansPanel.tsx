@@ -102,8 +102,10 @@ export function MembershipPlansPanel({ onBought }: Props) {
           await reload();
           return;
         }
-      } else {
+      } else if (row.status === 'PAID') {
         setNotice(`${row.creditsGranted} free deliveries added.`);
+      } else {
+        setError('Online payment did not start. Tap Pay online again.');
       }
       await reload();
       onBought?.();

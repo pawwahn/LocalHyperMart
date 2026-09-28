@@ -17,6 +17,11 @@ public class ListingSnapshotResponse {
     private UUID masterItemId;
     private String name;
     private String unit;
+    private String hsnCode;
+    private BigDecimal gstPercent;
+    private BigDecimal cessPercent;
+    private boolean priceIncludesTax;
+    private String countryOfOrigin;
     private BigDecimal price;
     private BigDecimal discountPrice;
     private BigDecimal effectivePrice;

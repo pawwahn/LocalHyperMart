@@ -11,6 +11,7 @@ import {
   type AgentDto,
   type CreateAgentInput,
 } from '../api/hubApi';
+import { HubAgentRatingsSheet } from '../components/HubAgentRatingsSheet';
 
 const GOVT_ID_OPTIONS: Array<{ value: CreateAgentInput['govtIdType']; label: string }> = [
   { value: 'AADHAAR', label: 'Aadhaar card' },
@@ -43,6 +44,8 @@ export function HubAgentsPage() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [form, setForm] = useState(emptyForm);
+  const [ratingsAgent, setRatingsAgent] = useState<AgentDto | null>(null);
+  const [tab, setTab] = useState<'list' | 'add'>('list');
 
   const reload = useCallback(async () => {
     if (!session) return;
@@ -112,6 +115,7 @@ export function HubAgentsPage() {
       });
       setNotice(`Delivery agent ${form.name.trim()} created and active.`);
       setForm(emptyForm);
+      setTab('list');
       await reload();
     } catch (err) {
       setError(err instanceof ApiError || err instanceof Error ? err.message : 'Could not create delivery agent');
@@ -157,29 +161,30 @@ export function HubAgentsPage() {
       {error ? <Banner tone="danger">{error}</Banner> : null}
       {notice ? <Banner tone="success">{notice}</Banner> : null}
 
-      <div style={styles.summary} aria-label="Delivery agent counts">
-        <div style={styles.stat}>
-          <span style={styles.statValue}>{counts.total}</span>
-          <span style={styles.statLabel}>Total</span>
-        </div>
-        <div style={styles.stat}>
-          <span style={styles.statValue}>{counts.active}</span>
-          <span style={styles.statLabel}>Active</span>
-        </div>
-        <div style={styles.stat}>
-          <span style={styles.statValue}>{counts.inactive}</span>
-          <span style={styles.statLabel}>Inactive</span>
-        </div>
-        {counts.disabled > 0 ? (
-          <div style={styles.stat}>
-            <span style={styles.statValue}>{counts.disabled}</span>
-            <span style={styles.statLabel}>Disabled by admin</span>
-          </div>
-        ) : null}
+      <div style={styles.tabs} role="tablist" aria-label="Delivery agents">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === 'list'}
+          style={tab === 'list' ? styles.tabActive : styles.tab}
+          onClick={() => setTab('list')}
+        >
+          Your delivery agents
+          <span style={styles.tabCount}>{counts.total}</span>
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === 'add'}
+          style={tab === 'add' ? styles.tabActive : styles.tab}
+          onClick={() => setTab('add')}
+        >
+          Add delivery agent
+        </button>
       </div>
 
+      {tab === 'add' ? (
       <Card elevated style={styles.card}>
-        <h3 style={styles.title}>Add delivery agent</h3>
         <p style={styles.hint}>Login + hub link. Govt ID and 2 references required.</p>
         <form style={styles.form} onSubmit={(e) => void onCreate(e)}>
           <div style={styles.row2}>
@@ -303,13 +308,37 @@ export function HubAgentsPage() {
           </Button>
         </form>
       </Card>
-
+      ) : (
       <Card elevated style={styles.card}>
-        <h3 style={styles.title}>Your delivery agents</h3>
+        <div style={styles.summary} aria-label="Delivery agent counts">
+          <div style={styles.stat}>
+            <span style={styles.statValue}>{counts.total}</span>
+            <span style={styles.statLabel}>Total</span>
+          </div>
+          <div style={styles.stat}>
+            <span style={styles.statValue}>{counts.active}</span>
+            <span style={styles.statLabel}>Active</span>
+          </div>
+          <div style={styles.stat}>
+            <span style={styles.statValue}>{counts.inactive}</span>
+            <span style={styles.statLabel}>Inactive</span>
+          </div>
+          {counts.disabled > 0 ? (
+            <div style={styles.stat}>
+              <span style={styles.statValue}>{counts.disabled}</span>
+              <span style={styles.statLabel}>Disabled</span>
+            </div>
+          ) : null}
+        </div>
         {loading ? (
           <p style={styles.muted}>Loading…</p>
         ) : agents.length === 0 ? (
-          <p style={styles.muted}>No delivery agents yet. Add the first one above.</p>
+          <div style={styles.empty}>
+            <p style={styles.muted}>No delivery agents yet.</p>
+            <Button size="sm" onClick={() => setTab('add')}>
+              Add delivery agent
+            </Button>
+          </div>
         ) : (
           <ul style={styles.list}>
             {agents.map((agent) => {
@@ -348,6 +377,9 @@ export function HubAgentsPage() {
                     </span>
                   </div>
                   <div style={styles.rowActions}>
+                    <Button size="sm" variant="ghost" onClick={() => setRatingsAgent(agent)}>
+                      ★ Ratings
+                    </Button>
                     {disabled ? (
                       <span style={styles.mutedSmall}>Contact platform admin</span>
                     ) : (
@@ -371,6 +403,14 @@ export function HubAgentsPage() {
           </ul>
         )}
       </Card>
+      )}
+      {ratingsAgent && session ? (
+        <HubAgentRatingsSheet
+          agent={ratingsAgent}
+          token={session.accessToken}
+          onClose={() => setRatingsAgent(null)}
+        />
+      ) : null}
     </HubShell>
   );
 }
@@ -378,27 +418,77 @@ export function HubAgentsPage() {
 const styles: Record<string, CSSProperties> = {
   summary: {
     display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))',
-    gap: '0.55rem',
-    marginBottom: '0.85rem',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(88px, 1fr))',
+    gap: '0.4rem',
   },
   stat: {
-    padding: '0.7rem 0.8rem',
+    padding: '0.4rem 0.5rem',
     borderRadius: 'var(--radius-md)',
     border: '1px solid var(--border)',
-    background: 'var(--bg-elevated)',
+    background: 'var(--bg)',
     display: 'grid',
-    gap: '0.1rem',
+    gap: '0.05rem',
   },
   statValue: {
     fontFamily: 'var(--font-display)',
-    fontSize: '1.35rem',
+    fontSize: '1.1rem',
     fontWeight: 800,
     color: 'var(--text)',
   },
-  statLabel: { fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-muted)' },
-  card: { padding: '0.75rem', display: 'grid', gap: '0.45rem', marginBottom: '0.65rem' },
-  title: { margin: 0, fontFamily: 'var(--font-display)', fontSize: '1rem', fontWeight: 800 },
+  statLabel: { fontSize: '0.72rem', fontWeight: 600, color: 'var(--text-muted)' },
+  tabs: {
+    display: 'grid',
+    gridTemplateColumns: '1fr 1fr',
+    gap: 3,
+    padding: 3,
+    marginBottom: '0.55rem',
+    border: '1px solid var(--border)',
+    borderRadius: 10,
+    background: 'var(--bg)',
+  },
+  tab: {
+    appearance: 'none',
+    border: 'none',
+    background: 'transparent',
+    color: 'var(--text-muted)',
+    fontWeight: 700,
+    fontSize: '0.82rem',
+    padding: '0.45rem 0.55rem',
+    borderRadius: 8,
+    cursor: 'pointer',
+    minHeight: 'var(--touch-min)',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '0.35rem',
+  },
+  tabActive: {
+    appearance: 'none',
+    border: 'none',
+    background: 'var(--bg-elevated)',
+    color: 'var(--text)',
+    fontWeight: 800,
+    fontSize: '0.82rem',
+    padding: '0.45rem 0.55rem',
+    borderRadius: 8,
+    cursor: 'pointer',
+    minHeight: 'var(--touch-min)',
+    boxShadow: 'var(--shadow-card)',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '0.35rem',
+  },
+  tabCount: {
+    fontSize: '0.72rem',
+    fontWeight: 800,
+    color: 'var(--accent)',
+    background: 'var(--accent-soft)',
+    borderRadius: 999,
+    padding: '0.08rem 0.4rem',
+    fontVariantNumeric: 'tabular-nums',
+  },
+  card: { padding: '0.75rem', display: 'grid', gap: '0.45rem' },
   hint: { margin: 0, color: 'var(--text-muted)', fontSize: '0.78rem' },
   form: { display: 'grid', gap: '0.45rem' },
   row2: {
@@ -434,7 +524,8 @@ const styles: Record<string, CSSProperties> = {
     minHeight: 'var(--touch-min)',
     boxSizing: 'border-box',
   },
-  muted: { margin: 0, color: 'var(--text-muted)' },
+  muted: { margin: 0, color: 'var(--text-muted)', fontSize: '0.82rem', fontWeight: 600 },
+  empty: { display: 'flex', alignItems: 'center', gap: '0.55rem', flexWrap: 'wrap' },
   mutedSmall: { fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 600 },
   list: { listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: '0.45rem' },
   row: {

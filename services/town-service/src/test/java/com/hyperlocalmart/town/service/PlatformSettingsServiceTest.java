@@ -108,6 +108,18 @@ class PlatformSettingsServiceTest {
     }
 
     @Test
+    void settingsChangeParts_includesHubAdminAgentRatings() {
+        Map<String, Object> before = new LinkedHashMap<>();
+        before.put("hubAdminCanSeeAgentRatings", true);
+        Map<String, Object> after = new LinkedHashMap<>(before);
+        after.put("hubAdminCanSeeAgentRatings", false);
+
+        var parts = PlatformSettingsService.settingsChangeParts(before, after);
+
+        assertThat(parts).anyMatch(s -> s.contains("Hub admin agent ratings"));
+    }
+
+    @Test
     void patch_rejectsEmptyTerms() {
         when(platformSettingRepository.findBySettingKey(PlatformSettingsService.KEY_PLATFORM))
                 .thenReturn(Optional.empty());

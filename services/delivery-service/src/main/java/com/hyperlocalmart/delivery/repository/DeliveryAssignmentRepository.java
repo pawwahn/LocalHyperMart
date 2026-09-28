@@ -91,4 +91,41 @@ public interface DeliveryAssignmentRepository extends JpaRepository<DeliveryAssi
             GROUP BY a.agentId, a.legType
             """)
     List<Object[]> countCompletedGroupedByAgentAndLeg(UUID hubId, Instant start, Instant end);
+
+    @Query("""
+            SELECT COUNT(a) FROM DeliveryAssignment a
+            WHERE a.agentId = :agentId
+              AND a.legType = :legType
+              AND a.status = com.hyperlocalmart.delivery.entity.AssignmentStatus.CANCELLED
+              AND COALESCE(a.completedAt, a.updatedAt) >= :start
+              AND COALESCE(a.completedAt, a.updatedAt) < :end
+            """)
+    long countCancelledByAgentIdAndLegTypeBetween(
+            UUID agentId, AssignmentLegType legType, Instant start, Instant end);
+
+    @Query("""
+            SELECT COUNT(a) FROM DeliveryAssignment a
+            WHERE a.agentId = :agentId
+              AND a.legType = com.hyperlocalmart.delivery.entity.AssignmentLegType.LAST_MILE
+              AND a.status = com.hyperlocalmart.delivery.entity.AssignmentStatus.CANCELLED
+              AND EXISTS (
+                  SELECT 1 FROM DeliveryEvent e
+                  WHERE e.assignmentId = a.id AND e.eventType = 'BUYER_REJECTED'
+              )
+            """)
+    long countBuyerRejectedByAgentId(UUID agentId);
+
+    @Query("""
+            SELECT COUNT(a) FROM DeliveryAssignment a
+            WHERE a.agentId = :agentId
+              AND a.legType = com.hyperlocalmart.delivery.entity.AssignmentLegType.LAST_MILE
+              AND a.status = com.hyperlocalmart.delivery.entity.AssignmentStatus.CANCELLED
+              AND EXISTS (
+                  SELECT 1 FROM DeliveryEvent e
+                  WHERE e.assignmentId = a.id AND e.eventType = 'BUYER_REJECTED'
+              )
+              AND COALESCE(a.completedAt, a.updatedAt) >= :start
+              AND COALESCE(a.completedAt, a.updatedAt) < :end
+            """)
+    long countBuyerRejectedByAgentIdBetween(UUID agentId, Instant start, Instant end);
 }

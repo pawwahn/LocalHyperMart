@@ -27,8 +27,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.UUID;
 import java.util.regex.Pattern;
 
@@ -161,13 +163,21 @@ public class VendorRegistrationService {
         request.setReviewedAt(Instant.now());
         request.setUpdatedBy(reviewerId);
         registrationRequestRepository.save(request);
+        Map<String, Object> beforeApprove = new LinkedHashMap<>();
+        beforeApprove.put("status", "PENDING");
+        Map<String, Object> afterApprove = new LinkedHashMap<>();
+        afterApprove.put("status", "APPROVED");
+        List<String> approveLines = VendorAuditFormat.changeLines(beforeApprove, afterApprove);
         adminAuditClient.record(
                 "vendors",
                 "APPROVE_VENDOR",
-                "Approved " + request.getBusinessName(),
+                VendorAuditFormat.summary("Approved " + request.getShopName(), approveLines),
                 reviewerId,
                 request.getTownId(),
-                vendor.getId());
+                vendor.getId(),
+                beforeApprove,
+                afterApprove,
+                approveLines);
 
         return toRegistrationResponse(request, temporaryPassword);
     }
@@ -192,13 +202,22 @@ public class VendorRegistrationService {
         request.setReviewedAt(Instant.now());
         request.setUpdatedBy(reviewerId);
         VendorRegistrationRequest saved = registrationRequestRepository.save(request);
+        Map<String, Object> beforeReject = new LinkedHashMap<>();
+        beforeReject.put("status", "PENDING");
+        Map<String, Object> afterReject = new LinkedHashMap<>();
+        afterReject.put("status", "REJECTED");
+        afterReject.put("rejectReason", rejectReason);
+        List<String> rejectLines = VendorAuditFormat.changeLines(beforeReject, afterReject);
         adminAuditClient.record(
                 "vendors",
                 "REJECT_VENDOR",
-                "Rejected " + request.getBusinessName(),
+                VendorAuditFormat.summary("Rejected " + request.getShopName(), rejectLines),
                 reviewerId,
                 request.getTownId(),
-                request.getId());
+                request.getId(),
+                beforeReject,
+                afterReject,
+                rejectLines);
 
         return toRegistrationResponse(saved, null);
     }
@@ -230,6 +249,10 @@ public class VendorRegistrationService {
                     "Bank account and IFSC are required when GST number is provided");
         }
 
+        List<Shop> shops = shopRepository.findByVendorIdOrderByCreatedAtAsc(vendorId);
+        Shop shop = shops.isEmpty() ? null : shops.getFirst();
+        Map<String, Object> beforeProfile = VendorAuditFormat.profile(vendor, shop);
+
         vendor.setBusinessName(businessName);
         vendor.setOwnerName(blankToNull(request.getOwnerName()));
         vendor.setGstNumberEnc(gstNumber);
@@ -239,15 +262,13 @@ public class VendorRegistrationService {
         vendor.setUpdatedBy(actorUserId);
         vendor = vendorRepository.save(vendor);
 
-        List<Shop> shops = shopRepository.findByVendorIdOrderByCreatedAtAsc(vendorId);
-        if (!shops.isEmpty()) {
-            Shop shop = shops.getFirst();
+        if (shop != null) {
             shop.setShopName(shopName);
             shop.setAddress(blankToNull(request.getAddress()));
             shop.setUpdatedBy(actorUserId);
             shopRepository.save(shop);
         } else {
-            Shop shop = Shop.builder()
+            shop = Shop.builder()
                     .vendor(vendor)
                     .shopName(shopName)
                     .address(blankToNull(request.getAddress()))
@@ -259,13 +280,21 @@ public class VendorRegistrationService {
             shopRepository.save(shop);
         }
 
-        adminAuditClient.record(
-                "vendors",
-                "UPDATE_VENDOR_PROFILE",
-                "Updated " + vendor.getBusinessName(),
-                actorUserId,
-                vendor.getTownId(),
-                vendor.getId());
+        Map<String, Object> afterProfile = VendorAuditFormat.profile(vendor, shop);
+        List<String> profileLines = VendorAuditFormat.changeLines(beforeProfile, afterProfile);
+        if (!profileLines.isEmpty()) {
+            String shopLabel = shop.getShopName() == null ? vendor.getBusinessName() : shop.getShopName();
+            adminAuditClient.record(
+                    "vendors",
+                    "UPDATE_VENDOR_PROFILE",
+                    VendorAuditFormat.summary("Updated " + shopLabel, profileLines),
+                    actorUserId,
+                    vendor.getTownId(),
+                    vendor.getId(),
+                    beforeProfile,
+                    afterProfile,
+                    profileLines);
+        }
         return toVendorResponse(vendor);
     }
 
@@ -278,6 +307,10 @@ public class VendorRegistrationService {
         if (next != VendorStatus.ACTIVE && next != VendorStatus.DISABLED) {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Status must be ACTIVE or DISABLED");
         }
+
+        List<Shop> statusShops = shopRepository.findByVendorIdOrderByCreatedAtAsc(vendorId);
+        Shop statusShop = statusShops.isEmpty() ? null : statusShops.getFirst();
+        Map<String, Object> beforeStatus = VendorAuditFormat.profile(vendor, statusShop);
 
         if (next == VendorStatus.DISABLED) {
             if (vendor.getStatus() == VendorStatus.DISABLED) {
@@ -302,13 +335,25 @@ public class VendorRegistrationService {
         vendor.setUpdatedBy(actorUserId);
         vendor = vendorRepository.save(vendor);
         syncLoginStatus(vendor);
-        adminAuditClient.record(
-                "vendors",
-                "UPDATE_VENDOR_STATUS",
-                vendor.getBusinessName() + " → " + vendor.getStatus().name(),
-                actorUserId,
-                vendor.getTownId(),
-                vendor.getId());
+        Map<String, Object> afterStatus = VendorAuditFormat.profile(vendor, statusShop);
+        List<String> statusLines = VendorAuditFormat.changeLines(beforeStatus, afterStatus);
+        if (!statusLines.isEmpty()) {
+            String statusShopName = statusShop != null && statusShop.getShopName() != null
+                    ? statusShop.getShopName()
+                    : vendor.getBusinessName();
+            String statusHeadline = (vendor.getStatus() == VendorStatus.DISABLED ? "Disabled " : "Re-enabled ")
+                    + statusShopName;
+            adminAuditClient.record(
+                    "vendors",
+                    "UPDATE_VENDOR_STATUS",
+                    VendorAuditFormat.summary(statusHeadline, statusLines),
+                    actorUserId,
+                    vendor.getTownId(),
+                    vendor.getId(),
+                    beforeStatus,
+                    afterStatus,
+                    statusLines);
+        }
         return toVendorResponse(vendor);
     }
 
@@ -365,6 +410,7 @@ public class VendorRegistrationService {
                 .townId(vendor.getTownId())
                 .businessName(vendor.getBusinessName())
                 .phone(vendor.getPhone())
+                .gstNumber(vendor.getGstNumberEnc())
                 .shopName(shop != null ? shop.getShopName() : null)
                 .shopId(shop != null ? shop.getId() : null)
                 .status(vendor.getStatus().name())

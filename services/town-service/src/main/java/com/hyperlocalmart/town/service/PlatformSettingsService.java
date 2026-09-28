@@ -1,5 +1,6 @@
 package com.hyperlocalmart.town.service;
 
+import com.hyperlocalmart.town.dto.request.AdminAuditAppendRequest;
 import com.hyperlocalmart.town.dto.response.MembershipConfigResponse;
 import com.hyperlocalmart.town.dto.response.ReferralConfigResponse;
 import com.hyperlocalmart.town.dto.response.MembershipPackRevisionResponse;
@@ -54,6 +55,11 @@ public class PlatformSettingsService {
         pub.put("legalUpdatedAt", all.getOrDefault("legalUpdatedAt", ""));
         pub.put("grievanceOfficer", all.getOrDefault("grievanceOfficer", ""));
         pub.put("supportPhone", all.getOrDefault("supportPhone", ""));
+        pub.put("supplierLegalName", all.getOrDefault("supplierLegalName", "HyperLocalMart"));
+        pub.put("supplierGstin", all.getOrDefault("supplierGstin", ""));
+        pub.put("supplierAddress", all.getOrDefault("supplierAddress", ""));
+        pub.put("supplierState", all.getOrDefault("supplierState", ""));
+        pub.put("supplierGstStateCode", all.getOrDefault("supplierGstStateCode", ""));
         pub.put("deliveryFee", all.getOrDefault("deliveryFee", 40));
         pub.put("vendorOrderAlertMessage",
                 all.getOrDefault("vendorOrderAlertMessage", "Order received"));
@@ -124,6 +130,14 @@ public class PlatformSettingsService {
                 patch = new LinkedHashMap<>(patch);
                 patch.remove("deliveryFee");
             }
+            if (patch.containsKey("supplierGstin")) {
+                current.put("supplierGstin", normalizeGstin(patch.get("supplierGstin")));
+                patch.remove("supplierGstin");
+            }
+            if (patch.containsKey("supplierGstStateCode")) {
+                current.put("supplierGstStateCode", normalizeGstStateCode(patch.get("supplierGstStateCode")));
+                patch.remove("supplierGstStateCode");
+            }
             if (patch.containsKey("vendorOrderAlertMessage")) {
                 current.put("vendorOrderAlertMessage",
                         normalizeAlertMessage(patch.get("vendorOrderAlertMessage")));
@@ -139,17 +153,20 @@ public class PlatformSettingsService {
         PackSnap afterPacks = packSnap(current);
         if (!beforePacks.equals(afterPacks)) {
             recordPackRevision(beforePacks, afterPacks, actorId);
-            adminAuditService.record(
-                    "memberships",
-                    "UPDATE_MEMBERSHIP_PACKS",
-                    "Updated membership pack prices",
-                    actorId,
-                    "SUPER_ADMIN",
-                    null,
-                    "MEMBERSHIP_PACKS",
-                    null,
-                    before,
-                    current);
+            List<String> packLines = membershipChangeLines(before, current);
+            AdminAuditAppendRequest packAudit = new AdminAuditAppendRequest();
+            packAudit.setScreenKey("memberships");
+            packAudit.setAction("UPDATE_MEMBERSHIP_PACKS");
+            packAudit.setChangeSummary(packLines.isEmpty()
+                    ? "Updated membership packs"
+                    : String.join("; ", packLines));
+            packAudit.setActorUserId(actorId);
+            packAudit.setActorRole("SUPER_ADMIN");
+            packAudit.setEntityType("MEMBERSHIP_PACKS");
+            packAudit.setBeforeSnapshot(membershipSnapshot(before));
+            packAudit.setAfterSnapshot(membershipSnapshot(current));
+            packAudit.setChangeLines(packLines);
+            adminAuditService.record(packAudit);
         }
         PlatformSetting row = platformSettingRepository.findBySettingKey(KEY_PLATFORM)
                 .orElseGet(() -> PlatformSetting.builder().settingKey(KEY_PLATFORM).build());
@@ -174,6 +191,79 @@ public class PlatformSettingsService {
         return current;
     }
 
+    /** Membership-only old → new lines. Each line is "Label: old → new". */
+    public static List<String> membershipChangeLines(Map<String, Object> before, Map<String, Object> after) {
+        Map<String, Object> left = before != null ? before : Map.of();
+        Map<String, Object> right = after != null ? after : Map.of();
+        List<String> parts = new ArrayList<>();
+        valuedBool(parts, "Membership sales", left.get("membershipEnabled"), right.get("membershipEnabled"));
+        valuedMoney(parts, "3 month price", left.get("membershipQuarterlyPrice"), right.get("membershipQuarterlyPrice"));
+        valuedInt(parts, "3 month deliveries", left.get("membershipQuarterlyCredits"), right.get("membershipQuarterlyCredits"));
+        valuedMoney(parts, "6 month price", left.get("membershipHalfYearPrice"), right.get("membershipHalfYearPrice"));
+        valuedInt(parts, "6 month deliveries", left.get("membershipHalfYearCredits"), right.get("membershipHalfYearCredits"));
+        valuedMoney(parts, "Annual price", left.get("membershipAnnualPrice"), right.get("membershipAnnualPrice"));
+        valuedInt(parts, "Annual deliveries", left.get("membershipAnnualCredits"), right.get("membershipAnnualCredits"));
+        valuedPlain(parts, "Status", left.get("status"), right.get("status"));
+        valuedPlain(parts, "Phone", left.get("phone"), right.get("phone"));
+        valuedPlain(parts, "Slab", left.get("slab"), right.get("slab"));
+        valuedInt(parts, "Credits", left.get("credits"), right.get("credits"));
+        return parts;
+    }
+
+    public static Map<String, Object> membershipSnapshot(Map<String, Object> source) {
+        Map<String, Object> snap = new LinkedHashMap<>();
+        if (source == null) {
+            return snap;
+        }
+        for (String key : List.of(
+                "membershipEnabled",
+                "membershipQuarterlyPrice",
+                "membershipQuarterlyCredits",
+                "membershipHalfYearPrice",
+                "membershipHalfYearCredits",
+                "membershipAnnualPrice",
+                "membershipAnnualCredits")) {
+            if (source.containsKey(key)) {
+                snap.put(key, source.get(key));
+            }
+        }
+        return snap;
+    }
+
+    private static void valuedBool(List<String> parts, String label, Object before, Object after) {
+        if (Objects.equals(auditNormalizeBool(before), auditNormalizeBool(after))) {
+            return;
+        }
+        parts.add(label + ": " + auditBoolLabel(before) + " → " + auditBoolLabel(after));
+    }
+
+    private static void valuedMoney(List<String> parts, String label, Object before, Object after) {
+        String left = auditMoneyLabel(before);
+        String right = auditMoneyLabel(after);
+        if (!Objects.equals(left, right)) {
+            parts.add(label + ": " + left + " → " + right);
+        }
+    }
+
+    private static void valuedInt(List<String> parts, String label, Object before, Object after) {
+        String left = before == null ? "—" : String.valueOf(asInt(before, 0));
+        String right = after == null ? "—" : String.valueOf(asInt(after, 0));
+        if (!Objects.equals(left, right)) {
+            parts.add(label + ": " + left + " → " + right);
+        }
+    }
+
+    private static void valuedPlain(List<String> parts, String label, Object before, Object after) {
+        String left = before == null || String.valueOf(before).isBlank() ? "—" : String.valueOf(before).trim();
+        String right = after == null || String.valueOf(after).isBlank() ? "—" : String.valueOf(after).trim();
+        if (before == null && after == null) {
+            return;
+        }
+        if (!Objects.equals(left, right)) {
+            parts.add(label + ": " + left + " → " + right);
+        }
+    }
+
     /** Human-readable diff lines for platform settings audit (excludes full legal body text). */
     public static List<String> settingsChangeParts(Map<String, Object> before, Map<String, Object> after) {
         Map<String, Object> left = before != null ? before : Map.of();
@@ -191,7 +281,13 @@ public class PlatformSettingsService {
         auditBool(parts, "Maps", left.get("mapsEnabled"), right.get("mapsEnabled"));
         auditBool(parts, "Maintenance", left.get("maintenanceMode"), right.get("maintenanceMode"));
         auditBool(parts, "Meal planner", left.get("mealPlannerEnabled"), right.get("mealPlannerEnabled"));
+        auditBool(parts, "Hub admin agent ratings", left.get("hubAdminCanSeeAgentRatings"), right.get("hubAdminCanSeeAgentRatings"));
         auditPlain(parts, "Support phone", left.get("supportPhone"), right.get("supportPhone"));
+        auditPlain(parts, "Bill legal name", left.get("supplierLegalName"), right.get("supplierLegalName"));
+        auditPlain(parts, "Bill GSTIN", left.get("supplierGstin"), right.get("supplierGstin"));
+        auditPlain(parts, "Bill address", left.get("supplierAddress"), right.get("supplierAddress"));
+        auditPlain(parts, "Bill state", left.get("supplierState"), right.get("supplierState"));
+        auditPlain(parts, "Bill GST state", left.get("supplierGstStateCode"), right.get("supplierGstStateCode"));
         auditPlain(parts, "Grievance officer", left.get("grievanceOfficer"), right.get("grievanceOfficer"));
         auditPlain(parts, "Terms URL", left.get("termsUrl"), right.get("termsUrl"));
         auditPlain(parts, "Privacy URL", left.get("privacyUrl"), right.get("privacyUrl"));
@@ -408,6 +504,11 @@ public class PlatformSettingsService {
         map.put("legalUpdatedAt", "");
         map.put("grievanceOfficer", "");
         map.put("supportPhone", "9876500100");
+        map.put("supplierLegalName", "HyperLocalMart");
+        map.put("supplierGstin", "");
+        map.put("supplierAddress", "");
+        map.put("supplierState", "");
+        map.put("supplierGstStateCode", "");
         // Platform-wide buyer delivery fee (₹) — not town-specific.
         map.put("deliveryFee", 40);
         // Spoken and displayed to every vendor, regardless of town.
@@ -426,7 +527,13 @@ public class PlatformSettingsService {
         map.put("referralShareMessageTemplate",
                 "Order groceries from local shops on HyperLocalMart. Use my code {code}: {link}");
         map.put("mealPlannerEnabled", false);
+        map.put("hubAdminCanSeeAgentRatings", true);
         return map;
+    }
+
+    @Transactional(readOnly = true)
+    public boolean hubAdminCanSeeAgentRatings() {
+        return asBool(getSettings().get("hubAdminCanSeeAgentRatings"), true);
     }
 
     @Transactional(readOnly = true)
@@ -456,6 +563,34 @@ public class PlatformSettingsService {
         }
         // Store as whole paise-friendly 2dp via rounding
         return Math.round(value * 100.0) / 100.0;
+    }
+
+    private static String normalizeGstin(Object raw) {
+        if (raw == null) {
+            return "";
+        }
+        String value = String.valueOf(raw).trim().toUpperCase(java.util.Locale.ROOT).replace(" ", "");
+        if (value.isEmpty()) {
+            return "";
+        }
+        if (!value.matches("^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$")) {
+            throw new IllegalArgumentException("GSTIN must be 15 characters");
+        }
+        return value;
+    }
+
+    private static String normalizeGstStateCode(Object raw) {
+        if (raw == null) {
+            return "";
+        }
+        String value = String.valueOf(raw).trim();
+        if (value.isEmpty()) {
+            return "";
+        }
+        if (!value.matches("^[0-9]{2}$")) {
+            throw new IllegalArgumentException("GST state code must be 2 digits, for example 37");
+        }
+        return value;
     }
 
     private void applyLegalPatch(Map<String, Object> current, Map<String, Object> patch) {

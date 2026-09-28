@@ -85,3 +85,44 @@ export async function listAgentAssignments(
       data.completedHomeDeliveries ?? fromRows.filter((r) => r.legType === 'LAST_MILE').length,
   };
 }
+
+export type AgentRatingVm = {
+  ratingId: string;
+  orderId: string;
+  orderNumber?: string | null;
+  stars: number;
+  comment?: string | null;
+  createdAt?: string | null;
+};
+
+export type AgentRatingListVm = {
+  averageStars: number;
+  ratingCount: number;
+  visibleToHub: boolean;
+  items: AgentRatingVm[];
+  page: number;
+  size: number;
+  totalElements: number;
+  totalPages: number;
+};
+
+export async function listAgentRatings(
+  token: string,
+  agentId: string,
+  page = 0,
+): Promise<AgentRatingListVm> {
+  const data = await apiRequest<AgentRatingListVm>(
+    `/api/v1/orders/admin/delivery-agent-ratings?agentId=${agentId}&page=${page}&size=20`,
+    { token },
+  );
+  return {
+    averageStars: Number(data.averageStars ?? 0),
+    ratingCount: Number(data.ratingCount ?? 0),
+    visibleToHub: Boolean(data.visibleToHub),
+    items: data.items ?? [],
+    page: data.page ?? 0,
+    size: data.size ?? 20,
+    totalElements: data.totalElements ?? 0,
+    totalPages: Math.max(data.totalPages ?? 1, 1),
+  };
+}

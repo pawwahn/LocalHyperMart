@@ -1,4 +1,5 @@
 import { useEffect, useId, type CSSProperties } from 'react';
+import { createPortal } from 'react-dom';
 import { Button } from '@/shared/ui';
 
 export type ConfirmDialogProps = {
@@ -41,7 +42,7 @@ export function ConfirmDialog({
 
   if (!open) return null;
 
-  return (
+  return createPortal(
     <div
       style={styles.overlay}
       role="presentation"
@@ -60,9 +61,9 @@ export function ConfirmDialog({
           {title}
         </h2>
         <p style={styles.description}>{description}</p>
-        <div style={styles.actions}>
+        <div style={alertOnly ? styles.actionsSingle : styles.actions}>
           {alertOnly ? null : (
-            <Button type="button" variant="ghost" disabled={busy} onClick={onClose}>
+            <Button type="button" variant="ghost" disabled={busy} onClick={onClose} style={styles.actionBtn}>
               {cancelLabel}
             </Button>
           )}
@@ -71,12 +72,14 @@ export function ConfirmDialog({
             variant={danger ? 'danger' : 'primary'}
             disabled={busy}
             onClick={onConfirm}
+            style={styles.actionBtn}
           >
-            {busy ? '…' : alertOnly ? confirmLabel || 'OK' : confirmLabel}
+            {busy ? 'Placing order…' : alertOnly ? confirmLabel || 'OK' : confirmLabel}
           </Button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -84,7 +87,7 @@ const styles: Record<string, CSSProperties> = {
   overlay: {
     position: 'fixed',
     inset: 0,
-    zIndex: 1000,
+    zIndex: 130,
     display: 'grid',
     placeItems: 'center',
     padding: '1rem',
@@ -116,9 +119,18 @@ const styles: Record<string, CSSProperties> = {
     lineHeight: 1.45,
   },
   actions: {
-    display: 'flex',
-    justifyContent: 'flex-end',
+    display: 'grid',
+    gridTemplateColumns: '1fr 1fr',
     gap: '0.55rem',
-    flexWrap: 'wrap',
+  },
+  actionsSingle: {
+    display: 'grid',
+    gridTemplateColumns: '1fr',
+    gap: '0.55rem',
+  },
+  actionBtn: {
+    width: '100%',
+    minHeight: 44,
+    whiteSpace: 'nowrap',
   },
 };

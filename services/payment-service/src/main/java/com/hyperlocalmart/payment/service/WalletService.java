@@ -50,7 +50,7 @@ public class WalletService {
                 .build();
     }
 
-    @Transactional(readOnly = true)
+    /** Order-number lookups stay outside a DB transaction so a slow call cannot pin the pool. */
     public WalletTransactionListResponse listTransactions(UUID userId, int limit, int offset) {
         WalletAccount wallet = walletAccountRepository.findByUserId(userId).orElse(null);
         if (wallet == null) {

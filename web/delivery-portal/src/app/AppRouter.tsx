@@ -16,6 +16,7 @@ import { AgentHomePage } from '@/features/agent/pages/AgentHomePage';
 import { AgentVendorPickupsPage } from '@/features/agent/pages/AgentVendorPickupsPage';
 import { AgentBuyerDeliveriesPage } from '@/features/agent/pages/AgentBuyerDeliveriesPage';
 import { AgentHistoryPage } from '@/features/agent/pages/AgentHistoryPage';
+import { AgentPayPage } from '@/features/agent/pages/AgentPayPage';
 
 function HomeRedirect() {
   const { session, isAuthenticated } = useAuth();
@@ -45,6 +46,7 @@ export function AppRouter() {
               <Route path="/agent/pickups" element={<AgentVendorPickupsPage />} />
               <Route path="/agent/deliveries" element={<AgentBuyerDeliveriesPage />} />
               <Route path="/agent/history" element={<AgentHistoryPage />} />
+              <Route path="/agent/pay" element={<AgentPayPage />} />
             </Route>
             <Route path="*" element={<HomeRedirect />} />
           </Routes>

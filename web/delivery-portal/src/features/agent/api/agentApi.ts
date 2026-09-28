@@ -54,6 +54,14 @@ export function toAssignmentView(dto: AssignmentDto): AssignmentView {
   };
 }
 
+export type AgentPeriodStats = {
+  shopPicked: number;
+  droppedAtHub: number;
+  homeDelivered: number;
+  returnsToHub: number;
+  cancelledPickups: number;
+};
+
 export type AgentStatsDto = {
   vendorPickupsCollected: number;
   vendorPickupsAtHub: number;
@@ -61,16 +69,136 @@ export type AgentStatsDto = {
   vendorPickupsCollectedToday: number;
   vendorPickupsAtHubToday: number;
   buyerDeliveriesCompletedToday: number;
+  openShopPickups?: number;
+  openHomeDeliveries?: number;
+  returnsToHub?: number;
+  returnsToHubToday?: number;
+  today?: AgentPeriodStats;
+  week?: AgentPeriodStats;
+  month?: AgentPeriodStats;
+  allTime?: AgentPeriodStats;
 };
 
-export type AgentStatsView = {
-  vendorPickupsCollected: number;
-  vendorPickupsAtHub: number;
-  buyerDeliveriesCompleted: number;
-  vendorPickupsCollectedToday: number;
-  vendorPickupsAtHubToday: number;
-  buyerDeliveriesCompletedToday: number;
+export type AgentStatsView = AgentStatsDto & {
+  today: AgentPeriodStats;
+  week: AgentPeriodStats;
+  month: AgentPeriodStats;
+  allTime: AgentPeriodStats;
 };
+
+function asPeriod(raw: unknown): AgentPeriodStats {
+  const row = (raw ?? {}) as Record<string, unknown>;
+  return {
+    shopPicked: Number(row.shopPicked ?? 0),
+    droppedAtHub: Number(row.droppedAtHub ?? 0),
+    homeDelivered: Number(row.homeDelivered ?? 0),
+    returnsToHub: Number(row.returnsToHub ?? 0),
+    cancelledPickups: Number(row.cancelledPickups ?? 0),
+  };
+}
+
+export async function fetchMyStats(token: string): Promise<AgentStatsView> {
+  const data = await apiRequest<AgentStatsDto>('/api/v1/delivery/agents/me/stats', { token });
+  const allTime = asPeriod(data.allTime ?? {
+    shopPicked: data.vendorPickupsCollected,
+    droppedAtHub: data.vendorPickupsAtHub,
+    homeDelivered: data.buyerDeliveriesCompleted,
+    returnsToHub: data.returnsToHub ?? 0,
+    cancelledPickups: 0,
+  });
+  const today = asPeriod(data.today ?? {
+    shopPicked: data.vendorPickupsCollectedToday,
+    droppedAtHub: data.vendorPickupsAtHubToday,
+    homeDelivered: data.buyerDeliveriesCompletedToday,
+    returnsToHub: data.returnsToHubToday ?? 0,
+    cancelledPickups: 0,
+  });
+  return {
+    ...data,
+    vendorPickupsCollected: Number(data.vendorPickupsCollected ?? allTime.shopPicked),
+    vendorPickupsAtHub: Number(data.vendorPickupsAtHub ?? allTime.droppedAtHub),
+    buyerDeliveriesCompleted: Number(data.buyerDeliveriesCompleted ?? allTime.homeDelivered),
+    vendorPickupsCollectedToday: Number(data.vendorPickupsCollectedToday ?? today.shopPicked),
+    vendorPickupsAtHubToday: Number(data.vendorPickupsAtHubToday ?? today.droppedAtHub),
+    buyerDeliveriesCompletedToday: Number(data.buyerDeliveriesCompletedToday ?? today.homeDelivered),
+    openShopPickups: Number(data.openShopPickups ?? 0),
+    openHomeDeliveries: Number(data.openHomeDeliveries ?? 0),
+    returnsToHub: Number(data.returnsToHub ?? allTime.returnsToHub),
+    returnsToHubToday: Number(data.returnsToHubToday ?? today.returnsToHub),
+    today,
+    week: asPeriod(data.week),
+    month: asPeriod(data.month),
+    allTime,
+  };
+}
+
+export type AgentPaySummary = {
+  agentId: string;
+  agentName: string;
+  townId: string;
+  from: string;
+  to: string;
+  payEnabled: boolean;
+  pickupRate: number;
+  lastMileRate: number;
+  completedOrderRate: number;
+  payableOrders: number;
+  unpaidOrderCount: number;
+  earned: number;
+  paid: number;
+  due: number;
+  unpaidOrders: Array<{
+    orderId: string;
+    orderNumber: string;
+    deliveredAt?: string | null;
+    amount: number;
+    pickupCompleted: boolean;
+    lastMileCompleted: boolean;
+  }>;
+  payouts: Array<{
+    settlementId: string;
+    status: string;
+    periodStart?: string | null;
+    periodEnd?: string | null;
+    netAmount: number;
+    payoutMethod?: string | null;
+    transactionReference?: string | null;
+    paidAt?: string | null;
+    orderCount: number;
+  }>;
+};
+
+export async function fetchMyPay(
+  token: string,
+  from?: string,
+  to?: string,
+): Promise<AgentPaySummary> {
+  const q = new URLSearchParams();
+  if (from) q.set('from', from);
+  if (to) q.set('to', to);
+  const suffix = q.toString() ? `?${q.toString()}` : '';
+  const data = await apiRequest<AgentPaySummary>(`/api/v1/payments/settlements/agent/me${suffix}`, { token });
+  return {
+    ...data,
+    pickupRate: Number(data.pickupRate ?? 0),
+    lastMileRate: Number(data.lastMileRate ?? 0),
+    completedOrderRate: Number(data.completedOrderRate ?? 0),
+    payableOrders: Number(data.payableOrders ?? 0),
+    unpaidOrderCount: Number(data.unpaidOrderCount ?? 0),
+    earned: Number(data.earned ?? 0),
+    paid: Number(data.paid ?? 0),
+    due: Number(data.due ?? 0),
+    unpaidOrders: (data.unpaidOrders ?? []).map((row) => ({
+      ...row,
+      amount: Number(row.amount ?? 0),
+    })),
+    payouts: (data.payouts ?? []).map((row) => ({
+      ...row,
+      netAmount: Number(row.netAmount ?? 0),
+      orderCount: Number(row.orderCount ?? 0),
+    })),
+  };
+}
 
 export type PickupManifestLineView = {
   name: string;
@@ -131,10 +259,6 @@ function toPickupManifestView(dto: {
       lineTotal: Number(item.lineTotal ?? 0),
     })),
   };
-}
-
-export async function fetchMyStats(token: string): Promise<AgentStatsView> {
-  return apiRequest<AgentStatsDto>('/api/v1/delivery/agents/me/stats', { token });
 }
 
 function isActiveStatus(status: string): boolean {

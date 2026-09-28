@@ -23,6 +23,10 @@ import java.util.UUID;
 public class AgentStatsService {
 
     private static final ZoneId IST = ZoneId.of("Asia/Kolkata");
+    private static final EnumSet<AssignmentStatus> PICKED =
+            EnumSet.of(AssignmentStatus.IN_PROGRESS, AssignmentStatus.COMPLETED);
+    private static final EnumSet<AssignmentStatus> OPEN =
+            EnumSet.of(AssignmentStatus.ASSIGNED, AssignmentStatus.IN_PROGRESS);
 
     private final DeliveryAgentRepository deliveryAgentRepository;
     private final DeliveryAssignmentRepository deliveryAssignmentRepository;
@@ -33,34 +37,76 @@ public class AgentStatsService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Delivery agent not found"));
 
         UUID agentId = agent.getId();
-        Instant dayStart = LocalDate.now(IST).atStartOfDay(IST).toInstant();
-        Instant dayEnd = LocalDate.now(IST).plusDays(1).atStartOfDay(IST).toInstant();
+        LocalDate today = LocalDate.now(IST);
+        Instant dayStart = today.atStartOfDay(IST).toInstant();
+        Instant dayEnd = today.plusDays(1).atStartOfDay(IST).toInstant();
+        LocalDate weekStartDate = today.minusDays((today.getDayOfWeek().getValue() + 6) % 7);
+        Instant weekStart = weekStartDate.atStartOfDay(IST).toInstant();
+        Instant monthStart = today.withDayOfMonth(1).atStartOfDay(IST).toInstant();
 
-        long vendorPickupsCollected = deliveryAssignmentRepository.countByAgentIdAndLegTypeAndStatusIn(
-                agentId, AssignmentLegType.PICKUP,
-                EnumSet.of(AssignmentStatus.IN_PROGRESS, AssignmentStatus.COMPLETED));
-        long vendorPickupsAtHub = deliveryAssignmentRepository.countByAgentIdAndLegTypeAndStatus(
-                agentId, AssignmentLegType.PICKUP, AssignmentStatus.COMPLETED);
-        long buyerDeliveriesCompleted = deliveryAssignmentRepository.countByAgentIdAndLegTypeAndStatus(
-                agentId, AssignmentLegType.LAST_MILE, AssignmentStatus.COMPLETED);
+        AgentStatsResponse.AgentPeriodStats todayStats = period(agentId, dayStart, dayEnd);
+        AgentStatsResponse.AgentPeriodStats weekStats = period(agentId, weekStart, dayEnd);
+        AgentStatsResponse.AgentPeriodStats monthStats = period(agentId, monthStart, dayEnd);
+        AgentStatsResponse.AgentPeriodStats allTime = allTime(agentId);
 
-        long vendorPickupsCollectedToday = deliveryAssignmentRepository
-                .countByAgentIdAndLegTypeAndStatusInAndUpdatedAtBetween(
-                        agentId, AssignmentLegType.PICKUP,
-                        EnumSet.of(AssignmentStatus.IN_PROGRESS, AssignmentStatus.COMPLETED),
-                        dayStart, dayEnd);
-        long vendorPickupsAtHubToday = deliveryAssignmentRepository
-                .countCompletedByAgentIdAndLegTypeBetween(agentId, AssignmentLegType.PICKUP, dayStart, dayEnd);
-        long buyerDeliveriesCompletedToday = deliveryAssignmentRepository
-                .countCompletedByAgentIdAndLegTypeBetween(agentId, AssignmentLegType.LAST_MILE, dayStart, dayEnd);
+        long openShop = deliveryAssignmentRepository.countByAgentIdAndLegTypeAndStatusIn(
+                agentId, AssignmentLegType.PICKUP, OPEN);
+        long openHome = deliveryAssignmentRepository.countByAgentIdAndLegTypeAndStatusIn(
+                agentId, AssignmentLegType.LAST_MILE, OPEN);
 
         return AgentStatsResponse.builder()
-                .vendorPickupsCollected(vendorPickupsCollected)
-                .vendorPickupsAtHub(vendorPickupsAtHub)
-                .buyerDeliveriesCompleted(buyerDeliveriesCompleted)
-                .vendorPickupsCollectedToday(vendorPickupsCollectedToday)
-                .vendorPickupsAtHubToday(vendorPickupsAtHubToday)
-                .buyerDeliveriesCompletedToday(buyerDeliveriesCompletedToday)
+                .vendorPickupsCollected(allTime.getShopPicked())
+                .vendorPickupsAtHub(allTime.getDroppedAtHub())
+                .buyerDeliveriesCompleted(allTime.getHomeDelivered())
+                .vendorPickupsCollectedToday(todayStats.getShopPicked())
+                .vendorPickupsAtHubToday(todayStats.getDroppedAtHub())
+                .buyerDeliveriesCompletedToday(todayStats.getHomeDelivered())
+                .openShopPickups(openShop)
+                .openHomeDeliveries(openHome)
+                .returnsToHub(allTime.getReturnsToHub())
+                .returnsToHubToday(todayStats.getReturnsToHub())
+                .today(todayStats)
+                .week(weekStats)
+                .month(monthStats)
+                .allTime(allTime)
+                .build();
+    }
+
+    private AgentStatsResponse.AgentPeriodStats period(UUID agentId, Instant start, Instant end) {
+        long shopPicked = deliveryAssignmentRepository.countByAgentIdAndLegTypeAndStatusInAndUpdatedAtBetween(
+                agentId, AssignmentLegType.PICKUP, PICKED, start, end);
+        long droppedAtHub = deliveryAssignmentRepository.countCompletedByAgentIdAndLegTypeBetween(
+                agentId, AssignmentLegType.PICKUP, start, end);
+        long homeDelivered = deliveryAssignmentRepository.countCompletedByAgentIdAndLegTypeBetween(
+                agentId, AssignmentLegType.LAST_MILE, start, end);
+        long returns = deliveryAssignmentRepository.countBuyerRejectedByAgentIdBetween(agentId, start, end);
+        long cancelledPickups = deliveryAssignmentRepository.countCancelledByAgentIdAndLegTypeBetween(
+                agentId, AssignmentLegType.PICKUP, start, end);
+        return AgentStatsResponse.AgentPeriodStats.builder()
+                .shopPicked(shopPicked)
+                .droppedAtHub(droppedAtHub)
+                .homeDelivered(homeDelivered)
+                .returnsToHub(returns)
+                .cancelledPickups(cancelledPickups)
+                .build();
+    }
+
+    private AgentStatsResponse.AgentPeriodStats allTime(UUID agentId) {
+        long shopPicked = deliveryAssignmentRepository.countByAgentIdAndLegTypeAndStatusIn(
+                agentId, AssignmentLegType.PICKUP, PICKED);
+        long droppedAtHub = deliveryAssignmentRepository.countByAgentIdAndLegTypeAndStatus(
+                agentId, AssignmentLegType.PICKUP, AssignmentStatus.COMPLETED);
+        long homeDelivered = deliveryAssignmentRepository.countByAgentIdAndLegTypeAndStatus(
+                agentId, AssignmentLegType.LAST_MILE, AssignmentStatus.COMPLETED);
+        long returns = deliveryAssignmentRepository.countBuyerRejectedByAgentId(agentId);
+        long cancelledPickups = deliveryAssignmentRepository.countByAgentIdAndLegTypeAndStatus(
+                agentId, AssignmentLegType.PICKUP, AssignmentStatus.CANCELLED);
+        return AgentStatsResponse.AgentPeriodStats.builder()
+                .shopPicked(shopPicked)
+                .droppedAtHub(droppedAtHub)
+                .homeDelivered(homeDelivered)
+                .returnsToHub(returns)
+                .cancelledPickups(cancelledPickups)
                 .build();
     }
 }

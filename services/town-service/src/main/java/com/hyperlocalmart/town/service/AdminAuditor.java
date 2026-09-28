@@ -5,6 +5,7 @@ import com.hyperlocalmart.town.dto.request.AdminAuditAppendRequest;
 import com.hyperlocalmart.town.dto.response.AdminAuditEntryResponse;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -31,7 +32,9 @@ public interface AdminAuditor {
             int size,
             Instant from,
             Instant to,
-            String q);
+            String q,
+            List<String> actions,
+            List<String> summaryPrefixes);
 
     Map<String, Object> snapshot(Object value);
 }

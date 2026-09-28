@@ -66,6 +66,25 @@ public class DeliveryClient {
         }
     }
 
+    public AgentContext getAgentByUserId(UUID userId) {
+        RestClient client = restClientBuilder.baseUrl(deliveryServiceProperties.getBaseUrl()).build();
+        try {
+            ApiResponse<AgentContext> response = client.get()
+                    .uri("/api/v1/internal/agents/by-user/{userId}", userId)
+                    .retrieve()
+                    .body(new ParameterizedTypeReference<ApiResponse<AgentContext>>() {});
+            if (response == null || response.getData() == null) {
+                throw new BusinessException(ErrorCode.NOT_FOUND, "Delivery agent not found");
+            }
+            return response.getData();
+        } catch (RestClientResponseException ex) {
+            if (ex.getStatusCode().value() == 404) {
+                throw new BusinessException(ErrorCode.NOT_FOUND, "Delivery agent not found");
+            }
+            throw new BusinessException(ErrorCode.INTERNAL_ERROR, "Could not load delivery agent");
+        }
+    }
+
     public List<OrderLegs> resolveDeliveryLegs(Collection<UUID> orderIds) {
         if (orderIds == null || orderIds.isEmpty()) {
             return List.of();
@@ -87,6 +106,9 @@ public class DeliveryClient {
         } catch (Exception ex) {
             throw new BusinessException(ErrorCode.INTERNAL_ERROR, "Could not load delivery trips for payout");
         }
+    }
+
+    public record AgentContext(UUID agentId, UUID userId, String name, String phone, UUID hubId, UUID townId) {
     }
 
     public record OrderLegs(

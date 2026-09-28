@@ -7,6 +7,7 @@ import com.hyperlocalmart.payment.dto.request.CreateDeliverySettlementRequest;
 import com.hyperlocalmart.payment.dto.request.CreateSettlementRequest;
 import com.hyperlocalmart.payment.dto.request.MarkSettlementPaidRequest;
 import com.hyperlocalmart.payment.dto.request.VendorPayoutLookupRequest;
+import com.hyperlocalmart.payment.dto.response.AgentPaySummaryResponse;
 import com.hyperlocalmart.payment.dto.response.DeliverySettlementCandidateView;
 import com.hyperlocalmart.payment.dto.response.SettlementCandidateView;
 import com.hyperlocalmart.payment.dto.response.SettlementResponse;
@@ -15,6 +16,7 @@ import com.hyperlocalmart.payment.dto.response.VendorSettlementAdjustmentRespons
 import com.hyperlocalmart.payment.entity.SettlementPayeeType;
 import com.hyperlocalmart.payment.entity.SettlementStatus;
 import com.hyperlocalmart.payment.security.AuthUserPrincipal;
+import com.hyperlocalmart.payment.service.AgentPayService;
 import com.hyperlocalmart.payment.service.DeliverySettlementService;
 import com.hyperlocalmart.payment.service.SettlementService;
 import com.hyperlocalmart.payment.service.VendorSettlementAdjustmentService;
@@ -40,6 +42,18 @@ public class SettlementController {
     private final SettlementService settlementService;
     private final DeliverySettlementService deliverySettlementService;
     private final VendorSettlementAdjustmentService vendorSettlementAdjustmentService;
+    private final AgentPayService agentPayService;
+
+    @GetMapping("/agent/me")
+    public ResponseEntity<ApiResponse<AgentPaySummaryResponse>> agentMe(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            HttpServletRequest httpRequest) {
+        requireDeliveryAgent(principal);
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                agentPayService.summary(principal.getUserId(), from, to)));
+    }
 
     @GetMapping("/candidates")
     public ResponseEntity<ApiResponse<SettlementCandidateView>> candidates(
@@ -161,6 +175,13 @@ public class SettlementController {
         requireVendor(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, Map.of(
                 "items", vendorSettlementAdjustmentService.listForVendor(vendorId))));
+    }
+
+    private void requireDeliveryAgent(AuthUserPrincipal principal) {
+        if (principal == null || principal.getRoles() == null
+                || !principal.getRoles().contains("DELIVERY_AGENT")) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "Delivery agent role required");
+        }
     }
 
     private void requireSuperAdmin(AuthUserPrincipal principal) {

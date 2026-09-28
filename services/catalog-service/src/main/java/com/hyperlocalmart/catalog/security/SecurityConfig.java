@@ -30,6 +30,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/v1/catalog/recipes").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/catalog/recipes/*").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/catalog/master-items").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/catalog/master-items/*").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/catalog/master-items/*/images").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/catalog/master-items").authenticated()
                         .requestMatchers(HttpMethod.PATCH, "/api/v1/catalog/master-items/*").authenticated()

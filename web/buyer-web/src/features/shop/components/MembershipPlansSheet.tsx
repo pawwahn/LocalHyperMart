@@ -1,4 +1,5 @@
 import { useEffect, type CSSProperties } from 'react';
+import { createPortal } from 'react-dom';
 import { MembershipPlansPanel } from './MembershipPlansPanel';
 
 type Props = {
@@ -19,7 +20,7 @@ export function MembershipPlansSheet({ open, onClose, onBought }: Props) {
 
   if (!open) return null;
 
-  return (
+  return createPortal(
     <div style={styles.backdrop} role="presentation" onClick={onClose}>
       <div
         style={styles.sheet}
@@ -44,7 +45,8 @@ export function MembershipPlansSheet({ open, onClose, onBought }: Props) {
           <MembershipPlansPanel onBought={onBought} />
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -52,11 +54,12 @@ const styles: Record<string, CSSProperties> = {
   backdrop: {
     position: 'fixed',
     inset: 0,
-    zIndex: 95,
+    zIndex: 120,
     background: 'rgba(16, 24, 40, 0.45)',
     display: 'flex',
     flexDirection: 'column',
     justifyContent: 'flex-end',
+    pointerEvents: 'auto',
   },
   sheet: {
     width: '100%',

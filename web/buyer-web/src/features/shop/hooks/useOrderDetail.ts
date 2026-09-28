@@ -9,6 +9,7 @@ import {
   fetchOrderClaims,
   fetchOrderDetail,
   rateOrderItem,
+  rateDeliveryAgent,
   type ClaimDto,
   type ClaimType,
   type OrderDetailDto,
@@ -82,6 +83,7 @@ export function useOrderDetail(orderId: string | undefined, preview?: OrderDetai
   const [claims, setClaims] = useState<ClaimDto[]>([]);
   const [claimBusy, setClaimBusy] = useState(false);
   const [ratingBusyId, setRatingBusyId] = useState<string | null>(null);
+  const [agentRatingBusy, setAgentRatingBusy] = useState(false);
 
   const reloadClaims = useCallback(async () => {
     if (!session || !orderId) {
@@ -227,6 +229,22 @@ export function useOrderDetail(orderId: string | undefined, preview?: OrderDetai
     }
   }
 
+  async function submitDeliveryRating(stars: number, comment: string): Promise<void> {
+    if (!session || !orderId) throw new Error('Not signed in');
+    setAgentRatingBusy(true);
+    try {
+      await rateDeliveryAgent(session.accessToken, orderId, {
+        stars,
+        comment: comment.trim() || undefined,
+      });
+      const data = await fetchOrderDetail(session.accessToken, orderId);
+      detailCache.set(cacheKey(orderId), data);
+      setOrder(data);
+    } finally {
+      setAgentRatingBusy(false);
+    }
+  }
+
   return {
     order,
     claims,
@@ -238,11 +256,13 @@ export function useOrderDetail(orderId: string | undefined, preview?: OrderDetai
     cancelBusy,
     claimBusy,
     ratingBusyId,
+    agentRatingBusy,
     reload,
     downloadInvoice,
     cancelWholeOrder,
     cancelItem,
     fileClaim,
     submitRating,
+    submitDeliveryRating,
   };
 }

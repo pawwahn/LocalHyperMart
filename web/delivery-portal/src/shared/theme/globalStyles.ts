@@ -53,7 +53,7 @@ export function injectGlobalStyles(): void {
       color: var(--text);
       line-height: 1.5;
       -webkit-font-smoothing: antialiased;
-      overflow-x: hidden;
+      overflow-x: clip;
       padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) 0 env(safe-area-inset-left, 0px);
     }
     button, input, select, textarea { font: inherit; }

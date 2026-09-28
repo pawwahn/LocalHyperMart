@@ -2,6 +2,7 @@ package com.hyperlocalmart.town.dto.request;
 
 import lombok.Data;
 
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -18,4 +19,5 @@ public class AdminAuditAppendRequest {
     private UUID entityId;
     private Map<String, Object> beforeSnapshot;
     private Map<String, Object> afterSnapshot;
+    private List<String> changeLines;
 }

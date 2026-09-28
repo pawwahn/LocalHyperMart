@@ -42,7 +42,7 @@ export function injectGlobalStyles(): void {
       --motion-normal: ${tokens.motion.normal};
       --shell-max: 560px;
       --tabbar-h: 64px;
-      --sticky-cart-h: 64px;
+      --sticky-cart-h: 56px;
       --touch-min: 44px;
     }
     *, *::before, *::after { box-sizing: border-box; }

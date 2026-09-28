@@ -262,6 +262,8 @@ public class CartService {
                             .map(CartItemResponse::getShopName)
                             .findFirst()
                             .orElse("Local Shop");
+                    CatalogListingClient.ListingSnapshot listing =
+                            catalogListingClient.getListing(item.getListingId(), cart.getTownId());
                     return CartInternalItemResponse.builder()
                             .itemId(item.getId())
                             .listingId(item.getListingId())
@@ -275,6 +277,11 @@ public class CartService {
                             .unitPrice(item.getUnitPrice())
                             .discountPrice(item.getDiscountPrice())
                             .lineTotal(item.getLineTotal())
+                            .hsnCode(listing.hsnCode())
+                            .gstPercent(listing.gstPercent())
+                            .cessPercent(listing.cessPercent())
+                            .priceIncludesTax(listing.priceIncludesTax())
+                            .countryOfOrigin(listing.countryOfOrigin())
                             .build();
                 })
                 .toList();

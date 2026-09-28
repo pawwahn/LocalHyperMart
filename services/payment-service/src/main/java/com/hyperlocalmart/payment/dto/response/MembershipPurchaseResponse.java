@@ -23,5 +23,6 @@ public class MembershipPurchaseResponse {
     Instant expiresAtAfter;
     Instant createdAt;
     String note;
+    String sellerPhone;
     GatewayCheckoutResponse checkout;
 }

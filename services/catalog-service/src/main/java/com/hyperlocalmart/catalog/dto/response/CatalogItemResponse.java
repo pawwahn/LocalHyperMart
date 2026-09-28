@@ -35,4 +35,10 @@ public class CatalogItemResponse {
     /** True when this listing was taken from the buyer's previous orders. */
     @Builder.Default
     private boolean fromPreviousOrder = false;
+
+    private String hsnCode;
+    private BigDecimal gstPercent;
+    private BigDecimal cessPercent;
+    private boolean priceIncludesTax;
+    private String countryOfOrigin;
 }

@@ -47,7 +47,7 @@ public class DeliverySettlementService {
     private final SettlementLineItemRepository settlementLineItemRepository;
     private final SettlementService settlementService;
 
-    @Transactional(readOnly = true)
+    /** Town and order lookups stay outside a DB transaction so a slow call cannot pin the pool. */
     public DeliverySettlementCandidateView listCandidates(
             UUID townId, SettlementPayeeType payeeType, UUID payeeId, LocalDate from, LocalDate to) {
         if (payeeType != SettlementPayeeType.HUB && payeeType != SettlementPayeeType.AGENT) {
@@ -246,10 +246,14 @@ public class DeliverySettlementService {
             applyPaid(settlement, actorId, request);
         }
         SettlementResponse saved = settlementService.get(settlementRepository.save(settlement).getId());
+        boolean agent = request.getPayeeType() == SettlementPayeeType.AGENT;
+        String who = request.getPayeeName() == null || request.getPayeeName().isBlank()
+                ? request.getPayeeType().name()
+                : request.getPayeeName().trim();
         townClient.appendAdminAudit(
                 "settlements",
-                "DELIVERY_PAYOUT",
-                "Paid " + request.getPayeeType() + " ₹" + saved.getNetAmount(),
+                agent ? "AGENT_PAYOUT" : "HUB_PAYOUT",
+                "Paid " + (agent ? "agent " : "hub ") + who + " ₹" + saved.getNetAmount(),
                 actorId,
                 request.getTownId(),
                 saved.getId());

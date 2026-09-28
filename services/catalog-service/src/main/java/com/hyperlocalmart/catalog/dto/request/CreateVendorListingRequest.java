@@ -33,5 +33,8 @@ public class CreateVendorListingRequest {
 
     private String vendorNote;
 
+    /** Comma-separated alternate names for buyer search. Not shown on the product card. */
+    private String searchNames;
+
     private Boolean active = false;
 }

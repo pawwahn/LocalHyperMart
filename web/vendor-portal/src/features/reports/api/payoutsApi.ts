@@ -46,6 +46,8 @@ export type VendorSettlement = {
   payoutMethod?: string | null;
   transactionReference?: string | null;
   paidAt?: string | null;
+  /** Stored series, e.g. HLM/SF/26-27/0001. */
+  serviceInvoiceNumber?: string | null;
   lines?: VendorSettlementLine[] | null;
 };
 

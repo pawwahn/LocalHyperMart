@@ -136,7 +136,7 @@ public interface VendorSubOrderRepository extends JpaRepository<VendorSubOrder, 
               AND v.status = com.hyperlocalmart.order.entity.VendorSubOrderStatus.DELIVERED
               AND o.placedAt IS NOT NULL
               AND o.placedAt >= :start AND o.placedAt < :end
-            ORDER BY o.placedAt DESC
+            ORDER BY o.placedAt ASC
             """)
     List<VendorSubOrder> findSettlementCandidates(
             @Param("vendorId") UUID vendorId,

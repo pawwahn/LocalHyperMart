@@ -2,6 +2,7 @@ package com.hyperlocalmart.delivery.web;
 
 import com.hyperlocalmart.common.api.ApiResponse;
 import com.hyperlocalmart.delivery.dto.request.VerifyHubPinRequest;
+import com.hyperlocalmart.delivery.dto.response.AgentMeResponse;
 import com.hyperlocalmart.delivery.dto.response.HubAdminContextResponse;
 import com.hyperlocalmart.delivery.dto.response.HubContactResponse;
 import com.hyperlocalmart.delivery.dto.response.OrderAssignmentResponse;
@@ -25,6 +26,13 @@ public class DeliveryInternalController {
     private final AgentService agentService;
     private final HubPinService hubPinService;
     private final DeliveryPayoutLegService deliveryPayoutLegService;
+
+    @GetMapping("/api/v1/internal/agents/by-user/{userId}")
+    public ResponseEntity<ApiResponse<AgentMeResponse>> getAgentByUser(
+            @PathVariable UUID userId,
+            HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest, agentService.getMyAgent(userId)));
+    }
 
     @GetMapping("/api/v1/internal/hub-admins/{userId}/context")
     public ResponseEntity<ApiResponse<HubAdminContextResponse>> getHubAdminContext(

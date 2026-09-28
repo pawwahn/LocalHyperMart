@@ -13,6 +13,7 @@ public class VendorMeResponse {
     private UUID townId;
     private String businessName;
     private String phone;
+    private String gstNumber;
     private String shopName;
     private UUID shopId;
     private String status;

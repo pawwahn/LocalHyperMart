@@ -35,6 +35,12 @@ export class CheckoutDismissedError extends Error {
 let loading: Promise<void> | null = null;
 
 function loadCheckoutScript(): Promise<void> {
+  if (!document.getElementById('hlm-razorpay-z')) {
+    const style = document.createElement('style');
+    style.id = 'hlm-razorpay-z';
+    style.textContent = '.razorpay-container{z-index:200000!important}';
+    document.head.appendChild(style);
+  }
   if (window.Razorpay) return Promise.resolve();
   if (loading) return loading;
   loading = new Promise((resolve, reject) => {

@@ -36,10 +36,34 @@ function money(n?: number | null): string {
   return `₹${Number(n ?? 0).toFixed(2)}`;
 }
 
-function slabLabel(slab: MembershipSlabCode): string {
+function slabLabel(slab: MembershipSlabCode | string): string {
   if (slab === 'HALF_YEAR') return '6 months';
   if (slab === 'ANNUAL') return 'Annual';
-  return '3 months';
+  if (slab === 'QUARTERLY') return '3 months';
+  return slab;
+}
+
+function payLabel(channel: string): string {
+  if (channel === 'ADMIN_GIFT') return 'Gift';
+  if (channel === 'CASH') return 'Cash';
+  if (channel === 'ONLINE') return 'Online';
+  return channel;
+}
+
+function collectedBy(p: MembershipPurchase): string {
+  if (p.channel === 'ADMIN_GIFT') return '—';
+  if (p.sellerPhone) return p.sellerPhone;
+  if (p.channel === 'ONLINE' && p.status === 'PAID') return 'App';
+  if (p.channel === 'CASH' && p.status === 'PAID') return 'Not named';
+  return '—';
+}
+
+function payStatusLabel(status: string): string {
+  if (status === 'PAID') return 'Paid';
+  if (status === 'PENDING_CASH') return 'Waiting for cash';
+  if (status === 'PENDING_PAYMENT') return 'Waiting for payment';
+  if (status === 'CANCELLED') return 'Cancelled';
+  return status;
 }
 
 function when(iso?: string | null): string {
@@ -149,6 +173,7 @@ export function MembershipsPage() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [tab, setTab] = useState<'packs' | 'report' | 'history'>('packs');
 
   const giftCredits =
     giftSlab === 'ANNUAL'
@@ -326,6 +351,38 @@ export function MembershipsPage() {
       {error ? <Banner tone="danger">{error}</Banner> : null}
       {notice ? <Banner tone="success">{notice}</Banner> : null}
 
+      <div style={styles.tabs} role="tablist" aria-label="Membership sections">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === 'packs'}
+          style={tab === 'packs' ? styles.tabActive : styles.tab}
+          onClick={() => setTab('packs')}
+        >
+          Packs
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === 'report'}
+          style={tab === 'report' ? styles.tabActive : styles.tab}
+          onClick={() => setTab('report')}
+        >
+          Report
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === 'history'}
+          style={tab === 'history' ? styles.tabActive : styles.tab}
+          onClick={() => setTab('history')}
+        >
+          Change history
+        </button>
+      </div>
+
+      {tab === 'packs' ? (
+      <>
       <Card style={styles.card}>
         <div style={styles.row}>
           <strong style={styles.h2}>Platform switch</strong>
@@ -441,6 +498,8 @@ export function MembershipsPage() {
           </Button>
         </div>
       </Card>
+      </>
+      ) : null}
 
       {confirmCopy ? (
         <ConfirmDialog
@@ -456,6 +515,8 @@ export function MembershipsPage() {
         />
       ) : null}
 
+      {tab === 'report' ? (
+      <>
       <div style={styles.row}>
         <label style={styles.field}>
           From
@@ -475,8 +536,8 @@ export function MembershipsPage() {
           <Kpi label="Active members" value={String(report.activeMembers)} hint="Usable credits now" />
           <Kpi label="Expiring 7d" value={String(report.expiringIn7Days)} hint="Need renew" />
           <Kpi label="Credits left" value={String(report.usableCreditsOutstanding)} hint="Not yet used" />
-          <Kpi label="Packs sold" value={String(report.packsSold)} hint={money(report.paidRevenue)} />
-          <Kpi label="Gifts" value={String(report.gifts)} hint="No revenue" />
+          <Kpi label="Packs sold" value={String(report.packsSold)} hint={`${money(report.paidRevenue)} collected for the app`} />
+          <Kpi label="Gifts" value={String(report.gifts)} hint="Free. Not a sale" />
           <Kpi label="Cash pending" value={String(report.cashPending)} hint="Hub to confirm" />
           <Kpi label="Granted" value={String(report.creditsGranted)} hint="Credits issued" />
           <Kpi label="Deliveries waived" value={String(report.deliveriesWaived)} hint={money(report.deliveryFeeWaived)} />
@@ -544,28 +605,29 @@ export function MembershipsPage() {
 
       <div style={styles.split}>
         <Card style={styles.card}>
-          <h2 style={styles.h2}>Members</h2>
+          <h2 style={styles.h2}>Active members</h2>
+          <p style={styles.hint}>One row per buyer. Deliveries left is what they can still use.</p>
           <table style={styles.table}>
             <thead>
               <tr>
                 <th style={styles.th}>Phone</th>
-                <th style={styles.th}>Slab</th>
-                <th style={styles.th}>Left</th>
-                <th style={styles.th}>Until</th>
+                <th style={styles.th}>Plan</th>
+                <th style={styles.th}>Deliveries left</th>
+                <th style={styles.th}>Valid until</th>
               </tr>
             </thead>
             <tbody>
               {members.length === 0 ? (
                 <tr>
                   <td colSpan={4} style={styles.empty}>
-                    No members yet.
+                    No active members yet.
                   </td>
                 </tr>
               ) : (
                 members.map((m) => (
                   <tr key={m.buyerId}>
                     <td style={styles.td}>{m.phone ?? m.buyerId.slice(0, 8)}</td>
-                    <td style={styles.td}>{m.lastSlab}</td>
+                    <td style={styles.td}>{slabLabel(m.lastSlab)}</td>
                     <td style={styles.td}>{m.usableCredits}</td>
                     <td style={styles.td}>{when(m.expiresAt)}</td>
                   </tr>
@@ -575,29 +637,34 @@ export function MembershipsPage() {
           </table>
         </Card>
         <Card style={styles.card}>
-          <h2 style={styles.h2}>Purchases</h2>
+          <h2 style={styles.h2}>Pack payments</h2>
+          <p style={styles.hint}>Cash and online are sales. Amount is money for the app. Collected by is who took the cash. Gifts are free.</p>
           <table style={styles.table}>
             <thead>
               <tr>
                 <th style={styles.th}>Phone</th>
-                <th style={styles.th}>Pay</th>
+                <th style={styles.th}>How paid</th>
+                <th style={styles.th}>Amount</th>
+                <th style={styles.th}>Collected by</th>
                 <th style={styles.th}>Status</th>
-                <th style={styles.th}>Credits</th>
+                <th style={styles.th}>Deliveries added</th>
               </tr>
             </thead>
             <tbody>
               {purchases.length === 0 ? (
                 <tr>
-                  <td colSpan={4} style={styles.empty}>
-                    No purchases yet.
+                  <td colSpan={6} style={styles.empty}>
+                    No pack payments yet.
                   </td>
                 </tr>
               ) : (
                 purchases.map((p) => (
                   <tr key={p.purchaseId}>
                     <td style={styles.td}>{p.buyerPhone}</td>
-                    <td style={styles.td}>{p.channel}</td>
-                    <td style={styles.td}>{p.status}</td>
+                    <td style={styles.td}>{payLabel(p.channel)}</td>
+                    <td style={styles.td}>{p.channel === 'ADMIN_GIFT' ? '₹0.00' : money(p.price)}</td>
+                    <td style={styles.td}>{collectedBy(p)}</td>
+                    <td style={styles.td}>{payStatusLabel(p.status)}</td>
                     <td style={styles.td}>{p.creditsGranted}</td>
                   </tr>
                 ))
@@ -605,8 +672,20 @@ export function MembershipsPage() {
             </tbody>
           </table>
         </Card>
-        {token ? <AdminHistoryPanel token={token} screen="memberships" refreshTick={notice ? notice.length : 0} /> : null}
       </div>
+      </>
+      ) : null}
+
+      {tab === 'history' && token ? (
+        <AdminHistoryPanel
+          token={token}
+          screen="memberships"
+          fullPage
+          refreshTick={notice ? notice.length : 0}
+          searchPlaceholder="Search field or value"
+          emptyHint="No membership changes yet. Saving packs, gifting, or confirming cash writes the old value and the new value, including the amount and who collected cash."
+        />
+      ) : null}
     </PortalShell>
   );
 }
@@ -660,6 +739,36 @@ function Kpi({ label, value, hint }: { label: string; value: string; hint: strin
 }
 
 const styles: Record<string, CSSProperties> = {
+  tabs: {
+    display: 'inline-flex',
+    gap: '0.25rem',
+    padding: '0.2rem',
+    marginBottom: '0.45rem',
+    background: 'var(--bg-muted)',
+    borderRadius: 999,
+    width: 'fit-content',
+  },
+  tab: {
+    border: 'none',
+    background: 'transparent',
+    color: 'var(--text-muted)',
+    fontWeight: 700,
+    fontSize: '0.85rem',
+    padding: '0.4rem 0.85rem',
+    borderRadius: 999,
+    cursor: 'pointer',
+  },
+  tabActive: {
+    border: 'none',
+    background: 'var(--bg-elevated)',
+    color: 'var(--text)',
+    fontWeight: 800,
+    fontSize: '0.85rem',
+    padding: '0.4rem 0.85rem',
+    borderRadius: 999,
+    cursor: 'pointer',
+    boxShadow: 'var(--shadow-soft)',
+  },
   card: { padding: '0.55rem 0.65rem', marginBottom: '0.45rem' },
   row: { display: 'flex', flexWrap: 'wrap', alignItems: 'end', gap: '0.45rem' },
   h2: { margin: 0, fontSize: '0.92rem', fontWeight: 800 },

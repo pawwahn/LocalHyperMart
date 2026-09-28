@@ -76,17 +76,36 @@ public class AdminAuditService implements AdminAuditor {
         if (request == null) {
             return;
         }
-        record(
-                request.getScreenKey(),
-                request.getAction(),
-                request.getChangeSummary(),
-                request.getActorUserId(),
-                request.getActorRole(),
-                request.getTownId(),
-                request.getEntityType(),
-                request.getEntityId(),
-                request.getBeforeSnapshot(),
-                request.getAfterSnapshot());
+        try {
+            if (request.getActorUserId() == null
+                    || request.getScreenKey() == null
+                    || request.getScreenKey().isBlank()
+                    || request.getAction() == null
+                    || request.getAction().isBlank()) {
+                return;
+            }
+            TownHistory row = TownHistory.builder()
+                    .screenKey(request.getScreenKey().trim())
+                    .action(request.getAction().trim())
+                    .changeSummary(trimTo(request.getChangeSummary(), 500))
+                    .actorUserId(request.getActorUserId())
+                    .actorRole(trimTo(request.getActorRole(), 50))
+                    .townId(request.getTownId())
+                    .entityType(trimTo(request.getEntityType(), 100))
+                    .entityId(request.getEntityId())
+                    .beforeSnapshot(asMap(request.getBeforeSnapshot()))
+                    .afterSnapshot(asMap(request.getAfterSnapshot()))
+                    .changeLines(sanitizeChangeLines(request.getChangeLines()))
+                    .createdAt(Instant.now())
+                    .build();
+            townHistoryRepository.save(row);
+        } catch (Exception ex) {
+            log.warn(
+                    "Admin audit write failed screen={} action={}: {}",
+                    request.getScreenKey(),
+                    request.getAction(),
+                    ex.getMessage());
+        }
     }
 
     @Override
@@ -98,11 +117,14 @@ public class AdminAuditService implements AdminAuditor {
             int size,
             Instant from,
             Instant to,
-            String q) {
+            String q,
+            List<String> actions,
+            List<String> summaryPrefixes) {
         int safeSize = Math.min(Math.max(size, 1), 50);
         int safePage = Math.max(page, 0);
         var pageable = PageRequest.of(safePage, safeSize, Sort.by(Sort.Direction.DESC, "createdAt"));
-        var result = townHistoryRepository.findAll(filter(screenKey, townId, from, to, q), pageable);
+        var result = townHistoryRepository.findAll(
+                filter(screenKey, townId, from, to, q, actions, summaryPrefixes), pageable);
         return PageResponse.<AdminAuditEntryResponse>builder()
                 .items(result.getContent().stream().map(this::toResponse).toList())
                 .page(result.getNumber())
@@ -117,10 +139,27 @@ public class AdminAuditService implements AdminAuditor {
             UUID townId,
             Instant from,
             Instant to,
-            String q) {
+            String q,
+            List<String> actions,
+            List<String> summaryPrefixes) {
         return (root, query, cb) -> {
             var predicates = new ArrayList<Predicate>();
             predicates.add(cb.equal(root.get("screenKey"), screenKey));
+            if (actions != null && !actions.isEmpty()) {
+                predicates.add(root.get("action").in(actions));
+            }
+            if (summaryPrefixes != null && !summaryPrefixes.isEmpty()) {
+                var prefixMatch = summaryPrefixes.stream()
+                        .filter(p -> p != null && !p.isBlank())
+                        .map(p -> cb.like(
+                                cb.lower(cb.coalesce(root.get("changeSummary"), "")),
+                                escapeLike(p.trim().toLowerCase(java.util.Locale.ROOT)) + "%",
+                                '\\'))
+                        .toArray(Predicate[]::new);
+                if (prefixMatch.length > 0) {
+                    predicates.add(cb.or(prefixMatch));
+                }
+            }
             if (townId != null) {
                 predicates.add(cb.equal(root.get("townId"), townId));
             }
@@ -183,6 +222,9 @@ public class AdminAuditService implements AdminAuditor {
             Map<String, Object> before,
             Map<String, Object> after,
             String summary) {
+        if (row.getChangeLines() != null && !row.getChangeLines().isEmpty()) {
+            return row.getChangeLines();
+        }
         if ("town-settings".equals(row.getScreenKey()) && before != null && after != null) {
             List<String> parts = TownConfigService.settingsChangeParts(before, after);
             if (!parts.isEmpty()) {
@@ -193,6 +235,22 @@ public class AdminAuditService implements AdminAuditor {
             List<String> parts = PlatformSettingsService.settingsChangeParts(before, after);
             if (!parts.isEmpty()) {
                 return parts;
+            }
+        }
+        if ("memberships".equals(row.getScreenKey()) && before != null && after != null) {
+            List<String> parts = PlatformSettingsService.membershipChangeLines(before, after);
+            if (!parts.isEmpty()) {
+                return parts;
+            }
+        }
+        if ("catalog".equals(row.getScreenKey())) {
+            List<String> parts = CatalogAuditFormat.changeParts(before, after);
+            if (!parts.isEmpty()) {
+                return parts;
+            }
+            List<String> fromSummary = CatalogAuditFormat.summaryTail(summary);
+            if (!fromSummary.isEmpty()) {
+                return fromSummary;
             }
         }
         String text = summary == null ? "" : summary.trim();
@@ -222,11 +280,32 @@ public class AdminAuditService implements AdminAuditor {
         }
     }
 
+    private static String escapeLike(String value) {
+        return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
+    }
+
     private static String trimTo(String value, int max) {
         if (value == null || value.isBlank()) {
             return null;
         }
         String trimmed = value.trim();
         return trimmed.length() <= max ? trimmed : trimmed.substring(0, max);
+    }
+
+    private static List<String> sanitizeChangeLines(List<String> lines) {
+        if (lines == null || lines.isEmpty()) {
+            return null;
+        }
+        List<String> out = new ArrayList<>();
+        for (String line : lines) {
+            if (line == null) {
+                continue;
+            }
+            String trimmed = line.trim();
+            if (!trimmed.isEmpty()) {
+                out.add(trimmed.length() <= 300 ? trimmed : trimmed.substring(0, 297) + "...");
+            }
+        }
+        return out.isEmpty() ? null : out;
     }
 }

@@ -369,7 +369,6 @@ function HubCard({
       {showPerOrder ? (
         <PerOrderRow
           value={party.perOrder}
-          hub
           onChange={(perOrder) => onChange({ ...party, enabled: true, perOrder: { ...perOrder, enabled: true } })}
         />
       ) : null}
@@ -423,26 +422,24 @@ function AgentCard({
 function PerOrderRow({
   value,
   onChange,
-  hub,
 }: {
   value: PerOrderIncentive;
   onChange: (v: PerOrderIncentive) => void;
-  hub?: boolean;
 }) {
   return (
     <div className="pay-row3" style={styles.row3}>
       <Money
-        label="₹ / delivered order"
+        label="To customer"
         value={value.completedOrderAmount}
         onChange={(n) => onChange({ ...value, completedOrderAmount: n })}
       />
       <Money
-        label={hub ? 'Extra · bag at hub' : 'Extra · pickup'}
+        label="Vendor → hub"
         value={value.pickupAmount}
         onChange={(n) => onChange({ ...value, pickupAmount: n })}
       />
       <Money
-        label="Extra · home trip"
+        label="Return → shop"
         value={value.lastMileAmount}
         onChange={(n) => onChange({ ...value, lastMileAmount: n })}
       />

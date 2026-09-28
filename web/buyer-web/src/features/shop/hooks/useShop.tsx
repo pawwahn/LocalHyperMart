@@ -48,6 +48,39 @@ type ShopContextValue = ReturnType<typeof useShopState>;
 
 const ShopContext = createContext<ShopContextValue | null>(null);
 
+type CartDraftLine = {
+  listingId: string;
+  quantity: number;
+  name: string;
+  shopName: string;
+  unitPrice: number;
+};
+
+function cartDraftKey(userId: string, townId: string): string {
+  return `hlm.cart.draft.${userId}.${townId}`;
+}
+
+function readCartDraft(userId: string, townId: string): CartDraftLine[] {
+  try {
+    const raw = sessionStorage.getItem(cartDraftKey(userId, townId));
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as CartDraftLine[];
+    return Array.isArray(parsed) ? parsed.filter((l) => l.listingId && l.quantity > 0) : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeCartDraft(userId: string, townId: string, lines: CartDraftLine[]): void {
+  try {
+    const key = cartDraftKey(userId, townId);
+    if (lines.length === 0) sessionStorage.removeItem(key);
+    else sessionStorage.setItem(key, JSON.stringify(lines));
+  } catch {
+    /* ignore quota */
+  }
+}
+
 function useShopState() {
   const { session } = useAuth();
   const { townId, townLabel, hasTown, openPicker, switchNotice, clearSwitchNotice } = useTown();
@@ -74,6 +107,12 @@ function useShopState() {
   useEffect(() => {
     cartRef.current = cart;
   }, [cart]);
+
+  useEffect(() => {
+    if (cart && cart.items.length > 0 && error === 'Cart is empty') {
+      setError(null);
+    }
+  }, [cart, error]);
 
   useEffect(() => {
     itemsRef.current = items;
@@ -123,10 +162,40 @@ function useShopState() {
     };
   }
 
+  function draftFromCart(view: CartView | null): CartDraftLine[] {
+    return (view?.items ?? []).map((i) => {
+      const unit =
+        i.quantity > 0 ? Number(i.lineLabel.replace(/[^\d.]/g, '') || 0) / i.quantity : 0;
+      return {
+        listingId: i.listingId,
+        quantity: i.quantity,
+        name: i.name,
+        shopName: i.shopName,
+        unitPrice: Number.isFinite(unit) ? unit : 0,
+      };
+    });
+  }
+
+  function persistCartDraft(view: CartView | null) {
+    if (!session?.userId || !townId) return;
+    writeCartDraft(session.userId, townId, draftFromCart(view));
+  }
+
   function applyServerCart(next: CartView) {
+    const local = cartRef.current;
+    const pending = [...desiredQtyRef.current.entries()].filter(([, qty]) => qty > 0);
+    const keepLocal =
+      next.items.length === 0 &&
+      Boolean(local?.items.length) &&
+      (pending.length > 0 || local!.items.some((i) => i.itemId.startsWith('optimistic-')));
+    if (keepLocal) {
+      persistCartDraft(local);
+      return;
+    }
     serverCartRef.current = next;
     cartRef.current = next;
     setCart(next);
+    persistCartDraft(next);
   }
 
   function resetCartState() {
@@ -197,20 +266,25 @@ function useShopState() {
         minOrderMet: true,
       };
       cartRef.current = next;
+      persistCartDraft(next);
       return next;
     });
+  }
+
+  function sameListingId(a: string, b: string): boolean {
+    return a.replace(/-/g, '').toLowerCase() === b.replace(/-/g, '').toLowerCase();
   }
 
   async function flushListingToServer(listingId: string) {
     if (!session || !townId) return;
 
     const pushUntilSynced = async () => {
-      for (;;) {
+      for (let step = 0; step < 6; step += 1) {
         if (!desiredQtyRef.current.has(listingId)) break;
         const target = desiredQtyRef.current.get(listingId) ?? 0;
 
         const realLine = serverCartRef.current?.items.find(
-          (i) => i.listingId === listingId && !i.itemId.startsWith('optimistic-'),
+          (i) => sameListingId(i.listingId, listingId) && !i.itemId.startsWith('optimistic-'),
         );
 
         let next: CartView;
@@ -232,13 +306,15 @@ function useShopState() {
 
         applyServerCart(next);
 
-        const serverQty = next.items.find((i) => i.listingId === listingId)?.quantity ?? 0;
+        const serverQty =
+          next.items.find((i) => sameListingId(i.listingId, listingId))?.quantity ?? 0;
         const pending = desiredQtyRef.current.get(listingId);
         if (pending === undefined || pending === serverQty) {
           desiredQtyRef.current.delete(listingId);
           break;
         }
       }
+      desiredQtyRef.current.delete(listingId);
     };
 
     try {
@@ -328,6 +404,18 @@ function useShopState() {
         return;
       }
       const raw = err instanceof Error ? err.message : fallback;
+      if (/request timed out/i.test(raw)) {
+        // Order history must never paint Basket red — checkout does not need it.
+        if (/orders/i.test(fallback)) return;
+        errors.push(
+          fallback.includes('Cart')
+            ? 'Cart service is slow. Your items are still here — tap Place order again.'
+            : fallback.includes('Addresses')
+              ? 'Could not refresh addresses. Use the one already selected, or open Addresses.'
+              : fallback,
+        );
+        return;
+      }
       if (/internal server error/i.test(raw)) {
         errors.push(
           fallback.includes('Cart')
@@ -348,10 +436,13 @@ function useShopState() {
         return;
       }
 
-      // Wait for in-flight qty syncs before refresh so we don't overwrite with stale server qty.
+      // Wait briefly for in-flight qty syncs — never block Basket on a hung add/update.
       const pendingSyncs = [...syncChainRef.current.values()];
       if (pendingSyncs.length > 0) {
-        await Promise.all(pendingSyncs.map((p) => p.catch(() => undefined)));
+        await Promise.race([
+          Promise.all(pendingSyncs.map((p) => p.catch(() => undefined))),
+          new Promise((resolve) => window.setTimeout(resolve, 1_500)),
+        ]);
       }
 
       const cartTask = fetchCart(session.accessToken, townId)
@@ -361,6 +452,31 @@ function useShopState() {
           for (const [listingId, qty] of [...desiredQtyRef.current.entries()]) {
             patchLocalQuantity(listingId, qty);
             enqueueListingSync(listingId);
+          }
+          const after = cartRef.current;
+          if ((!after || after.items.length === 0) && session.userId && townId) {
+            const draft = readCartDraft(session.userId, townId);
+            if (draft.length > 0) {
+              const extra: CatalogItemView[] = draft.map((line) => ({
+                listingId: line.listingId,
+                name: line.name,
+                shopName: line.shopName,
+                unit: '',
+                price: line.unitPrice,
+                priceLabel: moneyLabel(line.unitPrice),
+                avgRating: 0,
+                ratingCount: 0,
+                imageUrls: [],
+              }));
+              const seen = new Set(itemsRef.current.map((i) => i.listingId));
+              const merged = [...itemsRef.current, ...extra.filter((i) => !seen.has(i.listingId))];
+              itemsRef.current = merged;
+              setItems(merged);
+              for (const line of draft) {
+                patchLocalQuantity(line.listingId, line.quantity);
+                enqueueListingSync(line.listingId);
+              }
+            }
           }
         })
         .catch((err) => noteFailure(err, 'Cart failed'));
@@ -383,7 +499,7 @@ function useShopState() {
         })
         .catch((err) => {
           setOrders([]);
-          noteFailure(err, 'Orders failed');
+          if (err instanceof ApiError && err.isUnauthorized) throw err;
         });
 
       const walletTask = fetchWalletBalance(session.accessToken)
@@ -691,9 +807,89 @@ function useShopState() {
     }
   }
 
+  async function waitForCartSync(timeoutMs = 8_000) {
+    const pending = [...syncChainRef.current.values()];
+    if (pending.length === 0) return;
+    await Promise.race([
+      Promise.all(pending.map((p) => p.catch(() => undefined))),
+      new Promise((resolve) => window.setTimeout(resolve, timeoutMs)),
+    ]);
+  }
+
+  function basketAlreadyOnServer(local: CartView): boolean {
+    if (!local.cartId) return false;
+    return local.items.every((line) => {
+      if (isPlaceholderListingId(line.listingId) || line.itemId.startsWith('optimistic-')) return false;
+      const onServer = serverCartRef.current?.items.find(
+        (i) => sameListingId(i.listingId, line.listingId) && !i.itemId.startsWith('optimistic-'),
+      );
+      return Boolean(onServer && onServer.quantity === line.quantity);
+    });
+  }
+
+  async function persistBasketToServer(): Promise<{ cart: CartView | null; error: string | null }> {
+    if (!session || !townId) {
+      return { cart: cartRef.current, error: !session ? 'Sign in to place an order' : 'Choose your town first' };
+    }
+    const local = cartRef.current;
+    if (!local?.items.length) {
+      return { cart: local, error: null };
+    }
+    if (basketAlreadyOnServer(local)) {
+      return { cart: local, error: null };
+    }
+
+    let latest: CartView;
+    try {
+      latest = await fetchCart(session.accessToken, townId);
+    } catch (err) {
+      if (local.cartId && local.items.every((line) => !line.itemId.startsWith('optimistic-'))) {
+        return { cart: local, error: null };
+      }
+      return { cart: local, error: friendlyCartError(err, 'Could not reach the cart service') };
+    }
+
+    for (const line of local.items) {
+      if (isPlaceholderListingId(line.listingId)) {
+        return { cart: local, error: `${line.name} is a preview item and cannot be ordered.` };
+      }
+      const onServer = latest.items.find(
+        (i) => sameListingId(i.listingId, line.listingId) && !i.itemId.startsWith('optimistic-'),
+      );
+      try {
+        latest = !onServer
+          ? await addToCart(session.accessToken, townId, line.listingId, line.quantity)
+          : onServer.quantity === line.quantity
+            ? latest
+            : await updateCartItem(session.accessToken, onServer.itemId, line.quantity);
+        applyServerCart(latest);
+      } catch (err) {
+        return {
+          cart: cartRef.current,
+          error: friendlyCartError(err, `Could not save ${line.name} to your basket`),
+        };
+      }
+    }
+    return { cart: cartRef.current, error: null };
+  }
+
   async function doCheckout(opts?: { useStoreCredit?: boolean; paymentMethod?: 'COD' | 'ONLINE' }): Promise<CheckoutOutcome> {
-    if (!session || !cart?.cartId) {
-      setError('Cart is empty');
+    if (!session) {
+      setError('Sign in to place an order');
+      return { ok: false };
+    }
+    const persisted = await persistBasketToServer();
+    const current = persisted.cart;
+    if (persisted.error) {
+      setError(persisted.error);
+      return { ok: false };
+    }
+    if (!current?.items.length) {
+      setError(null);
+      return { ok: false };
+    }
+    if (!current.cartId) {
+      setError('Could not save your basket. Check that cart-service is running, then tap Place order again.');
       return { ok: false };
     }
     if (!hasTown || !townId) {
@@ -716,13 +912,14 @@ function useShopState() {
     try {
       const order: CreateOrderDto = await placeOrder(session.accessToken, {
         townId,
-        cartId: cart.cartId,
+        cartId: current.cartId,
         addressId: selectedAddressId,
         useStoreCredit: Boolean(opts?.useStoreCredit),
         paymentMethod: opts?.paymentMethod ?? 'COD',
       });
       const checkout = order.payment?.checkout;
       if (order.status === 'PAYMENT_PENDING' && checkout?.gatewayOrderId) {
+        void reload();
         return {
           ok: true,
           kind: 'pay',
@@ -731,7 +928,7 @@ function useShopState() {
           checkout,
         };
       }
-      await reload();
+      void reload();
       return { ok: true, kind: 'placed', orderId: order.orderId, orderNumber: order.orderNumber, status: order.status };
     } catch (err) {
       const raw = err instanceof Error ? err.message : 'Checkout failed';
@@ -763,9 +960,15 @@ function useShopState() {
 
   const rememberItems = useCallback((next: CatalogItemView[], mode: 'replace' | 'append') => {
     setItems((prev) => {
-      if (mode === 'replace') return next;
-      const seen = new Set(prev.map((i) => i.listingId));
-      return [...prev, ...next.filter((i) => !seen.has(i.listingId))];
+      const merged =
+        mode === 'replace'
+          ? next
+          : (() => {
+              const seen = new Set(prev.map((i) => i.listingId));
+              return [...prev, ...next.filter((i) => !seen.has(i.listingId))];
+            })();
+      itemsRef.current = merged;
+      return merged;
     });
   }, []);
 

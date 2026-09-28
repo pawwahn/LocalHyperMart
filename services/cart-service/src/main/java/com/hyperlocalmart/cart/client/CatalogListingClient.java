@@ -71,7 +71,12 @@ public class CatalogListingClient {
             BigDecimal price,
             BigDecimal discountPrice,
             BigDecimal effectivePrice,
-            boolean active
+            boolean active,
+            String hsnCode,
+            BigDecimal gstPercent,
+            BigDecimal cessPercent,
+            boolean priceIncludesTax,
+            String countryOfOrigin
     ) {
     }
 }

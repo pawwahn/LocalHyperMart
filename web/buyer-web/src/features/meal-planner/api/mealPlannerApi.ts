@@ -1,4 +1,5 @@
 import { apiRequest } from '@/shared/api/http';
+import type { CatalogItemView } from '@/features/shop/api/shopApi';
 
 export type RecipeSummary = {
   id: string;
@@ -23,6 +24,24 @@ export type RecipeShopPlan = {
   servings: number;
   ingredients: RecipeShopLine[];
 };
+
+export function recipeLineToCatalogItem(line: RecipeShopLine): CatalogItemView | null {
+  if (!line.listingId) return null;
+  const price = Number(line.effectivePrice ?? 0);
+  const imageUrl = line.imageUrl?.trim() || null;
+  return {
+    listingId: line.listingId,
+    name: line.masterItemName,
+    shopName: line.shopName ?? '',
+    unit: line.quantityLabel,
+    price,
+    priceLabel: `₹${price.toFixed(2)}`,
+    avgRating: 0,
+    ratingCount: 0,
+    imageUrl,
+    imageUrls: imageUrl ? [imageUrl] : [],
+  };
+}
 
 export async function searchRecipes(q: string): Promise<RecipeSummary[]> {
   const params = new URLSearchParams();

@@ -55,6 +55,10 @@ public class VendorListing extends BaseAuditEntity {
     @Column(name = "vendor_note", length = 500)
     private String vendorNote;
 
+    /** Comma-separated alternate names. Search-only; buyers still see the master item name. */
+    @Column(name = "search_names", length = 500)
+    private String searchNames;
+
     @Column(nullable = false)
     private boolean active;
 

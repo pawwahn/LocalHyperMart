@@ -119,6 +119,14 @@ export type OrderDetailDto = {
   canPayOnline?: boolean;
   canFileClaim?: boolean;
   scratchCard?: ScratchCardDto | null;
+  deliveryAgentRating?: DeliveryAgentRatingDto | null;
+};
+
+export type DeliveryAgentRatingDto = {
+  canRate: boolean;
+  agentName?: string | null;
+  stars?: number | null;
+  comment?: string | null;
 };
 
 export type ScratchCardDto = {
@@ -364,8 +372,8 @@ export async function fetchCategories(townId?: string): Promise<CategoryView[]> 
   return data.items ?? [];
 }
 
-export async function fetchCart(token: string, townId: string): Promise<CartView> {
-  const data = await apiRequest<CartDto>(`/api/v1/cart?townId=${townId}`, { token });
+export async function fetchCart(token: string, townId: string, timeoutMs = 8_000): Promise<CartView> {
+  const data = await apiRequest<CartDto>(`/api/v1/cart?townId=${townId}`, { token, timeoutMs });
   return toCartView(data);
 }
 
@@ -484,6 +492,7 @@ export async function addToCart(
   const data = await apiRequest<CartDto>('/api/v1/cart/items', {
     method: 'POST',
     token,
+    timeoutMs: 8_000,
     body: { townId, listingId, quantity },
   });
   return toCartView(data);
@@ -555,11 +564,15 @@ export function friendlyCartError(err: unknown, fallback: string): string {
   if (isCartTownConflict(err)) {
     return 'Your cart had items from another town. We cleared it so you can shop here — try again.';
   }
-  return err instanceof Error && err.message ? err.message : fallback;
+  const raw = err instanceof Error ? err.message : '';
+  if (/request timed out/i.test(raw)) {
+    return fallback;
+  }
+  return raw || fallback;
 }
 
 export async function listAddresses(token: string): Promise<AddressDto[]> {
-  return apiRequest<AddressDto[]>('/api/v1/addresses', { token });
+  return apiRequest<AddressDto[]>('/api/v1/addresses', { token, timeoutMs: 8_000 });
 }
 
 export async function createAddress(
@@ -616,7 +629,7 @@ export async function placeOrder(
     method: 'POST',
     token,
     headers: { 'Idempotency-Key': `web-${Date.now()}` },
-    timeoutMs: 45_000,
+    timeoutMs: 12_000,
     body: {
       townId: input.townId,
       cartId: input.cartId,
@@ -659,8 +672,8 @@ export async function retryOnlinePayment(
 
 export async function listMyOrders(token: string, townId: string): Promise<OrderSummaryDto[]> {
   const data = await apiRequest<PageData<OrderSummaryDto>>(
-    `/api/v1/orders?townId=${townId}&page=0&size=100`,
-    { token },
+    `/api/v1/orders?townId=${townId}&page=0&size=40`,
+    { token, timeoutMs: 8_000 },
   );
   return data.items ?? [];
 }
@@ -736,6 +749,18 @@ export async function rateOrderItem(
     method: 'POST',
     token,
     body: { orderItemId, stars },
+  });
+}
+
+export async function rateDeliveryAgent(
+  token: string,
+  orderId: string,
+  body: { stars: number; comment?: string },
+): Promise<{ stars: number; comment?: string | null }> {
+  return apiRequest(`/api/v1/orders/${orderId}/delivery-rating`, {
+    method: 'POST',
+    token,
+    body,
   });
 }
 

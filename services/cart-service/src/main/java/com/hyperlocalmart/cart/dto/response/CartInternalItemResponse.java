@@ -22,4 +22,9 @@ public class CartInternalItemResponse {
     private BigDecimal unitPrice;
     private BigDecimal discountPrice;
     private BigDecimal lineTotal;
+    private String hsnCode;
+    private BigDecimal gstPercent;
+    private BigDecimal cessPercent;
+    private boolean priceIncludesTax;
+    private String countryOfOrigin;
 }

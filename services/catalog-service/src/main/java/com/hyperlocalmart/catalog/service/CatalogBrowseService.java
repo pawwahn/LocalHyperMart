@@ -257,6 +257,11 @@ public class CatalogBrowseService {
                 .imageUrls(urls)
                 .avgRating(listing.getAvgRating() == null ? BigDecimal.ZERO : listing.getAvgRating())
                 .ratingCount(Math.max(0, listing.getRatingCount()))
+                .hsnCode(listing.getMasterItem().getHsnCode())
+                .gstPercent(listing.getMasterItem().getGstPercent())
+                .cessPercent(listing.getMasterItem().getCessPercent())
+                .priceIncludesTax(listing.getMasterItem().isPriceIncludesTax())
+                .countryOfOrigin(listing.getMasterItem().getCountryOfOrigin())
                 .build();
     }
 }

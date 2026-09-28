@@ -85,7 +85,7 @@ public class MembershipAdminController {
             HttpServletRequest httpRequest) {
         requireSuperAdmin(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
-                membershipService.confirmCash(principal.getUserId(), request)));
+                membershipService.confirmCash(principal.getUserId(), principal.getPhone(), request)));
     }
 
     @PostMapping("/cash/{purchaseId}/cancel")

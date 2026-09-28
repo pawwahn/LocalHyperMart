@@ -83,12 +83,15 @@ function ImageCarousel({
   rounded = 12,
   dark = false,
   fill = false,
+  showDots = true,
 }: {
   images: string[];
   height: number;
   rounded?: number;
   dark?: boolean;
   fill?: boolean;
+  /** Strip ads: false — dots were painting over product rails below. */
+  showDots?: boolean;
 }) {
   const [index, setIndex] = useState(0);
   const startX = useRef<number | null>(null);
@@ -147,8 +150,8 @@ function ImageCarousel({
           <img key={src} src={src} alt="" draggable={false} style={styles.carouselImg} />
         ))}
       </div>
-      {images.length > 1 ? (
-        <div style={styles.dots}>
+      {showDots && images.length > 1 ? (
+        <div style={dark ? styles.dots : styles.dotsOverlay}>
           {images.map((_, i) => (
             <button
               key={i}
@@ -441,7 +444,7 @@ function SoftAd({
       <div style={images.length ? styles.softMainImage : styles.softMain}>
         <div style={images.length ? styles.softVisualImage : styles.softVisual} aria-hidden={!images.length}>
           {images.length ? (
-            <ImageCarousel images={images} height={72} rounded={12} />
+            <ImageCarousel images={images} height={72} rounded={12} showDots={false} />
           ) : (
             <span style={styles.softEmoji}>{ad.emoji}</span>
           )}
@@ -485,7 +488,7 @@ const styles: Record<string, CSSProperties> = {
     display: 'block',
     pointerEvents: 'none',
   },
-  dots: {
+  dotsOverlay: {
     position: 'absolute',
     left: 0,
     right: 0,
@@ -494,6 +497,13 @@ const styles: Record<string, CSSProperties> = {
     justifyContent: 'center',
     gap: 5,
     zIndex: 2,
+    pointerEvents: 'auto',
+  },
+  dots: {
+    display: 'flex',
+    justifyContent: 'center',
+    gap: 5,
+    flexShrink: 0,
   },
   dot: {
     width: 6,

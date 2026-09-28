@@ -114,15 +114,17 @@ public class VendorCommercialTermsService {
                 .findByVendorIdAndEffectiveFromOrderByUpdatedAtDesc(vendorId, from);
         if (!sameStart.isEmpty()) {
             VendorCommercialTerms keep = sameStart.getFirst();
+            Map<String, String> before = termsView(keep);
             makeRoomForPeriod(vendorId, keep.getId(), from, to, actorId);
             applyFields(keep, request, from, to);
             keep.setUpdatedBy(actorId);
             VendorCommercialTerms saved = termsRepository.save(keep);
             repairOverlappingEnds(vendorId);
-            auditTerms(vendorId, actorId, saved);
+            auditTerms(vendorId, actorId, before, termsView(saved));
             return toResponse(saved, resolveCurrentId(vendorId));
         }
 
+        Map<String, String> before = termsView(currentTerms(vendorId).orElse(null));
         String lastYm = makeRoomForPeriod(vendorId, null, from, to, actorId);
         VendorCommercialTerms next = VendorCommercialTerms.builder()
                 .vendorId(vendorId)
@@ -133,19 +135,104 @@ public class VendorCommercialTermsService {
         next.setUpdatedBy(actorId);
         VendorCommercialTerms saved = termsRepository.save(next);
         repairOverlappingEnds(vendorId);
-        auditTerms(vendorId, actorId, saved);
+        auditTerms(vendorId, actorId, before, termsView(saved));
         return toResponse(saved, resolveCurrentId(vendorId));
     }
 
-    private void auditTerms(UUID vendorId, UUID actorId, VendorCommercialTerms saved) {
+    private void auditTerms(UUID vendorId, UUID actorId, Map<String, String> before, Map<String, String> after) {
+        List<String> lines = termsChangeLines(before, after);
+        if (lines.isEmpty()) {
+            return;
+        }
         Vendor vendor = vendorRepository.findById(vendorId).orElse(null);
+        String name = vendor == null || vendor.getBusinessName() == null || vendor.getBusinessName().isBlank()
+                ? "Vendor"
+                : vendor.getBusinessName();
+        Map<String, Object> beforeSnap = new LinkedHashMap<>();
+        beforeSnap.putAll(before);
+        Map<String, Object> afterSnap = new LinkedHashMap<>();
+        afterSnap.putAll(after);
         adminAuditClient.record(
                 "vendor-billing",
                 "UPSERT_COMMERCIAL_TERMS",
-                (vendor == null ? "Vendor" : vendor.getBusinessName()) + " terms from " + saved.getEffectiveFrom(),
+                name,
                 actorId,
                 vendor == null ? null : vendor.getTownId(),
-                vendorId);
+                vendorId,
+                beforeSnap,
+                afterSnap,
+                lines);
+    }
+
+    private Map<String, String> termsView(VendorCommercialTerms terms) {
+        Map<String, String> view = new LinkedHashMap<>();
+        if (terms == null) {
+            return view;
+        }
+        view.put("Fee model", feeLabel(terms.getFeeModel()));
+        view.put("Commission %", percentText(terms.getCommissionPercent()));
+        view.put("₹ per order", moneyText(terms.getPerOrderFlatAmount()));
+        view.put("Monthly fee", moneyText(terms.getMonthlySubscriptionAmount()));
+        view.put("Billing day", terms.getSubscriptionBillingDay() == null ? "—" : String.valueOf(terms.getSubscriptionBillingDay()));
+        view.put("Tiers", slabsText(terms.getCommissionSlabsJson()));
+        view.put("Notes", terms.getNotes() == null || terms.getNotes().isBlank() ? "—" : terms.getNotes().trim());
+        view.put("Starts from", terms.getEffectiveFrom() == null ? "—" : terms.getEffectiveFrom().toString());
+        view.put("Ends on", terms.getEffectiveTo() == null ? "—" : terms.getEffectiveTo().toString());
+        return view;
+    }
+
+    private static List<String> termsChangeLines(Map<String, String> before, Map<String, String> after) {
+        List<String> lines = new ArrayList<>();
+        for (String label : List.of(
+                "Fee model", "Commission %", "₹ per order", "Monthly fee", "Billing day", "Tiers", "Notes", "Starts from", "Ends on")) {
+            String oldValue = before.getOrDefault(label, "—");
+            String newValue = after.getOrDefault(label, "—");
+            if (oldValue.equals(newValue)) {
+                continue;
+            }
+            lines.add(label + ": " + oldValue + " → " + newValue);
+        }
+        return lines;
+    }
+
+    private static String feeLabel(VendorFeeModel model) {
+        if (model == null) {
+            return "—";
+        }
+        return switch (model) {
+            case NONE -> "No fee";
+            case COMMISSION_PCT -> "Simple %";
+            case PER_ORDER_FLAT -> "₹ per order";
+            case MONTHLY_SUBSCRIPTION -> "Monthly fee";
+            case HYBRID -> "Monthly + %";
+            case SLAB_COMMISSION -> "Tiered %";
+        };
+    }
+
+    private static String moneyText(BigDecimal value) {
+        if (value == null) {
+            return "—";
+        }
+        return "₹" + value.setScale(2, RoundingMode.HALF_UP).toPlainString();
+    }
+
+    private static String percentText(BigDecimal value) {
+        if (value == null) {
+            return "—";
+        }
+        return value.stripTrailingZeros().toPlainString() + "%";
+    }
+
+    private String slabsText(String json) {
+        List<Slab> slabs = readSlabs(json);
+        if (slabs.isEmpty()) {
+            return "—";
+        }
+        return slabs.stream()
+                .map(s -> (s.uptoAmount() == null ? "open" : "≤" + s.uptoAmount().stripTrailingZeros().toPlainString())
+                        + "@" + nz(s.percent()).stripTrailingZeros().toPlainString() + "%")
+                .reduce((a, b) -> a + " · " + b)
+                .orElse("—");
     }
 
     /** Keep one row per (vendor, effectiveFrom); delete older duplicates. */

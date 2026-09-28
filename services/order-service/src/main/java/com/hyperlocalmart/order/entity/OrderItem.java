@@ -2,6 +2,8 @@ package com.hyperlocalmart.order.entity;
 
 import jakarta.persistence.*;
 import lombok.*;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -50,6 +52,45 @@ public class OrderItem {
 
     @Column(name = "line_total", nullable = false, precision = 12, scale = 2)
     private BigDecimal lineTotal;
+
+    @Column(name = "hsn_code_snapshot", length = 8)
+    private String hsnCodeSnapshot;
+
+    @Column(name = "gst_percent_snapshot", precision = 5, scale = 2)
+    private BigDecimal gstPercentSnapshot;
+
+    @Column(name = "cess_percent_snapshot", precision = 5, scale = 2)
+    private BigDecimal cessPercentSnapshot;
+
+    @Column(name = "price_includes_tax_snapshot")
+    private Boolean priceIncludesTaxSnapshot;
+
+    @JdbcTypeCode(SqlTypes.CHAR)
+    @Column(name = "country_of_origin_snapshot", length = 2)
+    private String countryOfOriginSnapshot;
+
+    @Column(name = "taxable_value", precision = 12, scale = 2)
+    private BigDecimal taxableValue;
+
+    @Column(name = "cgst_amount", nullable = false, precision = 12, scale = 2)
+    @Builder.Default
+    private BigDecimal cgstAmount = BigDecimal.ZERO;
+
+    @Column(name = "sgst_amount", nullable = false, precision = 12, scale = 2)
+    @Builder.Default
+    private BigDecimal sgstAmount = BigDecimal.ZERO;
+
+    @Column(name = "igst_amount", nullable = false, precision = 12, scale = 2)
+    @Builder.Default
+    private BigDecimal igstAmount = BigDecimal.ZERO;
+
+    @Column(name = "cess_amount", nullable = false, precision = 12, scale = 2)
+    @Builder.Default
+    private BigDecimal cessAmount = BigDecimal.ZERO;
+
+    @Column(name = "line_tax_total", nullable = false, precision = 12, scale = 2)
+    @Builder.Default
+    private BigDecimal lineTaxTotal = BigDecimal.ZERO;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 30)

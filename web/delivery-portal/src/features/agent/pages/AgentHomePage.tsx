@@ -1,13 +1,42 @@
 import { Link } from 'react-router-dom';
-import type { CSSProperties } from 'react';
+import { useEffect, useState, type CSSProperties } from 'react';
 import { AgentShell } from '../layout/AgentShell';
 import { useAgentWorkspace } from '../hooks/useAgentWorkspace';
+import { useAuth } from '@/shared/auth/AuthContext';
+import { fetchMyPay, type AgentPaySummary, type AgentPeriodStats } from '../api/agentApi';
+
+type RangeKey = 'today' | 'week' | 'month' | 'all';
+
+function money(n: number): string {
+  return `₹${Number(n || 0).toFixed(0)}`;
+}
 
 export function AgentHomePage() {
+  const { session } = useAuth();
   const { workSummary, stats, loading, error, notice, reload } = useAgentWorkspace({ scope: 'active' });
+  const [range, setRange] = useState<RangeKey>('today');
+  const [pay, setPay] = useState<AgentPaySummary | null>(null);
 
   const pickupCount = workSummary.pickupAtShop + workSummary.pickupToHub;
   const deliveryCount = workSummary.deliveryAtHub + workSummary.deliveryEnRoute;
+
+  useEffect(() => {
+    if (!session) return;
+    void fetchMyPay(session.accessToken)
+      .then(setPay)
+      .catch(() => setPay(null));
+  }, [session]);
+
+  const period: AgentPeriodStats =
+    !stats
+      ? { shopPicked: 0, droppedAtHub: 0, homeDelivered: 0, returnsToHub: 0, cancelledPickups: 0 }
+      : range === 'today'
+        ? stats.today
+        : range === 'week'
+          ? stats.week
+          : range === 'month'
+            ? stats.month
+            : stats.allTime;
 
   return (
     <AgentShell title="Your jobs" onRefresh={() => void reload()}>
@@ -20,10 +49,49 @@ export function AgentHomePage() {
           : workSummary.totalActive > 0
             ? `${workSummary.totalActive} open · tap a row`
             : 'No open jobs · waiting for hub'}
-        {stats
-          ? ` · today ${stats.buyerDeliveriesCompletedToday} delivered · ${stats.vendorPickupsCollectedToday} pickups`
-          : ''}
       </p>
+
+      {stats ? (
+        <section style={styles.board} aria-label="Your work">
+          <div style={styles.range} role="tablist" aria-label="Work period">
+            {(['today', 'week', 'month', 'all'] as RangeKey[]).map((key) => (
+              <button
+                key={key}
+                type="button"
+                role="tab"
+                aria-selected={range === key}
+                style={range === key ? styles.rangeOn : styles.rangeOff}
+                onClick={() => setRange(key)}
+              >
+                {key === 'today' ? 'Today' : key === 'week' ? 'Week' : key === 'month' ? 'Month' : 'All'}
+              </button>
+            ))}
+          </div>
+          <div style={styles.metrics}>
+            <Metric label="Picked" value={period.shopPicked} hint="from shop" />
+            <Metric label="At hub" value={period.droppedAtHub} hint="drop-off" />
+            <Metric label="Delivered" value={period.homeDelivered} hint="to home" />
+            <Metric label="Returns" value={period.returnsToHub} hint="buyer refused" />
+          </div>
+          {period.cancelledPickups > 0 ? (
+            <p style={styles.note}>{period.cancelledPickups} shop pickup{period.cancelledPickups === 1 ? '' : 's'} cancelled</p>
+          ) : null}
+        </section>
+      ) : null}
+
+      <Link to="/agent/pay" style={styles.payStrip}>
+        <div>
+          <p style={styles.payTitle}>Your pay this month</p>
+          <p style={styles.payMeta}>
+            {pay
+              ? `${money(pay.earned)} earned · ${money(pay.paid)} paid · ${money(pay.due)} due`
+              : 'Open for rates, unpaid orders, payouts'}
+          </p>
+        </div>
+        <span style={styles.chevron} aria-hidden>
+          ›
+        </span>
+      </Link>
 
       {loading && workSummary.totalActive === 0 ? (
         <p style={styles.muted}>Loading…</p>
@@ -58,6 +126,16 @@ export function AgentHomePage() {
         </section>
       )}
     </AgentShell>
+  );
+}
+
+function Metric({ label, value, hint }: { label: string; value: number; hint: string }) {
+  return (
+    <div style={styles.metric}>
+      <span style={styles.metricVal}>{value}</span>
+      <span style={styles.metricLabel}>{label}</span>
+      <span style={styles.metricHint}>{hint}</span>
+    </div>
   );
 }
 
@@ -126,6 +204,82 @@ const styles: Record<string, CSSProperties> = {
     lineHeight: 1.35,
     opacity: 0.78,
   },
+  board: {
+    display: 'grid',
+    gap: '0.4rem',
+    padding: '0.5rem',
+    borderRadius: 12,
+    border: '1px solid var(--border)',
+    background: 'var(--bg-elevated)',
+  },
+  range: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(4, 1fr)',
+    gap: 3,
+    padding: 3,
+    borderRadius: 9,
+    background: 'var(--bg)',
+  },
+  rangeOff: {
+    appearance: 'none',
+    border: 'none',
+    background: 'transparent',
+    color: 'var(--text-muted)',
+    fontWeight: 700,
+    fontSize: '0.75rem',
+    minHeight: 36,
+    borderRadius: 7,
+    cursor: 'pointer',
+  },
+  rangeOn: {
+    appearance: 'none',
+    border: 'none',
+    background: 'var(--bg-elevated)',
+    color: 'var(--text)',
+    fontWeight: 800,
+    fontSize: '0.75rem',
+    minHeight: 36,
+    borderRadius: 7,
+    cursor: 'pointer',
+    boxShadow: '0 1px 3px rgba(15,23,42,0.08)',
+  },
+  metrics: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
+    gap: '0.35rem',
+  },
+  metric: {
+    display: 'grid',
+    justifyItems: 'center',
+    gap: 1,
+    padding: '0.3rem 0.15rem',
+    borderRadius: 8,
+    background: 'var(--bg)',
+  },
+  metricVal: {
+    fontFamily: 'var(--font-display)',
+    fontWeight: 800,
+    fontSize: '1.15rem',
+    lineHeight: 1.1,
+    fontVariantNumeric: 'tabular-nums',
+  },
+  metricLabel: { fontSize: '0.7rem', fontWeight: 800 },
+  metricHint: { fontSize: '0.62rem', fontWeight: 650, color: 'var(--text-muted)', textAlign: 'center' },
+  note: { margin: 0, fontSize: '0.72rem', fontWeight: 650, color: 'var(--text-muted)' },
+  payStrip: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: '0.5rem',
+    textDecoration: 'none',
+    color: 'var(--text)',
+    padding: '0.55rem 0.65rem',
+    borderRadius: 12,
+    border: '1px solid var(--border)',
+    background: 'color-mix(in srgb, var(--warning) 10%, var(--bg-elevated))',
+  },
+  payTitle: { margin: 0, fontWeight: 800, fontSize: '0.88rem' },
+  payMeta: { margin: '0.12rem 0 0', fontSize: '0.75rem', fontWeight: 650, color: 'var(--text-muted)' },
   list: {
     display: 'grid',
     gap: '0.5rem',

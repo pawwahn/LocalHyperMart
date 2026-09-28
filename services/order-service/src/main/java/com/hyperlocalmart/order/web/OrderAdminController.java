@@ -9,6 +9,7 @@ import com.hyperlocalmart.order.dto.request.ResolveClaimRequest;
 import com.hyperlocalmart.order.dto.response.AdminOrderResponses.AdminOrderDetailResponse;
 import com.hyperlocalmart.order.dto.response.AdminOrderResponses.AdminOrderSummaryResponse;
 import com.hyperlocalmart.order.dto.response.ClaimResponse;
+import com.hyperlocalmart.order.dto.response.DeliveryAgentRatingListResponse;
 import com.hyperlocalmart.order.dto.response.PlatformReportResponse;
 import com.hyperlocalmart.order.dto.response.ScratchCardGiftReportResponse;
 import com.hyperlocalmart.order.dto.response.VendorOrderAlertResponse;
@@ -20,6 +21,7 @@ import com.hyperlocalmart.order.service.OrderClaimService;
 import com.hyperlocalmart.order.service.PlatformReportService;
 import com.hyperlocalmart.order.service.ScratchCardAdminService;
 import com.hyperlocalmart.order.service.VendorOrderAlertService;
+import com.hyperlocalmart.order.service.DeliveryAgentRatingService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -41,6 +43,7 @@ public class OrderAdminController {
     private final VendorOrderAlertService vendorOrderAlertService;
     private final ScratchCardAdminService scratchCardAdminService;
     private final PlatformReportService platformReportService;
+    private final DeliveryAgentRatingService deliveryAgentRatingService;
 
     @GetMapping
     public ResponseEntity<ApiResponse<PageResponse<AdminOrderSummaryResponse>>> listOrders(
@@ -120,6 +123,19 @@ public class OrderAdminController {
         requireSuperAdmin(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
                 scratchCardAdminService.townGiftReport(townId, from, to)));
+    }
+
+    @GetMapping("/delivery-agent-ratings")
+    public ResponseEntity<ApiResponse<DeliveryAgentRatingListResponse>> listDeliveryAgentRatings(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @RequestParam UUID agentId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            HttpServletRequest httpRequest) {
+        requireHubOrSuperAdmin(principal);
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                deliveryAgentRatingService.listForAdmin(
+                        principal.getUserId(), principal.getRoles(), agentId, page, size)));
     }
 
     @GetMapping("/{orderId}")

@@ -1,21 +1,16 @@
 import type { CSSProperties } from 'react';
 
 type Props = {
-  townLabel: string;
   showPlans?: boolean;
   onOpenPlans?: () => void;
 };
 
-/** Compact Instamart-style home hero — same-day grocery, not a fake 10-min claim. */
-export function DeliveryHero({ townLabel, showPlans, onOpenPlans }: Props) {
-  const place = townLabel === 'Choose your town' ? 'your town' : townLabel;
-
+/** Compact home hero — headline + optional membership CTA. */
+export function DeliveryHero({ showPlans, onOpenPlans }: Props) {
   return (
-    <aside style={styles.hero} aria-label="Delivery promise">
+    <aside style={styles.hero} aria-label="Local stores">
       <div style={styles.copy}>
-        <span style={styles.chip}>Same-day</span>
-        <p style={styles.title}>Groceries from shops in {place}</p>
-        <p style={styles.sub}>Neighbourhood vendors · pay on delivery</p>
+        <p style={styles.title}>Everything from your local stores</p>
         {showPlans && onOpenPlans ? (
           <button type="button" style={styles.plans} onClick={onOpenPlans}>
             Free delivery plans ›
@@ -37,7 +32,7 @@ const styles: Record<string, CSSProperties> = {
     gridTemplateColumns: '1fr auto',
     alignItems: 'center',
     gap: '0.55rem',
-    padding: '0.7rem 0.8rem',
+    padding: '0.55rem 0.75rem',
     borderRadius: 14,
     background: 'linear-gradient(115deg, #0C831F 0%, #149A2C 55%, #F7CE46 160%)',
     color: '#fff',
@@ -45,18 +40,7 @@ const styles: Record<string, CSSProperties> = {
     overflow: 'hidden',
     boxShadow: '0 8px 20px rgba(12, 131, 31, 0.22)',
   },
-  copy: { display: 'grid', gap: '0.22rem', minWidth: 0 },
-  chip: {
-    justifySelf: 'start',
-    background: '#F7CE46',
-    color: '#1A1C1A',
-    fontSize: '0.62rem',
-    fontWeight: 800,
-    letterSpacing: '0.04em',
-    textTransform: 'uppercase',
-    borderRadius: 999,
-    padding: '0.14rem 0.45rem',
-  },
+  copy: { display: 'grid', gap: '0.28rem', minWidth: 0 },
   title: {
     margin: 0,
     fontFamily: 'var(--font-display)',
@@ -65,15 +49,8 @@ const styles: Record<string, CSSProperties> = {
     lineHeight: 1.2,
     letterSpacing: '-0.03em',
   },
-  sub: {
-    margin: 0,
-    fontSize: '0.72rem',
-    fontWeight: 600,
-    opacity: 0.92,
-  },
   plans: {
     justifySelf: 'start',
-    marginTop: '0.12rem',
     border: 'none',
     background: 'rgba(255,255,255,0.2)',
     color: '#fff',

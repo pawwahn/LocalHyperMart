@@ -1,4 +1,4 @@
-import { useMemo, type CSSProperties } from 'react';
+import { useEffect, useMemo, useRef, type CSSProperties } from 'react';
 import type { CatalogItemView } from '../api/shopApi';
 import { ProductCard } from './ProductCard';
 
@@ -12,36 +12,28 @@ type Props = {
   onDecrease: (listingId: string) => void;
 };
 
-const RAIL_TILE_W = 148;
+const RAIL_TILE_W = 118;
 const RAIL_GAP = 8;
 const RAIL_STEP = RAIL_TILE_W + RAIL_GAP;
 /** Pixels per second — lower = slower scroll. */
 const MARQUEE_SPEED = 32;
+/** How long auto-scroll stays still after an arrow press. */
+const MANUAL_HOLD_MS = 6000;
 
 const RAIL_CSS = `
-  @keyframes product-rail-marquee {
-    from { transform: translate3d(0, 0, 0); }
-    to { transform: translate3d(-50%, 0, 0); }
-  }
   .product-rail-viewport {
-    overflow: hidden;
+    overflow-x: auto;
+    overflow-y: hidden;
     margin: 0 -0.15rem;
     padding: 0 0.15rem 0.15rem;
+    scrollbar-width: none;
+    scroll-behavior: auto;
   }
+  .product-rail-viewport::-webkit-scrollbar { display: none; }
   .product-rail-track {
     display: flex;
     gap: 0.5rem;
     width: max-content;
-    will-change: transform;
-    animation: product-rail-marquee var(--product-rail-marquee-duration, 28s) linear infinite;
-  }
-  .product-rail-viewport:hover .product-rail-track,
-  .product-rail-viewport:focus-within .product-rail-track {
-    animation-play-state: paused;
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .product-rail-track { animation: none; }
-    .product-rail-viewport { overflow-x: auto; }
   }
 `;
 
@@ -84,7 +76,7 @@ function RailCard({
   );
 }
 
-/** Horizontal “bestsellers” strip — continuous right-to-left marquee. */
+/** Horizontal bestsellers strip. Auto-scrolls, with arrows to jump either way. */
 export function ProductRail({
   title,
   items,
@@ -94,24 +86,50 @@ export function ProductRail({
   onIncrease,
   onDecrease,
 }: Props) {
+  const viewportRef = useRef<HTMLDivElement>(null);
+  const pausedRef = useRef(false);
+  const holdUntilRef = useRef(0);
+
   const marqueeItems = useMemo(
     () => (items.length > 1 ? [...items, ...items] : items),
     [items],
   );
 
-  const marqueeDurationSec = useMemo(() => {
-    if (items.length <= 1) return 0;
-    const loopWidth = items.length * RAIL_STEP;
-    return Math.max(loopWidth / MARQUEE_SPEED, 14);
+  useEffect(() => {
+    if (items.length <= 1) return;
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (reduceMotion) return;
+
+    let raf = 0;
+    let last = performance.now();
+    const tick = (now: number) => {
+      const el = viewportRef.current;
+      const dt = Math.min(now - last, 48);
+      last = now;
+      if (el && !pausedRef.current && now >= holdUntilRef.current) {
+        el.scrollLeft += (MARQUEE_SPEED * dt) / 1000;
+        const half = el.scrollWidth / 2;
+        if (half > 0 && el.scrollLeft >= half) el.scrollLeft -= half;
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
   }, [items.length]);
 
-  const marqueeStyle = useMemo(
-    () =>
-      ({
-        '--product-rail-marquee-duration': `${marqueeDurationSec}s`,
-      }) as CSSProperties,
-    [marqueeDurationSec],
-  );
+  function nudge(dir: -1 | 1) {
+    const el = viewportRef.current;
+    if (!el || items.length <= 1) return;
+    holdUntilRef.current = performance.now() + MANUAL_HOLD_MS;
+    const half = el.scrollWidth / 2;
+    const distance = Math.max(Math.round(el.clientWidth * 0.82), RAIL_STEP);
+    if (dir < 0 && el.scrollLeft < distance) {
+      el.scrollLeft += half;
+    } else if (dir > 0 && half > 0 && el.scrollLeft + distance > half) {
+      el.scrollLeft -= half;
+    }
+    el.scrollBy({ left: dir * distance, behavior: 'smooth' });
+  }
 
   if (items.length === 0) return null;
 
@@ -122,32 +140,73 @@ export function ProductRail({
     onIncrease,
     onDecrease,
   };
+  const canMove = items.length > 1;
 
   return (
     <section style={styles.section} aria-label={title}>
       <style>{RAIL_CSS}</style>
-      <h2 style={styles.title}>{title}</h2>
-      {items.length === 1 ? (
-        <div className="product-rail-viewport">
-          <div style={styles.staticRow}>
-            <RailCard item={items[0]} {...cardProps} />
+      <div style={styles.head}>
+        <h2 style={styles.title}>{title}</h2>
+        {canMove ? (
+          <div style={styles.arrows}>
+            <button
+              type="button"
+              style={styles.arrow}
+              aria-label="Show previous products"
+              onClick={() => nudge(-1)}
+            >
+              ‹
+            </button>
+            <button
+              type="button"
+              style={styles.arrow}
+              aria-label="Show next products"
+              onClick={() => nudge(1)}
+            >
+              ›
+            </button>
           </div>
+        ) : null}
+      </div>
+      <div
+        ref={viewportRef}
+        className="product-rail-viewport"
+        onMouseEnter={() => {
+          pausedRef.current = true;
+        }}
+        onMouseLeave={() => {
+          pausedRef.current = false;
+        }}
+        onTouchStart={() => {
+          holdUntilRef.current = performance.now() + MANUAL_HOLD_MS;
+        }}
+      >
+        <div className="product-rail-track">
+          {(canMove ? marqueeItems : items).map((item, i) => (
+            <RailCard key={`${item.listingId}-${i}`} item={item} {...cardProps} />
+          ))}
         </div>
-      ) : (
-        <div className="product-rail-viewport">
-          <div className="product-rail-track" style={marqueeStyle}>
-            {marqueeItems.map((item, i) => (
-              <RailCard key={`${item.listingId}-${i}`} item={item} {...cardProps} />
-            ))}
-          </div>
-        </div>
-      )}
+      </div>
     </section>
   );
 }
 
 const styles: Record<string, CSSProperties> = {
-  section: { display: 'grid', gap: '0.45rem', minWidth: 0 },
+  section: {
+    display: 'grid',
+    gap: '0.35rem',
+    minWidth: 0,
+    position: 'relative',
+    zIndex: 1,
+    isolation: 'isolate',
+  },
+  head: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: '0.5rem',
+    minWidth: 0,
+  },
   title: {
     margin: 0,
     fontFamily: 'var(--font-display)',
@@ -155,9 +214,25 @@ const styles: Record<string, CSSProperties> = {
     fontWeight: 800,
     letterSpacing: '-0.03em',
     color: 'var(--text)',
+    minWidth: 0,
   },
-  staticRow: {
+  arrows: {
     display: 'flex',
-    gap: '0.5rem',
+    gap: '0.3rem',
+    flexShrink: 0,
+  },
+  arrow: {
+    width: 40,
+    height: 40,
+    padding: 0,
+    borderRadius: 999,
+    border: '1px solid var(--border)',
+    background: 'var(--bg-elevated)',
+    color: 'var(--text)',
+    fontSize: '1.35rem',
+    lineHeight: 1,
+    cursor: 'pointer',
+    display: 'grid',
+    placeItems: 'center',
   },
 };

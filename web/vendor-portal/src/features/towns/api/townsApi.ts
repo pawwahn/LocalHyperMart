@@ -4,6 +4,7 @@ export type TownVm = {
   id: string;
   displayName: string;
   townCode: string;
+  state?: string | null;
   stateCode: string;
   status: string;
   acceptingOrders: boolean;

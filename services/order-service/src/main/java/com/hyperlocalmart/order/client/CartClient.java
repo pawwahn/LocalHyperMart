@@ -121,7 +121,12 @@ public class CartClient {
             int quantity,
             BigDecimal unitPrice,
             BigDecimal discountPrice,
-            BigDecimal lineTotal
+            BigDecimal lineTotal,
+            String hsnCode,
+            BigDecimal gstPercent,
+            BigDecimal cessPercent,
+            boolean priceIncludesTax,
+            String countryOfOrigin
     ) {
     }
 }

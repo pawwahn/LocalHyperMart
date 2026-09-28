@@ -8,6 +8,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.math.BigDecimal;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -18,12 +19,15 @@ public interface MasterItemRepository extends JpaRepository<MasterItem, UUID> {
             WHERE m.status = :status
               AND (:#{#categoryId == null} = true OR m.category.id = :categoryId)
               AND (:#{#unitId == null} = true OR m.unit.id = :unitId)
-              AND (:#{#q == null || #q.isBlank()} = true OR LOWER(m.name) LIKE LOWER(CONCAT('%', :q, '%')))
+              AND (:gstPercent IS NULL OR m.gstPercent = :gstPercent)
+              AND (:#{#q == null || #q.isBlank()} = true OR LOWER(m.name) LIKE LOWER(CONCAT('%', :q, '%'))
+                   OR LOWER(COALESCE(m.searchNames, '')) LIKE LOWER(CONCAT('%', :q, '%')))
             """)
     Page<MasterItem> searchActive(
             @Param("status") CatalogItemStatus status,
             @Param("categoryId") UUID categoryId,
             @Param("unitId") UUID unitId,
+            @Param("gstPercent") BigDecimal gstPercent,
             @Param("q") String q,
             Pageable pageable);
 
