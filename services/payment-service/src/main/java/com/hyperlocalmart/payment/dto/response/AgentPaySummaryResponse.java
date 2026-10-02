@@ -20,11 +20,17 @@ public class AgentPaySummaryResponse {
     String to;
 
     boolean payEnabled;
+    /** HUB_NETWORK or VENDOR_SHOP */
+    String payModel;
     BigDecimal pickupRate;
     BigDecimal lastMileRate;
     BigDecimal completedOrderRate;
+    /** Per delivered order for vendor shop agents (town x). */
+    BigDecimal vendorDirectOrderRate;
 
     long payableOrders;
+    /** Deliveries completed by this agent in range (including when town pay is off or rate is ₹0). */
+    long yourDeliveries;
     long unpaidOrderCount;
     BigDecimal earned;
     BigDecimal paid;

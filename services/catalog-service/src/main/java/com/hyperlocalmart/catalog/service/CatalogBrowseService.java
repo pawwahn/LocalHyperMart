@@ -10,6 +10,7 @@ import com.hyperlocalmart.catalog.repository.VendorListingImageRepository;
 import com.hyperlocalmart.catalog.repository.VendorListingRepository;
 import com.hyperlocalmart.common.api.PageResponse;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -39,6 +40,10 @@ public class CatalogBrowseService {
     private final VendorShopClient vendorShopClient;
 
     @Transactional(readOnly = true)
+    @Cacheable(
+            cacheNames = "catalogBrowse",
+            condition = "@catalogCacheProperties.enabled",
+            key = "T(java.lang.String).format('%s|%s|%s|%d|%d|%s|%s', #townId, #categoryId, #query, #page, #size, #sort, #dir)")
     public PageResponse<CatalogItemResponse> browse(
             UUID townId, UUID categoryId, String query, int page, int size, String sort, String dir) {
         String normalizedQuery = query == null || query.isBlank() ? null : query.trim();

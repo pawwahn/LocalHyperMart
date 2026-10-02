@@ -48,12 +48,28 @@ public class AgentPayService {
             // Rates stay zero if town config is down; job amounts still come from candidates.
         }
 
-        boolean payEnabled = party != null && party.enabled()
+        boolean vendorShopAgent = agent.agentType() != null
+                && "VENDOR".equalsIgnoreCase(agent.agentType());
+        TownClient.VendorAgentDeliveryConfig vendorAgentCfg = null;
+        if (vendorShopAgent) {
+            try {
+                vendorAgentCfg = townClient.vendorAgentDeliveryConfig(agent.townId());
+            } catch (RuntimeException ignored) {
+            }
+        }
+        boolean hubPayEnabled = party != null && party.enabled()
                 && party.perOrder() != null && party.perOrder().enabled();
+        boolean vendorPayEnabled = vendorShopAgent
+                && vendorAgentCfg != null
+                && vendorAgentCfg.enabled();
+        boolean payEnabled = vendorPayEnabled || hubPayEnabled;
+        String payModel = vendorShopAgent ? "VENDOR_SHOP" : "HUB_NETWORK";
         BigDecimal pickupRate = money(party == null || party.perOrder() == null ? null : party.perOrder().pickupAmount());
         BigDecimal lastMileRate = money(party == null || party.perOrder() == null ? null : party.perOrder().lastMileAmount());
         BigDecimal completedRate = money(
                 party == null || party.perOrder() == null ? null : party.perOrder().completedOrderAmount());
+        BigDecimal vendorDirectOrderRate = money(
+                vendorAgentCfg == null ? null : vendorAgentCfg.vendorAgentPayoutAmount());
 
         DeliverySettlementCandidateView candidates = deliverySettlementService.listCandidates(
                 agent.townId(), SettlementPayeeType.AGENT, agent.agentId(), start, end);
@@ -62,8 +78,12 @@ public class AgentPayService {
         BigDecimal paid = BigDecimal.ZERO;
         long payable = 0;
         long settled = 0;
+        long yourDeliveries = 0;
         List<AgentPaySummaryResponse.UnpaidOrder> unpaid = new java.util.ArrayList<>();
         for (DeliverySettlementCandidateView.Item item : candidates.getItems()) {
+            if (countsAsYourDelivery(item.getSkipReason())) {
+                yourDeliveries++;
+            }
             if (item.getSkipReason() != null) {
                 continue;
             }
@@ -102,10 +122,13 @@ public class AgentPayService {
                 .from(start.toString())
                 .to(end.toString())
                 .payEnabled(payEnabled)
+                .payModel(payModel)
                 .pickupRate(pickupRate)
                 .lastMileRate(lastMileRate)
                 .completedOrderRate(completedRate)
+                .vendorDirectOrderRate(vendorDirectOrderRate)
                 .payableOrders(payable)
+                .yourDeliveries(yourDeliveries)
                 .unpaidOrderCount(payable - settled)
                 .earned(earned.setScale(2, RoundingMode.HALF_UP))
                 .paid(paid.setScale(2, RoundingMode.HALF_UP))
@@ -142,6 +165,14 @@ public class AgentPayService {
             return true;
         }
         return !end.isBefore(from) && !start.isAfter(to);
+    }
+
+    private static boolean countsAsYourDelivery(String skipReason) {
+        if (skipReason == null) {
+            return true;
+        }
+        return "Shop delivery pay is not enabled for this town".equals(skipReason)
+                || "Pay is ₹0".equals(skipReason);
     }
 
     private static BigDecimal money(BigDecimal value) {

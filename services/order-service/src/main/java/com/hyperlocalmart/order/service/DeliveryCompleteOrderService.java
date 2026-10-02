@@ -51,7 +51,8 @@ public class DeliveryCompleteOrderService {
                 o.getStatus().name(),
                 o.getPaymentStatus() == null ? null : o.getPaymentStatus().name(),
                 o.getDeliveredAt(),
-                o.getTotalAmount());
+                o.getTotalAmount(),
+                o.isVendorAgentDelivery());
     }
 
     public record CompleteOrder(
@@ -61,7 +62,8 @@ public class DeliveryCompleteOrderService {
             String status,
             String paymentStatus,
             Instant deliveredAt,
-            java.math.BigDecimal totalAmount
+            java.math.BigDecimal totalAmount,
+            boolean vendorAgentDelivery
     ) {
     }
 }

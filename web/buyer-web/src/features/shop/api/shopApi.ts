@@ -629,7 +629,7 @@ export async function placeOrder(
     method: 'POST',
     token,
     headers: { 'Idempotency-Key': `web-${Date.now()}` },
-    timeoutMs: 12_000,
+    timeoutMs: 30_000,
     body: {
       townId: input.townId,
       cartId: input.cartId,
@@ -657,6 +657,17 @@ export async function confirmOnlinePayment(
     method: 'POST',
     body: input,
   });
+}
+
+export type PaymentCheckoutDto = {
+  paymentId: string;
+  orderId?: string;
+  status?: string;
+  checkout?: GatewayCheckout | null;
+};
+
+export async function fetchPaymentCheckout(token: string, paymentId: string): Promise<PaymentCheckoutDto> {
+  return apiRequest<PaymentCheckoutDto>(`/api/v1/payments/${paymentId}/checkout`, { token, timeoutMs: 10_000 });
 }
 
 export async function retryOnlinePayment(

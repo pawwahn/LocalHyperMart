@@ -29,6 +29,8 @@ type RequestOptions = {
   body?: unknown;
   token?: string | null;
   vendorId?: string | null;
+  shopId?: string | null;
+  townId?: string | null;
   headers?: Record<string, string>;
   timeoutMs?: number;
 };
@@ -50,6 +52,12 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   }
   if (options.vendorId) {
     headers['X-Vendor-Id'] = options.vendorId;
+  }
+  if (options.shopId) {
+    headers['X-Shop-Id'] = options.shopId;
+  }
+  if (options.townId) {
+    headers['X-Town-Id'] = options.townId;
   }
 
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;

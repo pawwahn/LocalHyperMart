@@ -8,6 +8,14 @@ export type SettlementCandidate = {
   placedAt?: string | null;
   status: string;
   paymentStatus?: string | null;
+  paymentMethod?: string | null;
+  /** COD only: hub recorded agent remittance (close-day). */
+  codRemittedToHub?: boolean | null;
+  vendorAgentDelivery?: boolean;
+  /** WITH_AGENT | AT_HUB | WITH_VENDOR | DECLARED_TO_VENDOR */
+  codCashLocation?: string | null;
+  codDeliveringAgentId?: string | null;
+  codDeliveringAgentName?: string | null;
   subtotal: number;
   alreadySettled: boolean;
 };
@@ -136,6 +144,7 @@ export type DeliverySettlementCandidate = {
   orderNumber: string;
   deliveredAt?: string | null;
   paymentStatus?: string | null;
+  vendorAgentDelivery?: boolean;
   lastMileCompleted: boolean;
   pickupCompleted: boolean;
   amount: number;

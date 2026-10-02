@@ -96,7 +96,10 @@ function formatWhen(iso?: string | null): string {
 }
 
 function legLabel(leg: string): string {
-  return leg === 'PICKUP' ? 'Shop pickup' : leg === 'LAST_MILE' ? 'Home delivery' : leg;
+  if (leg === 'PICKUP') return 'Shop pickup';
+  if (leg === 'LAST_MILE') return 'Home delivery';
+  if (leg === 'VENDOR_DIRECT') return 'Shop to buyer';
+  return leg;
 }
 
 function statusStyle(status: string): CSSProperties {
@@ -234,7 +237,13 @@ export function AgentDetailDialog({
 
   const visible = useMemo(() => {
     return rows
-      .filter((row) => jobType === 'all' || row.legType === jobType)
+      .filter((row) => {
+        if (jobType === 'all') return true;
+        if (jobType === 'LAST_MILE') {
+          return row.legType === 'LAST_MILE' || row.legType === 'VENDOR_DIRECT';
+        }
+        return row.legType === jobType;
+      })
       .sort((a, b) => jobWhen(b) - jobWhen(a));
   }, [rows, jobType]);
 

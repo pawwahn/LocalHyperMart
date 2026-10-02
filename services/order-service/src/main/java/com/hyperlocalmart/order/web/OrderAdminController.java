@@ -4,6 +4,7 @@ import com.hyperlocalmart.common.api.ApiResponse;
 import com.hyperlocalmart.common.api.PageResponse;
 import com.hyperlocalmart.common.exception.BusinessException;
 import com.hyperlocalmart.common.exception.ErrorCode;
+import com.hyperlocalmart.order.client.DeliveryClient;
 import com.hyperlocalmart.order.dto.request.CreateVendorOrderAlertRequest;
 import com.hyperlocalmart.order.dto.request.ResolveClaimRequest;
 import com.hyperlocalmart.order.dto.response.AdminOrderResponses.AdminOrderDetailResponse;
@@ -44,6 +45,7 @@ public class OrderAdminController {
     private final ScratchCardAdminService scratchCardAdminService;
     private final PlatformReportService platformReportService;
     private final DeliveryAgentRatingService deliveryAgentRatingService;
+    private final DeliveryClient deliveryClient;
 
     @GetMapping
     public ResponseEntity<ApiResponse<PageResponse<AdminOrderSummaryResponse>>> listOrders(
@@ -86,6 +88,17 @@ public class OrderAdminController {
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
                 orderClaimService.resolveClaim(
                         principal.getUserId(), principal.getRoles(), claimId, townId, request)));
+    }
+
+    @PostMapping("/sub-orders/{subOrderId}/agent-alerts")
+    public ResponseEntity<ApiResponse<DeliveryClient.AgentAlertCreated>> createAgentAlert(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @PathVariable UUID subOrderId,
+            @RequestParam UUID townId,
+            HttpServletRequest httpRequest) {
+        requireHubOrSuperAdmin(principal);
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                deliveryClient.notifyHubAgent(townId, subOrderId, principal.getUserId())));
     }
 
     @PostMapping("/sub-orders/{subOrderId}/alerts")

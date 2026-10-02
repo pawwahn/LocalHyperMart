@@ -4,7 +4,7 @@ import { useAuth } from '@/shared/auth/AuthContext';
 import { ApiError } from '@/shared/api/http';
 import { fetchMyPay, type AgentPaySummary } from '../api/agentApi';
 
-type Preset = 'today' | '7d' | 'month' | 'lastMonth';
+type Preset = 'today' | '7d' | 'month' | 'lastMonth' | 'custom';
 
 function todayIso(): string {
   return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
@@ -67,12 +67,24 @@ export function AgentPayPage() {
       const b = monthBounds(0);
       setFrom(b.from);
       setTo(todayIso());
-    } else {
+    } else if (next === 'lastMonth') {
       const b = monthBounds(-1);
       setFrom(b.from);
       setTo(b.to);
     }
   }, []);
+
+  function setCustomDate(which: 'from' | 'to', value: string) {
+    if (!value) return;
+    setPreset('custom');
+    if (which === 'from') {
+      setFrom(value);
+      setTo((prev) => (prev && value > prev ? value : prev));
+    } else {
+      setTo(value);
+      setFrom((prev) => (prev && value < prev ? value : prev));
+    }
+  }
 
   const load = useCallback(async () => {
     if (!session) return;
@@ -100,6 +112,7 @@ export function AgentPayPage() {
           ['7d', '7 days'],
           ['month', 'This month'],
           ['lastMonth', 'Last month'],
+          ['custom', 'Custom'],
         ] as Array<[Preset, string]>).map(([id, label]) => (
           <button
             key={id}
@@ -113,6 +126,31 @@ export function AgentPayPage() {
           </button>
         ))}
       </div>
+      {preset === 'custom' ? (
+        <div style={styles.customRow}>
+          <label style={styles.dateField}>
+            From
+            <input
+              type="date"
+              value={from}
+              max={to || todayIso()}
+              onChange={(e) => setCustomDate('from', e.target.value)}
+              style={styles.dateInput}
+            />
+          </label>
+          <label style={styles.dateField}>
+            To
+            <input
+              type="date"
+              value={to}
+              min={from}
+              max={todayIso()}
+              onChange={(e) => setCustomDate('to', e.target.value)}
+              style={styles.dateInput}
+            />
+          </label>
+        </div>
+      ) : null}
 
       {error ? <p style={styles.error}>{error}</p> : null}
       {loading && !data ? <p style={styles.muted}>Loading pay…</p> : null}
@@ -125,13 +163,20 @@ export function AgentPayPage() {
             <MoneyChip label="Due" value={money(data.due)} tone="warn" />
           </div>
           <p style={styles.meta}>
-            {data.payableOrders} delivered order{data.payableOrders === 1 ? '' : 's'} in {data.from === data.to ? data.from : `${data.from} → ${data.to}`}
+            {(data.yourDeliveries ?? data.payableOrders)} delivery
+            {(data.yourDeliveries ?? data.payableOrders) === 1 ? '' : 'ies'} by you in{' '}
+            {data.from === data.to ? data.from : `${data.from} → ${data.to}`}
+            {data.payableOrders > 0 ? ` · ${data.payableOrders} payable` : ''}
             {data.unpaidOrderCount > 0 ? ` · ${data.unpaidOrderCount} unpaid` : ''}
           </p>
           <p style={styles.rates}>
-            {data.payEnabled
-              ? `Rates · pickup ${money(data.pickupRate)} · home ${money(data.lastMileRate)} · order ${money(data.completedOrderRate)}`
-              : 'Per-order pay is off for this town'}
+            {!data.payEnabled
+              ? data.payModel === 'VENDOR_SHOP'
+                ? 'Shop delivery pay is off for this town — enable it in Super Admin → Towns → Vendor delivery'
+                : 'Per-order pay is off for this town'
+              : data.payModel === 'VENDOR_SHOP'
+                ? `Shop delivery · ${money(data.vendorDirectOrderRate ?? 0)} per delivered order`
+                : `Rates · pickup ${money(data.pickupRate)} · home ${money(data.lastMileRate)} · order ${money(data.completedOrderRate)}`}
           </p>
 
           <h3 style={styles.h3}>Awaiting payout</h3>
@@ -218,12 +263,37 @@ function MoneyChip({ label, value, tone }: { label: string; value: string; tone:
 const styles: Record<string, CSSProperties> = {
   range: {
     display: 'grid',
-    gridTemplateColumns: 'repeat(4, 1fr)',
+    gridTemplateColumns: 'repeat(5, minmax(0, 1fr))',
     gap: 3,
     padding: 3,
     borderRadius: 10,
     background: 'var(--bg)',
     border: '1px solid var(--border)',
+  },
+  customRow: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
+    gap: '0.4rem',
+    alignItems: 'end',
+  },
+  dateField: {
+    display: 'grid',
+    gap: 2,
+    fontSize: '0.7rem',
+    fontWeight: 800,
+    color: 'var(--text-muted)',
+  },
+  dateInput: {
+    boxSizing: 'border-box',
+    width: '100%',
+    minHeight: 44,
+    padding: '0.35rem 0.45rem',
+    borderRadius: 8,
+    border: '1px solid var(--border)',
+    background: 'var(--bg-elevated)',
+    color: 'var(--text)',
+    font: 'inherit',
+    fontWeight: 700,
   },
   rangeOff: {
     appearance: 'none',

@@ -6,6 +6,7 @@ import com.hyperlocalmart.common.exception.ErrorCode;
 import com.hyperlocalmart.order.client.DeliveryClient;
 import com.hyperlocalmart.order.client.NotificationClient;
 import com.hyperlocalmart.order.client.PaymentClient;
+import com.hyperlocalmart.order.client.TownClient;
 import com.hyperlocalmart.order.dto.request.CancelOrderItemRequest;
 import com.hyperlocalmart.order.dto.request.RejectSubOrderRequest;
 import com.hyperlocalmart.order.dto.response.OrderItemDetailResponse;
@@ -39,6 +40,7 @@ public class VendorSubOrderService {
     private final PaymentClient paymentClient;
     private final NotificationClient notificationClient;
     private final DeliveryClient deliveryClient;
+    private final TownClient townClient;
     private final OrderMoneyUnwindService orderMoneyUnwindService;
 
     @Transactional(readOnly = true)
@@ -47,7 +49,16 @@ public class VendorSubOrderService {
         Page<VendorSubOrder> results = status == null
                 ? vendorSubOrderRepository.findByVendorIdOrderByCreatedAtDesc(vendorId, pageable)
                 : vendorSubOrderRepository.findByVendorIdAndStatusOrderByCreatedAtDesc(vendorId, status, pageable);
-        List<VendorSubOrderResponse> items = results.getContent().stream().map(this::toResponse).toList();
+        List<UUID> subIds = results.getContent().stream().map(VendorSubOrder::getId).toList();
+        java.util.Map<UUID, DeliveryClient.AgentAlertSummary> alertBySub = deliveryClient.summarizeAgentAlerts(subIds)
+                .stream()
+                .collect(java.util.stream.Collectors.toMap(
+                        DeliveryClient.AgentAlertSummary::vendorSubOrderId,
+                        s -> s,
+                        (a, b) -> a));
+        List<VendorSubOrderResponse> items = results.getContent().stream()
+                .map(sub -> toResponse(sub, alertBySub.get(sub.getId())))
+                .toList();
         return PageResponse.<VendorSubOrderResponse>builder()
                 .items(items)
                 .page(results.getNumber())
@@ -92,6 +103,63 @@ public class VendorSubOrderService {
         notificationClient.notifySubOrderReady(
                 order.getTownId(), order.getId(), order.getBuyerId(), order.getBuyerPhoneSnapshot(),
                 order.getOrderNumber(), shopName);
+        return toResponse(subOrder);
+    }
+
+    @Transactional
+    public VendorSubOrderResponse chooseDeliveryByVendorAgent(UUID vendorId, UUID subOrderId, UUID actorUserId) {
+        VendorSubOrder subOrder = loadForVendorAction(vendorId, subOrderId);
+        if (subOrder.getStatus() != VendorSubOrderStatus.PLACED) {
+            throw new BusinessException(ErrorCode.CONFLICT, "Sub-order cannot switch to vendor-agent delivery");
+        }
+        Order order = subOrder.getOrder();
+        if (!isWholeOrderForShop(order)) {
+            throw new BusinessException(
+                    ErrorCode.CONFLICT, "Vendor-agent delivery is only allowed when the full order is from your shop");
+        }
+        TownClient.VendorAgentDeliverySettings settings = townClient.getVendorAgentDeliverySettings(order.getTownId());
+        if (!settings.enabled()) {
+            throw new BusinessException(ErrorCode.CONFLICT, "Delivery by vendor agent is not enabled for this town");
+        }
+        boolean hasActive = subOrder.getItems().stream()
+                .anyMatch(item -> item.getStatus() == null || item.getStatus() == OrderItemStatus.ACTIVE);
+        if (!hasActive) {
+            throw new BusinessException(ErrorCode.CONFLICT, "No active items left on this order");
+        }
+
+        Instant now = Instant.now();
+        subOrder.setStatus(VendorSubOrderStatus.DELIVERY_BY_VENDOR_AGENT);
+        subOrder.setVendorAgentDeliveryAt(now);
+        order.setVendorAgentDelivery(true);
+        vendorSubOrderRepository.save(subOrder);
+        orderRepository.save(order);
+
+        orderStatusHistoryRepository.save(OrderStatusHistory.builder()
+                .orderId(order.getId())
+                .vendorSubOrderId(subOrder.getId())
+                .fromStatus(VendorSubOrderStatus.PLACED.name())
+                .toStatus(VendorSubOrderStatus.DELIVERY_BY_VENDOR_AGENT.name())
+                .changedBy(actorUserId)
+                .changedByRole("VENDOR")
+                .build());
+        return toResponse(subOrder);
+    }
+
+    @Transactional
+    public VendorSubOrderResponse notifyVendorAgent(UUID vendorId, UUID subOrderId, UUID actorUserId) {
+        VendorSubOrder subOrder = loadForVendorAction(vendorId, subOrderId);
+        deliveryClient.notifyVendorAgent(vendorId, subOrderId, actorUserId);
+        return toResponse(subOrder);
+    }
+
+    @Transactional
+    public VendorSubOrderResponse assignVendorAgent(
+            UUID vendorId, UUID subOrderId, UUID actorUserId, UUID agentId) {
+        VendorSubOrder subOrder = loadForVendorAction(vendorId, subOrderId);
+        if (subOrder.getStatus() != VendorSubOrderStatus.DELIVERY_BY_VENDOR_AGENT) {
+            throw new BusinessException(ErrorCode.CONFLICT, "Sub-order is not in vendor-agent delivery mode");
+        }
+        deliveryClient.assignVendorDirectDelivery(vendorId, subOrderId, agentId, actorUserId);
         return toResponse(subOrder);
     }
 
@@ -580,18 +648,14 @@ public class VendorSubOrderService {
             newItemsSubtotal = BigDecimal.ZERO;
         }
         order.setItemsSubtotal(newItemsSubtotal);
-        BigDecimal promo = order.getPromoDiscount() == null ? BigDecimal.ZERO : order.getPromoDiscount();
-        BigDecimal payableItems = newItemsSubtotal.subtract(promo).max(BigDecimal.ZERO);
         boolean empty = newItemsSubtotal.compareTo(BigDecimal.ZERO) == 0;
-        BigDecimal delivery = empty
-                ? BigDecimal.ZERO
-                : (order.getDeliveryFee() == null ? BigDecimal.ZERO : order.getDeliveryFee());
         if (empty) {
             order.setDeliveryFee(BigDecimal.ZERO);
+            order.setPlatformFee(BigDecimal.ZERO);
+            order.setCodFee(BigDecimal.ZERO);
         }
-        BigDecimal newTotal = payableItems.add(delivery);
-        BigDecimal creditApplied = order.getStoreCreditApplied() == null ? BigDecimal.ZERO : order.getStoreCreditApplied();
-        order.setTotalAmount(newTotal.subtract(creditApplied).max(BigDecimal.ZERO));
+        order.setTotalAmount(OrderService.buyerPayableTotal(order));
+        orderRepository.save(order);
     }
 
     private static BigDecimal sumActiveFromItems(List<OrderItem> items) {
@@ -641,25 +705,103 @@ public class VendorSubOrderService {
     }
 
     private VendorSubOrderResponse toResponse(VendorSubOrder subOrder) {
+        DeliveryClient.AgentAlertSummary summary = null;
+        if (subOrder.getStatus() == VendorSubOrderStatus.DELIVERY_BY_VENDOR_AGENT) {
+            List<DeliveryClient.AgentAlertSummary> list =
+                    deliveryClient.summarizeAgentAlerts(List.of(subOrder.getId()));
+            summary = list.isEmpty() ? null : list.getFirst();
+        }
+        return toResponse(subOrder, summary);
+    }
+
+    private VendorSubOrderResponse toResponse(
+            VendorSubOrder subOrder, DeliveryClient.AgentAlertSummary alertSummary) {
         UUID buyerId = subOrder.getOrder() != null ? subOrder.getOrder().getBuyerId() : null;
         VendorSubOrderStatus subStatus = subOrder.getStatus();
         boolean pickupStarted = pickupHasStarted(subOrder);
         List<OrderItemDetailResponse> items = subOrder.getItems().stream()
                 .map(item -> toItemDetail(item, buyerId, subStatus, pickupStarted))
                 .toList();
-        return VendorSubOrderResponse.builder()
+        Order order = subOrder.getOrder();
+        TownClient.VendorAgentDeliverySettings townDelivery =
+                townClient.getVendorAgentDeliverySettings(order.getTownId());
+        VendorSubOrderResponse.VendorSubOrderResponseBuilder builder = VendorSubOrderResponse.builder()
                 .subOrderId(subOrder.getId())
                 .subOrderNumber(subOrder.getSubOrderNumber())
-                .orderId(subOrder.getOrder().getId())
-                .orderNumber(subOrder.getOrder().getOrderNumber())
+                .orderId(order.getId())
+                .orderNumber(order.getOrderNumber())
                 .vendorId(subOrder.getVendorId())
                 .shopId(subOrder.getShopId())
                 .status(subOrder.getStatus())
                 .subtotal(subOrder.getSubtotal())
-                .placedAt(subOrder.getOrder().getPlacedAt())
+                .placedAt(order.getPlacedAt())
                 .readyForPickupAt(subOrder.getReadyForPickupAt())
-                .items(items)
-                .build();
+                .vendorAgentDeliveryAt(subOrder.getVendorAgentDeliveryAt())
+                .wholeOrderForShop(isWholeOrderForShop(order))
+                .vendorAgentDeliveryEnabled(townDelivery.enabled())
+                .vendorAgentDelivery(order.isVendorAgentDelivery())
+                .items(items);
+        applyVendorDirectAssignment(builder, subOrder);
+        applyVendorAgentAlert(builder, alertSummary);
+        return builder.build();
+    }
+
+    private void applyVendorAgentAlert(
+            VendorSubOrderResponse.VendorSubOrderResponseBuilder builder,
+            DeliveryClient.AgentAlertSummary summary) {
+        if (summary == null || summary.status() == null) {
+            return;
+        }
+        builder.vendorAgentAlertStatus(summary.status())
+                .vendorAgentAlertAcknowledgedAt(summary.acknowledgedAt());
+    }
+
+    private void applyVendorDirectAssignment(
+            VendorSubOrderResponse.VendorSubOrderResponseBuilder builder, VendorSubOrder subOrder) {
+        if (subOrder.getStatus() != VendorSubOrderStatus.DELIVERY_BY_VENDOR_AGENT) {
+            builder.canAssignVendorAgent(false);
+            return;
+        }
+        Order order = subOrder.getOrder();
+        if (order == null || subOrder.getSubOrderNumber() == null) {
+            builder.canAssignVendorAgent(true);
+            return;
+        }
+        List<DeliveryClient.OrderAssignment> assignments =
+                deliveryClient.getAssignmentsForOrder(order.getId());
+        DeliveryClient.OrderAssignment vendorDirect = assignments.stream()
+                .filter(a -> "VENDOR_DIRECT".equalsIgnoreCase(a.legType())
+                        && subOrder.getSubOrderNumber().equals(a.subOrderNumber()))
+                .findFirst()
+                .orElse(null);
+        if (vendorDirect == null) {
+            builder.canAssignVendorAgent(true);
+            return;
+        }
+        builder.vendorDirectAgentName(vendorDirect.agentName())
+                .vendorDirectAgentPhone(vendorDirect.agentPhone())
+                .vendorDirectAssignmentStatus(vendorDirect.status())
+                .canAssignVendorAgent(!isActiveVendorDirectAssignment(vendorDirect.status()));
+    }
+
+    private static boolean isActiveVendorDirectAssignment(String status) {
+        if (status == null) {
+            return false;
+        }
+        return switch (status.toUpperCase()) {
+            case "ASSIGNED", "IN_PROGRESS", "COMPLETED" -> true;
+            default -> false;
+        };
+    }
+
+    private static boolean isWholeOrderForShop(Order order) {
+        if (order.getVendorSubOrders() == null) {
+            return false;
+        }
+        long activeBags = order.getVendorSubOrders().stream()
+                .filter(s -> s.getStatus() != VendorSubOrderStatus.VENDOR_REJECTED)
+                .count();
+        return activeBags == 1;
     }
 
     private OrderItemDetailResponse toItemDetail(
@@ -716,6 +858,12 @@ public class VendorSubOrderService {
             return false;
         }
         VendorSubOrderStatus status = subOrder.getStatus();
+        if (status == VendorSubOrderStatus.DELIVERY_BY_VENDOR_AGENT) {
+            return deliveryClient.getAssignmentsForOrder(subOrder.getOrder().getId()).stream()
+                    .anyMatch(a -> "VENDOR_DIRECT".equalsIgnoreCase(a.legType())
+                            && ("IN_PROGRESS".equalsIgnoreCase(a.status())
+                            || "COMPLETED".equalsIgnoreCase(a.status())));
+        }
         if (status != VendorSubOrderStatus.READY_FOR_PICKUP && status != VendorSubOrderStatus.DELIVERED) {
             return false;
         }

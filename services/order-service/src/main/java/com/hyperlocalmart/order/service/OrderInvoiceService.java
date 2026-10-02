@@ -94,7 +94,7 @@ public class OrderInvoiceService {
                 .platformFee(order.getPlatformFee())
                 .taxAmount(order.getTaxAmount())
                 .storeCreditApplied(order.getStoreCreditApplied() == null ? BigDecimal.ZERO : order.getStoreCreditApplied())
-                .totalAmount(order.getTotalAmount())
+                .totalAmount(OrderService.buyerPayableTotal(order))
                 .lineItems(lineItems)
                 .cancelledItems(cancelledItems)
                 .build();

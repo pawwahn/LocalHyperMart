@@ -56,7 +56,37 @@ public class OrderClient {
                 strVal(data.get("addressLine2")),
                 strVal(data.get("landmark")),
                 strVal(data.get("pincode")),
-                strVal(data.get("addressLabel")));
+                strVal(data.get("addressLabel")),
+                boolVal(data.get("vendorAgentDelivery")),
+                strVal(data.get("paymentMethod")),
+                decimalVal(data.get("collectCashAmount")));
+    }
+
+    private static java.math.BigDecimal decimalVal(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof java.math.BigDecimal bd) {
+            return bd;
+        }
+        if (value instanceof Number n) {
+            return java.math.BigDecimal.valueOf(n.doubleValue());
+        }
+        String text = String.valueOf(value).trim();
+        if (text.isEmpty() || "null".equals(text)) {
+            return null;
+        }
+        return new java.math.BigDecimal(text);
+    }
+
+    private static boolean boolVal(Object value) {
+        if (value instanceof Boolean b) {
+            return b;
+        }
+        if (value == null) {
+            return false;
+        }
+        return "true".equalsIgnoreCase(String.valueOf(value));
     }
 
     private static String strVal(Object value) {
@@ -125,6 +155,8 @@ public class OrderClient {
         return new DeliveryManifest(
                 dto.getOrderId(),
                 dto.getOrderNumber(),
+                dto.getPaymentMethod(),
+                dto.getCollectCashAmount(),
                 dto.getSubtotal(),
                 dto.getTotalItemCount(),
                 lines);
@@ -149,6 +181,8 @@ public class OrderClient {
             UUID orderId,
             UUID townId,
             UUID vendorId,
+            UUID shopId,
+            String shopName,
             String status,
             String orderNumber,
             String subOrderNumber
@@ -168,7 +202,10 @@ public class OrderClient {
             String addressLine2,
             String landmark,
             String pincode,
-            String addressLabel
+            String addressLabel,
+            boolean vendorAgentDelivery,
+            String paymentMethod,
+            java.math.BigDecimal collectCashAmount
     ) {
     }
 
@@ -249,6 +286,8 @@ public class OrderClient {
     public record DeliveryManifest(
             UUID orderId,
             String orderNumber,
+            String paymentMethod,
+            java.math.BigDecimal collectCashAmount,
             java.math.BigDecimal subtotal,
             int totalItemCount,
             java.util.List<DeliveryManifestLine> items

@@ -14,6 +14,8 @@ public class SubOrderInternalSnapshotResponse {
     UUID orderId;
     UUID townId;
     UUID vendorId;
+    UUID shopId;
+    String shopName;
     String status;
     String orderNumber;
 }

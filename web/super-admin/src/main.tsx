@@ -5,7 +5,7 @@ import { injectGlobalStyles } from '@/shared/theme/globalStyles';
 import { AppRouter } from '@/app/AppRouter';
 
 injectGlobalStyles();
-applyStoredTheme('hlm.superadmin.theme', 'amber');
+applyStoredTheme('hlm.koyakart.superadmin.theme', 'forest');
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

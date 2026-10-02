@@ -4,12 +4,14 @@ import { PaginationBar } from '@/shared/components/PaginationBar';
 import { AgentShell } from '../layout/AgentShell';
 import { BuyerDeliveryCard, VendorPickupCard } from '../components/AssignmentCards';
 import { useAgentWorkspace, type AgentLeg } from '../hooks/useAgentWorkspace';
+import { useAgentKind } from '../hooks/useAgentKind';
 import { useDeliveryManifests } from '../hooks/useDeliveryManifests';
 import { usePickupManifests } from '../hooks/usePickupManifests';
 
 type HistoryLeg = 'all' | AgentLeg;
 
 export function AgentHistoryPage() {
+  const { vendorShop } = useAgentKind();
   const [legFilter, setLegFilter] = useState<HistoryLeg>('all');
   const [page, setPage] = useState(0);
 
@@ -22,7 +24,7 @@ export function AgentHistoryPage() {
     [assignments],
   );
   const deliveryTasks = useMemo(
-    () => assignments.filter((t) => t.legType === 'LAST_MILE'),
+    () => assignments.filter((t) => t.legType === 'LAST_MILE' || t.legType === 'VENDOR_DIRECT'),
     [assignments],
   );
 
@@ -42,17 +44,19 @@ export function AgentHistoryPage() {
             setPage(0);
           }}
         />
-        <FilterChip
-          active={legFilter === 'PICKUP'}
-          label="From shop"
-          onClick={() => {
-            setLegFilter('PICKUP');
-            setPage(0);
-          }}
-        />
+        {vendorShop ? null : (
+          <FilterChip
+            active={legFilter === 'PICKUP'}
+            label="From shop"
+            onClick={() => {
+              setLegFilter('PICKUP');
+              setPage(0);
+            }}
+          />
+        )}
         <FilterChip
           active={legFilter === 'LAST_MILE'}
-          label="To home"
+          label={vendorShop ? 'Deliveries' : 'To home'}
           onClick={() => {
             setLegFilter('LAST_MILE');
             setPage(0);

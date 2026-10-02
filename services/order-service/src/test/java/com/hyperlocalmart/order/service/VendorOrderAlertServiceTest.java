@@ -120,6 +120,26 @@ class VendorOrderAlertServiceTest {
     }
 
     @Test
+    void createAlert_rejectsVendorAgentDeliveryOrder() {
+        UUID townId = UUID.randomUUID();
+        UUID hubAdmin = UUID.randomUUID();
+        UUID subOrderId = UUID.randomUUID();
+        VendorSubOrder sub = placedSubOrder(subOrderId, townId);
+        sub.getOrder().setVendorAgentDelivery(true);
+
+        when(deliveryClient.getHubAdminContext(hubAdmin))
+                .thenReturn(new DeliveryClient.HubAdminContext(hubAdmin, UUID.randomUUID(), townId));
+        when(vendorSubOrderRepository.findDetailedByIdWithItems(subOrderId)).thenReturn(Optional.of(sub));
+
+        assertThatThrownBy(() -> vendorOrderAlertService.createAlert(
+                hubAdmin, List.of("HUB_ADMIN"), subOrderId, townId, new CreateVendorOrderAlertRequest()))
+                .isInstanceOf(BusinessException.class)
+                .extracting(ex -> ((BusinessException) ex).getErrorCode())
+                .isEqualTo(ErrorCode.CONFLICT);
+        verify(vendorOrderAlertRepository, never()).save(any());
+    }
+
+    @Test
     void createAlert_rejectsWhenShopAlreadyReady() {
         UUID townId = UUID.randomUUID();
         UUID hubAdmin = UUID.randomUUID();

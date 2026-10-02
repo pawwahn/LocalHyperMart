@@ -81,7 +81,7 @@ export async function openRazorpayCheckout(
       key: checkout.keyId,
       amount: checkout.amountPaise,
       currency: checkout.currency || 'INR',
-      name: checkout.name || 'HyperLocalMart',
+      name: checkout.name || 'KoYaKart',
       description: checkout.description || 'Order payment',
       image: checkout.logoUrl || undefined,
       order_id: checkout.gatewayOrderId,

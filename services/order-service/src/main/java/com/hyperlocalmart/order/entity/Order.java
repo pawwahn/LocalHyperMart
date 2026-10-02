@@ -117,6 +117,10 @@ public class Order extends BaseAuditEntity {
     @Column(name = "delivered_at")
     private Instant deliveredAt;
 
+    @Column(name = "vendor_agent_delivery", nullable = false)
+    @Builder.Default
+    private boolean vendorAgentDelivery = false;
+
     @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     @Builder.Default
     private List<VendorSubOrder> vendorSubOrders = new ArrayList<>();

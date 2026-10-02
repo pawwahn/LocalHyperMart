@@ -111,7 +111,7 @@ export function PortalShell({ title, subtitle, children, onRefresh }: Props) {
             H
           </span>
           <div className="sa-brand-text">
-            <p className="sa-brand-name">HyperLocalMart</p>
+            <p className="sa-brand-name">KoYaKart</p>
             <p className="sa-brand-role">Super Admin</p>
           </div>
         </div>

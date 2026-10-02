@@ -73,11 +73,13 @@ public class DeliverySettlementService {
             }
         }
 
+        TownClient.VendorAgentDeliveryConfig vendorAgentCfg = loadVendorAgentConfig(townId);
         List<DeliverySettlementCandidateView.Item> items = List.of();
-        boolean wantOrders = party != null && party.enabled()
+        boolean standardPerOrder = party != null && party.enabled()
                 && party.perOrder() != null && party.perOrder().enabled();
-        if (wantOrders) {
-            items = perOrderItems(townId, payeeType, payeeId, from, to, party);
+        boolean vendorAgentPayouts = vendorAgentCfg != null && vendorAgentCfg.enabled();
+        if (payeeType == SettlementPayeeType.AGENT || standardPerOrder || vendorAgentPayouts) {
+            items = perOrderItems(townId, payeeType, payeeId, from, to, party, vendorAgentCfg);
         }
 
         return DeliverySettlementCandidateView.builder()
@@ -177,7 +179,11 @@ public class DeliverySettlementService {
         TownClient.DeliveryPayoutConfig config = townClient.deliveryPayoutConfig(request.getTownId());
         TownClient.DeliveryPayoutConfig.Party party =
                 request.getPayeeType() == SettlementPayeeType.HUB ? config.hub() : config.agent();
-        if (party == null || !party.enabled() || party.perOrder() == null || !party.perOrder().enabled()) {
+        TownClient.VendorAgentDeliveryConfig vendorAgentCfg = loadVendorAgentConfig(request.getTownId());
+        boolean standardPerOrder = party != null && party.enabled()
+                && party.perOrder() != null && party.perOrder().enabled();
+        boolean vendorAgentPayouts = vendorAgentCfg != null && vendorAgentCfg.enabled();
+        if (!standardPerOrder && !vendorAgentPayouts) {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Per-order payout is not enabled");
         }
 
@@ -193,11 +199,11 @@ public class DeliverySettlementService {
                 throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Order is not in this town");
             }
             DeliveryClient.OrderLegs leg = legs.get(order.orderId());
-            String skip = skipReason(request.getPayeeType(), request.getPayeeId(), order, leg);
+            String skip = skipReason(request.getPayeeType(), request.getPayeeId(), order, leg, vendorAgentCfg);
             if (skip != null) {
                 throw new BusinessException(ErrorCode.VALIDATION_ERROR, skip + " (" + order.orderNumber() + ")");
             }
-            BigDecimal amount = amountFor(party, leg);
+            BigDecimal amount = amountFor(request.getPayeeType(), party, vendorAgentCfg, order, leg);
             if (amount.compareTo(BigDecimal.ZERO) <= 0) {
                 throw new BusinessException(ErrorCode.VALIDATION_ERROR,
                         "Pay is ₹0 for " + order.orderNumber() + " — set a rate first");
@@ -266,7 +272,8 @@ public class DeliverySettlementService {
             UUID payeeId,
             LocalDate from,
             LocalDate to,
-            TownClient.DeliveryPayoutConfig.Party party) {
+            TownClient.DeliveryPayoutConfig.Party party,
+            TownClient.VendorAgentDeliveryConfig vendorAgentCfg) {
         List<OrderClient.DeliveryCompleteOrder> delivered = orderClient.listDeliveryComplete(townId, from, to);
         List<UUID> ids = delivered.stream().map(OrderClient.DeliveryCompleteOrder::orderId).toList();
         Map<UUID, DeliveryClient.OrderLegs> legs = legsByOrder(ids);
@@ -275,36 +282,96 @@ public class DeliverySettlementService {
         List<DeliverySettlementCandidateView.Item> items = new ArrayList<>();
         for (OrderClient.DeliveryCompleteOrder order : delivered) {
             DeliveryClient.OrderLegs leg = legs.get(order.orderId());
-            String skip = skipReason(payeeType, payeeId, order, leg);
-            BigDecimal amount = skip == null ? amountFor(party, leg) : BigDecimal.ZERO;
+            String skip = skipReason(payeeType, payeeId, order, leg, vendorAgentCfg);
+            BigDecimal amount = skip == null
+                    ? amountFor(payeeType, party, vendorAgentCfg, order, leg)
+                    : BigDecimal.ZERO;
             if (skip == null && amount.compareTo(BigDecimal.ZERO) <= 0) {
                 skip = "Pay is ₹0";
             }
+            boolean alreadySettled = settled.contains(order.orderId());
+            if (!includeOrderForPayee(payeeType, payeeId, order, leg, alreadySettled)) {
+                continue;
+            }
+            boolean homeDone = leg != null && (leg.lastMileCompleted() || leg.vendorDirectCompleted());
             items.add(DeliverySettlementCandidateView.Item.builder()
                     .orderId(order.orderId())
                     .orderNumber(order.orderNumber())
                     .deliveredAt(order.deliveredAt())
                     .paymentStatus(order.paymentStatus())
-                    .lastMileCompleted(leg != null && leg.lastMileCompleted())
+                    .vendorAgentDelivery(order.vendorAgentDelivery())
+                    .lastMileCompleted(homeDone)
                     .pickupCompleted(leg != null && leg.pickupCompleted())
                     .amount(amount)
-                    .alreadySettled(settled.contains(order.orderId()))
+                    .alreadySettled(alreadySettled)
                     .skipReason(skip)
                     .build());
         }
         return items;
     }
 
+    /** Town-wide delivered list is filtered to orders this payee actually worked (or already paid). */
+    private static boolean includeOrderForPayee(
+            SettlementPayeeType payeeType,
+            UUID payeeId,
+            OrderClient.DeliveryCompleteOrder order,
+            DeliveryClient.OrderLegs leg,
+            boolean alreadySettledForPayee) {
+        if (alreadySettledForPayee) {
+            return true;
+        }
+        if (leg == null || payeeId == null) {
+            return false;
+        }
+        if (payeeType == SettlementPayeeType.AGENT) {
+            if (order != null && order.vendorAgentDelivery()) {
+                return leg.vendorDirectCompleted() && payeeId.equals(leg.agentId());
+            }
+            return leg.lastMileCompleted() && payeeId.equals(leg.agentId());
+        }
+        if (payeeType == SettlementPayeeType.HUB) {
+            return payeeId.equals(leg.hubId());
+        }
+        return true;
+    }
+
     private String skipReason(
             SettlementPayeeType payeeType,
             UUID payeeId,
             OrderClient.DeliveryCompleteOrder order,
-            DeliveryClient.OrderLegs leg) {
+            DeliveryClient.OrderLegs leg,
+            TownClient.VendorAgentDeliveryConfig vendorAgentCfg) {
         if (order == null || order.status() == null || !"DELIVERED".equalsIgnoreCase(order.status())) {
             return "Order is not delivered";
         }
         if (order.deliveredAt() == null) {
             return "No delivery time";
+        }
+        if (order.vendorAgentDelivery()) {
+            if (payeeType == SettlementPayeeType.AGENT
+                    && (vendorAgentCfg == null || !vendorAgentCfg.enabled())) {
+                return "Shop delivery pay is not enabled for this town";
+            }
+            if (leg == null || !leg.vendorDirectCompleted()) {
+                return "Vendor direct trip not completed";
+            }
+            if (payeeType == SettlementPayeeType.AGENT) {
+                if (leg.agentId() == null) {
+                    return "Home trip not completed";
+                }
+                if (!payeeId.equals(leg.agentId())) {
+                    return "Home trip was another agent";
+                }
+            }
+            if (payeeType == SettlementPayeeType.HUB) {
+                if (leg.hubId() == null) {
+                    return "No hub for town";
+                }
+                if (!payeeId.equals(leg.hubId())) {
+                    return "Order belongs to another hub";
+                }
+            }
+            return null;
         }
         if (payeeType == SettlementPayeeType.AGENT) {
             if (leg == null || !leg.lastMileCompleted() || leg.agentId() == null) {
@@ -325,7 +392,21 @@ public class DeliverySettlementService {
         return null;
     }
 
-    private BigDecimal amountFor(TownClient.DeliveryPayoutConfig.Party party, DeliveryClient.OrderLegs leg) {
+    private BigDecimal amountFor(
+            SettlementPayeeType payeeType,
+            TownClient.DeliveryPayoutConfig.Party party,
+            TownClient.VendorAgentDeliveryConfig vendorAgentCfg,
+            OrderClient.DeliveryCompleteOrder order,
+            DeliveryClient.OrderLegs leg) {
+        if (order != null && order.vendorAgentDelivery()) {
+            if (vendorAgentCfg != null && vendorAgentCfg.enabled()) {
+                BigDecimal configured = payeeType == SettlementPayeeType.AGENT
+                        ? vendorAgentCfg.vendorAgentPayoutAmount()
+                        : vendorAgentCfg.hubPayoutAmount();
+                return money(configured);
+            }
+            return BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+        }
         if (party == null || party.perOrder() == null) {
             return BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
         }
@@ -341,6 +422,21 @@ public class DeliverySettlementService {
             total = total.add(rates.lastMileAmount());
         }
         return total.max(BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP);
+    }
+
+    private static BigDecimal money(BigDecimal value) {
+        if (value == null) {
+            return BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+        }
+        return value.max(BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP);
+    }
+
+    private TownClient.VendorAgentDeliveryConfig loadVendorAgentConfig(UUID townId) {
+        try {
+            return townClient.vendorAgentDeliveryConfig(townId);
+        } catch (RuntimeException ex) {
+            return new TownClient.VendorAgentDeliveryConfig(false, BigDecimal.ZERO, BigDecimal.ZERO);
+        }
     }
 
     private Map<UUID, DeliveryClient.OrderLegs> legsByOrder(List<UUID> orderIds) {

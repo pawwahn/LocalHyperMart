@@ -6,6 +6,9 @@ import {
   fetchDashboard,
   fetchSubOrders,
   markSubOrderReady,
+  markSubOrderDeliveryByVendorAgent,
+  assignSubOrderVendorAgent,
+  notifySubOrderAgent,
   rejectSubOrder,
   restoreSubOrderItem,
   type DashboardView,
@@ -56,6 +59,9 @@ export function useVendorOrders() {
     cached?.dashboard ?? anyVendorCache?.dashboard ?? null,
   );
   const [orders, setOrders] = useState<SubOrderView[]>(cached?.orders ?? []);
+  const [ordersNeedingAgent, setOrdersNeedingAgent] = useState<SubOrderView[]>([]);
+  /** Shop-agent delivery bags not delivered yet (DELIVERY_BY_VENDOR_AGENT). */
+  const [myAgentPendingOrders, setMyAgentPendingOrders] = useState<SubOrderView[]>([]);
   const [loading, setLoading] = useState(!cached);
   const [actionId, setActionId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -76,12 +82,15 @@ export function useVendorOrders() {
     if (!soft) setLoading(true);
     setError(null);
     try {
-      const [dash, list] = await Promise.all([
+      const [dash, list, agentOrders] = await Promise.all([
         fetchDashboard(session.accessToken, session.vendorId),
         fetchSubOrders(session.accessToken, session.vendorId, statusFilter || undefined),
+        fetchSubOrders(session.accessToken, session.vendorId, 'DELIVERY_BY_VENDOR_AGENT'),
       ]);
       setDashboard(dash);
       setOrders(list);
+      setMyAgentPendingOrders(agentOrders);
+      setOrdersNeedingAgent(agentOrders.filter((o) => o.canAssignVendorAgent));
       setLoading(false);
 
       let waiting = 0;
@@ -154,6 +163,54 @@ export function useVendorOrders() {
       await reload();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not mark ready');
+    } finally {
+      setActionId(null);
+    }
+  }
+
+  async function notifyVendorAgent(subOrderId: string) {
+    if (!session) return;
+    setActionId(subOrderId);
+    setNotice(null);
+    setError(null);
+    try {
+      await notifySubOrderAgent(session.accessToken, session.vendorId, subOrderId);
+      setNotice('Agent notified on their delivery app.');
+      await reload();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not notify agent');
+    } finally {
+      setActionId(null);
+    }
+  }
+
+  async function assignVendorAgent(subOrderId: string, agentId: string) {
+    if (!session) return;
+    setActionId(subOrderId);
+    setNotice(null);
+    setError(null);
+    try {
+      await assignSubOrderVendorAgent(session.accessToken, session.vendorId, subOrderId, agentId);
+      setNotice('Agent assigned. Buyer notified with delivery code.');
+      await reload();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not assign agent');
+    } finally {
+      setActionId(null);
+    }
+  }
+
+  async function deliveryByVendorAgent(id: string) {
+    if (!session) return;
+    setActionId(id);
+    setNotice(null);
+    setError(null);
+    try {
+      await markSubOrderDeliveryByVendorAgent(session.accessToken, session.vendorId, id);
+      setNotice('Delivery by your agent — assign a shop agent next.');
+      await reload();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not switch to vendor-agent delivery');
     } finally {
       setActionId(null);
     }
@@ -249,6 +306,8 @@ export function useVendorOrders() {
   return {
     dashboard,
     orders,
+    ordersNeedingAgent,
+    myAgentPendingCount: myAgentPendingOrders.length,
     statusFilter,
     setStatusFilter,
     loading,
@@ -262,6 +321,9 @@ export function useVendorOrders() {
         : 'No unpaid shop sales in last 60 days',
     reload,
     markReady,
+    deliveryByVendorAgent,
+    assignVendorAgent,
+    notifyVendorAgent,
     reject,
     cancelItem,
     restoreItem,

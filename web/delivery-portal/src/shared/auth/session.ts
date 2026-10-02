@@ -18,11 +18,27 @@ export type AuthSession = {
   agentId?: string;
 };
 
+/** Infer portal role from stored session (handles older saves missing portalRole). */
+export function resolvePortalRole(session: AuthSession): PortalRole | null {
+  if (session.portalRole === 'HUB_ADMIN' || session.portalRole === 'DELIVERY_AGENT') {
+    return session.portalRole;
+  }
+  const roles = session.roles ?? [];
+  if (roles.includes('HUB_ADMIN')) return 'HUB_ADMIN';
+  if (roles.includes('DELIVERY_AGENT')) return 'DELIVERY_AGENT';
+  return null;
+}
+
 export function loadSession(): AuthSession | null {
   try {
     const raw = localStorage.getItem(SESSION_KEY);
     if (!raw) return null;
-    return JSON.parse(raw) as AuthSession;
+    const parsed = JSON.parse(raw) as AuthSession;
+    const portalRole = resolvePortalRole(parsed);
+    if (portalRole && parsed.portalRole !== portalRole) {
+      parsed.portalRole = portalRole;
+    }
+    return parsed;
   } catch {
     return null;
   }

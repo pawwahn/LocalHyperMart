@@ -1,17 +1,17 @@
-/** Super-admin tokens — slate ops UI, amber accent (distinct from buyer/vendor green & delivery blue). */
+/** Super-admin tokens — light ops UI, KoYaKart green. */
 export const tokens = {
   color: {
-    bg: '#F4F5F7',
+    bg: '#F5F7F6',
     bgElevated: '#FFFFFF',
-    bgMuted: '#ECEEF2',
-    bgTint: '#FFF7E8',
+    bgMuted: '#EEF2F0',
+    bgTint: '#E7F6EC',
     border: '#E5E7EB',
     text: '#1A1A1A',
     textMuted: '#6B7280',
     textInverse: '#FFFFFF',
-    accent: '#C47B17',
-    accentHover: '#9A5F10',
-    accentSoft: '#FFF3DF',
+    accent: '#0C831F',
+    accentHover: '#086318',
+    accentSoft: '#E7F6EC',
     danger: '#EF4444',
     dangerSoft: '#FEE2E2',
     warning: '#F59E0B',
@@ -42,7 +42,7 @@ export const tokens = {
   },
   shadow: {
     card: '0 2px 8px rgba(0, 0, 0, 0.06)',
-    elevated: '0 8px 24px rgba(196, 123, 23, 0.14)',
+    elevated: '0 8px 24px rgba(12, 131, 31, 0.14)',
     soft: '0 14px 40px rgba(15, 23, 42, 0.08)',
   },
   motion: {

@@ -17,6 +17,8 @@ type Props = {
 };
 
 const liveCache = new Map<string, TownAdDto[]>();
+const AD_PHOTO = 88;
+const AD_FRAME_H = 108;
 
 /**
  * Monetization surface — clearly labelled Sponsored.
@@ -63,12 +65,7 @@ export function AdSlot({ slot, variant = 'strip', onCta }: Props) {
   const ad = resolveCreative(slot, tid, live);
   if (!ad) return null;
 
-  if (variant === 'hero') {
-    return <HeroAd ad={ad} townId={tid} onCta={onCta} />;
-  }
-
-  const isCard = variant === 'card';
-  return <SoftAd ad={ad} townId={tid} isCard={isCard} onCta={onCta} />;
+  return <SoftAd ad={ad} townId={tid} onCta={onCta} />;
 }
 
 function useAdImages(ad: AdCreative): string[] {
@@ -306,92 +303,46 @@ function MidGridAdCarousel({
           style={{
             ...styles.midCarouselSlides,
             transform: `translateX(-${index * 100}%)`,
-            transition: enableTransition ? 'transform 520ms ease' : 'none',
+            transition: enableTransition ? 'transform 420ms cubic-bezier(0.22, 1, 0.36, 1)' : 'none',
           }}
           onTransitionEnd={handleTransitionEnd}
         >
           {slides.map((ad, slideIndex) => (
             <div key={`${ad.id}-${slideIndex}`} style={styles.midCarouselSlide}>
-              <SoftAd ad={ad} townId={townId} isCard={false} onCta={onCta} />
+              <SoftAd ad={ad} townId={townId} onCta={onCta} />
             </div>
           ))}
         </div>
-      </div>
-      {count > 1 ? (
-        <div style={styles.midCarouselMeta}>
-          <span style={styles.midCarouselCount}>
-            {activeDot + 1}/{count}
-          </span>
-          <div style={styles.dots}>
-            {ads.map((item, i) => (
-              <button
-                key={item.id}
-                type="button"
-                aria-label={`Go to sponsored slide ${i + 1}`}
-                style={{
-                  ...styles.dot,
-                  ...(i === activeDot ? styles.dotActive : null),
-                }}
-                onClick={() => {
-                  pausedRef.current = true;
-                  setEnableTransition(true);
-                  setIndex(i);
-                  window.setTimeout(() => {
-                    pausedRef.current = false;
-                  }, midSlideDurationMs(ads, i, count));
-                }}
-              />
-            ))}
-          </div>
-        </div>
-      ) : null}
-    </aside>
-  );
-}
-
-function HeroAd({
-  ad,
-  townId,
-  onCta,
-}: {
-  ad: AdCreative;
-  townId: string | null;
-  onCta?: () => void;
-}) {
-  const images = useAdImages(ad);
-  return (
-    <aside
-      key={`${ad.id}-${townId}`}
-      style={{ ...styles.hero, background: images.length ? undefined : ad.tint }}
-      aria-label={`Sponsored: ${ad.sponsor}`}
-    >
-      {images.length ? (
-        <div style={styles.heroMediaWrap}>
-          <ImageCarousel images={images} height={0} fill rounded={16} dark />
-          <div style={styles.heroMediaScrim} aria-hidden />
-        </div>
-      ) : (
-        <div style={styles.heroGlow} aria-hidden />
-      )}
-      <div style={styles.heroTop}>
-        <span style={styles.sponsoredHero}>Sponsored</span>
-      </div>
-      <div style={styles.heroMain}>
-        {!images.length ? (
-          <div style={styles.heroVisual} aria-hidden>
-            <span style={styles.heroEmoji}>{ad.emoji}</span>
+        {count > 1 ? (
+          <div style={styles.midCarouselMeta}>
+            <span style={styles.midCarouselCount}>
+              {activeDot + 1}/{count}
+            </span>
+            <div style={styles.dots}>
+              {ads.map((item, i) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  aria-label={`Go to sponsored slide ${i + 1}`}
+                  style={{
+                    ...styles.dot,
+                    background: i === activeDot ? '#fff' : 'rgba(255,255,255,0.5)',
+                    width: i === activeDot ? 14 : 6,
+                  }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    pausedRef.current = true;
+                    setEnableTransition(true);
+                    setIndex(i);
+                    window.setTimeout(() => {
+                      pausedRef.current = false;
+                    }, midSlideDurationMs(ads, i, count));
+                  }}
+                />
+              ))}
+            </div>
           </div>
         ) : null}
-        <div style={styles.heroCopy}>
-          <p style={styles.shopNameHero}>{ad.sponsor}</p>
-          <p style={styles.titleHero}>{ad.title}</p>
-          {ad.subtitle ? <p style={styles.subHero}>{ad.subtitle}</p> : null}
-          {ad.ctaLabel?.trim() ? (
-            <button type="button" style={styles.ctaHero} onClick={onCta}>
-              {ad.ctaLabel}
-            </button>
-          ) : null}
-        </div>
       </div>
     </aside>
   );
@@ -400,66 +351,44 @@ function HeroAd({
 function SoftAd({
   ad,
   townId,
-  isCard,
   onCta,
 }: {
   ad: AdCreative;
   townId: string | null;
-  isCard: boolean;
   onCta?: () => void;
 }) {
   const images = useAdImages(ad);
-  if (isCard && images.length) {
-    return (
-      <aside
-        key={`${ad.id}-${townId}`}
-        style={styles.cardCarousel}
-        aria-label={`Sponsored: ${ad.sponsor}`}
-      >
-        <ImageCarousel images={images} height={148} rounded={12} />
-        <div style={styles.cardBody}>
-          <span style={styles.sponsoredSoft}>Sponsored</span>
-          <p style={styles.shopName}>{ad.sponsor}</p>
-          <p style={styles.title}>{ad.title}</p>
-          {ad.subtitle ? <p style={{ ...styles.sub, whiteSpace: 'normal' }}>{ad.subtitle}</p> : null}
-          {ad.ctaLabel?.trim() ? (
-            <button type="button" style={{ ...styles.cta, alignSelf: 'start', marginTop: '0.2rem' }} onClick={onCta}>
-              {ad.ctaLabel}
-            </button>
-          ) : null}
-        </div>
-      </aside>
-    );
-  }
-
+  const cta = ad.ctaLabel?.trim() ?? '';
   return (
     <aside
       key={`${ad.id}-${townId}`}
       style={{
-        ...(isCard ? styles.card : styles.strip),
-        background: images.length ? 'var(--bg-elevated)' : ad.tint,
+        ...styles.strip,
+        background: images.length ? undefined : ad.tint,
       }}
       aria-label={`Sponsored: ${ad.sponsor}`}
     >
-      <div style={images.length ? styles.softMainImage : styles.softMain}>
+      <div style={styles.softMain}>
         <div style={images.length ? styles.softVisualImage : styles.softVisual} aria-hidden={!images.length}>
           {images.length ? (
-            <ImageCarousel images={images} height={72} rounded={12} showDots={false} />
+            <ImageCarousel images={images} height={AD_PHOTO} rounded={12} showDots={false} />
           ) : (
             <span style={styles.softEmoji}>{ad.emoji}</span>
           )}
         </div>
         <div style={styles.softCopy}>
           <span style={styles.sponsoredSoft}>Sponsored</span>
-          <p style={styles.shopName}>{ad.sponsor}</p>
-          <p style={styles.title}>{ad.title}</p>
-          {ad.subtitle ? <p style={styles.sub}>{ad.subtitle}</p> : null}
+          <p style={styles.shopName}>{ad.sponsor || '\u00a0'}</p>
+          <p style={styles.title}>{ad.title || '\u00a0'}</p>
+          <p style={styles.sub}>{ad.subtitle || '\u00a0'}</p>
         </div>
-        {ad.ctaLabel?.trim() ? (
+        {cta ? (
           <button type="button" style={styles.cta} onClick={onCta}>
-            {ad.ctaLabel}
+            {cta}
           </button>
-        ) : null}
+        ) : (
+          <span style={styles.ctaGhost} aria-hidden />
+        )}
       </div>
     </aside>
   );
@@ -504,6 +433,7 @@ const styles: Record<string, CSSProperties> = {
     justifyContent: 'center',
     gap: 5,
     flexShrink: 0,
+    pointerEvents: 'auto',
   },
   dot: {
     width: 6,
@@ -521,280 +451,166 @@ const styles: Record<string, CSSProperties> = {
   dotDark: {
     background: 'rgba(255,255,255,0.45)',
   },
-  hero: {
-    position: 'relative',
-    borderRadius: 16,
-    padding: '0.85rem 0.95rem 1rem',
-    color: '#fff',
-    minWidth: 0,
-    maxWidth: '100%',
-    overflow: 'hidden',
-    boxShadow: '0 10px 28px rgba(12, 131, 31, 0.22)',
-    background: 'linear-gradient(135deg, #0C831F 0%, #0a6b1a 100%)',
-    minHeight: 140,
-  },
-  heroMediaWrap: {
-    position: 'absolute',
-    inset: 0,
-    zIndex: 0,
-  },
-  heroMediaScrim: {
-    position: 'absolute',
-    inset: 0,
-    background:
-      'linear-gradient(100deg, rgba(8,40,16,0.82) 0%, rgba(8,40,16,0.45) 55%, rgba(8,40,16,0.25) 100%)',
-    pointerEvents: 'none',
-    zIndex: 1,
-  },
-  heroGlow: {
-    position: 'absolute',
-    right: '-18%',
-    top: '-40%',
-    width: '58%',
-    height: '140%',
-    borderRadius: '50%',
-    background: 'rgba(255,255,255,0.14)',
-    pointerEvents: 'none',
-  },
-  heroTop: {
-    position: 'relative',
-    zIndex: 2,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: '0.5rem',
-    marginBottom: '0.7rem',
-  },
-  sponsoredHero: {
-    fontSize: '0.62rem',
-    fontWeight: 800,
-    letterSpacing: '0.06em',
-    textTransform: 'uppercase',
-    background: 'rgba(0,0,0,0.22)',
-    color: '#fff',
-    borderRadius: 999,
-    padding: '0.18rem 0.55rem',
-  },
-  sponsorHero: {
-    fontSize: '0.72rem',
-    fontWeight: 700,
-    opacity: 0.92,
-  },
-  shopNameHero: {
-    margin: 0,
-    fontFamily: 'var(--font-display)',
-    fontWeight: 800,
-    fontSize: '1.12rem',
-    lineHeight: 1.2,
-    letterSpacing: '-0.01em',
-  },
-  heroMain: {
-    position: 'relative',
-    zIndex: 2,
-    display: 'grid',
-    gridTemplateColumns: 'auto 1fr',
-    gap: '0.75rem',
-    alignItems: 'center',
-    minWidth: 0,
-  },
-  heroVisual: {
-    width: 64,
-    height: 64,
-    borderRadius: 16,
-    background: 'rgba(255,255,255,0.18)',
-    border: '1px solid rgba(255,255,255,0.28)',
-    display: 'grid',
-    placeItems: 'center',
-    flexShrink: 0,
-  },
-  heroEmoji: { fontSize: '1.85rem', lineHeight: 1 },
-  heroCopy: {
-    display: 'grid',
-    gap: '0.28rem',
-    minWidth: 0,
-    justifyItems: 'start',
-  },
-  titleHero: {
-    margin: 0,
-    fontWeight: 700,
-    fontSize: '0.88rem',
-    lineHeight: 1.3,
-    opacity: 0.95,
-  },
-  subHero: {
-    margin: 0,
-    fontSize: '0.78rem',
-    fontWeight: 600,
-    opacity: 0.92,
-    lineHeight: 1.35,
-  },
-  ctaHero: {
-    marginTop: '0.25rem',
-    border: 'none',
-    borderRadius: 999,
-    padding: '0.42rem 0.9rem',
-    background: '#fff',
-    color: '#0C831F',
-    fontWeight: 800,
-    fontSize: '0.78rem',
-    cursor: 'pointer',
-    boxShadow: '0 4px 12px rgba(0,0,0,0.12)',
-  },
   strip: {
-    borderRadius: 12,
-    padding: '0.45rem 0.6rem',
-    border: '1px solid color-mix(in srgb, var(--accent) 28%, var(--border))',
-    minWidth: 0,
-    maxWidth: '100%',
-    overflow: 'hidden',
-    color: 'var(--text)',
-  },
-  card: {
-    gridColumn: '1 / -1',
-    borderRadius: 14,
-    padding: '0.55rem',
+    boxSizing: 'border-box',
+    height: AD_FRAME_H,
+    borderRadius: 16,
+    padding: '0.5rem 0.6rem',
     border: '1px solid color-mix(in srgb, var(--accent) 22%, var(--border))',
+    background:
+      'linear-gradient(180deg, #FFFFFF 0%, #F7FBF8 100%)',
+    boxShadow: '0 8px 22px rgba(12, 131, 31, 0.08)',
     minWidth: 0,
     maxWidth: '100%',
     overflow: 'hidden',
     color: 'var(--text)',
   },
-  cardCarousel: {
-    gridColumn: '1 / -1',
-    borderRadius: 14,
-    padding: '0.55rem',
-    border: '1px solid color-mix(in srgb, var(--accent) 22%, var(--border))',
-    background: 'var(--bg-elevated)',
-    display: 'grid',
-    gap: '0.55rem',
-    minWidth: 0,
-    maxWidth: '100%',
-    overflow: 'hidden',
-    color: 'var(--text)',
-  },
-  cardBody: { display: 'grid', gap: '0.2rem', padding: '0 0.15rem 0.1rem' },
   softMain: {
     display: 'grid',
-    gridTemplateColumns: 'auto 1fr auto',
-    gap: '0.65rem',
+    gridTemplateColumns: `${AD_PHOTO}px minmax(0, 1fr) 76px`,
+    gap: '0.5rem',
     alignItems: 'center',
-    minWidth: 0,
-  },
-  softMainImage: {
-    display: 'grid',
-    gridTemplateColumns: '110px 1fr auto',
-    gap: '0.65rem',
-    alignItems: 'center',
+    height: '100%',
     minWidth: 0,
   },
   softVisual: {
-    width: 44,
-    height: 44,
+    width: AD_PHOTO,
+    height: AD_PHOTO,
     borderRadius: 12,
-    background: 'var(--bg-elevated)',
+    background: 'linear-gradient(160deg, #E7F6EC 0%, #D8F0DE 100%)',
     border: '1px solid color-mix(in srgb, var(--accent) 20%, var(--border))',
     display: 'grid',
     placeItems: 'center',
     flexShrink: 0,
   },
   softVisualImage: {
-    width: 110,
-    height: 72,
+    width: AD_PHOTO,
+    height: AD_PHOTO,
     borderRadius: 12,
     overflow: 'hidden',
     flexShrink: 0,
     background: 'var(--bg-muted)',
+    boxShadow: 'inset 0 0 0 1px rgba(12,131,31,0.08)',
   },
   softEmoji: { fontSize: '1.35rem', lineHeight: 1 },
   softCopy: {
     display: 'grid',
-    gap: '0.12rem',
+    gridTemplateRows: '16px 18px 17px 16px',
+    alignContent: 'center',
+    gap: 1,
     minWidth: 0,
   },
   shopName: {
     margin: 0,
     fontFamily: 'var(--font-display)',
     fontWeight: 800,
-    fontSize: '0.98rem',
+    fontSize: '0.92rem',
     color: 'var(--text)',
-    lineHeight: 1.2,
-    letterSpacing: '-0.01em',
+    lineHeight: '18px',
+    letterSpacing: '-0.02em',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
   },
   sponsoredSoft: {
     justifySelf: 'start',
-    fontSize: '0.58rem',
+    height: 16,
+    fontSize: '0.56rem',
     fontWeight: 800,
-    letterSpacing: '0.05em',
+    letterSpacing: '0.06em',
     textTransform: 'uppercase',
-    color: 'var(--accent)',
-    background: 'var(--bg-elevated)',
-    border: '1px solid color-mix(in srgb, var(--accent) 25%, transparent)',
+    color: '#0C831F',
+    background: '#E7F6EC',
     borderRadius: 999,
-    padding: '0.12rem 0.4rem',
+    padding: '0 0.4rem',
+    display: 'inline-flex',
+    alignItems: 'center',
   },
   title: {
     margin: 0,
     fontWeight: 700,
-    fontSize: '0.8rem',
+    fontSize: '0.78rem',
     color: 'var(--text)',
-    lineHeight: 1.3,
+    lineHeight: '17px',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
   },
   sub: {
     margin: 0,
-    fontSize: '0.72rem',
+    fontSize: '0.7rem',
     fontWeight: 600,
     color: 'var(--text-muted)',
-    lineHeight: 1.3,
+    lineHeight: '16px',
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
   },
   cta: {
-    flexShrink: 0,
+    boxSizing: 'border-box',
+    width: 76,
+    minHeight: 44,
     border: 'none',
     borderRadius: 999,
-    padding: '0.45rem 0.7rem',
+    padding: '0.35rem 0.4rem',
     background: 'var(--accent)',
     color: '#fff',
     fontWeight: 800,
-    fontSize: '0.72rem',
+    fontSize: '0.68rem',
     cursor: 'pointer',
-    whiteSpace: 'nowrap',
+    lineHeight: 1.15,
+    display: '-webkit-box',
+    WebkitLineClamp: 2,
+    WebkitBoxOrient: 'vertical',
+    overflow: 'hidden',
+  },
+  ctaGhost: {
+    width: 76,
+    minHeight: 44,
   },
   midCarousel: {
-    display: 'grid',
-    gap: '0.35rem',
     minWidth: 0,
     maxWidth: '100%',
   },
   midCarouselViewport: {
+    position: 'relative',
     overflow: 'hidden',
     width: '100%',
+    height: AD_FRAME_H,
     touchAction: 'pan-y',
     cursor: 'grab',
     userSelect: 'none',
+    borderRadius: 16,
   },
   midCarouselSlides: {
     display: 'flex',
     width: '100%',
+    height: '100%',
     willChange: 'transform',
   },
   midCarouselSlide: {
     flex: '0 0 100%',
     minWidth: 0,
+    height: '100%',
   },
   midCarouselMeta: {
+    position: 'absolute',
+    left: 10,
+    bottom: 8,
     display: 'flex',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: '0.45rem',
-    padding: '0 0.1rem',
+    gap: '0.35rem',
+    pointerEvents: 'none',
+    zIndex: 2,
   },
   midCarouselCount: {
-    fontSize: '0.62rem',
+    fontSize: '0.56rem',
     fontWeight: 800,
-    color: 'var(--text-muted)',
+    color: '#fff',
     letterSpacing: '0.04em',
-    textTransform: 'uppercase',
+    background: 'rgba(16, 24, 16, 0.55)',
+    borderRadius: 999,
+    padding: '0.08rem 0.38rem',
+    pointerEvents: 'none',
   },
 };

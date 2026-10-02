@@ -339,7 +339,7 @@ export function adInvoiceHtml(inv: AdInvoice): string {
 </style></head><body>
   <div class="row">
     <div>
-      <h1>HyperLocalMart</h1>
+      <h1>KoYaKart</h1>
       <div class="muted">Advertisement invoice</div>
     </div>
     <div class="right">

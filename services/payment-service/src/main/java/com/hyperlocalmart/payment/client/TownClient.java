@@ -43,6 +43,18 @@ public class TownClient {
         return response.getData();
     }
 
+    public VendorAgentDeliveryConfig vendorAgentDeliveryConfig(UUID townId) {
+        RestClient client = restClientBuilder.baseUrl(townServiceProperties.getBaseUrl()).build();
+        ApiResponse<VendorAgentDeliveryConfig> response = client.get()
+                .uri("/api/v1/internal/towns/{townId}/vendor-agent-delivery-config", townId)
+                .retrieve()
+                .body(new ParameterizedTypeReference<ApiResponse<VendorAgentDeliveryConfig>>() {});
+        if (response == null || response.getData() == null) {
+            throw new IllegalStateException("Vendor-agent delivery config unavailable");
+        }
+        return response.getData();
+    }
+
     public TownOperationalConfig townConfig(UUID townId) {
         RestClient client = restClientBuilder.baseUrl(townServiceProperties.getBaseUrl()).build();
         ApiResponse<TownOperationalConfig> response = client.get()
@@ -73,6 +85,13 @@ public class TownClient {
     }
 
     public record Slab(String code, int months, BigDecimal price, int credits) {
+    }
+
+    public record VendorAgentDeliveryConfig(
+            boolean enabled,
+            BigDecimal vendorAgentPayoutAmount,
+            BigDecimal hubPayoutAmount
+    ) {
     }
 
     public record DeliveryPayoutConfig(Party agent, Party hub) {

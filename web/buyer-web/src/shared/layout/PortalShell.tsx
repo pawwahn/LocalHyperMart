@@ -10,6 +10,7 @@ import { StickyCartBar } from '@/features/shop/components/StickyCartBar';
 import { useShop } from '@/features/shop/hooks/useShop';
 import { AdSlot } from '@/features/ads/components/AdSlot';
 import { TownPickerSheet } from '@/features/towns/components/TownPickerSheet';
+import { APP_NAME } from '@/shared/brand';
 import {
   IconBasket,
   IconGrid,
@@ -86,7 +87,7 @@ export function PortalShell({
         {shopChrome ? null : (
           <div style={styles.brandRow}>
             <div style={styles.brandLockup}>
-              <p style={styles.brandMark}>HyperLocalMart</p>
+              <p style={styles.brandMark}>{APP_NAME}</p>
               <span className="hlm-brand-tagline" style={styles.brandTagline}>
                 <span style={styles.brandDash} aria-hidden>
                   —
@@ -211,7 +212,7 @@ export function PortalShell({
         ) : null}
       </header>
 
-      {showDeliveryBanner ? <AdSlot slot="home_hero" variant="hero" /> : null}
+      {showDeliveryBanner ? <AdSlot slot="home_hero" variant="strip" /> : null}
 
       {!hideTitle && title ? (
         <div style={styles.titleRow}>

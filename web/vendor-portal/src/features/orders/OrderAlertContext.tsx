@@ -33,6 +33,8 @@ const POLL_MS = 10_000;
 type OrderAlertContextValue = {
   alertMessage: string | null;
   pendingCount: number;
+  /** Vendor-agent path chosen but no shop agent assigned yet. */
+  agentAssignPendingCount: number;
   /** Bumps when a new PLACED order is detected — Home can refresh. */
   alertVersion: number;
   clearAlert: () => void;
@@ -48,6 +50,7 @@ export function OrderAlertProvider({ children }: { children: ReactNode }) {
   const { session, isAuthenticated } = useAuth();
   const [alertMessage, setAlertMessage] = useState<string | null>(null);
   const [pendingCount, setPendingCount] = useState(0);
+  const [agentAssignPendingCount, setAgentAssignPendingCount] = useState(0);
   const [alertVersion, setAlertVersion] = useState(0);
   const [soundReady, setSoundReady] = useState(false);
   const [notificationsReady, setNotificationsReady] = useState(
@@ -126,7 +129,7 @@ export function OrderAlertProvider({ children }: { children: ReactNode }) {
     setAlertVersion((v) => v + 1);
     // Play even if tab is backgrounded/minimized (needs prior unlock via click / Test).
     playOrderReceivedVoice(vendorAlertMessage);
-    notifyBrowserOrder(`HyperLocalMart — ${vendorAlertMessage}`, msg);
+    notifyBrowserOrder(`KoYaKart — ${vendorAlertMessage}`, msg);
     void ensureNotificationPermission().then((ok) => setNotificationsReady(ok));
   }, [vendorAlertMessage]);
 
@@ -136,6 +139,7 @@ export function OrderAlertProvider({ children }: { children: ReactNode }) {
       seeded.current = false;
       knownReminderIds.current = new Set();
       setPendingCount(0);
+      setAgentAssignPendingCount(0);
       setAlertMessage(null);
       setReminders([]);
       stopOrderAlertLoop();
@@ -147,13 +151,16 @@ export function OrderAlertProvider({ children }: { children: ReactNode }) {
     async function poll() {
       if (cancelled) return;
       try {
-        const [placed, pendingAlerts] = await Promise.all([
+        const [placed, pendingAlerts, agentOrders] = await Promise.all([
           fetchSubOrders(session!.accessToken, session!.vendorId, 'PLACED'),
           fetchPendingVendorAlerts(session!.accessToken, session!.vendorId),
+          fetchSubOrders(session!.accessToken, session!.vendorId, 'DELIVERY_BY_VENDOR_AGENT'),
         ]);
         if (cancelled) return;
         const nextIds = new Set(placed.map((o) => o.id));
         setPendingCount(nextIds.size);
+        const agentNeeding = agentOrders.filter((o) => o.canAssignVendorAgent);
+        setAgentAssignPendingCount(agentNeeding.length);
         setReminders(pendingAlerts);
 
         const nextReminderIds = new Set(pendingAlerts.map((a) => a.alertId));
@@ -166,7 +173,7 @@ export function OrderAlertProvider({ children }: { children: ReactNode }) {
             setAlertVersion((v) => v + 1);
             const first = newReminders[0];
             notifyBrowserOrder(
-              `HyperLocalMart — ${vendorAlertMessage}`,
+              `KoYaKart — ${vendorAlertMessage}`,
               first.orderNumber
                 ? `Hub is calling you for ${first.orderNumber}`
                 : 'Hub is calling you — pack this bag',
@@ -181,12 +188,23 @@ export function OrderAlertProvider({ children }: { children: ReactNode }) {
           knownIds.current = nextIds;
           seeded.current = true;
           // Quiet banner only on first load — no sound for already-waiting orders.
-          if (nextIds.size > 0 && pendingAlerts.length === 0) {
-            setAlertMessage(
-              nextIds.size === 1
-                ? `1 order waiting — pack and mark Ready`
-                : `${nextIds.size} orders waiting — pack and mark Ready`,
-            );
+          if (pendingAlerts.length === 0) {
+            const parts: string[] = [];
+            if (nextIds.size > 0) {
+              parts.push(
+                nextIds.size === 1
+                  ? '1 order waiting — pack and mark Ready'
+                  : `${nextIds.size} orders waiting — pack and mark Ready`,
+              );
+            }
+            if (agentNeeding.length > 0) {
+              parts.push(
+                agentNeeding.length === 1
+                  ? '1 order needs your delivery agent assigned'
+                  : `${agentNeeding.length} orders need your delivery agent assigned`,
+              );
+            }
+            if (parts.length > 0) setAlertMessage(parts.join(' · '));
           }
           return;
         }
@@ -203,8 +221,14 @@ export function OrderAlertProvider({ children }: { children: ReactNode }) {
           return;
         }
 
-        if (nextIds.size === 0 && pendingAlerts.length === 0) {
+        if (nextIds.size === 0 && pendingAlerts.length === 0 && agentNeeding.length === 0) {
           setAlertMessage(null);
+        } else if (pendingAlerts.length === 0 && agentNeeding.length > 0 && newcomers.length === 0) {
+          setAlertMessage(
+            agentNeeding.length === 1
+              ? 'Assign your delivery agent — hub will not deliver this order'
+              : `${agentNeeding.length} orders need your delivery agent assigned`,
+          );
         }
       } catch {
         /* quiet on poll errors */
@@ -251,6 +275,7 @@ export function OrderAlertProvider({ children }: { children: ReactNode }) {
     () => ({
       alertMessage,
       pendingCount,
+      agentAssignPendingCount,
       alertVersion,
       clearAlert,
       notificationsReady,
@@ -261,6 +286,7 @@ export function OrderAlertProvider({ children }: { children: ReactNode }) {
     [
       alertMessage,
       pendingCount,
+      agentAssignPendingCount,
       alertVersion,
       clearAlert,
       notificationsReady,
@@ -299,6 +325,7 @@ export function useOrderAlert(): OrderAlertContextValue {
     return {
       alertMessage: null,
       pendingCount: 0,
+      agentAssignPendingCount: 0,
       alertVersion: 0,
       clearAlert: () => undefined,
       notificationsReady: false,

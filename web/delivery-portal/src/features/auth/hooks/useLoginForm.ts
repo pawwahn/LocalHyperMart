@@ -3,6 +3,10 @@ import { useNavigate } from 'react-router-dom';
 import { login } from '../api/authApi';
 import { useAuth } from '@/shared/auth/AuthContext';
 import { ApiError } from '@/shared/api/http';
+import {
+  ensureNotificationPermission,
+  unlockAssignmentAlertAudio,
+} from '@/features/agent/lib/assignmentAlertSound';
 
 export function useLoginForm() {
   const { setSession } = useAuth();
@@ -15,9 +19,15 @@ export function useLoginForm() {
   async function submit() {
     setError(null);
     setSubmitting(true);
+    void unlockAssignmentAlertAudio();
+    void ensureNotificationPermission();
     try {
       const session = await login(phone.trim(), password);
       setSession(session);
+      if (session.portalRole === 'DELIVERY_AGENT') {
+        await unlockAssignmentAlertAudio();
+        void ensureNotificationPermission();
+      }
       navigate(session.portalRole === 'HUB_ADMIN' ? '/hub' : '/agent', { replace: true });
     } catch (err) {
       setError(err instanceof ApiError || err instanceof Error ? err.message : 'Login failed');

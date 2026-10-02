@@ -13,9 +13,11 @@ import com.hyperlocalmart.delivery.dto.response.AssignmentResponse;
 import com.hyperlocalmart.delivery.dto.response.DeliveryManifestResponse;
 import com.hyperlocalmart.delivery.dto.response.PickupManifestResponse;
 import com.hyperlocalmart.delivery.security.AuthUserPrincipal;
+import com.hyperlocalmart.delivery.dto.response.DeliveryAgentAlertResponse;
 import com.hyperlocalmart.delivery.service.AgentService;
 import com.hyperlocalmart.delivery.service.AgentStatsService;
 import com.hyperlocalmart.delivery.service.AssignmentService;
+import com.hyperlocalmart.delivery.service.DeliveryAgentAlertService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -32,6 +34,7 @@ public class AgentAssignmentController {
     private final AssignmentService assignmentService;
     private final AgentStatsService agentStatsService;
     private final AgentService agentService;
+    private final DeliveryAgentAlertService deliveryAgentAlertService;
 
     @GetMapping("/api/v1/delivery/agents/me")
     public ResponseEntity<ApiResponse<AgentMeResponse>> me(
@@ -124,6 +127,29 @@ public class AgentAssignmentController {
         requireDeliveryAgent(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
                 assignmentService.buyerRejected(principal.getUserId(), assignmentId, request)));
+    }
+
+    @GetMapping("/api/v1/delivery/agents/me/agent-alerts")
+    public ResponseEntity<ApiResponse<java.util.List<DeliveryAgentAlertResponse>>> listMyAgentAlerts(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @RequestParam(defaultValue = "PENDING") String status,
+            HttpServletRequest httpRequest) {
+        requireDeliveryAgent(principal);
+        if (!"PENDING".equalsIgnoreCase(status)) {
+            return ResponseEntity.ok(ApiResponses.ok(httpRequest, java.util.List.of()));
+        }
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                deliveryAgentAlertService.listPendingForAgentUser(principal.getUserId())));
+    }
+
+    @PostMapping("/api/v1/delivery/agents/me/agent-alerts/{alertId}/acknowledge")
+    public ResponseEntity<ApiResponse<DeliveryAgentAlertResponse>> acknowledgeAgentAlert(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @PathVariable UUID alertId,
+            HttpServletRequest httpRequest) {
+        requireDeliveryAgent(principal);
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                deliveryAgentAlertService.acknowledge(principal.getUserId(), alertId)));
     }
 
     private void requireDeliveryAgent(AuthUserPrincipal principal) {

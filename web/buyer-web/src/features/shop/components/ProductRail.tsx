@@ -16,7 +16,7 @@ const RAIL_TILE_W = 118;
 const RAIL_GAP = 8;
 const RAIL_STEP = RAIL_TILE_W + RAIL_GAP;
 /** Pixels per second — lower = slower scroll. */
-const MARQUEE_SPEED = 32;
+const MARQUEE_SPEED = 27;
 /** How long auto-scroll stays still after an arrow press. */
 const MANUAL_HOLD_MS = 6000;
 

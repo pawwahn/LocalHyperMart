@@ -7,6 +7,9 @@ import lombok.Value;
 @Builder
 public class AgentStatsResponse {
 
+    /** HUB or VENDOR — drives delivery-app home layout. */
+    String agentType;
+
     long vendorPickupsCollected;
     long vendorPickupsAtHub;
     long buyerDeliveriesCompleted;

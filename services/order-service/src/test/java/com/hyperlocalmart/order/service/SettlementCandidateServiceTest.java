@@ -1,6 +1,7 @@
 package com.hyperlocalmart.order.service;
 
 import com.hyperlocalmart.order.entity.Order;
+import com.hyperlocalmart.order.entity.PaymentMethod;
 import com.hyperlocalmart.order.entity.PaymentStatus;
 import com.hyperlocalmart.order.entity.VendorSubOrder;
 import com.hyperlocalmart.order.entity.VendorSubOrderStatus;
@@ -88,6 +89,7 @@ class SettlementCandidateServiceTest {
                 .orderNumber(orderNumber)
                 .placedAt(Instant.parse("2026-08-01T05:00:00Z"))
                 .paymentStatus(PaymentStatus.PAID)
+                .paymentMethod(PaymentMethod.COD)
                 .build();
         return VendorSubOrder.builder()
                 .id(UUID.randomUUID())

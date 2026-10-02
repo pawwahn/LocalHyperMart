@@ -129,6 +129,7 @@ function SuggestionTile({ item, busyKey, quantityFor, onIncrease, onDecrease }: 
       </div>
 
       <div style={styles.meta}>
+        {item.shopName ? <p style={styles.shop}>{item.shopName}</p> : null}
         <p style={styles.name}>{item.name}</p>
         <p style={styles.unit}>{formatUnit(item.unit)}</p>
         <div style={styles.priceRow}>
@@ -371,9 +372,21 @@ const styles: Record<string, CSSProperties> = {
   },
   meta: {
     display: 'grid',
-    gap: '0.14rem',
-    minHeight: 58,
+    gap: '0.1rem',
+    minHeight: 68,
     alignContent: 'start',
+  },
+  shop: {
+    margin: 0,
+    fontSize: '0.58rem',
+    fontWeight: 700,
+    letterSpacing: '0.03em',
+    textTransform: 'uppercase',
+    color: 'var(--text-muted)',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+    lineHeight: 1.15,
   },
   name: {
     margin: 0,
@@ -385,7 +398,7 @@ const styles: Record<string, CSSProperties> = {
     display: '-webkit-box',
     WebkitLineClamp: 2,
     WebkitBoxOrient: 'vertical',
-    minHeight: '2.5em',
+    minHeight: '2.35em',
   },
   unit: {
     margin: 0,

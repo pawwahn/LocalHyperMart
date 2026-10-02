@@ -2,6 +2,7 @@ package com.hyperlocalmart.gateway.filter;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.hyperlocalmart.gateway.security.GatewayAuthAttributes;
 import com.hyperlocalmart.gateway.security.JwtService;
 import com.hyperlocalmart.gateway.security.PublicRouteMatcher;
 import io.jsonwebtoken.Claims;
@@ -48,12 +49,7 @@ public class JwtAuthGatewayFilter implements GlobalFilter, Ordered {
             if (authorization != null && authorization.startsWith("Bearer ")) {
                 try {
                     Claims claims = jwtService.parseToken(authorization.substring(7));
-                    ServerHttpRequest mutated = request.mutate()
-                            .header("X-User-Id", claims.getSubject())
-                            .header("X-User-Phone", claims.get("phone", String.class))
-                            .header("X-User-Roles", stringifyRoles(claims.get("roles", List.class)))
-                            .build();
-                    return chain.filter(exchange.mutate().request(mutated).build());
+                    return continueAuthenticated(exchange, chain, request, claims);
                 } catch (Exception ignored) {
                     // Invalid token on a public route → continue as anonymous.
                 }
@@ -68,12 +64,7 @@ public class JwtAuthGatewayFilter implements GlobalFilter, Ordered {
 
         try {
             Claims claims = jwtService.parseToken(authorization.substring(7));
-            ServerHttpRequest mutated = request.mutate()
-                    .header("X-User-Id", claims.getSubject())
-                    .header("X-User-Phone", claims.get("phone", String.class))
-                    .header("X-User-Roles", stringifyRoles(claims.get("roles", List.class)))
-                    .build();
-            return chain.filter(exchange.mutate().request(mutated).build());
+            return continueAuthenticated(exchange, chain, request, claims);
         } catch (Exception ex) {
             return errorResponse(exchange, HttpStatus.UNAUTHORIZED, "UNAUTHORIZED", "Missing or invalid JWT");
         }
@@ -82,6 +73,17 @@ public class JwtAuthGatewayFilter implements GlobalFilter, Ordered {
     @Override
     public int getOrder() {
         return Ordered.HIGHEST_PRECEDENCE + 1;
+    }
+
+    private Mono<Void> continueAuthenticated(
+            ServerWebExchange exchange, GatewayFilterChain chain, ServerHttpRequest request, Claims claims) {
+        exchange.getAttributes().put(GatewayAuthAttributes.USER_ID, claims.getSubject());
+        ServerHttpRequest mutated = request.mutate()
+                .header("X-User-Id", claims.getSubject())
+                .header("X-User-Phone", claims.get("phone", String.class))
+                .header("X-User-Roles", stringifyRoles(claims.get("roles", List.class)))
+                .build();
+        return chain.filter(exchange.mutate().request(mutated).build());
     }
 
     private String stringifyRoles(List<?> roles) {

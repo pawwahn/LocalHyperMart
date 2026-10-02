@@ -42,7 +42,7 @@ class NotificationServiceTest {
                 .eventCode("ORDER_PLACED")
                 .channel(NotificationChannel.SMS)
                 .language("en")
-                .bodyTemplate("HyperLocalMart: Order {{orderNumber}} placed. Total Rs {{totalAmount}}.")
+                .bodyTemplate("KoYaKart: Order {{orderNumber}} placed. Total Rs {{totalAmount}}.")
                 .status(TemplateStatus.ACTIVE)
                 .build();
 
@@ -64,7 +64,7 @@ class NotificationServiceTest {
         NotificationResponse response = notificationService.send(request);
 
         assertThat(response.getStatus()).isEqualTo(NotificationLogStatus.SENT);
-        assertThat(response.getBody()).isEqualTo("HyperLocalMart: Order ORD-1001 placed. Total Rs 538.00.");
+        assertThat(response.getBody()).isEqualTo("KoYaKart: Order ORD-1001 placed. Total Rs 538.00.");
         assertThat(response.getLogId()).isNotNull();
     }
 }

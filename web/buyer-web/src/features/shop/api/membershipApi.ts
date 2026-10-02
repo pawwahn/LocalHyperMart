@@ -63,14 +63,26 @@ export async function fetchMyMembership(token: string): Promise<MembershipMine> 
   return apiRequest<MembershipMine>('/api/v1/payments/memberships/me', { token });
 }
 
+export async function fetchMembershipPurchase(
+  token: string,
+  purchaseId: string,
+): Promise<MembershipPurchase> {
+  return apiRequest<MembershipPurchase>(`/api/v1/payments/memberships/purchases/${purchaseId}`, {
+    token,
+    timeoutMs: 10_000,
+  });
+}
+
 export async function purchaseMembership(
   token: string,
   input: { slab: string; channel: 'ONLINE' | 'CASH'; townId: string },
+  idempotencyKey: string,
 ): Promise<MembershipPurchase> {
   return apiRequest<MembershipPurchase>('/api/v1/payments/memberships/purchase', {
     token,
     method: 'POST',
     body: input,
+    headers: { 'Idempotency-Key': idempotencyKey },
   });
 }
 

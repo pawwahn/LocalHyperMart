@@ -10,12 +10,14 @@ import { LegalDocumentPage } from '@hlm-legal';
 import { PayoutsPage } from '@/features/payouts/pages/PayoutsPage';
 import { SellersPage } from '@/features/sellers/pages/SellersPage';
 import { SettingsPage } from '@/features/settings/pages/SettingsPage';
+import { DeliveryAgentsPage } from '@/features/delivery/pages/DeliveryAgentsPage';
+import { VendorCodHandoverPage } from '@/features/cod/pages/VendorCodHandoverPage';
 
 function AuthBoundTheme({ children }: { children: ReactNode }) {
   const { isAuthenticated } = useAuth();
   return (
     <ThemeProvider
-      storageKey="hlm.vendor.theme"
+      storageKey="hlm.koyakart.vendor.theme"
       defaultAccent="forest"
       personalized={isAuthenticated}
     >
@@ -45,6 +47,8 @@ export function AppRouter() {
                 <Route path="/payouts" element={<PayoutsPage />} />
                 <Route path="/sellers" element={<SellersPage />} />
                 <Route path="/settings" element={<SettingsPage />} />
+                <Route path="/delivery-agents" element={<DeliveryAgentsPage />} />
+                <Route path="/cod-handover" element={<VendorCodHandoverPage />} />
               </Route>
             </Route>
             <Route path="*" element={<Navigate to="/dashboard" replace />} />

@@ -6,7 +6,7 @@ const STYLE_ID = 'hlm-theme-vars';
 
 export function applyTheme(preference: ThemePreference): void {
   const mode = MODE_PRESETS[preference.mode];
-  const accent = getAccent(preference.accent);
+  const accent = getAccent('forest');
   const soft = preference.mode === 'dark' ? accent.accentSoftDark : accent.accentSoftLight;
   const tint = soft;
   const elevatedShadow =
@@ -28,8 +28,11 @@ export function applyTheme(preference: ThemePreference): void {
       --accent-hover: ${accent.accentHover};
       --accent-soft: ${soft};
       --accent-rgb: ${accent.rgb};
-      --highlight: ${accent.accent};
-      --highlight-soft: ${soft};
+      --highlight: #F7CE46;
+      --highlight-soft: ${preference.mode === 'dark' ? 'rgba(247, 206, 70, 0.22)' : '#FFF6CC'};
+      /* KoYaKart brand green — independent of accent picker */
+      --brand: ${preference.mode === 'dark' ? '#22A34A' : '#0C831F'};
+      --brand-hover: ${preference.mode === 'dark' ? '#2BB854' : '#085516'};
       /* Keep semantic greens independent of accent picker (hub "Bag reached hub" CTA, etc.) */
       --success: ${preference.mode === 'dark' ? '#34D399' : '#10B981'};
       --success-soft: ${preference.mode === 'dark' ? 'rgba(52, 211, 153, 0.18)' : '#D1FAE5'};
@@ -60,7 +63,7 @@ export function applyTheme(preference: ThemePreference): void {
   }
   style.textContent = css;
   document.documentElement.dataset.themeMode = preference.mode;
-  document.documentElement.dataset.themeAccent = preference.accent;
+  document.documentElement.dataset.themeAccent = 'forest';
 }
 
 export function applyStoredTheme(

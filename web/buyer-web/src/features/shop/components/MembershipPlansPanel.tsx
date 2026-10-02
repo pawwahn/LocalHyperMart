@@ -1,16 +1,18 @@
-import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { Banner, Button } from '@/shared/ui';
 import { ApiError } from '@/shared/api/http';
 import { useAuth } from '@/shared/auth/AuthContext';
 import { useTown } from '@/shared/town/TownContext';
 import {
   fetchMembershipCatalog,
+  fetchMembershipPurchase,
   purchaseMembership,
   confirmMembershipPayment,
   type MembershipCatalog,
   type MembershipSlabOffer,
 } from '../api/membershipApi';
 import { CheckoutDismissedError, openRazorpayCheckout } from '../lib/razorpayCheckout';
+import { pollUntilCheckoutReady } from '../lib/paymentCheckoutPoll';
 
 function money(n: number): string {
   return `₹${Number(n ?? 0).toFixed(0)}`;
@@ -49,6 +51,11 @@ export function MembershipPlansPanel({ onBought }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState<'ONLINE' | 'CASH' | null>(null);
+  const purchaseIdempotencyKey = useRef<string | null>(null);
+
+  useEffect(() => {
+    purchaseIdempotencyKey.current = null;
+  }, [townId, selected]);
 
   const reload = useCallback(async () => {
     if (!token) return;
@@ -85,13 +92,32 @@ export function MembershipPlansPanel({ onBought }: Props) {
     setError(null);
     setNotice(null);
     try {
-      const row = await purchaseMembership(token, { slab: pick.code, channel, townId });
+      if (!purchaseIdempotencyKey.current) {
+        purchaseIdempotencyKey.current =
+          typeof crypto !== 'undefined' && crypto.randomUUID
+            ? crypto.randomUUID()
+            : `mem-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      }
+      const row = await purchaseMembership(
+        token,
+        { slab: pick.code, channel, townId },
+        purchaseIdempotencyKey.current,
+      );
       if (row.status === 'PENDING_CASH') {
+        purchaseIdempotencyKey.current = null;
         setNotice(`Pay ${money(row.price)} cash at the hub. Show your phone.`);
-      } else if (row.checkout?.gatewayOrderId) {
+      } else if (row.purchaseId) {
+        let checkout = row.checkout;
+        if (!checkout?.gatewayOrderId) {
+          checkout = await pollUntilCheckoutReady(() =>
+            fetchMembershipPurchase(token, row.purchaseId),
+          );
+        }
+        if (checkout?.gatewayOrderId) {
         try {
-          const paid = await openRazorpayCheckout(row.checkout, { contact: session?.phone });
+          const paid = await openRazorpayCheckout(checkout, { contact: session?.phone });
           const done = await confirmMembershipPayment(token, paid);
+          purchaseIdempotencyKey.current = null;
           setNotice(`${done.creditsGranted} free deliveries added.`);
         } catch (payErr) {
           if (payErr instanceof CheckoutDismissedError) {
@@ -102,7 +128,11 @@ export function MembershipPlansPanel({ onBought }: Props) {
           await reload();
           return;
         }
+        } else {
+          setError('Online payment did not start. Tap Pay online again.');
+        }
       } else if (row.status === 'PAID') {
+        purchaseIdempotencyKey.current = null;
         setNotice(`${row.creditsGranted} free deliveries added.`);
       } else {
         setError('Online payment did not start. Tap Pay online again.');

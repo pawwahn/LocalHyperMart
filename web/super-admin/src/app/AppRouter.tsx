@@ -67,7 +67,7 @@ function RouteFallback() {
 
 export function AppRouter() {
   return (
-    <ThemeProvider storageKey="hlm.superadmin.theme" defaultAccent="amber">
+    <ThemeProvider storageKey="hlm.koyakart.superadmin.theme" defaultAccent="forest">
       <AuthProvider>
         <BrowserRouter basename={routerBasename()}>
           <Suspense fallback={<RouteFallback />}>

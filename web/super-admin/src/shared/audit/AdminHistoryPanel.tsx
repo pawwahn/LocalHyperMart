@@ -38,6 +38,12 @@ type Props = {
   actions?: string[];
   /** Keep rows whose summary starts with one of these (case-insensitive). */
   prefixes?: string[];
+  /** Hide title row; parent supplies the heading. */
+  compact?: boolean;
+  /** Let the parent pane scroll (no nested table max-height). */
+  inlineScroll?: boolean;
+  /** When using tabs, select this tab on mount. */
+  defaultTabId?: string;
 };
 
 function screenKeys(screen?: string, screens?: string[], tabs?: HistoryTab[]): string[] {
@@ -123,11 +129,18 @@ export function AdminHistoryPanel({
   searchPlaceholder,
   actions,
   prefixes,
+  compact = false,
+  inlineScroll = false,
+  defaultTabId,
 }: Props) {
   const [rows, setRows] = useState<AdminAuditEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [tabId, setTabId] = useState(tabs?.[0]?.id ?? '');
+  const [tabId, setTabId] = useState(() => {
+    if (!tabs?.length) return '';
+    if (defaultTabId && tabs.some((t) => t.id === defaultTabId)) return defaultTabId;
+    return tabs[0].id;
+  });
   const [page, setPage] = useState(0);
   const [pageDraft, setPageDraft] = useState('1');
   const [total, setTotal] = useState(0);
@@ -252,18 +265,40 @@ export function AdminHistoryPanel({
     </div>
   ) : null;
 
+  const wrapStyle =
+    fullPage ? styles.wrapFullPage : inlineScroll ? styles.wrapInline : tall || embedded ? styles.wrapFill : styles.wrap;
+
   const body = (
     <>
-      <div style={styles.headRow}>
-        <h2 style={embedded ? styles.titleEmbed : styles.title}>
-          {title} <span style={styles.count}>{loading ? '…' : total.toLocaleString('en-IN')}</span>
-        </h2>
-        {tabs?.length ? (
-          <div style={styles.tabs}>
+      {!compact ? (
+        <div style={styles.headRow}>
+          <h2 style={embedded ? styles.titleEmbed : styles.title}>
+            {title} <span style={styles.count}>{loading ? '…' : total.toLocaleString('en-IN')}</span>
+          </h2>
+          {tabs?.length ? (
+            <div style={styles.tabs}>
+              {tabs.map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  style={t.id === (tabId || tabs[0].id) ? styles.tabActive : styles.tab}
+                  onClick={() => setTabId(t.id)}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      ) : tabs?.length ? (
+        <div style={styles.compactTabsRow}>
+          <div style={styles.tabs} role="tablist" aria-label="History category">
             {tabs.map((t) => (
               <button
                 key={t.id}
                 type="button"
+                role="tab"
+                aria-selected={t.id === (tabId || tabs[0].id)}
                 style={t.id === (tabId || tabs[0].id) ? styles.tabActive : styles.tab}
                 onClick={() => setTabId(t.id)}
               >
@@ -271,17 +306,20 @@ export function AdminHistoryPanel({
               </button>
             ))}
           </div>
-        ) : null}
-      </div>
+          <span style={styles.count}>{loading ? '…' : `${total.toLocaleString('en-IN')} rows`}</span>
+        </div>
+      ) : null}
       {!requireTown ? (
-        <div style={styles.filters}>
-          <input
-            style={styles.search}
-            value={qDraft}
-            onChange={(e) => setQDraft(e.target.value)}
-            placeholder={searchPlaceholder ?? 'Search field name (e.g. referral, delivery)…'}
-            aria-label="Search history"
-          />
+        <div style={compact ? styles.filtersCompact : styles.filters}>
+          {!compact ? (
+            <input
+              style={styles.search}
+              value={qDraft}
+              onChange={(e) => setQDraft(e.target.value)}
+              placeholder={searchPlaceholder ?? 'Search field name (e.g. referral, delivery)…'}
+              aria-label="Search history"
+            />
+          ) : null}
           <div style={styles.tabs} role="group" aria-label="Date range">
             {(
               [
@@ -303,7 +341,7 @@ export function AdminHistoryPanel({
         </div>
       ) : null}
       {pager}
-      {total >= 100 ? (
+      {total >= 100 && !compact ? (
         <p style={styles.hint}>
           {total.toLocaleString('en-IN')} rows stay in the database. This screen loads 25 at a time — use date or
           search, never scroll a full dump.
@@ -325,7 +363,7 @@ export function AdminHistoryPanel({
               : 'No changes in this filter yet.'}
         </p>
       ) : (
-        <div style={fullPage ? styles.wrapFullPage : tall || embedded ? styles.wrapFill : styles.wrap}>
+        <div style={wrapStyle}>
           <table style={fullPage ? styles.tableFull : styles.table}>
             <colgroup>
               <col style={{ width: fullPage ? '11rem' : '9rem' }} />
@@ -395,7 +433,7 @@ export function AdminHistoryPanel({
   );
 
   if (embedded) {
-    return <div style={styles.embed}>{body}</div>;
+    return <div style={compact ? styles.embedCompact : styles.embed}>{body}</div>;
   }
   return (
     <Card padding="sm" style={fullPage ? styles.cardFullPage : styles.card}>
@@ -414,6 +452,21 @@ const styles: Record<string, CSSProperties> = {
     minHeight: 'calc(100vh - 10.5rem)',
   },
   embed: { display: 'grid', gap: '0.4rem', minHeight: 0, alignContent: 'start' },
+  embedCompact: { display: 'grid', gap: '0.45rem', minHeight: 0 },
+  compactTabsRow: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: '0.5rem',
+  },
+  filtersCompact: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: '0.35rem',
+  },
   headRow: {
     display: 'flex',
     flexWrap: 'wrap',
@@ -500,6 +553,11 @@ const styles: Record<string, CSSProperties> = {
     borderRadius: 'var(--radius-md)',
     maxHeight: 'min(58vh, 28rem)',
     overflowY: 'auto',
+  },
+  wrapInline: {
+    overflowX: 'auto',
+    border: '1px solid var(--border)',
+    borderRadius: 'var(--radius-md)',
   },
   wrapFullPage: {
     overflow: 'auto',

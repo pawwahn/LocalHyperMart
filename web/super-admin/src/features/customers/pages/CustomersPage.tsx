@@ -358,7 +358,7 @@ export function CustomersPage() {
             {tab === 'overview' ? (
               <div className="cust-overview" style={styles.overviewGrid}>
                 <button type="button" style={styles.tile} onClick={() => setTab('orders')}>
-                  <span style={{ ...styles.tileMedia, background: '#FFF3DF' }} aria-hidden>
+                  <span style={{ ...styles.tileMedia, background: '#E7F6EC' }} aria-hidden>
                     📦
                   </span>
                   <span style={styles.tileLabel}>Orders</span>

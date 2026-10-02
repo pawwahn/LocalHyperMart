@@ -201,7 +201,8 @@ if ($needBuild) {
     } else {
         Write-Host "==> Building fat JARs (first run only; later starts skip this)"
     }
-    mvn -T 1C package -DskipTests -q
+    # install (not only package) so shared libs like common-core stay in sync with fat JARs
+    mvn -T 1C install -DskipTests -q
     if ($LASTEXITCODE -ne 0) {
         Write-Host "ERROR: Maven package failed."
         exit 1

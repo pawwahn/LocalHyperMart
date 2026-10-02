@@ -108,7 +108,37 @@ public class DeliveryClient {
         }
     }
 
-    public record AgentContext(UUID agentId, UUID userId, String name, String phone, UUID hubId, UUID townId) {
+    public record AgentContext(
+            UUID agentId,
+            UUID userId,
+            String name,
+            String phone,
+            UUID hubId,
+            UUID townId,
+            String agentType) {
+    }
+
+    public record AgentSummary(UUID agentId, String name) {
+    }
+
+    public List<AgentSummary> listHubAgents(UUID hubId) {
+        return listAgentsInternal("/api/v1/internal/hubs/{hubId}/agents", hubId);
+    }
+
+    public List<AgentSummary> listVendorAgents(UUID vendorId) {
+        return listAgentsInternal("/api/v1/internal/vendors/{vendorId}/agents", vendorId);
+    }
+
+    private List<AgentSummary> listAgentsInternal(String uriTemplate, UUID id) {
+        RestClient client = restClientBuilder.baseUrl(deliveryServiceProperties.getBaseUrl()).build();
+        ApiResponse<List<AgentSummary>> response = client.get()
+                .uri(uriTemplate, id)
+                .retrieve()
+                .body(new ParameterizedTypeReference<ApiResponse<List<AgentSummary>>>() {});
+        if (response == null || response.getData() == null) {
+            return List.of();
+        }
+        return response.getData();
     }
 
     public record OrderLegs(
@@ -118,7 +148,9 @@ public class DeliveryClient {
             boolean lastMileCompleted,
             Instant lastMileCompletedAt,
             boolean pickupCompleted,
-            Instant pickupCompletedAt
+            Instant pickupCompletedAt,
+            boolean vendorDirectCompleted,
+            Instant vendorDirectCompletedAt
     ) {
     }
 

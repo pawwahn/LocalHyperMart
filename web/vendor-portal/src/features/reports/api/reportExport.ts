@@ -167,7 +167,7 @@ export function exportSalesReportExcel(
   const wb = XLSX.utils.book_new();
 
   const summaryAoA: (string | number)[][] = [
-    ['HyperLocalMart — Vendor sales report'],
+    ['KoYaKart — Vendor sales report'],
     ['From', report.from],
     ['To', report.to],
     ['Orders', report.orderCount],
@@ -195,7 +195,7 @@ export function exportSalesReportPdf(
   const margin = 36;
 
   doc.setFontSize(14);
-  doc.text('HyperLocalMart — Vendor sales report', margin, 40);
+  doc.text('KoYaKart — Vendor sales report', margin, 40);
   doc.setFontSize(10);
   doc.setTextColor(80);
   doc.text(`Period: ${report.from} → ${report.to}`, margin, 58);

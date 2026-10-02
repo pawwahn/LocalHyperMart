@@ -18,6 +18,9 @@ type Props = {
   token: string;
   onClose: () => void;
   onSaved: (message: string) => void;
+  /** Render inside Town Settings (no modal shell). */
+  embedded?: boolean;
+  onOpenChangeLog?: () => void;
 };
 
 type HubPlan = 'NONE' | 'FRANCHISE' | 'PER_ORDER' | 'BOTH';
@@ -73,7 +76,7 @@ function perOrderUnit(p: PerOrderIncentive): number {
   return Math.max(0, p.completedOrderAmount) + Math.max(0, p.pickupAmount) + Math.max(0, p.lastMileAmount);
 }
 
-export function TownIncentiveDialog({ town, token, onClose, onSaved }: Props) {
+export function TownIncentiveDialog({ town, token, onClose, onSaved, embedded, onOpenChangeLog }: Props) {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -105,6 +108,7 @@ export function TownIncentiveDialog({ town, token, onClose, onSaved }: Props) {
   }, [token, town.id]);
 
   useEffect(() => {
+    if (embedded) return;
     function onKey(e: KeyboardEvent) {
       if (e.key === 'Escape' && !busy) onClose();
     }
@@ -115,7 +119,7 @@ export function TownIncentiveDialog({ town, token, onClose, onSaved }: Props) {
       document.body.style.overflow = prevOverflow;
       window.removeEventListener('keydown', onKey);
     };
-  }, [busy, onClose]);
+  }, [busy, onClose, embedded]);
 
   const n = Math.max(0, Number(previewOrders) || 0);
   const math = useMemo(() => {
@@ -158,71 +162,68 @@ export function TownIncentiveDialog({ town, token, onClose, onSaved }: Props) {
     }
   }
 
-  return createPortal(
-    <div
-      style={styles.overlay}
-      role="presentation"
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget && !busy) onClose();
-      }}
-    >
+  const inner = (
       <div
-        role="dialog"
-        aria-modal="true"
+        role={embedded ? undefined : 'dialog'}
+        aria-modal={embedded ? undefined : true}
         aria-labelledby="town-pay-title"
-        style={styles.dialog}
-        onMouseDown={(e) => e.stopPropagation()}
+        style={embedded ? styles.embedded : styles.dialog}
+        onMouseDown={embedded ? undefined : (e) => e.stopPropagation()}
       >
         <style>{`
           @media (max-width: 640px) {
             .pay-row3, .pay-math-grid { grid-template-columns: 1fr 1fr !important; }
           }
         `}</style>
-        <div style={styles.head}>
-          <div>
-            <h2 id="town-pay-title" style={styles.title}>
-              Hub & agent pay · {town.displayName}
-            </h2>
-            <p style={styles.sub}>Rules only. Cash is marked on Payouts → Hub / Agent.</p>
-          </div>
-          <div style={styles.headRight}>
-            <div style={styles.viewTabs}>
-              <button
-                type="button"
-                style={panel === 'edit' ? styles.viewTabActive : styles.viewTab}
-                onClick={() => setPanel('edit')}
-              >
-                Edit
-              </button>
-              <button
-                type="button"
-                style={panel === 'log' ? styles.viewTabActive : styles.viewTab}
-                onClick={() => setPanel('log')}
-              >
-                Change log
+        {!embedded ? (
+          <div style={styles.head}>
+            <div>
+              <h2 id="town-pay-title" style={styles.title}>
+                Hub & agent pay · {town.displayName}
+              </h2>
+              <p style={styles.sub}>Rules only. Cash is marked on Payouts → Hub / Agent.</p>
+            </div>
+            <div style={styles.headRight}>
+              <div style={styles.viewTabs}>
+                <button
+                  type="button"
+                  style={panel === 'edit' ? styles.viewTabActive : styles.viewTab}
+                  onClick={() => setPanel('edit')}
+                >
+                  Edit
+                </button>
+                <button
+                  type="button"
+                  style={panel === 'log' ? styles.viewTabActive : styles.viewTab}
+                  onClick={() => setPanel('log')}
+                >
+                  Change log
+                </button>
+              </div>
+              <button type="button" style={styles.close} onClick={onClose} aria-label="Close">
+                ✕
               </button>
             </div>
-            <button type="button" style={styles.close} onClick={onClose} aria-label="Close">
-              ✕
-            </button>
           </div>
-        </div>
+        ) : (
+          <p style={styles.subEmbed}>Rules only. Cash is marked on Payouts → Hub / Agent.</p>
+        )}
 
         {error ? <Banner tone="danger">{error}</Banner> : null}
         {savedNotice ? <Banner tone="success">{savedNotice}</Banner> : null}
-        {panel === 'edit' && token ? (
-          <div style={{ padding: '0 0.85rem' }}>
+        {(panel === 'edit' || embedded) && token ? (
+          <div style={{ padding: embedded ? 0 : '0 0.85rem' }}>
             <LastChangeStrip
               token={token}
               screen="town-incentives"
               townId={town.id}
               refreshTick={historyTick}
-              onSeeAll={() => setPanel('log')}
+              onSeeAll={() => (embedded ? onOpenChangeLog?.() : setPanel('log'))}
             />
           </div>
         ) : null}
 
-        {panel === 'edit' ? (
+        {panel === 'edit' || embedded ? (
         <>
         <div style={styles.body}>
           {loading || !cfg ? (
@@ -285,15 +286,17 @@ export function TownIncentiveDialog({ town, token, onClose, onSaved }: Props) {
         </div>
 
         <div style={styles.footer}>
-          <Button variant="ghost" disabled={busy} onClick={onClose}>
-            Close
-          </Button>
+          {!embedded ? (
+            <Button variant="ghost" disabled={busy} onClick={onClose}>
+              Close
+            </Button>
+          ) : null}
           <Button disabled={busy || !cfg} onClick={() => void onSave()}>
             {busy ? 'Saving…' : 'Save'}
           </Button>
         </div>
         </>
-        ) : token ? (
+        ) : !embedded && token ? (
           <div style={{ padding: '0 0.85rem 0.75rem', minHeight: 0, display: 'grid' }}>
             <AdminHistoryPanel
               token={token}
@@ -307,6 +310,19 @@ export function TownIncentiveDialog({ town, token, onClose, onSaved }: Props) {
           </div>
         ) : null}
       </div>
+  );
+
+  if (embedded) return inner;
+
+  return createPortal(
+    <div
+      style={styles.overlay}
+      role="presentation"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget && !busy) onClose();
+      }}
+    >
+      {inner}
     </div>,
     document.body,
   );
@@ -519,6 +535,13 @@ const styles: Record<string, CSSProperties> = {
     minHeight: 0,
     overflow: 'hidden',
   },
+  embedded: {
+    display: 'flex',
+    flexDirection: 'column',
+    minHeight: 0,
+    gap: '0.5rem',
+  },
+  subEmbed: { margin: 0, fontSize: '0.82rem', color: 'var(--text-muted)', lineHeight: 1.4 },
   headRight: { display: 'flex', alignItems: 'center', gap: '0.4rem', flexShrink: 0 },
   viewTabs: {
     display: 'flex',

@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { ApiError } from '@/shared/api/http';
-import { Banner, Button, Card } from '@/shared/ui';
+import { Banner, Button, Card, ConfirmDialog } from '@/shared/ui';
 import { listTowns, type TownVm } from '@/features/towns/api/townsApi';
 import { listHubs, type AdminHubVm } from '@/features/hubs/api/hubsApi';
 import { listAllAgents, type AdminAgentVm } from '@/features/agents/api/agentsApi';
@@ -14,6 +14,13 @@ import {
   type DeliverySettlementCandidate,
   type SettlementVm,
 } from '../api/settlementsApi';
+import {
+  SettlementAuditSection,
+  type SettlementChangeLogProps,
+} from './SettlementAuditSection';
+import { ListPager } from './ListPager';
+
+const DEFAULT_ORDER_PAGE_SIZE = 50;
 
 type PeriodPreset = 'day' | 'week' | 'month' | 'custom';
 type PeriodType = 'DAY' | 'WEEK' | 'MONTH' | 'CUSTOM';
@@ -65,9 +72,10 @@ type Props = {
   payeeType: DeliveryPayeeType;
   refreshTick: number;
   onSettled?: () => void;
+  changeLog: Omit<SettlementChangeLogProps, 'townId'> & { townId?: string };
 };
 
-export function DeliveryPayoutPanel({ token, payeeType, refreshTick, onSettled }: Props) {
+export function DeliveryPayoutPanel({ token, payeeType, refreshTick, onSettled, changeLog }: Props) {
   const isHub = payeeType === 'HUB';
   const initial = rangeForPreset('week');
   const [towns, setTowns] = useState<TownVm[]>([]);
@@ -93,12 +101,22 @@ export function DeliveryPayoutPanel({ token, payeeType, refreshTick, onSettled }
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [confirmKind, setConfirmKind] = useState<'PER_ORDER' | 'FRANCHISE' | null>(null);
+  const [orderSearch, setOrderSearch] = useState('');
+  const [orderPage, setOrderPage] = useState(0);
+  const [orderPageSize, setOrderPageSize] = useState(DEFAULT_ORDER_PAGE_SIZE);
 
   const townHubs = useMemo(() => hubs.filter((h) => h.townId === townId), [hubs, townId]);
   const townAgents = useMemo(() => {
+    if (!townId) return [];
     const hubIds = new Set(townHubs.map((h) => h.hubId));
-    return agents.filter((a) => a.hubId && hubIds.has(a.hubId));
-  }, [agents, townHubs]);
+    const hubAgents = agents.filter(
+      (a) => a.agentType !== 'VENDOR' && a.townId === townId && a.hubId && hubIds.has(a.hubId),
+    );
+    const shopAgents = agents.filter(
+      (a) => a.agentType === 'VENDOR' && (a.townId === townId || (!a.townId && !a.hubId)),
+    );
+    return [...shopAgents, ...hubAgents].sort((a, b) => a.name.localeCompare(b.name));
+  }, [agents, townHubs, townId]);
 
   const selectedPayee = useMemo(() => {
     if (isHub) return townHubs.find((h) => h.hubId === payeeId) ?? null;
@@ -113,6 +131,24 @@ export function DeliveryPayoutPanel({ token, payeeType, refreshTick, onSettled }
     () => items.filter((i) => !i.alreadySettled && !i.skipReason && Number(i.amount) > 0),
     [items],
   );
+
+  const filteredItems = useMemo(() => {
+    const needle = orderSearch.trim().toLowerCase();
+    if (!needle) return items;
+    return items.filter((i) => (i.orderNumber ?? '').toLowerCase().includes(needle));
+  }, [items, orderSearch]);
+
+  const orderPageCount = Math.max(1, Math.ceil(filteredItems.length / orderPageSize));
+  const safeOrderPage = Math.min(orderPage, orderPageCount - 1);
+
+  const pagedItems = useMemo(() => {
+    const start = safeOrderPage * orderPageSize;
+    return filteredItems.slice(start, start + orderPageSize);
+  }, [filteredItems, safeOrderPage, orderPageSize]);
+
+  useEffect(() => {
+    setOrderPage(0);
+  }, [items.length, orderSearch, orderPageSize, townId, payeeId, from, to]);
 
   const selectedTotal = useMemo(() => {
     let sum = 0;
@@ -224,6 +260,15 @@ export function DeliveryPayoutPanel({ token, payeeType, refreshTick, onSettled }
       return false;
     }
     return true;
+  }
+
+  function requestConfirm(kind: 'PER_ORDER' | 'FRANCHISE') {
+    if (!transactionReference.trim()) {
+      setError('Txn ref is required (UTR / UPI / cheque number)');
+      return;
+    }
+    setError(null);
+    setConfirmKind(kind);
   }
 
   async function submit(kind: 'PER_ORDER' | 'FRANCHISE') {
@@ -345,7 +390,7 @@ export function DeliveryPayoutPanel({ token, payeeType, refreshTick, onSettled }
                     : townAgents.map((a) => (
                         <option key={a.agentId} value={a.agentId}>
                           {a.name} ({a.phone})
-                          {a.hubName ? ` · ${a.hubName}` : ''}
+                          {a.agentType === 'VENDOR' ? ' · shop delivery agent' : a.hubName ? ` · ${a.hubName}` : ''}
                         </option>
                       ))}
                 </select>
@@ -406,8 +451,9 @@ export function DeliveryPayoutPanel({ token, payeeType, refreshTick, onSettled }
               </label>
             </div>
             <p style={styles.hint}>
-              Rates live in Towns → Incentives. Cancelled and incomplete orders never appear as payable. Home-delivery
-              agent gets the completed-order ₹.
+              {isHub
+                ? 'Rates live in Towns → Hub & agent pay. Cancelled and incomplete orders never appear as payable.'
+                : 'Hub agents: Towns → Hub & agent pay. Shop delivery agents: Towns → Vendor delivery (₹ per order). Pick the agent who completed the trip — vendor shop orders pay the shop’s agent, not hub agents.'}
             </p>
           </Card>
 
@@ -455,8 +501,31 @@ export function DeliveryPayoutPanel({ token, payeeType, refreshTick, onSettled }
                 <p style={styles.muted}>
                   No delivered orders in this range. Cancelled orders are excluded.
                 </p>
+              ) : filteredItems.length === 0 ? (
+                <p style={styles.muted}>No orders match your search.</p>
               ) : (
-                <div style={styles.tableWrap}>
+                <>
+                  <div style={styles.ordersToolbar}>
+                    <input
+                      style={styles.searchInput}
+                      value={orderSearch}
+                      onChange={(e) => setOrderSearch(e.target.value)}
+                      placeholder="Search order #…"
+                      aria-label="Search orders"
+                    />
+                    <ListPager
+                      page={safeOrderPage}
+                      pageCount={orderPageCount}
+                      total={filteredItems.length}
+                      pageSize={orderPageSize}
+                      onPage={setOrderPage}
+                      onPageSize={(size) => {
+                        setOrderPageSize(size);
+                        setOrderPage(0);
+                      }}
+                    />
+                  </div>
+                <div style={styles.tableWrapPaged}>
                   <table style={styles.table}>
                     <thead>
                       <tr>
@@ -469,7 +538,7 @@ export function DeliveryPayoutPanel({ token, payeeType, refreshTick, onSettled }
                       </tr>
                     </thead>
                     <tbody>
-                      {items.map((row) => {
+                      {pagedItems.map((row) => {
                         const payable = !row.alreadySettled && !row.skipReason && Number(row.amount) > 0;
                         return (
                           <tr key={row.orderId} style={selected.has(row.orderId) && payable ? styles.rowSelected : undefined}>
@@ -496,9 +565,11 @@ export function DeliveryPayoutPanel({ token, payeeType, refreshTick, onSettled }
                               <div style={styles.sub}>{row.paymentStatus ?? '—'}</div>
                             </td>
                             <td style={styles.tdMuted}>
-                              {row.pickupCompleted ? 'Pickup' : 'No pickup'}
-                              {' · '}
-                              {row.lastMileCompleted ? 'Home' : 'No home'}
+                              {row.vendorAgentDelivery
+                                ? row.lastMileCompleted
+                                  ? 'Shop → customer'
+                                  : 'Shop trip open'
+                                : `${row.pickupCompleted ? 'Pickup' : 'No pickup'} · ${row.lastMileCompleted ? 'Home' : 'No home'}`}
                             </td>
                             <td style={styles.tdRight}>{formatMoney(row.amount)}</td>
                             <td style={styles.td}>
@@ -516,6 +587,7 @@ export function DeliveryPayoutPanel({ token, payeeType, refreshTick, onSettled }
                     </tbody>
                   </table>
                 </div>
+                </>
               )}
             </Card>
           ) : (
@@ -559,7 +631,7 @@ export function DeliveryPayoutPanel({ token, payeeType, refreshTick, onSettled }
             )}
             <div style={styles.sideActions}>
               {showOrders ? (
-                <Button size="sm" disabled={!canPayOrders} onClick={() => setConfirmKind('PER_ORDER')}>
+                <Button size="sm" disabled={!canPayOrders} onClick={() => requestConfirm('PER_ORDER')}>
                   {saving ? 'Saving…' : `Mark paid · ${formatMoney(selectedTotal)}`}
                 </Button>
               ) : null}
@@ -568,7 +640,7 @@ export function DeliveryPayoutPanel({ token, payeeType, refreshTick, onSettled }
                   size="sm"
                   variant={showOrders ? 'secondary' : undefined}
                   disabled={!canCollectFranchise}
-                  onClick={() => setConfirmKind('FRANCHISE')}
+                  onClick={() => requestConfirm('FRANCHISE')}
                 >
                   {saving ? 'Saving…' : `Mark received · ${formatMoney(franchise.amount)}`}
                 </Button>
@@ -581,54 +653,39 @@ export function DeliveryPayoutPanel({ token, payeeType, refreshTick, onSettled }
         </aside>
       </div>
 
-      {confirmKind ? (
-        <div
-          style={styles.confirmOverlay}
-          role="presentation"
-          onMouseDown={(e) => {
-            if (e.target === e.currentTarget && !saving) setConfirmKind(null);
-          }}
-        >
-          <div role="dialog" aria-modal="true" style={styles.confirmDialog} onMouseDown={(e) => e.stopPropagation()}>
-            <h2 style={styles.confirmTitle}>
-              {confirmKind === 'FRANCHISE' ? 'Confirm franchise received?' : 'Confirm payout?'}
-            </h2>
-            <p style={styles.confirmBody}>
-              {confirmKind === 'FRANCHISE' ? (
-                <>
-                  Collect <strong>{formatMoney(franchise?.amount)}</strong> from <strong>{payeeName || 'hub'}</strong>?
-                </>
-              ) : (
-                <>
-                  Pay <strong>{formatMoney(selectedTotal)}</strong> to <strong>{payeeName || (isHub ? 'hub' : 'agent')}</strong>?
-                </>
-              )}
-            </p>
-            <p style={styles.confirmMeta}>
-              {confirmKind === 'PER_ORDER' ? `${selected.size} order${selected.size === 1 ? '' : 's'} · ` : ''}
-              {payoutMethod} · ref <strong>{transactionReference.trim()}</strong>
-            </p>
-            <p style={styles.confirmWarn}>This cannot be undone from here. Check UTR / amount first.</p>
-            <div style={styles.confirmActions}>
-              <Button size="sm" variant="secondary" disabled={saving} onClick={() => setConfirmKind(null)}>
-                Cancel
-              </Button>
-              <Button size="sm" disabled={saving} onClick={() => void submit(confirmKind)}>
-                {saving ? 'Saving…' : confirmKind === 'FRANCHISE' ? 'Yes, mark received' : 'Yes, mark paid'}
-              </Button>
-            </div>
-          </div>
-        </div>
-      ) : null}
+      <ConfirmDialog
+        open={confirmKind === 'PER_ORDER'}
+        title={isHub ? 'Confirm hub payout?' : 'Confirm agent payout?'}
+        description={`Pay ${formatMoney(selectedTotal)} to ${payeeName || (isHub ? 'hub' : 'agent')} for ${selected.size} completed order${selected.size === 1 ? '' : 's'}.\n\n${payoutMethod} · ref ${transactionReference.trim()}\n\nThis cannot be undone from here. Check UTR and amount before confirming.`}
+        confirmLabel="Yes, mark paid"
+        cancelLabel="Cancel"
+        danger={false}
+        busy={saving}
+        onClose={() => {
+          if (!saving) setConfirmKind(null);
+        }}
+        onConfirm={() => void submit('PER_ORDER')}
+      />
+      <ConfirmDialog
+        open={confirmKind === 'FRANCHISE'}
+        title="Confirm franchise received?"
+        description={`Record ${formatMoney(franchise?.amount)} received from ${payeeName || 'hub'} (${franchise?.label ?? 'franchise period'}).\n\n${payoutMethod} · ref ${transactionReference.trim()}\n\nThis cannot be undone from here. Check amount and reference first.`}
+        confirmLabel="Yes, mark received"
+        cancelLabel="Cancel"
+        danger={false}
+        busy={saving}
+        onClose={() => {
+          if (!saving) setConfirmKind(null);
+        }}
+        onConfirm={() => void submit('FRANCHISE')}
+      />
 
-      <Card padding="sm" style={styles.cardPad}>
-        <h2 style={styles.sectionTitle}>
-          History <span style={styles.count}>{history.length}</span>
-        </h2>
-        {history.length === 0 ? (
-          <p style={styles.muted}>No hub/agent settlements in this range.</p>
-        ) : (
-          <div style={styles.tableWrapWide}>
+      <SettlementAuditSection
+        historyCount={history.length}
+        historyEmpty="No hub/agent settlements in this range."
+        changeLog={{ ...changeLog, townId: townId || changeLog.townId }}
+        historyContent={
+          <div style={styles.tableInAudit}>
             <table style={styles.table}>
               <thead>
                 <tr>
@@ -705,8 +762,8 @@ export function DeliveryPayoutPanel({ token, payeeType, refreshTick, onSettled }
               </tbody>
             </table>
           </div>
-        )}
-      </Card>
+        }
+      />
 
       <style>{`
 .dp-layout { display: grid; gap: 0.55rem; align-items: start; }
@@ -825,6 +882,25 @@ const styles: Record<string, CSSProperties> = {
     fontWeight: 650,
     color: 'var(--text-muted)',
   },
+  ordersToolbar: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+    gap: '0.35rem 0.75rem',
+    marginBottom: '0.4rem',
+  },
+  searchInput: {
+    flex: '1 1 12rem',
+    minWidth: 0,
+    maxWidth: '20rem',
+    padding: '0.35rem 0.5rem',
+    borderRadius: 'var(--radius-md)',
+    border: '1px solid var(--border)',
+    background: 'var(--bg-elevated)',
+    fontSize: '0.78rem',
+    fontFamily: 'inherit',
+  },
   tableWrap: {
     overflowX: 'auto',
     border: '1px solid var(--border)',
@@ -832,10 +908,19 @@ const styles: Record<string, CSSProperties> = {
     maxHeight: 'min(52vh, 520px)',
     overflowY: 'auto',
   },
+  tableWrapPaged: {
+    overflowX: 'auto',
+    border: '1px solid var(--border)',
+    borderRadius: 'var(--radius-md)',
+  },
   tableWrapWide: {
     overflowX: 'auto',
     border: '1px solid var(--border)',
     borderRadius: 'var(--radius-md)',
+  },
+  tableInAudit: {
+    overflowX: 'auto',
+    minWidth: 0,
   },
   table: { width: '100%', borderCollapse: 'separate', borderSpacing: 0, fontSize: '0.8rem' },
   th: {
@@ -940,44 +1025,5 @@ const styles: Record<string, CSSProperties> = {
     fontSize: '0.72rem',
     color: 'var(--text-muted)',
     lineHeight: 1.35,
-  },
-  confirmOverlay: {
-    position: 'fixed',
-    inset: 0,
-    zIndex: 1000,
-    display: 'grid',
-    placeItems: 'center',
-    padding: '1rem',
-    background: 'rgba(15, 23, 42, 0.5)',
-  },
-  confirmDialog: {
-    width: 'min(26rem, 100%)',
-    background: 'var(--bg-elevated)',
-    border: '1px solid var(--border)',
-    borderRadius: 'var(--radius-lg)',
-    boxShadow: 'var(--shadow-elevated)',
-    padding: '1.1rem',
-    display: 'grid',
-    gap: '0.55rem',
-  },
-  confirmTitle: { margin: 0, fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: '1.15rem' },
-  confirmBody: { margin: 0, fontSize: '0.92rem', fontWeight: 650, lineHeight: 1.4 },
-  confirmMeta: { margin: 0, fontSize: '0.82rem', color: 'var(--text-muted)', fontWeight: 650 },
-  confirmWarn: {
-    margin: 0,
-    padding: '0.5rem 0.65rem',
-    borderRadius: 8,
-    background: 'rgba(255, 183, 77, 0.18)',
-    border: '1px solid rgba(255, 183, 77, 0.45)',
-    fontSize: '0.8rem',
-    fontWeight: 700,
-    lineHeight: 1.35,
-  },
-  confirmActions: {
-    display: 'flex',
-    justifyContent: 'flex-end',
-    gap: '0.5rem',
-    flexWrap: 'wrap',
-    marginTop: '0.25rem',
   },
 };

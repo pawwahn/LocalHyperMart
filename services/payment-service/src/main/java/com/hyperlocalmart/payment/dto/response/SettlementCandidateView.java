@@ -40,6 +40,23 @@ public class SettlementCandidateView {
         Instant placedAt;
         String status;
         String paymentStatus;
+        /** COD or ONLINE — buyer payment rail for the parent order. */
+        String paymentMethod;
+        /** Shop-agent delivery (COD custodian is vendor, not hub close-day). */
+        boolean vendorAgentDelivery;
+        /**
+         * For COD delivered orders: true after hub records agent remittance (COD close-day).
+         * False = cash still treated as with the delivery agent until close-day.
+         * Ignored for {@code vendorAgentDelivery} — use {@link #codCashLocation} instead.
+         */
+        Boolean codRemittedToHub;
+        /**
+         * WITH_AGENT | AT_HUB | WITH_VENDOR | DECLARED_TO_VENDOR — null for non-COD.
+         */
+        String codCashLocation;
+        /** LAST_MILE / shop agent who delivered — when {@code codCashLocation} is WITH_AGENT. */
+        UUID codDeliveringAgentId;
+        String codDeliveringAgentName;
         BigDecimal subtotal;
         boolean alreadySettled;
     }

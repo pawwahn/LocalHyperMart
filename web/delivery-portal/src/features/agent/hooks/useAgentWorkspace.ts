@@ -12,6 +12,7 @@ import {
   type AssignmentView,
 } from '../api/agentApi';
 import { summarizeActiveWork } from '../lib/assignmentSteps';
+import { useAgentAssignmentAlert } from '../context/AgentAssignmentAlertContext';
 
 export type AgentLeg = 'PICKUP' | 'LAST_MILE';
 export type AgentScope = 'active' | 'completed';
@@ -28,6 +29,9 @@ type Options = {
 
 function filterByLeg(list: AssignmentView[], leg?: AgentLeg): AssignmentView[] {
   if (!leg) return list;
+  if (leg === 'LAST_MILE') {
+    return list.filter((a) => a.legType === 'LAST_MILE' || a.legType === 'VENDOR_DIRECT');
+  }
   return list.filter((a) => a.legType === leg);
 }
 
@@ -36,8 +40,8 @@ function filterBySearch(list: AssignmentView[], search: string): AssignmentView[
   if (!q) return list;
   return list.filter(
     (a) =>
-      a.orderNumber.toLowerCase().includes(q) ||
-      a.assignmentNumber.toLowerCase().includes(q) ||
+      (a.orderNumber ?? '').toLowerCase().includes(q) ||
+      (a.assignmentNumber ?? '').toLowerCase().includes(q) ||
       (a.subOrderNumber?.toLowerCase().includes(q) ?? false),
   );
 }
@@ -49,6 +53,7 @@ export function useAgentWorkspace(options: Options = {}) {
   const pageSize = options.pageSize ?? (scope === 'active' ? ACTIVE_FETCH_SIZE : PAGE_SIZE);
 
   const { session } = useAuth();
+  const { assignAlertVersion } = useAgentAssignmentAlert();
   const [assignments, setAssignments] = useState<AssignmentView[]>([]);
   const [search, setSearch] = useState('');
   const [totalPages, setTotalPages] = useState(0);
@@ -60,7 +65,10 @@ export function useAgentWorkspace(options: Options = {}) {
   const [notice, setNotice] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
-    if (!session) return;
+    if (!session) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
@@ -82,6 +90,10 @@ export function useAgentWorkspace(options: Options = {}) {
   useEffect(() => {
     void reload();
   }, [reload]);
+
+  useEffect(() => {
+    if (assignAlertVersion > 0) void reload();
+  }, [assignAlertVersion, reload]);
 
   const legAssignments = useMemo(() => filterByLeg(assignments, leg), [assignments, leg]);
   const visibleAssignments = useMemo(

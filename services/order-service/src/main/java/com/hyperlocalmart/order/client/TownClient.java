@@ -182,7 +182,34 @@ public class TownClient {
         }
     }
 
+    public VendorAgentDeliverySettings getVendorAgentDeliverySettings(UUID townId) {
+        try {
+            RestClient client = restClientBuilder.baseUrl(townServiceProperties.getBaseUrl()).build();
+            ApiResponse<Map<String, Object>> response = client.get()
+                    .uri("/api/v1/internal/towns/{townId}/vendor-agent-delivery-config", townId)
+                    .retrieve()
+                    .body(new ParameterizedTypeReference<ApiResponse<Map<String, Object>>>() {});
+            if (response == null || response.getData() == null) {
+                return VendorAgentDeliverySettings.disabled();
+            }
+            Map<String, Object> data = response.getData();
+            return new VendorAgentDeliverySettings(
+                    Boolean.TRUE.equals(data.get("enabled")),
+                    money(data.get("vendorAgentPayoutAmount")),
+                    money(data.get("hubPayoutAmount")));
+        } catch (Exception ex) {
+            return VendorAgentDeliverySettings.disabled();
+        }
+    }
+
     public record TownSummary(String townCode, String stateCode, String displayName) {
+    }
+
+    public record VendorAgentDeliverySettings(
+            boolean enabled, BigDecimal vendorAgentPayoutAmount, BigDecimal hubPayoutAmount) {
+        static VendorAgentDeliverySettings disabled() {
+            return new VendorAgentDeliverySettings(false, BigDecimal.ZERO, BigDecimal.ZERO);
+        }
     }
 
     public record CheckoutFees(BigDecimal deliveryFee, BigDecimal platformFee) {

@@ -29,6 +29,17 @@ public class DeliveryAgent extends BaseAuditEntity {
     private String phone;
 
     @Enumerated(EnumType.STRING)
+    @Column(name = "agent_type", nullable = false, length = 20)
+    @Builder.Default
+    private AgentType agentType = AgentType.HUB;
+
+    @Column(name = "vendor_id")
+    private UUID vendorId;
+
+    @Column(name = "shop_id")
+    private UUID shopId;
+
+    @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 30)
     @Builder.Default
     private AgentStatus status = AgentStatus.ACTIVE;

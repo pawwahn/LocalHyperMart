@@ -1,6 +1,6 @@
 {
-  "name": "HyperLocalMart Delivery",
-  "short_name": "HLM Delivery",
+  "name": "KoYaKart Delivery",
+  "short_name": "KoYaKart Delivery",
   "description": "Hub desk and delivery agent app",
   "start_url": "/",
   "display": "standalone",

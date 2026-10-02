@@ -1,10 +1,13 @@
 import { useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import type { CSSProperties } from 'react';
+import { Banner, Card } from '@/shared/ui';
 import { AgentShell } from '../layout/AgentShell';
 import { BuyerDeliveryCard } from '../components/AssignmentCards';
 import { ConfirmTookFromHubDialog } from '../components/ConfirmTookFromHubDialog';
 import { useAgentWorkspace } from '../hooks/useAgentWorkspace';
 import { useDeliveryManifests } from '../hooks/useDeliveryManifests';
+import { useAgentKind } from '../hooks/useAgentKind';
 
 type DeliveryFilter = 'all' | 'at_hub' | 'en_route';
 
@@ -15,6 +18,7 @@ type TookHubPrompt = {
 } | null;
 
 export function AgentBuyerDeliveriesPage() {
+  const { vendorShop } = useAgentKind();
   const [filter, setFilter] = useState<DeliveryFilter>('all');
   const [tookHubPrompt, setTookHubPrompt] = useState<TookHubPrompt>(null);
   const {
@@ -27,6 +31,7 @@ export function AgentBuyerDeliveriesPage() {
     setSearch,
     search,
     doPickHub,
+    doPickVendor,
     doDeliver,
   } = useAgentWorkspace({ scope: 'active', leg: 'LAST_MILE' });
 
@@ -44,18 +49,20 @@ export function AgentBuyerDeliveriesPage() {
 
   return (
     <AgentShell
-      title="To home"
-      subtitle="Hub → Home → OTP → Submit"
+      title={vendorShop ? 'Deliveries' : 'To home'}
+      subtitle={
+        vendorShop ? 'Shop → customer · OTP when delivered' : 'Hub → customer · OTP when delivered'
+      }
       onRefresh={() => void reload()}
     >
-      {error ? <p style={styles.error}>{error}</p> : null}
-      {notice ? <p style={styles.notice}>{notice}</p> : null}
+      {error ? <Banner tone="danger">{error}</Banner> : null}
+      {notice ? <Banner tone="success">{notice}</Banner> : null}
 
       <div style={styles.segment} role="tablist" aria-label="Filter deliveries">
         <FilterChip active={filter === 'all'} label={`All ${deliveryTasks.length}`} onClick={() => setFilter('all')} />
         <FilterChip
           active={filter === 'at_hub'}
-          label={`At hub ${atHubCount}`}
+          label={`${vendorShop ? 'At shop' : 'At hub'} ${atHubCount}`}
           onClick={() => setFilter('at_hub')}
         />
         <FilterChip
@@ -79,18 +86,28 @@ export function AgentBuyerDeliveriesPage() {
       </div>
 
       {loading && filtered.length === 0 ? (
-        <p style={styles.muted}>Loading trips…</p>
+        <Card style={styles.stateCard}>
+          <p style={styles.emptyTitle}>Loading trips…</p>
+          <p style={styles.emptyBody}>Fetching your home-delivery assignments.</p>
+        </Card>
       ) : filtered.length === 0 ? (
-        <div style={styles.empty}>
+        <Card style={styles.stateCard}>
           <p style={styles.emptyTitle}>No trips right now</p>
           <p style={styles.emptyBody}>
             {filter === 'at_hub'
-              ? 'Nothing waiting at hub.'
+              ? vendorShop
+                ? 'Nothing waiting at the shop.'
+                : 'Nothing waiting at hub.'
               : filter === 'en_route'
                 ? 'No delivery on the way.'
-                : 'Wait for hub to assign a home delivery.'}
+                : vendorShop
+                  ? 'Your shop will assign deliveries here when orders are ready.'
+                  : 'When hub assigns a home delivery, it appears here. Check Home for open job counts.'}
           </p>
-        </div>
+          <Link to="/agent" style={styles.homeLink}>
+            Back to Home
+          </Link>
+        </Card>
       ) : (
         <div style={styles.list}>
           {filtered.map((task) => (
@@ -103,12 +120,17 @@ export function AgentBuyerDeliveriesPage() {
               manifestFailed={Boolean(failedIds[task.id])}
               onRetryManifest={() => retryManifest(task.id)}
               onPickHub={(id, status) => {
+                if (task.legType === 'VENDOR_DIRECT') {
+                  void doPickVendor(id, status);
+                  return;
+                }
                 setTookHubPrompt({
                   id,
                   status,
                   orderNumber: task.orderNumber,
                 });
               }}
+              onPickVendor={doPickVendor}
               onDeliver={doDeliver}
             />
           ))}
@@ -208,16 +230,19 @@ const styles: Record<string, CSSProperties> = {
     fontWeight: 600,
   },
   list: { display: 'grid', gap: '0.7rem' },
-  error: { margin: 0, color: 'var(--danger)', fontWeight: 700, fontSize: '0.85rem' },
-  notice: { margin: 0, color: 'var(--success)', fontWeight: 700, fontSize: '0.85rem' },
-  muted: { margin: 0, color: 'var(--text-muted)', fontWeight: 700, fontSize: '0.85rem' },
-  empty: {
-    padding: '1.25rem 1rem',
-    borderRadius: 14,
-    background: 'var(--bg-muted)',
-    border: '1px dashed var(--border)',
+  stateCard: {
+    padding: '1.1rem 0.85rem',
+    display: 'grid',
+    gap: '0.4rem',
     textAlign: 'center',
+    minHeight: 120,
   },
-  emptyTitle: { margin: 0, fontWeight: 800, fontSize: '0.95rem' },
-  emptyBody: { margin: '0.35rem 0 0', color: 'var(--text-muted)', fontWeight: 600, fontSize: '0.82rem' },
+  emptyTitle: { margin: 0, fontWeight: 800, fontSize: '0.95rem', color: 'var(--text)' },
+  emptyBody: { margin: 0, color: 'var(--text-muted)', fontWeight: 600, fontSize: '0.82rem', lineHeight: 1.45 },
+  homeLink: {
+    marginTop: '0.35rem',
+    fontWeight: 800,
+    fontSize: '0.85rem',
+    color: 'var(--accent)',
+  },
 };

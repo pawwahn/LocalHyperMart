@@ -62,7 +62,7 @@ public class TownDeliveryPayoutConfigResponse {
         /** MONTHLY, QUARTERLY, YEARLY, LIFETIME */
         @Builder.Default
         private String cadence = "MONTHLY";
-        /** Amount the hub pays HyperLocalMart for that cadence. */
+        /** Amount the hub pays KoYaKart for that cadence. */
         @Builder.Default
         private BigDecimal amount = BigDecimal.ZERO;
     }

@@ -26,12 +26,12 @@ export function pickupStepLabel(step: PickupStep): string {
   }
 }
 
-export function deliveryStepLabel(step: DeliveryStep): string {
+export function deliveryStepLabel(step: DeliveryStep, vendorDirect = false): string {
   switch (step) {
     case 'hub':
-      return 'At hub';
+      return vendorDirect ? 'At shop' : 'At hub';
     case 'en_route':
-      return 'To home';
+      return 'To customer';
     case 'done':
       return 'Done';
   }
@@ -48,10 +48,12 @@ export function pickupHint(step: PickupStep): string {
   }
 }
 
-export function deliveryHint(step: DeliveryStep): string {
+export function deliveryHint(step: DeliveryStep, vendorDirect = false): string {
   switch (step) {
     case 'hub':
-      return 'Take the full order from hub. Then go to customer home.';
+      return vendorDirect
+        ? 'Take the bag from the shop. Then go to the customer.'
+        : 'Take the full order from hub. Then go to customer home.';
     case 'en_route':
       return 'Give order to customer. Phone code is 111111 in local/dev.';
     case 'done':
@@ -100,7 +102,7 @@ export function summarizeActiveWork(assignments: AssignmentView[]): AgentWorkSum
     if (a.legType === 'PICKUP') {
       if (a.status === 'ASSIGNED') pickupAtShop += 1;
       else if (a.status === 'IN_PROGRESS') pickupToHub += 1;
-    } else if (a.legType === 'LAST_MILE') {
+    } else if (a.legType === 'LAST_MILE' || a.legType === 'VENDOR_DIRECT') {
       if (a.status === 'ASSIGNED') deliveryAtHub += 1;
       else if (a.status === 'IN_PROGRESS') deliveryEnRoute += 1;
     }

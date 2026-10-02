@@ -1,8 +1,10 @@
 package com.hyperlocalmart.order.dto.response;
 
+import com.hyperlocalmart.order.entity.PaymentMethod;
 import lombok.Builder;
 import lombok.Value;
 
+import java.math.BigDecimal;
 import java.util.UUID;
 
 @Value
@@ -23,4 +25,8 @@ public class OrderDeliveryInfoResponse {
     String landmark;
     String pincode;
     String addressLabel;
+    boolean vendorAgentDelivery;
+    PaymentMethod paymentMethod;
+    /** Cash to collect at door when {@link #paymentMethod} is COD. */
+    BigDecimal collectCashAmount;
 }

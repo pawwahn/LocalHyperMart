@@ -39,6 +39,7 @@ public class TownService {
     private final GeoCatalogService geoCatalogService;
     private final TownConfigService townConfigService;
     private final TownDeliveryPayoutConfigService townDeliveryPayoutConfigService;
+    private final TownVendorAgentDeliveryConfigService townVendorAgentDeliveryConfigService;
     private final AdminAuditor adminAuditService;
 
     @Transactional(readOnly = true)
@@ -163,6 +164,7 @@ public class TownService {
 
         townConfigService.ensureDefaultOperationalConfig(town.getId());
         townDeliveryPayoutConfigService.ensureDefault(town.getId());
+        townVendorAgentDeliveryConfigService.ensureDefault(town.getId());
         adminAuditService.record(
                 "towns",
                 "CREATE_TOWN",

@@ -7,7 +7,6 @@ import {
   type CSSProperties,
 } from 'react';
 import { createPortal } from 'react-dom';
-import { ACCENT_PRESETS } from './presets';
 import { useTheme } from './ThemeContext';
 
 type Props = {
@@ -18,7 +17,7 @@ type Props = {
 type PanelPos = { top: number; left: number };
 
 export function ThemePicker({ compact = true }: Props) {
-  const { preference, setMode, setAccent, personalized } = useTheme();
+  const { preference, setMode, personalized } = useTheme();
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState<PanelPos>({ top: 0, left: 0 });
   const rootRef = useRef<HTMLDivElement>(null);
@@ -107,33 +106,7 @@ export function ThemePicker({ compact = true }: Props) {
                 Dark
               </button>
             </div>
-            <p style={styles.heading}>Color</p>
-            <div style={styles.swatches}>
-              {ACCENT_PRESETS.map((preset) => {
-                const active = preference.accent === preset.id;
-                return (
-                  <button
-                    key={preset.id}
-                    type="button"
-                    title={preset.label}
-                    aria-label={preset.label}
-                    aria-pressed={active}
-                    onClick={() => setAccent(preset.id)}
-                    style={{
-                      ...styles.swatch,
-                      background: preset.accent,
-                      boxShadow: active
-                        ? `0 0 0 2px var(--bg-elevated, #fff), 0 0 0 4px ${preset.accent}`
-                        : '0 0 0 1px rgba(15, 23, 20, 0.2)',
-                    }}
-                  />
-                );
-              })}
-            </div>
-            <p style={styles.hint}>
-              {ACCENT_PRESETS.find((p) => p.id === preference.accent)?.label} ·{' '}
-              {preference.mode === 'dark' ? 'Dark' : 'Light'}
-            </p>
+            <p style={styles.hint}>KoYaKart green · {preference.mode === 'dark' ? 'Dark' : 'Light'}</p>
           </div>,
           document.body,
         )
@@ -147,7 +120,7 @@ export function ThemePicker({ compact = true }: Props) {
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-controls={panelId}
-        title="Theme & colors"
+        title="Appearance"
         onClick={() => setOpen((v) => !v)}
       >
         {compact ? '◐' : 'Theme'}
@@ -226,20 +199,6 @@ const styles: Record<string, CSSProperties> = {
     fontSize: '0.8rem',
     fontWeight: 700,
     cursor: 'pointer',
-  },
-  swatches: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fill, minmax(28px, 1fr))',
-    gap: '0.45rem',
-    justifyItems: 'center',
-  },
-  swatch: {
-    width: 28,
-    height: 28,
-    borderRadius: '999px',
-    border: 'none',
-    cursor: 'pointer',
-    padding: 0,
   },
   hint: {
     margin: 0,

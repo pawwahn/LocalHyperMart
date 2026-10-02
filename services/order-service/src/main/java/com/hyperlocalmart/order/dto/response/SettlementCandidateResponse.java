@@ -1,5 +1,6 @@
 package com.hyperlocalmart.order.dto.response;
 
+import com.hyperlocalmart.order.entity.PaymentMethod;
 import com.hyperlocalmart.order.entity.PaymentStatus;
 import com.hyperlocalmart.order.entity.VendorSubOrderStatus;
 import lombok.Builder;
@@ -29,6 +30,9 @@ public class SettlementCandidateResponse {
         Instant placedAt;
         VendorSubOrderStatus status;
         PaymentStatus paymentStatus;
+        PaymentMethod paymentMethod;
+        /** Shop's own delivery agent — COD is remitted to vendor, not hub close-day. */
+        boolean vendorAgentDelivery;
         BigDecimal subtotal;
     }
 }

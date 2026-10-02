@@ -3,7 +3,9 @@ package com.hyperlocalmart.delivery.service;
 import com.hyperlocalmart.delivery.entity.AssignmentLegType;
 import com.hyperlocalmart.delivery.entity.AssignmentStatus;
 import com.hyperlocalmart.delivery.entity.DeliveryAssignment;
+import com.hyperlocalmart.delivery.entity.DeliveryHub;
 import com.hyperlocalmart.delivery.repository.DeliveryAssignmentRepository;
+import com.hyperlocalmart.delivery.repository.DeliveryHubRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -21,6 +23,7 @@ import java.util.UUID;
 public class DeliveryPayoutLegService {
 
     private final DeliveryAssignmentRepository deliveryAssignmentRepository;
+    private final DeliveryHubRepository deliveryHubRepository;
 
     @Transactional(readOnly = true)
     public List<OrderLegs> resolve(Collection<UUID> orderIds) {
@@ -30,8 +33,26 @@ public class DeliveryPayoutLegService {
         List<UUID> ids = List.copyOf(orderIds);
         Map<UUID, DeliveryAssignment> lastMiles = latestCompleted(ids, AssignmentLegType.LAST_MILE);
         Map<UUID, DeliveryAssignment> pickups = latestCompleted(ids, AssignmentLegType.PICKUP);
+        Map<UUID, DeliveryAssignment> vendorDirect = latestCompleted(ids, AssignmentLegType.VENDOR_DIRECT);
+        Map<UUID, UUID> hubByTown = new HashMap<>();
         List<OrderLegs> out = new ArrayList<>();
         for (UUID orderId : ids) {
+            DeliveryAssignment vendorTrip = vendorDirect.get(orderId);
+            if (vendorTrip != null) {
+                UUID hubId = hubByTown.computeIfAbsent(
+                        vendorTrip.getTownId(), this::resolveTownHubId);
+                out.add(new OrderLegs(
+                        orderId,
+                        hubId,
+                        vendorTrip.getAgentId(),
+                        false,
+                        null,
+                        false,
+                        null,
+                        true,
+                        vendorTrip.getCompletedAt()));
+                continue;
+            }
             DeliveryAssignment last = lastMiles.get(orderId);
             DeliveryAssignment pick = pickups.get(orderId);
             out.add(new OrderLegs(
@@ -41,9 +62,18 @@ public class DeliveryPayoutLegService {
                     last != null,
                     last != null ? last.getCompletedAt() : null,
                     pick != null,
-                    pick != null ? pick.getCompletedAt() : null));
+                    pick != null ? pick.getCompletedAt() : null,
+                    false,
+                    null));
         }
         return out;
+    }
+
+    private UUID resolveTownHubId(UUID townId) {
+        if (townId == null) {
+            return null;
+        }
+        return deliveryHubRepository.findByTownId(townId).map(DeliveryHub::getId).orElse(null);
     }
 
     private Map<UUID, DeliveryAssignment> latestCompleted(List<UUID> orderIds, AssignmentLegType leg) {
@@ -67,7 +97,9 @@ public class DeliveryPayoutLegService {
             boolean lastMileCompleted,
             Instant lastMileCompletedAt,
             boolean pickupCompleted,
-            Instant pickupCompletedAt
+            Instant pickupCompletedAt,
+            boolean vendorDirectCompleted,
+            Instant vendorDirectCompletedAt
     ) {
     }
 }

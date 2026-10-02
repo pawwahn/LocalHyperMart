@@ -40,6 +40,8 @@ public final class AdminOrderResponses {
         int atHubSubOrderCount;
         /** Lightweight assignment status so list badges match detail actions. */
         List<AdminAssignmentHintResponse> assignments;
+        /** Shop delivers with vendor's agent; hub must not operate delivery legs. */
+        boolean vendorAgentDelivery;
     }
 
     @Value
@@ -145,5 +147,6 @@ public final class AdminOrderResponses {
         String cancelReason;
         List<AdminSubOrderResponse> subOrders;
         List<AdminAssignmentResponse> assignments;
+        boolean vendorAgentDelivery;
     }
 }

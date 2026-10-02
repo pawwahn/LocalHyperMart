@@ -67,6 +67,72 @@ public class DeliveryClient {
         }
     }
 
+    public void assignVendorDirectDelivery(UUID vendorId, UUID vendorSubOrderId, UUID agentId, UUID actorUserId) {
+        RestClient client = restClientBuilder.baseUrl(deliveryServiceProperties.getBaseUrl()).build();
+        Map<String, UUID> body = Map.of(
+                "vendorId", vendorId,
+                "agentId", agentId,
+                "assignedBy", actorUserId);
+        client.post()
+                .uri("/api/v1/internal/vendor-sub-orders/{subOrderId}/assign-vendor-direct", vendorSubOrderId)
+                .body(body)
+                .retrieve()
+                .toBodilessEntity();
+    }
+
+    public AgentAlertCreated notifyVendorAgent(UUID vendorId, UUID vendorSubOrderId, UUID actorUserId) {
+        RestClient client = restClientBuilder.baseUrl(deliveryServiceProperties.getBaseUrl()).build();
+        Map<String, UUID> body = Map.of(
+                "vendorId", vendorId,
+                "actorUserId", actorUserId);
+        ApiResponse<AgentAlertCreated> response = client.post()
+                .uri("/api/v1/internal/vendor-sub-orders/{subOrderId}/agent-alerts", vendorSubOrderId)
+                .body(body)
+                .retrieve()
+                .body(new ParameterizedTypeReference<ApiResponse<AgentAlertCreated>>() {});
+        if (response == null || response.getData() == null) {
+            throw new IllegalStateException("Agent alert failed");
+        }
+        return response.getData();
+    }
+
+    public AgentAlertCreated notifyHubAgent(UUID townId, UUID vendorSubOrderId, UUID actorUserId) {
+        RestClient client = restClientBuilder.baseUrl(deliveryServiceProperties.getBaseUrl()).build();
+        Map<String, UUID> body = Map.of(
+                "townId", townId,
+                "actorUserId", actorUserId);
+        ApiResponse<AgentAlertCreated> response = client.post()
+                .uri("/api/v1/internal/vendor-sub-orders/{subOrderId}/hub-agent-alerts", vendorSubOrderId)
+                .body(body)
+                .retrieve()
+                .body(new ParameterizedTypeReference<ApiResponse<AgentAlertCreated>>() {});
+        if (response == null || response.getData() == null) {
+            throw new IllegalStateException("Agent alert failed");
+        }
+        return response.getData();
+    }
+
+    public List<AgentAlertSummary> summarizeAgentAlerts(List<UUID> vendorSubOrderIds) {
+        if (vendorSubOrderIds == null || vendorSubOrderIds.isEmpty()) {
+            return List.of();
+        }
+        try {
+            RestClient client = restClientBuilder.baseUrl(deliveryServiceProperties.getBaseUrl()).build();
+            ApiResponse<List<AgentAlertSummary>> response = client.post()
+                    .uri("/api/v1/internal/vendor-sub-orders/agent-alert-summaries")
+                    .body(vendorSubOrderIds)
+                    .retrieve()
+                    .body(new ParameterizedTypeReference<ApiResponse<List<AgentAlertSummary>>>() {});
+            if (response == null || response.getData() == null) {
+                return List.of();
+            }
+            return response.getData();
+        } catch (Exception ex) {
+            log.warn("Failed to fetch agent alert summaries: {}", ex.getMessage());
+            return List.of();
+        }
+    }
+
     public record HubAdminContext(UUID userId, UUID hubId, UUID townId) {
     }
 
@@ -96,6 +162,17 @@ public class DeliveryClient {
             Instant createdAt,
             UUID createdBy,
             Map<String, Object> metadata
+    ) {
+    }
+
+    public record AgentAlertCreated(UUID alertId, String status) {
+    }
+
+    public record AgentAlertSummary(
+            UUID vendorSubOrderId,
+            UUID alertId,
+            String status,
+            Instant acknowledgedAt
     ) {
     }
 }

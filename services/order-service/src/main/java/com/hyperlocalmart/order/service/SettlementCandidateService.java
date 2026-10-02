@@ -60,6 +60,8 @@ public class SettlementCandidateService {
                 .placedAt(subOrder.getOrder().getPlacedAt())
                 .status(subOrder.getStatus())
                 .paymentStatus(subOrder.getOrder().getPaymentStatus())
+                .paymentMethod(subOrder.getOrder().getPaymentMethod())
+                .vendorAgentDelivery(subOrder.getOrder().isVendorAgentDelivery())
                 .subtotal(subOrder.getSubtotal())
                 .build();
     }

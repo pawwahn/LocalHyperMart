@@ -361,18 +361,14 @@ public class BuyerOrderCancelService {
             newItemsSubtotal = BigDecimal.ZERO;
         }
         order.setItemsSubtotal(newItemsSubtotal);
-        BigDecimal promo = order.getPromoDiscount() == null ? BigDecimal.ZERO : order.getPromoDiscount();
-        BigDecimal payableItems = newItemsSubtotal.subtract(promo).max(BigDecimal.ZERO);
         boolean orderEmpty = newItemsSubtotal.compareTo(BigDecimal.ZERO) == 0;
-        BigDecimal delivery = orderEmpty
-                ? BigDecimal.ZERO
-                : (order.getDeliveryFee() == null ? BigDecimal.ZERO : order.getDeliveryFee());
         if (orderEmpty) {
             order.setDeliveryFee(BigDecimal.ZERO);
+            order.setPlatformFee(BigDecimal.ZERO);
+            order.setCodFee(BigDecimal.ZERO);
         }
-        BigDecimal newTotal = payableItems.add(delivery);
-        BigDecimal creditApplied = order.getStoreCreditApplied() == null ? BigDecimal.ZERO : order.getStoreCreditApplied();
-        order.setTotalAmount(newTotal.subtract(creditApplied).max(BigDecimal.ZERO));
+        order.setTotalAmount(OrderService.buyerPayableTotal(order));
+        orderRepository.save(order);
     }
 
     private static BigDecimal sumActiveFromItems(java.util.List<OrderItem> items) {

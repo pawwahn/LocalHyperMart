@@ -16,7 +16,7 @@ const toneStyles: Record<Tone, CSSProperties> = {
     border: '1px solid var(--border, #d8dde3)',
   },
   accent: {
-    background: 'var(--accent, #1B8B4C)',
+    background: 'var(--accent, #0C831F)',
     color: 'var(--text-inverse, #fff)',
     border: '1px solid transparent',
   },

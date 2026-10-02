@@ -1,17 +1,17 @@
-/** Delivery / hub portal tokens — light ops UI, blue accent. */
+/** Delivery / hub portal tokens — light ops UI, KoYaKart green. */
 export const tokens = {
   color: {
-    bg: '#F4F7FB',
+    bg: '#F5F7F6',
     bgElevated: '#FFFFFF',
-    bgMuted: '#E8EEF6',
-    bgTint: '#DBEAFE',
+    bgMuted: '#EEF2F0',
+    bgTint: '#E7F6EC',
     border: '#E5E7EB',
     text: '#1A1A1A',
     textMuted: '#6B7280',
     textInverse: '#FFFFFF',
-    accent: '#2563EB',
-    accentHover: '#1D4ED8',
-    accentSoft: '#DBEAFE',
+    accent: '#0C831F',
+    accentHover: '#086318',
+    accentSoft: '#E7F6EC',
     danger: '#EF4444',
     dangerSoft: '#FEE2E2',
     warning: '#F59E0B',
@@ -42,7 +42,7 @@ export const tokens = {
   },
   shadow: {
     card: '0 2px 8px rgba(0, 0, 0, 0.06)',
-    elevated: '0 8px 24px rgba(37, 99, 235, 0.12)',
+    elevated: '0 8px 24px rgba(12, 131, 31, 0.12)',
     soft: '0 14px 40px rgba(15, 23, 42, 0.08)',
   },
   motion: {

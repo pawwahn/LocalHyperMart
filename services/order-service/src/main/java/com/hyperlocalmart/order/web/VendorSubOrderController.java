@@ -2,6 +2,7 @@ package com.hyperlocalmart.order.web;
 
 import com.hyperlocalmart.common.api.ApiResponse;
 import com.hyperlocalmart.common.api.PageResponse;
+import com.hyperlocalmart.order.dto.request.AssignVendorAgentRequest;
 import com.hyperlocalmart.order.dto.request.CancelOrderItemRequest;
 import com.hyperlocalmart.order.dto.request.RejectSubOrderRequest;
 import com.hyperlocalmart.order.dto.response.VendorSubOrderResponse;
@@ -42,6 +43,41 @@ public class VendorSubOrderController {
             HttpServletRequest httpRequest) {
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
                 vendorSubOrderService.getSubOrder(vendorId, subOrderId)));
+    }
+
+    @PostMapping("/{subOrderId}/delivery-by-vendor-agent")
+    public ResponseEntity<ApiResponse<VendorSubOrderResponse>> deliveryByVendorAgent(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @RequestHeader("X-Vendor-Id") UUID vendorId,
+            @PathVariable UUID subOrderId,
+            HttpServletRequest httpRequest) {
+        requireVendor(principal);
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                vendorSubOrderService.chooseDeliveryByVendorAgent(vendorId, subOrderId, principal.getUserId())));
+    }
+
+    @PostMapping("/{subOrderId}/notify-agent")
+    public ResponseEntity<ApiResponse<VendorSubOrderResponse>> notifyAgent(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @RequestHeader("X-Vendor-Id") UUID vendorId,
+            @PathVariable UUID subOrderId,
+            HttpServletRequest httpRequest) {
+        requireVendor(principal);
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                vendorSubOrderService.notifyVendorAgent(vendorId, subOrderId, principal.getUserId())));
+    }
+
+    @PostMapping("/{subOrderId}/assign-vendor-agent")
+    public ResponseEntity<ApiResponse<VendorSubOrderResponse>> assignVendorAgent(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @RequestHeader("X-Vendor-Id") UUID vendorId,
+            @PathVariable UUID subOrderId,
+            @Valid @RequestBody AssignVendorAgentRequest request,
+            HttpServletRequest httpRequest) {
+        requireVendor(principal);
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                vendorSubOrderService.assignVendorAgent(
+                        vendorId, subOrderId, principal.getUserId(), request.getAgentId())));
     }
 
     @PostMapping("/{subOrderId}/ready")

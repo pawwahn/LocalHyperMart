@@ -44,6 +44,10 @@ public class VendorOrderAlertService {
         if (order == null || !townId.equals(order.getTownId())) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "Shop bag not found");
         }
+        if (order.isVendorAgentDelivery()) {
+            throw new BusinessException(ErrorCode.CONFLICT,
+                    "This order is delivered by the vendor's agent — hub cannot alert the shop");
+        }
         if (sub.getStatus() != VendorSubOrderStatus.PLACED) {
             throw new BusinessException(ErrorCode.CONFLICT,
                     "Alert vendor only while the shop is still packing");

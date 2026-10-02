@@ -15,7 +15,7 @@ public class PaymentProperties {
     private String razorpayKeySecret = "";
     private String razorpayWebhookSecret = "";
     private String razorpayApiBaseUrl = "https://api.razorpay.com/v1";
-    private String checkoutName = "HyperLocalMart";
+    private String checkoutName = "KoYaKart";
     private String checkoutLogoUrl = "";
     private String devWebhookBypassSecret = "dev-bypass";
     private int refundWorkingDays = 5;

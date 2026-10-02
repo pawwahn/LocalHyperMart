@@ -69,6 +69,9 @@ export function OrderDetailPage() {
               <p style={styles.orderNo}>{order.orderNumber}</p>
               <p style={styles.subMeta}>
                 <span style={styles.pill}>{labelStatus(order.status)}</span>
+                {order.vendorAgentDelivery ? (
+                  <span style={styles.vendorPill}>Vendor shop delivery</span>
+                ) : null}
                 <span>
                   {formatAdminPaymentLabel({
                     paymentMethod: order.paymentMethod,
@@ -447,6 +450,16 @@ const styles: Record<string, CSSProperties> = {
     borderRadius: 'var(--radius-full)',
     background: 'color-mix(in srgb, var(--accent) 12%, var(--bg))',
     fontSize: '0.72rem',
+    fontWeight: 800,
+  },
+  vendorPill: {
+    display: 'inline-block',
+    marginLeft: '0.35rem',
+    padding: '0.12rem 0.45rem',
+    borderRadius: 'var(--radius-full)',
+    background: 'color-mix(in srgb, #7C3AED 14%, var(--bg))',
+    color: '#5B21B6',
+    fontSize: '0.68rem',
     fontWeight: 800,
   },
   itemList: { listStyle: 'none', margin: '0.55rem 0 0', padding: 0 },

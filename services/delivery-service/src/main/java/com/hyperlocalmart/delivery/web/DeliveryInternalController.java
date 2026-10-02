@@ -1,15 +1,22 @@
 package com.hyperlocalmart.delivery.web;
 
 import com.hyperlocalmart.common.api.ApiResponse;
+import com.hyperlocalmart.delivery.dto.request.CreateHubAgentAlertRequest;
+import com.hyperlocalmart.delivery.dto.request.CreateVendorAgentAlertRequest;
 import com.hyperlocalmart.delivery.dto.request.VerifyHubPinRequest;
 import com.hyperlocalmart.delivery.dto.response.AgentMeResponse;
 import com.hyperlocalmart.delivery.dto.response.HubAdminContextResponse;
 import com.hyperlocalmart.delivery.dto.response.HubContactResponse;
 import com.hyperlocalmart.delivery.dto.response.OrderAssignmentResponse;
 import com.hyperlocalmart.delivery.dto.response.VerifyHubPinResponse;
+import com.hyperlocalmart.delivery.dto.request.AssignVendorDirectInternalRequest;
 import com.hyperlocalmart.delivery.service.AgentService;
 import com.hyperlocalmart.delivery.service.DeliveryPayoutLegService;
 import com.hyperlocalmart.delivery.service.HubPinService;
+import com.hyperlocalmart.delivery.dto.response.DeliveryAgentAlertResponse;
+import com.hyperlocalmart.delivery.dto.response.SubOrderAgentAlertSummaryResponse;
+import com.hyperlocalmart.delivery.service.DeliveryAgentAlertService;
+import com.hyperlocalmart.delivery.service.VendorAgentService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -26,12 +33,28 @@ public class DeliveryInternalController {
     private final AgentService agentService;
     private final HubPinService hubPinService;
     private final DeliveryPayoutLegService deliveryPayoutLegService;
+    private final VendorAgentService vendorAgentService;
+    private final DeliveryAgentAlertService deliveryAgentAlertService;
 
     @GetMapping("/api/v1/internal/agents/by-user/{userId}")
     public ResponseEntity<ApiResponse<AgentMeResponse>> getAgentByUser(
             @PathVariable UUID userId,
             HttpServletRequest httpRequest) {
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, agentService.getMyAgent(userId)));
+    }
+
+    @GetMapping("/api/v1/internal/hubs/{hubId}/agents")
+    public ResponseEntity<ApiResponse<List<com.hyperlocalmart.delivery.dto.response.AgentResponse>>> listHubAgents(
+            @PathVariable UUID hubId,
+            HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest, agentService.listAgentsForHub(hubId)));
+    }
+
+    @GetMapping("/api/v1/internal/vendors/{vendorId}/agents")
+    public ResponseEntity<ApiResponse<List<com.hyperlocalmart.delivery.dto.response.AgentResponse>>> listVendorAgents(
+            @PathVariable UUID vendorId,
+            HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest, vendorAgentService.listAgents(vendorId)));
     }
 
     @GetMapping("/api/v1/internal/hub-admins/{userId}/context")
@@ -70,5 +93,42 @@ public class DeliveryInternalController {
             @PathVariable UUID orderId,
             HttpServletRequest httpRequest) {
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, agentService.getAssignmentsForOrder(orderId)));
+    }
+
+    @PostMapping("/api/v1/internal/vendor-sub-orders/{subOrderId}/assign-vendor-direct")
+    public ResponseEntity<Void> assignVendorDirect(
+            @PathVariable UUID subOrderId,
+            @RequestBody AssignVendorDirectInternalRequest request) {
+        vendorAgentService.assignVendorDirect(
+                request.getVendorId(), subOrderId, request.getAgentId(), request.getAssignedBy());
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/api/v1/internal/vendor-sub-orders/{subOrderId}/agent-alerts")
+    public ResponseEntity<ApiResponse<DeliveryAgentAlertResponse>> createAgentAlertForVendor(
+            @PathVariable UUID subOrderId,
+            @RequestBody CreateVendorAgentAlertRequest request,
+            HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                deliveryAgentAlertService.createForVendorSubOrder(
+                        subOrderId, request.getVendorId(), request.getActorUserId())));
+    }
+
+    @PostMapping("/api/v1/internal/vendor-sub-orders/{subOrderId}/hub-agent-alerts")
+    public ResponseEntity<ApiResponse<DeliveryAgentAlertResponse>> createAgentAlertForHub(
+            @PathVariable UUID subOrderId,
+            @RequestBody CreateHubAgentAlertRequest request,
+            HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                deliveryAgentAlertService.createForHubSubOrder(
+                        subOrderId, request.getTownId(), request.getActorUserId())));
+    }
+
+    @PostMapping("/api/v1/internal/vendor-sub-orders/agent-alert-summaries")
+    public ResponseEntity<ApiResponse<List<SubOrderAgentAlertSummaryResponse>>> agentAlertSummaries(
+            @RequestBody List<UUID> vendorSubOrderIds,
+            HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                deliveryAgentAlertService.summarizeForSubOrders(vendorSubOrderIds)));
     }
 }

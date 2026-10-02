@@ -11,6 +11,7 @@ import {
   pickupStep,
   pickupStepLabel,
 } from '../lib/assignmentSteps';
+import { formatCollectRupee, resolveCodCollect } from '../lib/codCollect';
 
 const PICKUP_STEPS = [
   { id: 'shop', label: 'Shop' },
@@ -148,6 +149,7 @@ export function BuyerDeliveryCard({
   manifestFailed,
   onRetryManifest,
   onPickHub,
+  onPickVendor,
   onDeliver,
 }: {
   task: AssignmentView;
@@ -157,8 +159,10 @@ export function BuyerDeliveryCard({
   manifestFailed?: boolean;
   onRetryManifest?: () => void;
   onPickHub: (id: string, status: string) => void;
+  onPickVendor?: (id: string, status: string) => void;
   onDeliver: (id: string, status: string, otp: string, recipientName?: string) => void;
 }) {
+  const vendorDirect = task.legType === 'VENDOR_DIRECT';
   const step = deliveryStep(task.status);
   const currentIndex =
     step === 'done' ? DELIVERY_STEPS.length : stepIndex(step, ['hub', 'en_route', 'done']);
@@ -166,7 +170,14 @@ export function BuyerDeliveryCard({
   const [showCodeBox, setShowCodeBox] = useState(false);
   const when = latestMeta(task);
   const statusLabel =
-    step === 'hub' ? 'At hub' : step === 'en_route' ? 'On the way' : 'Delivered';
+    step === 'hub'
+      ? vendorDirect
+        ? 'At shop'
+        : 'At hub'
+      : step === 'en_route'
+        ? 'On the way'
+        : 'Delivered';
+  const cod = resolveCodCollect(task, manifest);
 
   return (
     <article style={styles.card}>
@@ -183,7 +194,9 @@ export function BuyerDeliveryCard({
         >
           {statusLabel}
         </span>
-        <span style={styles.orderId}>{task.orderNumber}</span>
+        <span style={styles.orderId} title={task.orderNumber}>
+          {task.orderNumber}
+        </span>
       </div>
 
       <div style={styles.headRow}>
@@ -206,6 +219,19 @@ export function BuyerDeliveryCard({
         ) : null}
       </div>
 
+      {cod && step !== 'done' ? (
+        <div style={styles.codBanner} role="status">
+          <span style={styles.codBannerIcon} aria-hidden>
+            💵
+          </span>
+          <div style={styles.codBannerText}>
+            <strong style={styles.codBannerTitle}>Collect cash (COD)</strong>
+            <span style={styles.codBannerSub}>Take full amount from customer before OTP</span>
+          </div>
+          <span style={styles.codBannerAmount}>{formatCollectRupee(cod.amount)}</span>
+        </div>
+      ) : null}
+
       <PickupItemsList
         manifest={manifest}
         loading={manifestLoading}
@@ -214,14 +240,21 @@ export function BuyerDeliveryCard({
         title="Order items"
         showShop
         defaultOpen={false}
+        paymentMethod={cod ? 'COD' : task.paymentMethod ?? manifest?.paymentMethod}
+        collectCashAmount={cod?.amount ?? task.collectCashAmount ?? manifest?.collectCashAmount}
       />
 
-      <MiniBlock label="Progress" summary={deliveryStepLabel(step)}>
+      <MiniBlock label="Progress" summary={deliveryStepLabel(step, vendorDirect)}>
         <LegStepper
-          steps={DELIVERY_STEPS.map((s) => ({
-            ...s,
-            label: deliveryStepLabel(s.id as 'hub' | 'en_route' | 'done'),
-          }))}
+          steps={
+            vendorDirect
+              ? [
+                  { id: 'hub', label: 'Shop' },
+                  { id: 'en_route', label: 'Customer' },
+                  { id: 'done', label: 'Done' },
+                ]
+              : DELIVERY_STEPS
+          }
           currentIndex={currentIndex}
           tone="buyer"
         />
@@ -234,9 +267,17 @@ export function BuyerDeliveryCard({
               type="button"
               style={{ ...styles.cta, ...styles.ctaAccent }}
               disabled={busy}
-              onClick={() => void onPickHub(task.id, task.status)}
+              onClick={() =>
+                void (vendorDirect && onPickVendor
+                  ? onPickVendor(task.id, task.status)
+                  : onPickHub(task.id, task.status))
+              }
             >
-              {busy ? 'Saving…' : 'I took order from hub'}
+              {busy
+                ? 'Saving…'
+                : vendorDirect
+                  ? 'I took bag from shop'
+                  : 'I took order from hub'}
             </button>
           ) : null}
 
@@ -266,6 +307,11 @@ export function BuyerDeliveryCard({
                 style={styles.otpInput}
                 autoFocus
               />
+              {cod ? (
+                <p style={styles.otpCodReminder}>
+                  Collect {formatCollectRupee(cod.amount)} cash first, then enter OTP.
+                </p>
+              ) : null}
               <p style={styles.otpHelp}>Local/dev: 111111</p>
               <button
                 type="button"
@@ -302,10 +348,10 @@ const styles: Record<string, CSSProperties> = {
     gap: '0.35rem',
   },
   cardTop: {
-    display: 'flex',
+    display: 'grid',
+    gridTemplateColumns: 'minmax(0, 1fr) auto',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: '0.4rem',
+    gap: '0.45rem',
   },
   statusPill: {
     display: 'inline-flex',
@@ -334,18 +380,43 @@ const styles: Record<string, CSSProperties> = {
     color: '#15803d',
   },
   orderId: {
-    fontSize: '0.68rem',
+    fontSize: '0.64rem',
     fontWeight: 700,
     color: 'var(--text-muted)',
     fontVariantNumeric: 'tabular-nums',
     textAlign: 'right',
-    wordBreak: 'break-all',
+    whiteSpace: 'nowrap',
+    justifySelf: 'end',
+    maxWidth: '100%',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
   },
   headRow: {
     display: 'flex',
     alignItems: 'flex-start',
     justifyContent: 'space-between',
     gap: '0.45rem',
+  },
+  codBanner: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.5rem',
+    padding: '0.55rem 0.65rem',
+    borderRadius: 10,
+    background: 'var(--warning-soft, #fffbeb)',
+    border: '1.5px solid #fbbf24',
+  },
+  codBannerIcon: { fontSize: '1.35rem', lineHeight: 1, flexShrink: 0 },
+  codBannerText: { display: 'grid', gap: '0.12rem', flex: '1 1 auto', minWidth: 0 },
+  codBannerTitle: { fontSize: '0.88rem', fontWeight: 900, color: '#92400e', lineHeight: 1.2 },
+  codBannerSub: { fontSize: '0.72rem', fontWeight: 650, color: '#b45309', lineHeight: 1.25 },
+  codBannerAmount: {
+    flexShrink: 0,
+    fontSize: '1.25rem',
+    fontWeight: 900,
+    color: '#92400e',
+    fontVariantNumeric: 'tabular-nums',
+    letterSpacing: '-0.02em',
   },
   headMain: { minWidth: 0, flex: 1, display: 'grid', gap: 1 },
   customerName: {
@@ -484,7 +555,7 @@ const styles: Record<string, CSSProperties> = {
     color: '#fff',
   },
   ctaGreen: {
-    background: '#16a34a',
+    background: '#0C831F',
     color: '#fff',
   },
   otpPanel: {
@@ -510,6 +581,17 @@ const styles: Record<string, CSSProperties> = {
     color: 'var(--text)',
   },
   otpHelp: { margin: 0, color: 'var(--text-muted)', fontWeight: 650, fontSize: '0.72rem' },
+  otpCodReminder: {
+    margin: 0,
+    color: '#92400e',
+    fontWeight: 800,
+    fontSize: '0.82rem',
+    lineHeight: 1.35,
+    padding: '0.35rem 0.45rem',
+    borderRadius: 8,
+    background: 'var(--warning-soft, #fffbeb)',
+    border: '1px solid #fde68a',
+  },
   secondaryBtn: {
     border: '1px solid var(--border)',
     borderRadius: 10,

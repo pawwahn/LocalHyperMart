@@ -28,9 +28,9 @@ function AuthBoundTheme({ children }: { children: ReactNode }) {
   const { isAuthenticated } = useAuth();
   return (
     <ThemeProvider
-      storageKey="hlm.buyer.theme.v2"
-      defaultAccent="ocean"
-      defaultMode="dark"
+      storageKey="hlm.koyakart.buyer.theme"
+      defaultAccent="forest"
+      defaultMode="light"
       personalized={isAuthenticated}
     >
       {children}

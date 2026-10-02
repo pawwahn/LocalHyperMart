@@ -42,6 +42,7 @@ public class DeliverySettlementCandidateView {
         String orderNumber;
         Instant deliveredAt;
         String paymentStatus;
+        boolean vendorAgentDelivery;
         boolean lastMileCompleted;
         boolean pickupCompleted;
         BigDecimal amount;

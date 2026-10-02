@@ -13,13 +13,18 @@ import {
 } from '../api/hubApi';
 import {
   closeCodDay,
+  confirmCodHandover,
   fetchCodCandidates,
   fetchCodCloses,
   fetchCodSummary,
+  fetchCodCustodianPendingDetail,
   type CodCandidateItem,
   type CodCloseDayResponse,
+  type CodCustodianPendingDetail,
+  type CodHandoverPending,
   type CodSummaryResponse,
 } from '../api/codApi';
+import { CodPendingByDatePanel } from '../components/CodPendingByDatePanel';
 
 const PIN_PATTERN = /^\d{4,6}$/;
 
@@ -51,6 +56,12 @@ export function HubCodPage() {
   const [summary, setSummary] = useState<CodSummaryResponse | null>(null);
   const [closes, setCloses] = useState<CodCloseDayResponse[]>([]);
   const [lastResult, setLastResult] = useState<CodCloseDayResponse | null>(null);
+  const [pendingDetail, setPendingDetail] = useState<CodCustodianPendingDetail | null>(null);
+  const [pendingDetailLoading, setPendingDetailLoading] = useState(false);
+  const [confirmHandoverId, setConfirmHandoverId] = useState<string | null>(null);
+  const [handoverReceived, setHandoverReceived] = useState('');
+  const [handoverNotes, setHandoverNotes] = useState('');
+  const [handoverBusy, setHandoverBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -100,11 +111,28 @@ export function HubCodPage() {
     }
   }, [session, hubId, townId, agentId, date]);
 
+  const loadPendingDetail = useCallback(async () => {
+    if (!session || !hubId || !townId) return;
+    setPendingDetailLoading(true);
+    try {
+      const data = await fetchCodCustodianPendingDetail(session.accessToken, { townId, hubId });
+      setPendingDetail(data);
+    } catch {
+      setPendingDetail(null);
+    } finally {
+      setPendingDetailLoading(false);
+    }
+  }, [session, hubId, townId]);
+
   useEffect(() => {
     void loadHub().catch((err) =>
       setError(err instanceof Error ? err.message : 'Could not load hub'),
     );
   }, [loadHub]);
+
+  useEffect(() => {
+    void loadPendingDetail();
+  }, [loadPendingDetail]);
 
   useEffect(() => {
     if (hubId && townId && agentId) void loadData();
@@ -154,6 +182,47 @@ export function HubCodPage() {
       setError(err instanceof ApiError || err instanceof Error ? err.message : 'Could not set PIN');
     } finally {
       setSavingPin(false);
+    }
+  }
+
+  async function onConfirmHandover(e: FormEvent, handover: CodHandoverPending) {
+    e.preventDefault();
+    if (!session) return;
+    const received = Number(handoverReceived);
+    if (!Number.isFinite(received) || received < 0) {
+      setError('Enter a valid received amount');
+      return;
+    }
+    const hubPin = pin.trim();
+    if (!PIN_PATTERN.test(hubPin)) {
+      setError('Hub PIN is required (4–6 digits)');
+      return;
+    }
+    setHandoverBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const result = await confirmCodHandover(session.accessToken, {
+        handoverId: handover.handoverId,
+        receivedAmount: received,
+        pin: hubPin,
+        notes: handoverNotes.trim() || undefined,
+      });
+      setLastResult(result);
+      setNotice(
+        result.status === 'MATCHED'
+          ? `Handover confirmed — ${money(result.receivedAmount)} received`
+          : `Handover DISCREPANCY — expected ${money(result.expectedAmount)}, received ${money(result.receivedAmount)}`,
+      );
+      setConfirmHandoverId(null);
+      setHandoverReceived('');
+      setHandoverNotes('');
+      setPin('');
+      await Promise.all([loadData(), loadPendingDetail()]);
+    } catch (err) {
+      setError(err instanceof ApiError || err instanceof Error ? err.message : 'Confirm handover failed');
+    } finally {
+      setHandoverBusy(false);
     }
   }
 
@@ -210,45 +279,111 @@ export function HubCodPage() {
 
   const agentName = agents.find((a) => a.agentId === agentId)?.name ?? '';
 
+  const declaredHandovers = pendingDetail?.declaredAwaitingHandovers ?? [];
+
   return (
-    <HubShell title="COD close-day" onRefresh={() => void loadData()}>
+    <HubShell
+      title="COD from agents"
+      subtitle={hubName ? `${hubName} · IST day` : undefined}
+      onRefresh={() => {
+        void loadPendingDetail();
+        void loadData();
+      }}
+    >
       {error ? <Banner tone="danger">{error}</Banner> : null}
       {notice ? <Banner tone="success">{notice}</Banner> : null}
 
+      <CodPendingByDatePanel
+        data={pendingDetail}
+        loading={pendingDetailLoading}
+        custodianLabel={hubName || 'this hub'}
+      />
+
+      <label style={styles.dateField}>
+        Date (IST) · legacy close-day below
+        <input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={styles.select} />
+      </label>
+
       <Card style={styles.card}>
-        <p style={styles.sectionTitle}>1. Agent & date</p>
-        <div style={styles.row}>
-          <label style={styles.field}>
-            Delivery agent
-            <select
-              value={agentId}
-              onChange={(e) => setAgentId(e.target.value)}
-              style={styles.select}
-            >
-              {agents.length === 0 ? <option value="">No agents</option> : null}
-              {agents.map((a) => (
-                <option key={a.agentId} value={a.agentId}>
-                  {a.name} ({a.status})
-                </option>
-              ))}
-            </select>
-          </label>
-          <label style={styles.field}>
-            Close date (IST)
-            <input
-              type="date"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-              style={styles.select}
-            />
-          </label>
-        </div>
-        {!agentFilterApplied && agentId ? (
-          <p style={styles.hint}>
-            Agent filter soft: showing town COD delivered for the day when LAST_MILE assignment data is
-            unavailable.
-          </p>
-        ) : null}
+        <p style={styles.sectionTitle}>Confirm declared handovers</p>
+        <p style={styles.hint}>
+          When an agent taps &quot;I handed over&quot; in the delivery app, confirm cash received here (hub PIN).
+        </p>
+        {loading ? (
+          <p style={styles.muted}>Loading…</p>
+        ) : declaredHandovers.length === 0 ? (
+          <p style={styles.muted}>No pending declarations. Agents declare handover in the delivery app.</p>
+        ) : (
+          declaredHandovers.map((h) => (
+            <div key={h.handoverId} style={styles.handoverBlock}>
+              <p style={styles.handoverTitle}>
+                {h.agentName || 'Agent'} · {h.handoverDate} · declared {money(h.declaredAmount)} · {h.lines.length}{' '}
+                order(s)
+              </p>
+              <ul style={styles.list}>
+                {h.lines.map((line) => (
+                  <li key={line.orderId} style={styles.listItem}>
+                    <strong>{line.orderNumber}</strong>
+                    <span style={styles.muted}> {money(line.collectAmount)}</span>
+                  </li>
+                ))}
+              </ul>
+              {confirmHandoverId === h.handoverId ? (
+                <form
+                  onSubmit={(e) =>
+                    void onConfirmHandover(e, {
+                      handoverId: h.handoverId,
+                      agentId: h.agentId,
+                      handoverDate: h.handoverDate,
+                      custodianType: 'HUB',
+                      declaredAmount: h.declaredAmount,
+                      status: 'DECLARED',
+                      lines: h.lines,
+                    })
+                  }
+                  style={styles.form}
+                >
+                  <TextField
+                    label="Received amount (₹)"
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={handoverReceived}
+                    onChange={(e) => setHandoverReceived(e.target.value)}
+                    required
+                  />
+                  <TextField
+                    label="Hub PIN (required)"
+                    type="password"
+                    inputMode="numeric"
+                    value={pin}
+                    onChange={(e) => setPin(e.target.value)}
+                    required
+                  />
+                  <TextField label="Notes" value={handoverNotes} onChange={(e) => setHandoverNotes(e.target.value)} />
+                  <div style={styles.formActions}>
+                    <Button type="submit" disabled={handoverBusy}>
+                      {handoverBusy ? 'Saving…' : 'Confirm handover'}
+                    </Button>
+                    <Button type="button" variant="ghost" disabled={handoverBusy} onClick={() => setConfirmHandoverId(null)}>
+                      Cancel
+                    </Button>
+                  </div>
+                </form>
+              ) : (
+                <Button
+                  type="button"
+                  onClick={() => {
+                    setConfirmHandoverId(h.handoverId);
+                    setHandoverReceived(String(h.declaredAmount));
+                  }}
+                >
+                  Confirm cash from agent
+                </Button>
+              )}
+            </div>
+          ))
+        )}
       </Card>
 
       {summary ? (
@@ -266,8 +401,29 @@ export function HubCodPage() {
       ) : null}
 
       <Card style={styles.card}>
+        <p style={styles.sectionTitle}>Legacy direct close (optional)</p>
+        <label style={styles.field}>
+          Delivery agent
+          <select value={agentId} onChange={(e) => setAgentId(e.target.value)} style={styles.select}>
+            {agents.length === 0 ? <option value="">No agents</option> : null}
+            {agents.map((a) => (
+              <option key={a.agentId} value={a.agentId}>
+                {a.name} ({a.status})
+              </option>
+            ))}
+          </select>
+        </label>
+        {!agentFilterApplied && agentId ? (
+          <p style={styles.hint}>
+            Agent filter soft: showing town COD delivered for the day when LAST_MILE assignment data is
+            unavailable.
+          </p>
+        ) : null}
+      </Card>
+
+      <Card style={styles.card}>
         <div style={styles.sectionHead}>
-          <p style={styles.sectionTitle}>2. COD candidates</p>
+          <p style={styles.sectionTitle}>COD candidates (legacy direct close)</p>
           <Button type="button" variant="ghost" onClick={selectAllOpen} disabled={openCandidates.length === 0}>
             Select all open
           </Button>
@@ -302,7 +458,7 @@ export function HubCodPage() {
       </Card>
 
       <Card style={styles.card}>
-        <p style={styles.sectionTitle}>3. Hub PIN</p>
+        <p style={styles.sectionTitle}>4. Hub PIN</p>
         {pinStatus?.defaultPinActive ? (
           <p style={styles.hint}>
             Default pilot PIN is <strong>1234</strong> until you set your own.
@@ -326,7 +482,7 @@ export function HubCodPage() {
       </Card>
 
       <Card style={styles.card}>
-        <p style={styles.sectionTitle}>4. Cash received</p>
+        <p style={styles.sectionTitle}>5. Legacy cash received (skip if you confirmed handover above)</p>
         <form onSubmit={onSubmit} style={styles.form}>
           <TextField
             label="Received amount (₹)"
@@ -401,6 +557,7 @@ function Stat({ label, value }: { label: string; value: string }) {
 }
 
 const styles: Record<string, CSSProperties> = {
+  dateField: { display: 'grid', gap: '0.35rem', fontSize: '0.82rem', fontWeight: 700, marginBottom: '0.5rem' },
   card: { marginBottom: '0.85rem' },
   sectionTitle: { margin: '0 0 0.65rem', fontWeight: 800, fontSize: '0.95rem' },
   sectionHead: {
@@ -459,4 +616,15 @@ const styles: Record<string, CSSProperties> = {
     gap: '0.2rem',
   },
   closeHead: { display: 'flex', justifyContent: 'space-between', gap: '0.5rem' },
+  handoverBlock: {
+    border: '1px solid var(--border)',
+    borderRadius: 10,
+    padding: '0.65rem',
+    marginTop: '0.5rem',
+    display: 'grid',
+    gap: '0.45rem',
+    background: 'color-mix(in srgb, var(--warning) 8%, var(--bg-elevated))',
+  },
+  handoverTitle: { margin: 0, fontWeight: 800, fontSize: '0.9rem' },
+  formActions: { display: 'flex', flexWrap: 'wrap', gap: '0.4rem' },
 };

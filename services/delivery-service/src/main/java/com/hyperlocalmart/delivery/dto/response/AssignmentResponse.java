@@ -5,6 +5,7 @@ import com.hyperlocalmart.delivery.entity.AssignmentStatus;
 import lombok.Builder;
 import lombok.Data;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -37,4 +38,8 @@ public class AssignmentResponse {
     private String destinationName;
     private String destinationPhone;
     private String destinationAddress;
+
+    /** Last-mile / vendor-direct: COD vs online. */
+    private String paymentMethod;
+    private BigDecimal collectCashAmount;
 }

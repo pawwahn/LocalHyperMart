@@ -13,6 +13,7 @@ export type AdminOrderSummary = {
   placedAt?: string;
   subOrderCount: number;
   readySubOrderCount: number;
+  vendorAgentDelivery?: boolean;
 };
 
 export type AdminOrderDetail = {
@@ -56,6 +57,7 @@ export type AdminOrderDetail = {
       status?: string;
     }>;
   }>;
+  vendorAgentDelivery?: boolean;
   assignments: Array<{
     assignmentId: string;
     assignmentNumber: string;
@@ -175,6 +177,7 @@ export function formatAdminPaymentLabel(input: {
 export function labelLeg(leg?: string | null): string {
   if (leg === 'LAST_MILE') return 'To buyer';
   if (leg === 'PICKUP') return 'Shop → hub';
+  if (leg === 'VENDOR_DIRECT') return 'Shop → buyer';
   return labelStatus(leg);
 }
 
@@ -183,6 +186,8 @@ export function labelEvent(eventType?: string | null): string {
     PICKUP_ASSIGNED: 'Pickup assigned',
     LAST_MILE_ASSIGNED: 'Last-mile assigned',
     PICKED_FROM_VENDOR: 'Picked from shop',
+    VENDOR_DIRECT_ASSIGNED: 'Shop agent assigned',
+    VENDOR_DIRECT_PICKED_FROM_SHOP: 'Picked up from shop',
     PICKED_FROM_HUB: 'Picked from hub',
     AT_HUB: 'Arrived at hub',
     DELIVERED: 'Delivered',

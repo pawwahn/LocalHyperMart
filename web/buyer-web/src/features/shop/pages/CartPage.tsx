@@ -345,12 +345,19 @@ export function CartPage() {
     setCheckoutBusy(true);
     let result: Awaited<ReturnType<typeof doCheckout>>;
     try {
+      const checkoutWaitMs = online ? 75_000 : 25_000;
       result = await Promise.race([
         doCheckout({ useStoreCredit, paymentMethod: online ? 'ONLINE' : 'COD' }),
         new Promise<never>((_, reject) => {
           window.setTimeout(() => {
-            reject(new Error('Checkout is taking too long. Open My orders — if the order is there, you are done.'));
-          }, 18_000);
+            reject(
+              new Error(
+                online
+                  ? 'Online checkout is taking longer than usual. Open My orders — if the order is there, finish payment from the order page.'
+                  : 'Checkout is taking too long. Open My orders — if the order is there, you are done.',
+              ),
+            );
+          }, checkoutWaitMs);
         }),
       ]);
     } catch (err) {

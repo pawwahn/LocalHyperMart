@@ -38,6 +38,15 @@ export type SubOrderDto = {
   subtotal: number;
   placedAt?: string | null;
   readyForPickupAt?: string | null;
+  wholeOrderForShop?: boolean;
+  vendorAgentDeliveryEnabled?: boolean;
+  vendorAgentDelivery?: boolean;
+  vendorDirectAgentName?: string | null;
+  vendorDirectAgentPhone?: string | null;
+  vendorDirectAssignmentStatus?: string | null;
+  canAssignVendorAgent?: boolean;
+  vendorAgentAlertStatus?: string | null;
+  vendorAgentAlertAcknowledgedAt?: string | null;
   items?: SubOrderItemDto[];
 };
 
@@ -92,6 +101,16 @@ export type SubOrderView = {
   placedAtLabel: string;
   itemSummary: string;
   items: SubOrderItemView[];
+  wholeOrderForShop: boolean;
+  vendorAgentDeliveryEnabled: boolean;
+  vendorAgentDelivery: boolean;
+  vendorDirectAgentName?: string | null;
+  vendorDirectAgentPhone?: string | null;
+  vendorDirectAssignmentStatus?: string | null;
+  canAssignVendorAgent: boolean;
+  vendorAgentAlertStatus?: string | null;
+  vendorAgentAlertAcknowledgedAt?: string | null;
+  shopId: string;
 };
 
 export type DashboardView = {
@@ -195,6 +214,16 @@ export function toSubOrderView(dto: SubOrderDto): SubOrderView {
     placedAtLabel: formatPlacedAt(dto.placedAt),
     itemSummary,
     items,
+    wholeOrderForShop: Boolean(dto.wholeOrderForShop),
+    vendorAgentDeliveryEnabled: Boolean(dto.vendorAgentDeliveryEnabled),
+    vendorAgentDelivery: Boolean(dto.vendorAgentDelivery),
+    vendorDirectAgentName: dto.vendorDirectAgentName ?? null,
+    vendorDirectAgentPhone: dto.vendorDirectAgentPhone ?? null,
+    vendorDirectAssignmentStatus: dto.vendorDirectAssignmentStatus ?? null,
+    canAssignVendorAgent: Boolean(dto.canAssignVendorAgent),
+    vendorAgentAlertStatus: dto.vendorAgentAlertStatus ?? null,
+    vendorAgentAlertAcknowledgedAt: dto.vendorAgentAlertAcknowledgedAt ?? null,
+    shopId: dto.shopId,
   };
 }
 
@@ -215,6 +244,11 @@ export function toDashboardView(dto: DashboardDto): DashboardView {
     placedAtLabel: formatPlacedAt(r.placedAt),
     itemSummary: `${r.itemCount ?? 0} item(s)`,
     items: [] as SubOrderItemView[],
+    wholeOrderForShop: false,
+    vendorAgentDeliveryEnabled: false,
+    vendorAgentDelivery: false,
+    canAssignVendorAgent: false,
+    shopId: '',
   }));
   return {
     ordersToday: dto.orderCountToday ?? 0,
@@ -306,6 +340,43 @@ export async function markSubOrderReady(
     token,
     vendorId,
   });
+  return toSubOrderView(data);
+}
+
+export async function markSubOrderDeliveryByVendorAgent(
+  token: string,
+  vendorId: string,
+  subOrderId: string,
+): Promise<SubOrderView> {
+  const data = await apiRequest<SubOrderDto>(
+    `/api/v1/orders/vendor/sub-orders/${subOrderId}/delivery-by-vendor-agent`,
+    { method: 'POST', token, vendorId },
+  );
+  return toSubOrderView(data);
+}
+
+export async function assignSubOrderVendorAgent(
+  token: string,
+  vendorId: string,
+  subOrderId: string,
+  agentId: string,
+): Promise<SubOrderView> {
+  const data = await apiRequest<SubOrderDto>(
+    `/api/v1/orders/vendor/sub-orders/${subOrderId}/assign-vendor-agent`,
+    { method: 'POST', token, vendorId, body: { agentId } },
+  );
+  return toSubOrderView(data);
+}
+
+export async function notifySubOrderAgent(
+  token: string,
+  vendorId: string,
+  subOrderId: string,
+): Promise<SubOrderView> {
+  const data = await apiRequest<SubOrderDto>(
+    `/api/v1/orders/vendor/sub-orders/${subOrderId}/notify-agent`,
+    { method: 'POST', token, vendorId },
+  );
   return toSubOrderView(data);
 }
 

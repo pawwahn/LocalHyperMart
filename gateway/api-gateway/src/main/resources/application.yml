@@ -4,11 +4,21 @@ server:
 spring:
   application:
     name: api-gateway
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:hyperlocalmart}
   cloud:
     gateway:
       default-filters: []
 
 hyperlocalmart:
+  gateway:
+    rate-limit:
+      enabled: ${HLM_GATEWAY_RATE_LIMIT:false}
+      replenish-rate: ${HLM_GATEWAY_RATE_LIMIT_RPS:30}
+      burst-capacity: ${HLM_GATEWAY_RATE_LIMIT_BURST:60}
   security:
     jwt:
       secret: ${JWT_SECRET:hyperlocalmart-dev-secret-change-in-production-min-32-chars!!}

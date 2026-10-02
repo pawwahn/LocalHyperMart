@@ -1,6 +1,7 @@
 package com.hyperlocalmart.delivery.dto.response;
 
 import com.hyperlocalmart.delivery.entity.AgentStatus;
+import com.hyperlocalmart.delivery.entity.AgentType;
 import lombok.Builder;
 import lombok.Value;
 
@@ -15,6 +16,7 @@ public class AgentMeResponse {
     String name;
     String phone;
     AgentStatus status;
+    AgentType agentType;
     UUID hubId;
     UUID townId;
 }

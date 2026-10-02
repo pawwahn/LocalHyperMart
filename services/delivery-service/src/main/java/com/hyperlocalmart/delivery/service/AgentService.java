@@ -37,6 +37,7 @@ public class AgentService {
     private final DeliveryHubRepository deliveryHubRepository;
     private final DeliveryAgentRepository deliveryAgentRepository;
     private final AgentHubLinkRepository agentHubLinkRepository;
+    private final AgentVendorLinkRepository agentVendorLinkRepository;
     private final DeliveryAssignmentRepository deliveryAssignmentRepository;
     private final DeliveryEventRepository deliveryEventRepository;
     private final UserClient userClient;
@@ -46,6 +47,21 @@ public class AgentService {
     public AgentMeResponse getMyAgent(UUID userId) {
         DeliveryAgent agent = deliveryAgentRepository.findByUserId(userId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Delivery agent not found"));
+        if (agent.getAgentType() == AgentType.VENDOR) {
+            UUID townId = agentVendorLinkRepository.findFirstByAgentIdAndActiveTrue(agent.getId())
+                    .map(AgentVendorLink::getTownId)
+                    .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Agent vendor link not found"));
+            return AgentMeResponse.builder()
+                    .agentId(agent.getId())
+                    .userId(agent.getUserId())
+                    .name(agent.getName())
+                    .phone(agent.getPhone())
+                    .status(agent.getStatus())
+                    .agentType(AgentType.VENDOR)
+                    .hubId(null)
+                    .townId(townId)
+                    .build();
+        }
         AgentHubLink link = agentHubLinkRepository.findFirstByAgentIdAndActiveTrue(agent.getId())
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Agent hub link not found"));
         DeliveryHub hub = deliveryHubRepository.findById(link.getHubId())
@@ -56,6 +72,7 @@ public class AgentService {
                 .name(agent.getName())
                 .phone(agent.getPhone())
                 .status(agent.getStatus())
+                .agentType(AgentType.HUB)
                 .hubId(hub.getId())
                 .townId(hub.getTownId())
                 .build();
@@ -181,6 +198,7 @@ public class AgentService {
                     .userId(agentUserId)
                     .name(name)
                     .phone(phone)
+                    .agentType(AgentType.HUB)
                     .status(AgentStatus.ACTIVE)
                     .govtIdType(request.getGovtIdType().trim().toUpperCase())
                     .govtIdNumber(request.getGovtIdNumber().replaceAll("\\s", "").trim())
@@ -220,6 +238,11 @@ public class AgentService {
         if (!hubAdmin.getHubId().equals(hubId)) {
             throw new BusinessException(ErrorCode.FORBIDDEN, "Hub does not belong to admin");
         }
+        return listAgentsForHub(hubId);
+    }
+
+    @Transactional(readOnly = true)
+    public List<AgentResponse> listAgentsForHub(UUID hubId) {
         DeliveryHub hub = deliveryHubRepository.findById(hubId).orElse(null);
         List<AgentResponse> agents = new ArrayList<>();
         for (AgentHubLink link : agentHubLinkRepository.findByHubIdAndActiveTrue(hubId)) {
@@ -329,15 +352,24 @@ public class AgentService {
     }
 
     private AgentResponse toResponse(DeliveryAgent agent, DeliveryHub hub) {
+        UUID townId = hub == null ? null : hub.getTownId();
+        if (townId == null && agent.getAgentType() == AgentType.VENDOR) {
+            townId = agentVendorLinkRepository.findFirstByAgentIdAndActiveTrue(agent.getId())
+                    .map(AgentVendorLink::getTownId)
+                    .orElse(null);
+        }
         return AgentResponse.builder()
                 .agentId(agent.getId())
                 .userId(agent.getUserId())
                 .hubId(hub == null ? null : hub.getId())
                 .hubName(hub == null ? null : hub.getName())
-                .townId(hub == null ? null : hub.getTownId())
+                .townId(townId)
                 .name(agent.getName())
                 .phone(agent.getPhone())
                 .status(agent.getStatus())
+                .agentType(agent.getAgentType() == null ? AgentType.HUB : agent.getAgentType())
+                .vendorId(agent.getVendorId())
+                .shopId(agent.getShopId())
                 .govtIdType(agent.getGovtIdType())
                 .govtIdNumber(maskGovtId(agent.getGovtIdNumber()))
                 .reference1Name(agent.getReference1Name())

@@ -24,6 +24,8 @@ type Props = {
 const NAV = [
   { to: '/dashboard', label: 'Home', icon: '🏠', end: true },
   { to: '/listings', label: 'Listings', icon: '🛒', end: false },
+  { to: '/delivery-agents', label: 'Agents', icon: '🛵', end: false },
+  { to: '/cod-handover', label: 'COD cash', icon: '💰', end: false },
   { to: '/reports', label: 'Reports', icon: '📊', end: false },
   { to: '/payouts', label: 'Payouts', icon: '💵', end: false },
   { to: '/sellers', label: 'Sellers', icon: '🏆', end: false },
@@ -35,7 +37,8 @@ export function PortalShell({ title, children, onRefresh, shopPause }: Props) {
   const { hub, townName: shopTownName } = useVendorShop();
   const location = useLocation();
   const navigate = useNavigate();
-  const { alertMessage, pendingCount, clearAlert, soundReady, enableSound } = useOrderAlert();
+  const { alertMessage, pendingCount, agentAssignPendingCount, clearAlert, soundReady, enableSound } =
+    useOrderAlert();
   const narrow = useIsNarrow(767);
   const shopName = session?.shopName ?? 'Vendor shop';
   const phone = session?.phone;
@@ -53,7 +56,7 @@ export function PortalShell({ title, children, onRefresh, shopPause }: Props) {
       <header style={{ ...styles.header, ...(narrow ? styles.headerNarrow : null) }}>
         <div style={styles.brandBlock}>
           <div style={styles.topRow}>
-            <p style={styles.brand}>HyperLocalMart</p>
+            <p style={styles.brand}>KoYaKart</p>
             <span style={styles.dot} aria-hidden="true">
               ·
             </span>
@@ -114,6 +117,17 @@ export function PortalShell({ title, children, onRefresh, shopPause }: Props) {
               }}
             >
               {pendingCount > 99 ? '99+' : pendingCount}
+            </HeaderIconButton>
+          ) : null}
+          {agentAssignPendingCount > 0 ? (
+            <HeaderIconButton
+              label={`${agentAssignPendingCount} orders need delivery agent`}
+              tone="accent"
+              onClick={() => {
+                navigate('/dashboard', { state: { focusAgentAssign: true } });
+              }}
+            >
+              {agentAssignPendingCount > 99 ? '99+' : agentAssignPendingCount}🛵
             </HeaderIconButton>
           ) : null}
           {shopPause ? (
@@ -324,6 +338,8 @@ const styles: Record<string, CSSProperties> = {
     alignItems: 'center',
     gap: '0.75rem',
     flexWrap: 'wrap',
+    background: 'var(--brand, #0C831F)',
+    color: '#FFFFFF',
   },
   alertText: { fontWeight: 700, flex: '1 1 12rem' },
   alertActions: { display: 'flex', gap: '0.75rem', alignItems: 'center' },

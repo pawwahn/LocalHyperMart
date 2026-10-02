@@ -2,6 +2,9 @@ package com.hyperlocalmart.payment.service;
 
 import com.hyperlocalmart.common.exception.BusinessException;
 import com.hyperlocalmart.common.exception.ErrorCode;
+import com.hyperlocalmart.payment.client.DeliveryClient;
+import com.hyperlocalmart.payment.client.DeliveryClient.AgentSummary;
+import com.hyperlocalmart.payment.client.DeliveryClient.OrderLegs;
 import com.hyperlocalmart.payment.client.TownClient;
 import com.hyperlocalmart.payment.client.OrderClient;
 import com.hyperlocalmart.payment.client.OrderClient.SettlementCandidateItem;
@@ -13,6 +16,11 @@ import com.hyperlocalmart.payment.dto.response.SettlementResponse;
 import com.hyperlocalmart.payment.dto.response.VendorOrderPayoutResponse;
 import com.hyperlocalmart.payment.entity.SettlementDirection;
 import com.hyperlocalmart.payment.entity.*;
+import com.hyperlocalmart.payment.entity.CodAgentHandoverLine;
+import com.hyperlocalmart.payment.entity.CodAgentHandoverStatus;
+import com.hyperlocalmart.payment.entity.CodCustodianType;
+import com.hyperlocalmart.payment.repository.CodAgentHandoverLineRepository;
+import com.hyperlocalmart.payment.repository.CodCloseDayLineItemRepository;
 import com.hyperlocalmart.payment.repository.SettlementLineItemRepository;
 import com.hyperlocalmart.payment.repository.SettlementRepository;
 import com.hyperlocalmart.payment.repository.VendorSettlementAdjustmentRepository;
@@ -37,8 +45,11 @@ public class SettlementService {
 
     private final SettlementRepository settlementRepository;
     private final SettlementLineItemRepository settlementLineItemRepository;
+    private final CodCloseDayLineItemRepository codCloseDayLineItemRepository;
+    private final CodAgentHandoverLineRepository codAgentHandoverLineRepository;
     private final VendorSettlementAdjustmentRepository vendorSettlementAdjustmentRepository;
     private final OrderClient orderClient;
+    private final DeliveryClient deliveryClient;
     private final VendorClient vendorClient;
     private final TownClient townClient;
     private final ServiceInvoiceNumberService serviceInvoiceNumberService;
@@ -51,19 +62,56 @@ public class SettlementService {
         Set<UUID> settled = ids.isEmpty() ? Set.of()
                 : new HashSet<>(settlementLineItemRepository.findSettledSubOrderIds(ids, BLOCKING_STATUSES));
 
-        List<SettlementCandidateView.Item> items = candidates.items() == null ? List.of()
-                : candidates.items().stream()
-                .map(item -> SettlementCandidateView.Item.builder()
-                        .subOrderId(item.subOrderId())
-                        .orderId(item.orderId())
-                        .orderNumber(item.orderNumber())
-                        .subOrderNumber(item.subOrderNumber())
-                        .placedAt(item.placedAt())
-                        .status(item.status())
-                        .paymentStatus(item.paymentStatus())
-                        .subtotal(item.subtotal())
-                        .alreadySettled(settled.contains(item.subOrderId()))
-                        .build())
+        List<SettlementCandidateItem> rawItems =
+                candidates.items() == null ? List.of() : candidates.items();
+        List<UUID> codOrderIds = rawItems.stream()
+                .filter(item -> isCod(item.paymentMethod()))
+                .map(SettlementCandidateItem::orderId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        Set<UUID> codRemittedOrderIds = codOrderIds.isEmpty()
+                ? Set.of()
+                : new HashSet<>(codCloseDayLineItemRepository.findClosedOrderIds(codOrderIds));
+        Map<UUID, CodAgentHandover> handoverByOrder = loadLatestHandovers(codOrderIds);
+
+        Map<UUID, AgentRef> deliveringAgentByOrder = resolveDeliveringAgents(
+                rawItems, codRemittedOrderIds, handoverByOrder, vendorId);
+
+        List<SettlementCandidateView.Item> items = rawItems.stream()
+                .map(item -> {
+                    boolean cod = isCod(item.paymentMethod());
+                    String codLocation = null;
+                    Boolean remittedHub = null;
+                    if (cod) {
+                        codLocation = resolveCodCashLocation(
+                                item.orderId(), codRemittedOrderIds, handoverByOrder);
+                        remittedHub = "AT_HUB".equals(codLocation);
+                        if (item.vendorAgentDelivery() && !"AT_HUB".equals(codLocation)) {
+                            remittedHub = false;
+                        }
+                    }
+                    AgentRef agent = "WITH_AGENT".equals(codLocation)
+                            ? deliveringAgentByOrder.get(item.orderId())
+                            : null;
+                    return SettlementCandidateView.Item.builder()
+                            .subOrderId(item.subOrderId())
+                            .orderId(item.orderId())
+                            .orderNumber(item.orderNumber())
+                            .subOrderNumber(item.subOrderNumber())
+                            .placedAt(item.placedAt())
+                            .status(item.status())
+                            .paymentStatus(item.paymentStatus())
+                            .paymentMethod(item.paymentMethod())
+                            .vendorAgentDelivery(item.vendorAgentDelivery())
+                            .codRemittedToHub(remittedHub)
+                            .codCashLocation(codLocation)
+                            .codDeliveringAgentId(agent != null ? agent.agentId() : null)
+                            .codDeliveringAgentName(agent != null ? agent.name() : null)
+                            .subtotal(item.subtotal())
+                            .alreadySettled(settled.contains(item.subOrderId()))
+                            .build();
+                })
                 .toList();
 
         List<VendorSettlementAdjustment> pendingAdjustments =
@@ -440,5 +488,110 @@ public class SettlementService {
                 .filter(Objects::nonNull)
                 .map(BigDecimal::abs)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
+    private Map<UUID, CodAgentHandover> loadLatestHandovers(Collection<UUID> orderIds) {
+        if (orderIds == null || orderIds.isEmpty()) {
+            return Map.of();
+        }
+        Map<UUID, CodAgentHandover> latest = new HashMap<>();
+        for (CodAgentHandoverLine line : codAgentHandoverLineRepository.findWithHandoverForOrders(orderIds)) {
+            if (line.getOrderId() == null || line.getHandover() == null) {
+                continue;
+            }
+            latest.merge(line.getOrderId(), line.getHandover(), (a, b) -> {
+                Instant at = a.getCreatedAt() != null ? a.getCreatedAt() : Instant.EPOCH;
+                Instant bt = b.getCreatedAt() != null ? b.getCreatedAt() : Instant.EPOCH;
+                return bt.isAfter(at) ? b : a;
+            });
+        }
+        return latest;
+    }
+
+    private static String resolveCodCashLocation(
+            UUID orderId,
+            Set<UUID> codRemittedOrderIds,
+            Map<UUID, CodAgentHandover> handoverByOrder) {
+        if (orderId == null) {
+            return "WITH_AGENT";
+        }
+        CodAgentHandover handover = handoverByOrder.get(orderId);
+        if (handover != null) {
+            CodAgentHandoverStatus status = handover.getStatus();
+            CodCustodianType custodian = handover.getCustodianType();
+            if (status == CodAgentHandoverStatus.CONFIRMED) {
+                return custodian == CodCustodianType.VENDOR ? "WITH_VENDOR" : "AT_HUB";
+            }
+            if (status == CodAgentHandoverStatus.DECLARED || status == CodAgentHandoverStatus.DISCREPANCY) {
+                return custodian == CodCustodianType.VENDOR ? "DECLARED_TO_VENDOR" : "DECLARED_TO_HUB";
+            }
+        }
+        if (codRemittedOrderIds.contains(orderId)) {
+            return "AT_HUB";
+        }
+        return "WITH_AGENT";
+    }
+
+    private Map<UUID, AgentRef> resolveDeliveringAgents(
+            List<SettlementCandidateItem> rawItems,
+            Set<UUID> codRemittedOrderIds,
+            Map<UUID, CodAgentHandover> handoverByOrder,
+            UUID vendorId) {
+        List<UUID> withAgentOrders = rawItems.stream()
+                .filter(item -> isCod(item.paymentMethod()))
+                .filter(item -> "WITH_AGENT".equals(resolveCodCashLocation(
+                        item.orderId(), codRemittedOrderIds, handoverByOrder)))
+                .map(SettlementCandidateItem::orderId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        if (withAgentOrders.isEmpty()) {
+            return Map.of();
+        }
+
+        List<OrderLegs> legs = deliveryClient.resolveDeliveryLegs(withAgentOrders);
+        Map<UUID, UUID> orderToAgentId = new HashMap<>();
+        for (OrderLegs leg : legs) {
+            if (leg.agentId() == null) {
+                continue;
+            }
+            orderToAgentId.putIfAbsent(leg.orderId(), leg.agentId());
+        }
+
+        Map<UUID, String> agentNames = new HashMap<>();
+        for (AgentSummary summary : deliveryClient.listVendorAgents(vendorId)) {
+            if (summary.agentId() != null) {
+                agentNames.put(summary.agentId(), summary.name());
+            }
+        }
+        legs.stream()
+                .map(OrderLegs::hubId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .forEach(hubId -> {
+                    for (AgentSummary summary : deliveryClient.listHubAgents(hubId)) {
+                        if (summary.agentId() != null) {
+                            agentNames.putIfAbsent(summary.agentId(), summary.name());
+                        }
+                    }
+                });
+
+        Map<UUID, AgentRef> out = new HashMap<>();
+        for (UUID orderId : withAgentOrders) {
+            UUID agentId = orderToAgentId.get(orderId);
+            if (agentId == null) {
+                continue;
+            }
+            String name = agentNames.get(agentId);
+            out.put(orderId, new AgentRef(agentId, name != null && !name.isBlank() ? name : "Delivery agent"));
+        }
+        return out;
+    }
+
+    private record AgentRef(UUID agentId, String name) {
+    }
+
+    private static boolean isCod(String paymentMethod) {
+        return paymentMethod != null && "COD".equalsIgnoreCase(paymentMethod.trim());
     }
 }

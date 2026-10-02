@@ -6,6 +6,9 @@ export type AdminAgentVm = {
   hubId?: string | null;
   hubName?: string | null;
   townId?: string | null;
+  agentType?: 'HUB' | 'VENDOR' | string;
+  vendorId?: string | null;
+  shopId?: string | null;
   name: string;
   phone: string;
   status: string;
@@ -22,7 +25,7 @@ export type AgentAssignmentVm = {
   assignmentNumber?: string | null;
   orderNumber?: string | null;
   subOrderNumber?: string | null;
-  legType: 'PICKUP' | 'LAST_MILE' | string;
+  legType: 'PICKUP' | 'LAST_MILE' | 'VENDOR_DIRECT' | string;
   status: string;
   assignedAt?: string | null;
   completedAt?: string | null;
@@ -82,7 +85,8 @@ export async function listAgentAssignments(
     totalPages: Math.max(data.totalPages ?? 1, 1),
     completedPickups: data.completedPickups ?? fromRows.filter((r) => r.legType === 'PICKUP').length,
     completedHomeDeliveries:
-      data.completedHomeDeliveries ?? fromRows.filter((r) => r.legType === 'LAST_MILE').length,
+      data.completedHomeDeliveries ??
+      fromRows.filter((r) => r.legType === 'LAST_MILE' || r.legType === 'VENDOR_DIRECT').length,
   };
 }
 

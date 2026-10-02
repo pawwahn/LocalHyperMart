@@ -43,6 +43,7 @@ public class AssignmentService {
 
     private static final String HUB_ADMIN_ACTIVE = "ACTIVE";
     private static final String READY_FOR_PICKUP = "READY_FOR_PICKUP";
+    private static final String DELIVERY_BY_VENDOR_AGENT = "DELIVERY_BY_VENDOR_AGENT";
     private static final String ORDER_PLACED = "PLACED";
     private static final List<AssignmentStatus> ACTIVE_STATUSES =
             List.of(AssignmentStatus.ASSIGNED, AssignmentStatus.IN_PROGRESS);
@@ -51,6 +52,7 @@ public class AssignmentService {
     private final DeliveryHubRepository deliveryHubRepository;
     private final DeliveryAgentRepository deliveryAgentRepository;
     private final AgentHubLinkRepository agentHubLinkRepository;
+    private final AgentVendorLinkRepository agentVendorLinkRepository;
     private final DeliveryAssignmentRepository deliveryAssignmentRepository;
     private final DeliveryEventRepository deliveryEventRepository;
     private final OrderClient orderClient;
@@ -64,6 +66,9 @@ public class AssignmentService {
         DeliveryAgent agent = resolveActiveAgentLinkedToHub(request.getAgentId(), hubAdmin.getHubId());
 
         OrderClient.SubOrderSnapshot subOrder = orderClient.getSubOrder(request.getVendorSubOrderId());
+        if (DELIVERY_BY_VENDOR_AGENT.equals(subOrder.status())) {
+            throw new BusinessException(ErrorCode.CONFLICT, "Sub-order is delivered by vendor's agent");
+        }
         if (!READY_FOR_PICKUP.equals(subOrder.status())) {
             throw new BusinessException(ErrorCode.CONFLICT, "Sub-order is not ready for pickup");
         }
@@ -105,11 +110,55 @@ public class AssignmentService {
     }
 
     @Transactional
+    public AssignmentResponse assignVendorDirect(
+            OrderClient.SubOrderSnapshot subOrder, UUID vendorId, UUID agentId, UUID assignedBy) {
+        DeliveryAgent agent = resolveActiveVendorAgent(agentId, vendorId);
+        if (deliveryAssignmentRepository.existsByVendorSubOrderIdAndLegTypeAndStatusIn(
+                subOrder.subOrderId(), AssignmentLegType.VENDOR_DIRECT, ACTIVE_STATUSES)) {
+            throw new BusinessException(ErrorCode.CONFLICT, "Active vendor-direct assignment already exists");
+        }
+
+        DeliveryAssignment assignment = DeliveryAssignment.builder()
+                .assignmentNumber(AssignmentNumberFormatter.vendorDirect(subOrder.subOrderNumber()))
+                .orderNumber(subOrder.orderNumber())
+                .subOrderNumber(subOrder.subOrderNumber())
+                .orderId(subOrder.orderId())
+                .vendorSubOrderId(subOrder.subOrderId())
+                .townId(subOrder.townId())
+                .hubId(null)
+                .agentId(agent.getId())
+                .legType(AssignmentLegType.VENDOR_DIRECT)
+                .status(AssignmentStatus.ASSIGNED)
+                .assignedBy(assignedBy)
+                .assignedAt(Instant.now())
+                .build();
+        assignment.setCreatedBy(assignedBy);
+        assignment.setUpdatedBy(assignedBy);
+        deliveryAssignmentRepository.save(assignment);
+
+        String otp = deliveryOtpService.issueOtp(subOrder.orderId());
+        OrderClient.DeliveryOrderSnapshot order = orderClient.getDeliveryOrder(subOrder.orderId());
+        notificationClient.notifyOutForDelivery(
+                order.townId(), order.orderId(), order.buyerId(), order.buyerPhone(),
+                order.orderNumber(), otp);
+
+        logEvent(assignment.getId(), "VENDOR_DIRECT_ASSIGNED", assignedBy, Map.of(
+                "vendorSubOrderId", subOrder.subOrderId().toString(),
+                "agentId", agent.getId().toString()
+        ));
+
+        return toResponse(assignment);
+    }
+
+    @Transactional
     public AssignmentResponse assignLastMile(UUID hubAdminUserId, AssignLastMileRequest request) {
         HubAdmin hubAdmin = resolveActiveHubAdmin(hubAdminUserId);
         DeliveryAgent agent = resolveActiveAgentLinkedToHub(request.getAgentId(), hubAdmin.getHubId());
 
         OrderClient.DeliveryOrderSnapshot order = orderClient.getDeliveryOrder(request.getOrderId());
+        if (order.vendorAgentDelivery()) {
+            throw new BusinessException(ErrorCode.CONFLICT, "Order is delivered by vendor's agent");
+        }
         if (!ORDER_PLACED.equals(order.status())) {
             throw new BusinessException(ErrorCode.CONFLICT, "Order is not ready for last-mile delivery");
         }
@@ -254,7 +303,9 @@ public class AssignmentService {
         long completedPickups = deliveryAssignmentRepository
                 .countCompletedByAgentIdAndLegTypeBetween(agentId, AssignmentLegType.PICKUP, start, end);
         long completedHome = deliveryAssignmentRepository
-                .countCompletedByAgentIdAndLegTypeBetween(agentId, AssignmentLegType.LAST_MILE, start, end);
+                .countCompletedByAgentIdAndLegTypeBetween(agentId, AssignmentLegType.LAST_MILE, start, end)
+                + deliveryAssignmentRepository
+                        .countCompletedByAgentIdAndLegTypeBetween(agentId, AssignmentLegType.VENDOR_DIRECT, start, end);
         return AdminAgentAssignmentPage.builder()
                 .items(items)
                 .page(assignments.getNumber())
@@ -297,8 +348,9 @@ public class AssignmentService {
         if (!assignment.getAgentId().equals(agent.getId())) {
             throw new BusinessException(ErrorCode.FORBIDDEN, "Assignment does not belong to agent");
         }
-        if (assignment.getLegType() != AssignmentLegType.PICKUP) {
-            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Pickup manifest is only for vendor pickup trips");
+        if (assignment.getLegType() != AssignmentLegType.PICKUP
+                && assignment.getLegType() != AssignmentLegType.VENDOR_DIRECT) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Pickup manifest is only for shop pickup trips");
         }
         if (assignment.getVendorSubOrderId() == null) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "Sub-order not linked to assignment");
@@ -349,7 +401,8 @@ public class AssignmentService {
         if (!assignment.getAgentId().equals(agent.getId())) {
             throw new BusinessException(ErrorCode.FORBIDDEN, "Assignment does not belong to agent");
         }
-        if (assignment.getLegType() != AssignmentLegType.LAST_MILE) {
+        if (assignment.getLegType() != AssignmentLegType.LAST_MILE
+                && assignment.getLegType() != AssignmentLegType.VENDOR_DIRECT) {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Delivery manifest is only for home delivery trips");
         }
 
@@ -358,6 +411,8 @@ public class AssignmentService {
                 .assignmentId(assignment.getId())
                 .orderId(manifest.orderId())
                 .orderNumber(manifest.orderNumber())
+                .paymentMethod(manifest.paymentMethod())
+                .collectCashAmount(manifest.collectCashAmount())
                 .subtotal(manifest.subtotal())
                 .totalItemCount(manifest.totalItemCount())
                 .items(manifest.items().stream()
@@ -383,8 +438,9 @@ public class AssignmentService {
         if (!assignment.getAgentId().equals(agent.getId())) {
             throw new BusinessException(ErrorCode.FORBIDDEN, "Assignment does not belong to agent");
         }
-        if (assignment.getLegType() != AssignmentLegType.PICKUP) {
-            throw new BusinessException(ErrorCode.CONFLICT, "Assignment is not a pickup leg");
+        if (assignment.getLegType() != AssignmentLegType.PICKUP
+                && assignment.getLegType() != AssignmentLegType.VENDOR_DIRECT) {
+            throw new BusinessException(ErrorCode.CONFLICT, "Assignment is not a shop pickup leg");
         }
         if (assignment.getStatus() != AssignmentStatus.ASSIGNED) {
             throw new BusinessException(ErrorCode.CONFLICT, "Assignment is not in ASSIGNED status");
@@ -398,7 +454,10 @@ public class AssignmentService {
         if (request != null && request.getNote() != null && !request.getNote().isBlank()) {
             metadata.put("note", request.getNote());
         }
-        logEvent(assignment.getId(), "PICKED_FROM_VENDOR", agentUserId, metadata);
+        String eventType = assignment.getLegType() == AssignmentLegType.VENDOR_DIRECT
+                ? "VENDOR_DIRECT_PICKED_FROM_SHOP"
+                : "PICKED_FROM_VENDOR";
+        logEvent(assignment.getId(), eventType, agentUserId, metadata);
 
         return toResponse(assignment);
     }
@@ -465,7 +524,7 @@ public class AssignmentService {
 
     @Transactional
     public AssignmentResponse deliver(UUID agentUserId, UUID assignmentId, DeliverRequest request) {
-        DeliveryAssignment assignment = loadAgentLastMileAssignment(agentUserId, assignmentId);
+        DeliveryAssignment assignment = loadAgentHomeDeliveryAssignment(agentUserId, assignmentId);
         if (assignment.getStatus() != AssignmentStatus.IN_PROGRESS) {
             throw new BusinessException(ErrorCode.CONFLICT, "Assignment is not in progress");
         }
@@ -538,7 +597,7 @@ public class AssignmentService {
         return otp;
     }
 
-    private DeliveryAssignment loadAgentLastMileAssignment(UUID agentUserId, UUID assignmentId) {
+    private DeliveryAssignment loadAgentHomeDeliveryAssignment(UUID agentUserId, UUID assignmentId) {
         DeliveryAgent agent = deliveryAgentRepository.findByUserId(agentUserId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Delivery agent not found"));
 
@@ -548,10 +607,34 @@ public class AssignmentService {
         if (!assignment.getAgentId().equals(agent.getId())) {
             throw new BusinessException(ErrorCode.FORBIDDEN, "Assignment does not belong to agent");
         }
+        if (assignment.getLegType() != AssignmentLegType.LAST_MILE
+                && assignment.getLegType() != AssignmentLegType.VENDOR_DIRECT) {
+            throw new BusinessException(ErrorCode.CONFLICT, "Assignment is not a home delivery leg");
+        }
+        return assignment;
+    }
+
+    private DeliveryAssignment loadAgentLastMileAssignment(UUID agentUserId, UUID assignmentId) {
+        DeliveryAssignment assignment = loadAgentHomeDeliveryAssignment(agentUserId, assignmentId);
         if (assignment.getLegType() != AssignmentLegType.LAST_MILE) {
             throw new BusinessException(ErrorCode.CONFLICT, "Assignment is not a last-mile leg");
         }
         return assignment;
+    }
+
+    private DeliveryAgent resolveActiveVendorAgent(UUID agentId, UUID vendorId) {
+        DeliveryAgent agent = deliveryAgentRepository.findById(agentId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Delivery agent not found"));
+        if (agent.getStatus() != AgentStatus.ACTIVE || agent.getAgentType() != AgentType.VENDOR) {
+            throw new BusinessException(ErrorCode.CONFLICT, "Delivery agent is not active");
+        }
+        if (!vendorId.equals(agent.getVendorId())) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "Agent does not belong to vendor");
+        }
+        if (!agentVendorLinkRepository.existsByAgentIdAndShopIdAndActiveTrue(agentId, agent.getShopId())) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "Agent is not linked to vendor shop");
+        }
+        return agent;
     }
 
     private HubAdmin resolveActiveHubAdmin(UUID hubAdminUserId) {
@@ -587,7 +670,8 @@ public class AssignmentService {
                 .toList());
         Map<UUID, OrderClient.DeliveryOrderSnapshot> deliveryByOrder = new HashMap<>();
         for (DeliveryAssignment assignment : assignments) {
-            if (assignment.getLegType() != AssignmentLegType.LAST_MILE) {
+            if (assignment.getLegType() != AssignmentLegType.LAST_MILE
+                    && assignment.getLegType() != AssignmentLegType.VENDOR_DIRECT) {
                 continue;
             }
             deliveryByOrder.computeIfAbsent(assignment.getOrderId(), orderId -> {
@@ -610,7 +694,8 @@ public class AssignmentService {
         List<DeliveryEventResponse> events = loadEventResponses(List.of(assignment.getId()))
                 .getOrDefault(assignment.getId(), List.of());
         OrderClient.DeliveryOrderSnapshot delivery = null;
-        if (assignment.getLegType() == AssignmentLegType.LAST_MILE) {
+        if (assignment.getLegType() == AssignmentLegType.LAST_MILE
+                || assignment.getLegType() == AssignmentLegType.VENDOR_DIRECT) {
             try {
                 delivery = orderClient.getDeliveryOrder(assignment.getOrderId());
             } catch (RuntimeException ignored) {
@@ -628,7 +713,9 @@ public class AssignmentService {
         String destinationName = null;
         String destinationPhone = null;
         String destinationAddress = null;
-        if (assignment.getLegType() == AssignmentLegType.LAST_MILE && delivery != null) {
+        if ((assignment.getLegType() == AssignmentLegType.LAST_MILE
+                || assignment.getLegType() == AssignmentLegType.VENDOR_DIRECT)
+                && delivery != null) {
             destinationLabel = delivery.addressLabel();
             destinationName = delivery.recipientName();
             destinationPhone = firstNonBlank(delivery.recipientPhone(), delivery.buyerPhone());
@@ -659,6 +746,8 @@ public class AssignmentService {
                 .destinationName(destinationName)
                 .destinationPhone(destinationPhone)
                 .destinationAddress(destinationAddress)
+                .paymentMethod(delivery != null ? delivery.paymentMethod() : null)
+                .collectCashAmount(delivery != null ? delivery.collectCashAmount() : null)
                 .build();
     }
 

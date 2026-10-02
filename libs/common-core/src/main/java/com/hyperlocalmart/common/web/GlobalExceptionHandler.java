@@ -12,6 +12,7 @@ import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.client.ResourceAccessException;
 
 import java.time.Instant;
 import java.util.List;
@@ -70,6 +71,19 @@ public class GlobalExceptionHandler {
         }
         return ResponseEntity.status(HttpStatus.CONFLICT)
                 .body(errorBody(ErrorCode.CONFLICT.name(), message, request, null));
+    }
+
+    @ExceptionHandler(ResourceAccessException.class)
+    public ResponseEntity<ApiResponse<Void>> handleResourceAccess(
+            ResourceAccessException ex, HttpServletRequest request) {
+        String detail = ex.getMessage() != null ? ex.getMessage() : "Upstream service unavailable";
+        String message = detail.contains("timed out") || detail.contains("Timeout")
+                ? "Upstream service timed out — try Refresh or restart order-service if Payouts stay empty"
+                : "Could not reach a required service — try again shortly";
+        org.slf4j.LoggerFactory.getLogger(GlobalExceptionHandler.class)
+                .warn("Upstream I/O on {} {}: {}", request.getMethod(), request.getRequestURI(), detail);
+        return ResponseEntity.status(HttpStatus.GATEWAY_TIMEOUT)
+                .body(errorBody(ErrorCode.INTERNAL_ERROR.name(), message, request, null));
     }
 
     @ExceptionHandler(Exception.class)

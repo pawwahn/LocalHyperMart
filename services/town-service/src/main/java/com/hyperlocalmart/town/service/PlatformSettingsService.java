@@ -55,7 +55,7 @@ public class PlatformSettingsService {
         pub.put("legalUpdatedAt", all.getOrDefault("legalUpdatedAt", ""));
         pub.put("grievanceOfficer", all.getOrDefault("grievanceOfficer", ""));
         pub.put("supportPhone", all.getOrDefault("supportPhone", ""));
-        pub.put("supplierLegalName", all.getOrDefault("supplierLegalName", "HyperLocalMart"));
+        pub.put("supplierLegalName", all.getOrDefault("supplierLegalName", "KoYaKart"));
         pub.put("supplierGstin", all.getOrDefault("supplierGstin", ""));
         pub.put("supplierAddress", all.getOrDefault("supplierAddress", ""));
         pub.put("supplierState", all.getOrDefault("supplierState", ""));
@@ -504,7 +504,7 @@ public class PlatformSettingsService {
         map.put("legalUpdatedAt", "");
         map.put("grievanceOfficer", "");
         map.put("supportPhone", "9876500100");
-        map.put("supplierLegalName", "HyperLocalMart");
+        map.put("supplierLegalName", "KoYaKart");
         map.put("supplierGstin", "");
         map.put("supplierAddress", "");
         map.put("supplierState", "");
@@ -525,7 +525,7 @@ public class PlatformSettingsService {
         map.put("referralRefereeRewardAmount", 0);
         map.put("referralShareBaseUrl", "");
         map.put("referralShareMessageTemplate",
-                "Order groceries from local shops on HyperLocalMart. Use my code {code}: {link}");
+                "Order groceries from local shops on KoYaKart. Use my code {code}: {link}");
         map.put("mealPlannerEnabled", false);
         map.put("hubAdminCanSeeAgentRatings", true);
         return map;

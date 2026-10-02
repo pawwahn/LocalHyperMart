@@ -444,7 +444,7 @@ Install the above, then run `.\scripts\start-dev.ps1` — Flyway migrations run 
 | Real SMS (MSG91) | Logs to `notification_logs` only |
 | Push notifications (FCM) | Not started |
 | Kafka domain events | Config present, not wired |
-| Redis (sessions/cache) | Infra only, not used by services |
+| Redis (gateway rate limit, optional catalog browse cache) | Opt-in: `HLM_GATEWAY_RATE_LIMIT=true`; catalog `spring.profiles.include=redis-cache` |
 | COD reconciliation | Not started |
 | Settlements / vendor payouts | Not started |
 

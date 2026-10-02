@@ -22,7 +22,6 @@ import com.hyperlocalmart.payment.entity.RefundStatus;
 import com.hyperlocalmart.payment.razorpay.RazorpayClient;
 import com.hyperlocalmart.payment.razorpay.RazorpayMaps;
 import com.hyperlocalmart.payment.razorpay.RazorpayMoney;
-import com.hyperlocalmart.payment.razorpay.RazorpayOrder;
 import com.hyperlocalmart.payment.razorpay.RazorpayPayment;
 import com.hyperlocalmart.payment.razorpay.RazorpayRefund;
 import com.hyperlocalmart.payment.razorpay.RazorpaySignatures;
@@ -55,15 +54,36 @@ public class PaymentService {
     private final MembershipService membershipService;
     private final ObjectMapper objectMapper;
     private final TransactionTemplate transactionTemplate;
+    private final RazorpayGatewayQueueService razorpayGatewayQueue;
+    private final RazorpayGatewaySyncService razorpayGatewaySync;
 
     public PaymentResponse initiate(UUID buyerId, InitiatePaymentRequest request, String idempotencyKey) {
         if (idempotencyKey != null && !idempotencyKey.isBlank()) {
             var existing = paymentRepository.findByIdempotencyKey(idempotencyKey);
             if (existing.isPresent()) {
-                return toInitiateResponse(existing.get());
+                Payment payment = existing.get();
+                if (payment.getGatewayOrderId() == null && payment.getStatus() == PaymentStatus.PENDING) {
+                    ensureOrderGatewayCreated(payment.getId());
+                    payment = paymentRepository.findById(payment.getId()).orElse(payment);
+                }
+                return buildInitiateResponse(buyerId, payment, request);
             }
         }
         return createPayment(buyerId, request, idempotencyKey);
+    }
+
+    @Transactional(readOnly = true)
+    public PaymentResponse getPaymentCheckout(UUID buyerId, UUID paymentId) {
+        Payment payment = paymentRepository.findByIdAndBuyerId(paymentId, buyerId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Payment not found"));
+        if (payment.getGatewayOrderId() == null && payment.getStatus() == PaymentStatus.PENDING) {
+            ensureOrderGatewayCreated(payment.getId());
+            payment = paymentRepository.findById(payment.getId()).orElse(payment);
+        }
+        InitiatePaymentRequest stub = new InitiatePaymentRequest();
+        stub.setOrderId(payment.getOrderId());
+        stub.setTownId(payment.getTownId());
+        return buildInitiateResponse(buyerId, payment, stub);
     }
 
     @Transactional(readOnly = true)
@@ -261,26 +281,29 @@ public class PaymentService {
         Payment payment = paymentRepository.findById(paymentId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.INTERNAL_ERROR, "Payment row missing"));
         if (payment.getGatewayOrderId() == null) {
-            RazorpayOrder rzp = createRazorpayOrder(payment, order);
-            transactionTemplate.executeWithoutResult(status -> {
-                Payment row = paymentRepository.findById(paymentId)
-                        .orElseThrow(() -> new BusinessException(ErrorCode.INTERNAL_ERROR, "Payment row missing"));
-                row.setGatewayOrderId(rzp.id());
-                paymentRepository.save(row);
-            });
+            ensureOrderGatewayCreated(payment.getId());
             payment = paymentRepository.findById(paymentId).orElse(payment);
         }
-        return toInitiateResponse(payment, contactPhone(request, order), order.orderNumber());
+        return buildInitiateResponse(buyerId, payment, request);
     }
 
-    /** Razorpay HTTP — must not run inside a DB transaction (holds pool connections). */
-    private RazorpayOrder createRazorpayOrder(Payment payment, OrderClient.OrderSnapshot order) {
-        long paise = RazorpayMoney.toPaise(order.totalAmount());
-        Map<String, String> notes = new LinkedHashMap<>();
-        notes.put("hlm_kind", "ORDER");
-        notes.put("hlm_order_id", payment.getOrderId().toString());
-        notes.put("hlm_payment_id", payment.getId().toString());
-        return razorpayClient.createOrder(paise, payment.getId().toString().replace("-", ""), notes);
+    private void ensureOrderGatewayCreated(UUID paymentId) {
+        if (useAsyncGateway()) {
+            razorpayGatewayQueue.enqueueOrderPayment(
+                    paymentId, () -> razorpayGatewaySync.ensureOrderPaymentGateway(paymentId));
+        } else {
+            razorpayGatewaySync.ensureOrderPaymentGateway(paymentId);
+        }
+    }
+
+    private boolean useAsyncGateway() {
+        return razorpayGatewayQueue.isEnabled() && paymentProperties.isRazorpayConfigured();
+    }
+
+    private PaymentResponse buildInitiateResponse(
+            UUID buyerId, Payment payment, InitiatePaymentRequest request) {
+        OrderClient.OrderSnapshot order = resolveOrder(buyerId, request);
+        return toInitiateResponse(payment, contactPhone(request, order), order.orderNumber());
     }
 
     private OrderClient.OrderSnapshot resolveOrder(UUID buyerId, InitiatePaymentRequest request) {
@@ -328,7 +351,7 @@ public class PaymentService {
 
     private PaymentResponse toInitiateResponse(Payment payment, String prefillContact, String orderNumber) {
         boolean live = paymentProperties.isRazorpayConfigured();
-        String upiIntent = live ? null : "upi://pay?pa=hyperlocalmart@razorpay&pn=HyperLocalMart&am="
+        String upiIntent = live ? null : "upi://pay?pa=hyperlocalmart@razorpay&pn=KoYaKart&am="
                 + payment.getAmount().toPlainString()
                 + "&tn=Order-" + payment.getOrderId();
         String qrPayload = live ? null : "upi://pay?order=" + payment.getOrderId();

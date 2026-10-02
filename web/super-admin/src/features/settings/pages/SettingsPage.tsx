@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { Link } from 'react-router-dom';
-import { ACCENT_PRESETS, useTheme } from '@hlm-theme';
+import { useTheme } from '@hlm-theme';
 import { formatLegalStamp } from '@hlm-legal';
 import { PortalShell } from '@/shared/layout/PortalShell';
 import { useAuth } from '@/shared/auth/AuthContext';
@@ -33,7 +33,7 @@ const EMPTY: PlatformSettingsVm = {
   supportPhone: '',
   deliveryFee: 40,
   vendorOrderAlertMessage: 'Order received',
-  supplierLegalName: 'HyperLocalMart',
+  supplierLegalName: 'KoYaKart',
   supplierGstin: '',
   supplierAddress: '',
   supplierState: '',
@@ -42,7 +42,7 @@ const EMPTY: PlatformSettingsVm = {
 
 export function SettingsPage() {
   const { session } = useAuth();
-  const { preference, setMode, setAccent } = useTheme();
+  const { preference, setMode } = useTheme();
   const token = session?.accessToken ?? '';
   const [settings, setSettings] = useState<PlatformSettingsVm>(EMPTY);
   const [legalTab, setLegalTab] = useState<LegalTab>('termsText');
@@ -93,7 +93,7 @@ export function SettingsPage() {
 
   async function onResetLegal() {
     if (!token) return;
-    if (!window.confirm('Replace Terms, Privacy and Refund with the shipped HyperLocalMart rules?')) {
+    if (!window.confirm('Replace Terms, Privacy and Refund with the shipped KoYaKart rules?')) {
       return;
     }
     setBusy(true);
@@ -207,26 +207,7 @@ export function SettingsPage() {
                 Dark
               </button>
             </div>
-            <div style={styles.swatches}>
-              {ACCENT_PRESETS.map((preset) => (
-                <button
-                  key={preset.id}
-                  type="button"
-                  title={preset.label}
-                  aria-label={preset.label}
-                  aria-pressed={preference.accent === preset.id}
-                  onClick={() => setAccent(preset.id)}
-                  style={{
-                    ...styles.swatch,
-                    background: preset.accent,
-                    outline:
-                      preference.accent === preset.id
-                        ? `2px solid ${preset.accentHover}`
-                        : '2px solid transparent',
-                  }}
-                />
-              ))}
-            </div>
+            <p style={styles.hintInline}>KoYaKart green</p>
           </div>
         </Card>
 
@@ -562,15 +543,6 @@ const styles: Record<string, CSSProperties> = {
     fontWeight: 700,
     cursor: 'pointer',
     minHeight: 36,
-  },
-  swatches: { display: 'flex', gap: '0.35rem', flexWrap: 'wrap', alignItems: 'center' },
-  swatch: {
-    width: 24,
-    height: 24,
-    borderRadius: '999px',
-    border: 'none',
-    cursor: 'pointer',
-    padding: 0,
   },
   opsRow: {
     display: 'flex',

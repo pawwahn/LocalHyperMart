@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react';
 import type { CSSProperties } from 'react';
+import { Navigate } from 'react-router-dom';
 import { AgentShell } from '../layout/AgentShell';
+import { useAgentKind } from '../hooks/useAgentKind';
 import { VendorPickupCard } from '../components/AssignmentCards';
 import { ConfirmTookBagDialog } from '../components/ConfirmTookBagDialog';
 import { useAgentWorkspace } from '../hooks/useAgentWorkspace';
@@ -17,6 +19,7 @@ type TookBagPrompt = {
 } | null;
 
 export function AgentVendorPickupsPage() {
+  const { vendorShop, ready } = useAgentKind();
   const [filter, setFilter] = useState<PickupFilter>('all');
   const [tookPrompt, setTookPrompt] = useState<TookBagPrompt>(null);
   const { pickupTasks, loading, actionId, error, notice, reload, setSearch, search, doPickVendor } =
@@ -34,6 +37,10 @@ export function AgentVendorPickupsPage() {
   const atShopCount = pickupTasks.filter((t) => t.status === 'ASSIGNED').length;
   const toHubCount = pickupTasks.filter((t) => t.status === 'IN_PROGRESS').length;
   const promptBusy = Boolean(tookPrompt && actionId === tookPrompt.id);
+
+  if (ready && vendorShop) {
+    return <Navigate to="/agent/deliveries" replace />;
+  }
 
   return (
     <AgentShell title="From shop" subtitle="Take bag → bring to hub" onRefresh={() => void reload()}>

@@ -1,6 +1,16 @@
 import { useState, type CSSProperties } from 'react';
 import type { DeliveryManifestView, PickupManifestView } from '../api/agentApi';
 
+function formatRupee(amount: number): string {
+  return `₹${amount.toFixed(2).replace(/\.00$/, '')}`;
+}
+
+function isDeliveryManifest(
+  manifest: PickupManifestView | DeliveryManifestView,
+): manifest is DeliveryManifestView {
+  return 'orderId' in manifest;
+}
+
 /** Human labels for catalog unit codes (KG, PIECE, L, …). */
 function formatUnit(unitCode: string | null | undefined): { short: string; full: string } | null {
   const code = (unitCode ?? '').trim().toUpperCase();
@@ -44,6 +54,8 @@ export function PickupItemsList({
   legend,
   showShop = false,
   defaultOpen = true,
+  paymentMethod,
+  collectCashAmount,
 }: {
   manifest?: PickupManifestView | DeliveryManifestView;
   loading?: boolean;
@@ -53,6 +65,8 @@ export function PickupItemsList({
   legend?: string;
   showShop?: boolean;
   defaultOpen?: boolean;
+  paymentMethod?: string | null;
+  collectCashAmount?: number | null;
 }) {
   const [open, setOpen] = useState(defaultOpen);
 
@@ -74,8 +88,19 @@ export function PickupItemsList({
     );
   }
 
-  const unitCount = manifest.items.reduce((sum, item) => sum + Number(item.quantity ?? 0), 0);
-  const summary = `${unitCount} item${unitCount === 1 ? '' : 's'} · ₹${manifest.subtotal.toFixed(0)}`;
+  const lines = manifest.items ?? [];
+  const unitCount = lines.reduce((sum, item) => sum + Number(item.quantity ?? 0), 0);
+  const itemLabel = `${unitCount} item${unitCount === 1 ? '' : 's'}`;
+  const delivery = isDeliveryManifest(manifest) ? manifest : null;
+  const resolvedMethod = paymentMethod ?? delivery?.paymentMethod;
+  const isCod = resolvedMethod === 'COD';
+  const resolvedCollect = collectCashAmount ?? delivery?.collectCashAmount;
+  const collectAmount =
+    isCod && resolvedCollect != null && resolvedCollect > 0 ? resolvedCollect : null;
+  const amountLabel =
+    isCod && collectAmount != null
+      ? formatRupee(collectAmount)
+      : formatRupee(manifest.subtotal);
 
   return (
     <div style={styles.wrap}>
@@ -86,11 +111,22 @@ export function PickupItemsList({
           </span>
           <span style={styles.headerText}>
             <span style={styles.title}>{title}</span>
-            <span style={styles.summaryInline}>{summary}</span>
+            <span style={styles.itemCount}>
+              {isCod && collectAmount != null ? 'COD · collect at door · ' : ''}
+              {itemLabel}
+            </span>
           </span>
         </span>
-        <span style={styles.chevron} aria-hidden>
-          {open ? '▾' : '▸'}
+        <span style={styles.headerRight}>
+          <span
+            style={isCod ? { ...styles.amountProminent, ...styles.amountCod } : styles.amountProminent}
+            aria-label={isCod ? `Collect cash ${amountLabel}` : `Order total ${amountLabel}`}
+          >
+            {amountLabel}
+          </span>
+          <span style={styles.chevron} aria-hidden>
+            {open ? '▾' : '▸'}
+          </span>
         </span>
       </button>
 
@@ -98,7 +134,7 @@ export function PickupItemsList({
         <>
           {legend ? <p style={styles.legend}>{legend}</p> : null}
           <ul style={styles.list}>
-            {manifest.items.map((item, index) => {
+            {lines.map((item, index) => {
               const unit = formatUnit(item.unitCode);
               const metaParts = [
                 showShop && item.shopName ? item.shopName : null,
@@ -147,15 +183,32 @@ const styles: Record<string, CSSProperties> = {
     textAlign: 'left',
     minHeight: 36,
   },
-  headerLeft: { display: 'flex', alignItems: 'center', gap: '0.45rem', minWidth: 0 },
+  headerLeft: { display: 'flex', alignItems: 'center', gap: '0.45rem', minWidth: 0, flex: '1 1 auto' },
+  headerRight: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.35rem',
+    flexShrink: 0,
+  },
   bagIcon: { fontSize: '0.9rem', lineHeight: 1 },
-  headerText: { display: 'grid', gap: 0, minWidth: 0 },
-  title: { fontSize: '0.75rem', fontWeight: 800, lineHeight: 1.15 },
-  summaryInline: {
+  headerText: { display: 'grid', gap: '0.08rem', minWidth: 0 },
+  title: { fontSize: '0.78rem', fontWeight: 800, lineHeight: 1.15 },
+  itemCount: {
     fontSize: '0.68rem',
     fontWeight: 650,
     color: 'var(--text-muted)',
     lineHeight: 1.15,
+  },
+  amountProminent: {
+    fontSize: '1.22rem',
+    fontWeight: 900,
+    letterSpacing: '-0.02em',
+    lineHeight: 1,
+    color: 'var(--text)',
+    fontVariantNumeric: 'tabular-nums',
+  },
+  amountCod: {
+    color: '#92400e',
   },
   chevron: {
     flexShrink: 0,

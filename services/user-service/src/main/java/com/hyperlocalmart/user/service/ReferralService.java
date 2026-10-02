@@ -205,7 +205,7 @@ public class ReferralService {
 
     private static String buildShareMessage(String template, String code, String link) {
         String tpl = template == null || template.isBlank()
-                ? "Order from local shops on HyperLocalMart. Code {code}: {link}"
+                ? "Order from local shops on KoYaKart. Code {code}: {link}"
                 : template;
         return tpl.replace("{code}", code).replace("{link}", link);
     }

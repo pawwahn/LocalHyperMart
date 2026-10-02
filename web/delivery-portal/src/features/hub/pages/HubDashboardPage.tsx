@@ -83,6 +83,14 @@ function hubPhase(order: OrderRowView): HubPhase {
       tone: 'wait',
     };
   }
+  if (order.vendorAgentDelivery) {
+    return {
+      listStatus: 'DELIVERY BY VENDOR AGENT',
+      detailNow: 'Delivery made by vendor. Hub cannot act on this order.',
+      doButton: null,
+      tone: 'wait',
+    };
+  }
 
   const total = order.subOrderCount;
   const ready = order.readySubOrderCount;
@@ -248,12 +256,37 @@ function vendorLegHint(state: PickupUiState): string | null {
   }
 }
 
+function vendorDirectStatusLabel(
+  subStatus: string,
+  assign: { status: string } | undefined,
+  orderDelivered: boolean,
+): string {
+  if (orderDelivered || subStatus === 'DELIVERED') return 'Delivered';
+  if (assign?.status === 'COMPLETED') return 'Delivered';
+  if (assign?.status === 'IN_PROGRESS') return 'Agent to customer';
+  if (assign?.status === 'ASSIGNED') return 'Vendor agent sent';
+  if (subStatus === 'DELIVERY_BY_VENDOR_AGENT') return 'Vendor delivers';
+  return 'Shop packing';
+}
+
+function vendorDirectHint(
+  assign: { status: string } | undefined,
+): string | null {
+  if (assign?.status === 'ASSIGNED') return 'wait — vendor agent to shop';
+  if (assign?.status === 'IN_PROGRESS') return 'wait — going to customer';
+  if (assign?.status === 'COMPLETED') return 'delivered by vendor agent';
+  return 'wait — shop / vendor agent';
+}
+
 function legLabel(legType: string): string {
-  return legType === 'PICKUP' ? 'Shop → Hub' : 'Hub → Home';
+  if (legType === 'PICKUP') return 'Shop → Hub';
+  if (legType === 'VENDOR_DIRECT') return 'Vendor → Home';
+  return 'Hub → Home';
 }
 
 function assignmentLegStyle(legType: string): CSSProperties {
-  return legType === 'PICKUP' ? styles.legVendor : styles.legBuyer;
+  if (legType === 'PICKUP' || legType === 'VENDOR_DIRECT') return styles.legVendor;
+  return styles.legBuyer;
 }
 
 function assignmentStatusPlain(status: string): string {
@@ -591,21 +624,50 @@ export function HubDashboardPage() {
                 <p style={styles.cancelledBanner}>Cancelled</p>
               ) : null}
 
+              {(() => {
+                const vendorDirectOrder = Boolean(
+                  orders.find((o) => o.id === detail.orderId)?.vendorAgentDelivery,
+                );
+                return (
               <div style={styles.legSection}>
                 <p style={styles.legTitle}>
-                  <span style={styles.legVendor}>1 · Shop → Hub</span>
+                  <span style={styles.legVendor}>
+                    {vendorDirectOrder ? '1 · Vendor → Home' : '1 · Shop → Hub'}
+                  </span>
                 </p>
                 {subOrders.map((s) => {
-                  const vendorPickup = (detail.assignments ?? []).find(
-                    (a) => a.legType === 'PICKUP' && a.subOrderNumber === s.subOrderNumber,
-                  );
+                  const vendorDirectBag =
+                    vendorDirectOrder || s.status === 'DELIVERY_BY_VENDOR_AGENT';
+                  const vendorPickup = vendorDirectBag
+                    ? undefined
+                    : (detail.assignments ?? []).find(
+                        (a) => a.legType === 'PICKUP' && a.subOrderNumber === s.subOrderNumber,
+                      );
+                  const vendorDirectAssign = vendorDirectBag
+                    ? (detail.assignments ?? []).find(
+                        (a) =>
+                          a.legType === 'VENDOR_DIRECT' && a.subOrderNumber === s.subOrderNumber,
+                      )
+                    : undefined;
                   const legState = vendorLegState(s.status, vendorPickup);
-                  const action = vendorLegAction(legState);
-                  const hint = vendorLegHint(legState);
+                  const action = vendorDirectBag ? { kind: 'none' as const } : vendorLegAction(legState);
+                  const hint = vendorDirectBag
+                    ? vendorDirectHint(vendorDirectAssign)
+                    : vendorLegHint(legState);
+                  const statusLabel = vendorDirectBag
+                    ? vendorDirectStatusLabel(
+                        s.status,
+                        vendorDirectAssign,
+                        detail.status === 'DELIVERED',
+                      )
+                    : vendorLegStatusLabel(legState);
                   const canAssignPickup = !busy && action.kind === 'assign';
                   const canMarkAtHub = !busy && action.kind === 'confirm';
                   const alertPending = s.vendorAlert?.status === 'PENDING';
-                  const canAlertVendor = !busy && legState === 'awaiting_vendor' && !alertPending;
+                  const canAlertVendor =
+                    !vendorDirectBag && !busy && legState === 'awaiting_vendor' && !alertPending;
+                  const showVendorAlertUi =
+                    !vendorDirectBag && (canAlertVendor || alertPending || Boolean(s.vendorAlert));
                   const canChangeBoy =
                     Boolean(vendorPickup) &&
                     (vendorPickup?.status === 'ASSIGNED' || vendorPickup?.status === 'IN_PROGRESS') &&
@@ -624,7 +686,7 @@ export function HubDashboardPage() {
                     <div key={s.id} style={subOrderCardStyle(legState)}>
                       <div style={styles.cardHead}>
                         <p style={styles.shopName}>{s.shopName}</p>
-                        <span style={pillStyle}>{vendorLegStatusLabel(legState)}</span>
+                        <span style={pillStyle}>{statusLabel}</span>
                       </div>
                       <p style={styles.meta}>
                         {s.subtotalLabel}
@@ -643,7 +705,11 @@ export function HubDashboardPage() {
                             ? ` · ${s.cancelledItemCount} cancelled`
                             : ''}
                         </button>
-                        {vendorPickup ? ` · ${agentLabel(vendorPickup.agentId)}` : ''}
+                        {vendorDirectAssign
+                          ? ` · ${agentLabel(vendorDirectAssign.agentId)}`
+                          : vendorPickup
+                            ? ` · ${agentLabel(vendorPickup.agentId)}`
+                            : ''}
                         {hint ? ` · ${hint}` : ''}
                       </p>
                       {openItemBags[s.id] ? (
@@ -669,7 +735,18 @@ export function HubDashboardPage() {
                           <p style={styles.meta}>Items not available.</p>
                         )
                       ) : null}
-                      {vendorPickup ? (
+                      {vendorDirectAssign ? (
+                        <div style={styles.tripBlock}>
+                          <ActionTimeline
+                            compact
+                            events={vendorDirectAssign.events}
+                            assignedAt={vendorDirectAssign.assignedAt}
+                            startedAt={vendorDirectAssign.startedAt}
+                            completedAt={vendorDirectAssign.completedAt}
+                            resolveAgentName={(id) => agentLabel(id)}
+                          />
+                        </div>
+                      ) : vendorPickup ? (
                         <div style={styles.tripBlock}>
                           <ActionTimeline
                             compact
@@ -681,7 +758,8 @@ export function HubDashboardPage() {
                           />
                         </div>
                       ) : null}
-                      {action.kind !== 'none' || canChangeBoy || canAlertVendor || alertPending || s.vendorAlert ? (
+                      {!vendorDirectBag &&
+                      (action.kind !== 'none' || canChangeBoy || showVendorAlertUi) ? (
                         <div style={styles.rowActions}>
                           {canChangeBoy && vendorPickup ? (
                             <button
@@ -726,7 +804,7 @@ export function HubDashboardPage() {
                               {action.label}
                             </button>
                           ) : null}
-                          {legState === 'awaiting_vendor' ? (
+                          {!vendorDirectBag && legState === 'awaiting_vendor' ? (
                             alertPending ? (
                               <span style={styles.alertWaiting}>Waiting for vendor notice</span>
                             ) : (
@@ -746,7 +824,11 @@ export function HubDashboardPage() {
                               </button>
                             )
                           ) : null}
-                          {s.vendorAlert?.status === 'ACKNOWLEDGED' && s.vendorAlert.acknowledgedAt && !alertPending && legState === 'awaiting_vendor' ? (
+                          {!vendorDirectBag &&
+                          s.vendorAlert?.status === 'ACKNOWLEDGED' &&
+                          s.vendorAlert.acknowledgedAt &&
+                          !alertPending &&
+                          legState === 'awaiting_vendor' ? (
                             <span style={styles.alertNoticed}>
                               Noticed {formatPortalTime(s.vendorAlert.acknowledgedAt)}
                             </span>
@@ -757,8 +839,16 @@ export function HubDashboardPage() {
                   );
                 })}
               </div>
+                );
+              })()}
 
               {(() => {
+                const vendorDirectOrder = Boolean(
+                  orders.find((o) => o.id === detail.orderId)?.vendorAgentDelivery,
+                );
+                if (vendorDirectOrder) {
+                  return null;
+                }
                 const assignments = detail.assignments ?? [];
                 const vendorLegDone =
                   detail.status === 'DELIVERED' ||
@@ -900,7 +990,7 @@ export function HubDashboardPage() {
                     ))
                   ) : (
                     <p style={styles.tripCollapsedHint}>
-                      Tap Show trip list to see Shop → Hub and Hub → Home times.
+                      Tap Show trip list to see shop and home delivery times.
                     </p>
                   )}
                 </>
@@ -928,12 +1018,12 @@ export function HubDashboardPage() {
           const subOrderId = alertPrompt.subOrderId;
           setAlertError(null);
           void (async () => {
-            const ok = await doAlertVendor(subOrderId);
-            if (ok) {
+            const result = await doAlertVendor(subOrderId);
+            if (result.ok) {
               setAlertPrompt(null);
               setAlertError(null);
             } else {
-              setAlertError('Could not alert the vendor. Check that order-service is running, then try again.');
+              setAlertError(result.message);
             }
           })();
         }}

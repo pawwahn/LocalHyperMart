@@ -1,17 +1,17 @@
-/** Vendor portal tokens — light ops UI, green accent (Pachari-aligned). */
+/** Vendor portal tokens — light ops UI, KoYaKart green. */
 export const tokens = {
   color: {
     bg: '#F5F7F6',
     bgElevated: '#FFFFFF',
     bgMuted: '#EEF2F0',
-    bgTint: '#E8F5EE',
+    bgTint: '#E7F6EC',
     border: '#E5E7EB',
     text: '#1A1A1A',
     textMuted: '#6B7280',
     textInverse: '#FFFFFF',
-    accent: '#1B8B4C',
-    accentHover: '#146B3A',
-    accentSoft: '#E8F5EE',
+    accent: '#0C831F',
+    accentHover: '#086318',
+    accentSoft: '#E7F6EC',
     danger: '#EF4444',
     dangerSoft: '#FEE2E2',
     warning: '#F59E0B',
@@ -42,7 +42,7 @@ export const tokens = {
   },
   shadow: {
     card: '0 2px 8px rgba(0, 0, 0, 0.06)',
-    elevated: '0 8px 24px rgba(27, 139, 76, 0.12)',
+    elevated: '0 8px 24px rgba(12, 131, 31, 0.12)',
     soft: '0 14px 40px rgba(15, 23, 42, 0.08)',
   },
   motion: {

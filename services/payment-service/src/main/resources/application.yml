@@ -37,11 +37,15 @@ hyperlocalmart:
   delivery-service:
     base-url: ${HLM_DELIVERY_SERVICE_URI:http://localhost:8088}
   payment:
+    razorpay-queue:
+      enabled: ${HLM_RAZORPAY_QUEUE:true}
+      max-concurrent: ${HLM_RAZORPAY_QUEUE_WORKERS:8}
+      queue-capacity: ${HLM_RAZORPAY_QUEUE_CAPACITY:512}
     razorpay-key-id: ${RAZORPAY_KEY_ID:}
     razorpay-key-secret: ${RAZORPAY_KEY_SECRET:}
     razorpay-webhook-secret: ${RAZORPAY_WEBHOOK_SECRET:}
     razorpay-api-base-url: ${RAZORPAY_API_BASE_URL:https://api.razorpay.com/v1}
-    checkout-name: ${RAZORPAY_CHECKOUT_NAME:HyperLocalMart}
+    checkout-name: ${RAZORPAY_CHECKOUT_NAME:KoYaKart}
     checkout-logo-url: ${RAZORPAY_CHECKOUT_LOGO_URL:}
     dev-webhook-bypass-secret: ${PAYMENT_DEV_WEBHOOK_BYPASS:dev-bypass}
 

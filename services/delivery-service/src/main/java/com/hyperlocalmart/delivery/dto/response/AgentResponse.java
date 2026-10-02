@@ -1,6 +1,7 @@
 package com.hyperlocalmart.delivery.dto.response;
 
 import com.hyperlocalmart.delivery.entity.AgentStatus;
+import com.hyperlocalmart.delivery.entity.AgentType;
 import lombok.Builder;
 import lombok.Value;
 
@@ -18,6 +19,9 @@ public class AgentResponse {
     String name;
     String phone;
     AgentStatus status;
+    AgentType agentType;
+    UUID vendorId;
+    UUID shopId;
     String govtIdType;
     String govtIdNumber;
     String reference1Name;

@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hyperlocalmart.common.exception.BusinessException;
 import com.hyperlocalmart.common.exception.ErrorCode;
 import com.hyperlocalmart.payment.config.PaymentProperties;
+import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -29,8 +30,15 @@ public class RazorpayClient {
     private final PaymentProperties paymentProperties;
     private final ObjectMapper objectMapper;
 
+    private volatile RestClient restClient;
+
     public boolean isConfigured() {
         return paymentProperties.isRazorpayConfigured();
+    }
+
+    @PostConstruct
+    void initClient() {
+        rebuildClient();
     }
 
     public RazorpayOrder createOrder(long amountPaise, String receipt, Map<String, String> notes) {
@@ -117,6 +125,15 @@ public class RazorpayClient {
     }
 
     private RestClient client() {
+        RestClient cached = restClient;
+        if (cached != null) {
+            return cached;
+        }
+        rebuildClient();
+        return restClient;
+    }
+
+    private void rebuildClient() {
         String token = Base64.getEncoder().encodeToString(
                 (paymentProperties.getRazorpayKeyId() + ":" + paymentProperties.getRazorpayKeySecret())
                         .getBytes(StandardCharsets.UTF_8));
@@ -125,7 +142,7 @@ public class RazorpayClient {
                 .build();
         JdkClientHttpRequestFactory requestFactory = new JdkClientHttpRequestFactory(httpClient);
         requestFactory.setReadTimeout(Duration.ofSeconds(20));
-        return RestClient.builder()
+        restClient = RestClient.builder()
                 .baseUrl(paymentProperties.getRazorpayApiBaseUrl())
                 .requestFactory(requestFactory)
                 .defaultHeader(HttpHeaders.AUTHORIZATION, "Basic " + token)

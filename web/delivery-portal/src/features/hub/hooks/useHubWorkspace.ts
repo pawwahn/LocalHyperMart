@@ -360,8 +360,10 @@ export function useHubWorkspace() {
     }
   }
 
-  async function doAlertVendor(subOrderId: string): Promise<boolean> {
-    if (!session || !townId) return false;
+  async function doAlertVendor(subOrderId: string): Promise<{ ok: true } | { ok: false; message: string }> {
+    if (!session || !townId) {
+      return { ok: false, message: 'Session or town missing — refresh and try again.' };
+    }
     setBusy(true);
     setNotice(null);
     setError(null);
@@ -369,10 +371,16 @@ export function useHubWorkspace() {
       await alertVendor(session.accessToken, townId, subOrderId);
       setNotice('Reminder sent — vendor popup + sound until they tap Noticed order.');
       if (selectedOrderId) await openOrder(selectedOrderId);
-      return true;
+      return { ok: true };
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not alert vendor');
-      return false;
+      const message =
+        err instanceof ApiError
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : 'Could not alert vendor';
+      setError(message);
+      return { ok: false, message };
     } finally {
       setBusy(false);
     }

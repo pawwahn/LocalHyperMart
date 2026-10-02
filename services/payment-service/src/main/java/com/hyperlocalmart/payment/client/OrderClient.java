@@ -129,6 +129,44 @@ public class OrderClient {
         return response.getData();
     }
 
+    public CodDeliveredOrders getCodDeliveredRange(UUID townId, UUID agentId, LocalDate from, LocalDate to) {
+        RestClient client = restClientBuilder.baseUrl(orderServiceProperties.getBaseUrl()).build();
+        ApiResponse<CodDeliveredOrders> response = client.get()
+                .uri(uriBuilder -> {
+                    var b = uriBuilder
+                            .path("/api/v1/internal/orders/cod-delivered/range")
+                            .queryParam("townId", townId)
+                            .queryParam("from", from)
+                            .queryParam("to", to);
+                    if (agentId != null) {
+                        b.queryParam("agentId", agentId);
+                    }
+                    return b.build();
+                })
+                .retrieve()
+                .body(new ParameterizedTypeReference<ApiResponse<CodDeliveredOrders>>() {});
+        if (response == null || response.getData() == null) {
+            throw new IllegalStateException("COD delivered orders unavailable");
+        }
+        return response.getData();
+    }
+
+    public List<CodCashBreakdown> codCashBreakdown(Collection<UUID> orderIds) {
+        if (orderIds == null || orderIds.isEmpty()) {
+            return List.of();
+        }
+        RestClient client = restClientBuilder.baseUrl(orderServiceProperties.getBaseUrl()).build();
+        ApiResponse<List<CodCashBreakdown>> response = client.post()
+                .uri("/api/v1/internal/orders/cod-cash/breakdown")
+                .body(List.copyOf(orderIds))
+                .retrieve()
+                .body(new ParameterizedTypeReference<ApiResponse<List<CodCashBreakdown>>>() {});
+        if (response == null || response.getData() == null) {
+            return List.of();
+        }
+        return response.getData();
+    }
+
     public List<CodDeliveredItem> resolveCodDelivered(Collection<UUID> orderIds) {
         RestClient client = restClientBuilder.baseUrl(orderServiceProperties.getBaseUrl()).build();
         ApiResponse<List<CodDeliveredItem>> response = client.post()
@@ -172,6 +210,8 @@ public class OrderClient {
             Instant placedAt,
             String status,
             String paymentStatus,
+            String paymentMethod,
+            boolean vendorAgentDelivery,
             BigDecimal subtotal
     ) {
     }
@@ -216,7 +256,8 @@ public class OrderClient {
             String status,
             String paymentStatus,
             Instant deliveredAt,
-            BigDecimal totalAmount
+            BigDecimal totalAmount,
+            boolean vendorAgentDelivery
     ) {
     }
 
@@ -234,6 +275,27 @@ public class OrderClient {
             String orderNumber,
             BigDecimal totalAmount,
             Instant deliveredAt
+    ) {
+    }
+
+    public record CodCashBreakdown(
+            UUID orderId,
+            String orderNumber,
+            java.time.Instant deliveredAt,
+            BigDecimal collectAmount,
+            String custodianType,
+            UUID hubId,
+            UUID vendorId,
+            List<VendorAllocation> vendorAllocations
+    ) {
+    }
+
+    public record VendorAllocation(
+            UUID subOrderId,
+            UUID vendorId,
+            String subOrderNumber,
+            BigDecimal goodsSubtotal,
+            BigDecimal allocatedCash
     ) {
     }
 }

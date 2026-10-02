@@ -50,4 +50,13 @@ public class PaymentController {
             HttpServletRequest httpRequest) {
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, paymentService.getPayment(principal.getUserId(), paymentId)));
     }
+
+    @GetMapping("/{paymentId}/checkout")
+    public ResponseEntity<ApiResponse<PaymentResponse>> getPaymentCheckout(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @PathVariable UUID paymentId,
+            HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                paymentService.getPaymentCheckout(principal.getUserId(), paymentId)));
+    }
 }

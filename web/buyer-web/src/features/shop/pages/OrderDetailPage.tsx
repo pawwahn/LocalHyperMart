@@ -7,6 +7,8 @@ import { useShop } from '../hooks/useShop';
 import { useOrderDetail } from '../hooks/useOrderDetail';
 import { formatBuyerPaymentLabel } from '../lib/formatBuyerPaymentLabel';
 import { CheckoutDismissedError, openRazorpayCheckout } from '../lib/razorpayCheckout';
+import { pollUntilCheckoutReady } from '../lib/paymentCheckoutPoll';
+import { fetchPaymentCheckout } from '../api/shopApi';
 import { confirmOnlinePayment, retryOnlinePayment } from '../api/shopApi';
 import { OrderStatusTimeline } from '../components/OrderStatusTimeline';
 import { ReasonDialog } from '../components/ReasonDialog';
@@ -191,10 +193,16 @@ export function OrderDetailPage() {
     setPayBusy(true);
     try {
       const retry = await retryOnlinePayment(session.accessToken, order.orderId);
-      if (!retry.checkout?.gatewayOrderId) {
+      let checkout = retry.checkout;
+      if (!checkout?.gatewayOrderId && retry.paymentId) {
+        checkout = await pollUntilCheckoutReady(() =>
+          fetchPaymentCheckout(session.accessToken, retry.paymentId!),
+        );
+      }
+      if (!checkout?.gatewayOrderId) {
         throw new Error('Could not start online payment');
       }
-      const paid = await openRazorpayCheckout(retry.checkout, { contact: session.phone });
+      const paid = await openRazorpayCheckout(checkout, { contact: session.phone });
       await confirmOnlinePayment(session.accessToken, paid);
       await reload();
     } catch (err) {
@@ -605,7 +613,11 @@ export function OrderDetailPage() {
               </div>
             ) : null}
             <div style={{ ...styles.totalRow, ...styles.grand }}>
-              <span>Total paid</span>
+              <span>
+                {order.paymentMethod === 'COD' && order.paymentStatus !== 'PAID'
+                  ? 'Total due at delivery'
+                  : 'Total paid'}
+              </span>
               <strong style={styles.grandAmount}>{money(order.totalAmount)}</strong>
             </div>
           </Card>

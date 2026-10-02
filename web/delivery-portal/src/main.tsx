@@ -5,7 +5,7 @@ import { injectGlobalStyles } from '@/shared/theme/globalStyles';
 import { AppRouter } from '@/app/AppRouter';
 
 injectGlobalStyles();
-applyStoredTheme('hlm.delivery.theme', 'ocean');
+applyStoredTheme('hlm.koyakart.delivery.theme', 'forest');
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

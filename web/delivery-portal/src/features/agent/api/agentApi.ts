@@ -18,6 +18,8 @@ export type AssignmentView = {
   destinationName: string | null;
   destinationPhone: string | null;
   destinationAddress: string | null;
+  paymentMethod?: string | null;
+  collectCashAmount?: number | null;
   events: Array<{
     eventType: string;
     createdAt: string;
@@ -28,9 +30,9 @@ export type AssignmentView = {
 export function toAssignmentView(dto: AssignmentDto): AssignmentView {
   return {
     id: dto.assignmentId,
-    assignmentNumber: dto.assignmentNumber,
+    assignmentNumber: dto.assignmentNumber ?? dto.assignmentId ?? '—',
     orderId: dto.orderId,
-    orderNumber: dto.orderNumber,
+    orderNumber: dto.orderNumber ?? '—',
     vendorSubOrderId: dto.vendorSubOrderId ?? null,
     subOrderNumber: dto.subOrderNumber ?? null,
     legType: dto.legType,
@@ -38,7 +40,9 @@ export function toAssignmentView(dto: AssignmentDto): AssignmentView {
     label:
       dto.legType === 'PICKUP'
         ? `Vendor → Hub · ${dto.status}`
-        : `Hub → Buyer · ${dto.status}`,
+        : dto.legType === 'VENDOR_DIRECT'
+          ? `Shop → Buyer · ${dto.status}`
+          : `Hub → Buyer · ${dto.status}`,
     assignedAt: dto.assignedAt ?? null,
     startedAt: dto.startedAt ?? null,
     completedAt: dto.completedAt ?? null,
@@ -46,12 +50,45 @@ export function toAssignmentView(dto: AssignmentDto): AssignmentView {
     destinationName: dto.destinationName ?? null,
     destinationPhone: dto.destinationPhone ?? null,
     destinationAddress: dto.destinationAddress ?? null,
+    paymentMethod: dto.paymentMethod ?? null,
+    collectCashAmount:
+      dto.collectCashAmount != null ? Number(dto.collectCashAmount) : null,
     events: (dto.events ?? []).map((e) => ({
       eventType: e.eventType,
       createdAt: e.createdAt,
       metadata: e.metadata ?? null,
     })),
   };
+}
+
+export type AgentShopAlertDto = {
+  alertId: string;
+  assignmentId: string;
+  orderId: string;
+  orderNumber?: string | null;
+  vendorSubOrderId: string;
+  subOrderNumber?: string | null;
+  shopName?: string | null;
+  status: string;
+  createdAt?: string | null;
+};
+
+export async function fetchPendingAgentShopAlerts(token: string): Promise<AgentShopAlertDto[]> {
+  const data = await apiRequest<AgentShopAlertDto[]>(
+    '/api/v1/delivery/agents/me/agent-alerts?status=PENDING',
+    { token },
+  );
+  return data ?? [];
+}
+
+export async function acknowledgeAgentShopAlert(
+  token: string,
+  alertId: string,
+): Promise<AgentShopAlertDto> {
+  return apiRequest<AgentShopAlertDto>(
+    `/api/v1/delivery/agents/me/agent-alerts/${alertId}/acknowledge`,
+    { method: 'POST', token },
+  );
 }
 
 export type AgentPeriodStats = {
@@ -63,6 +100,7 @@ export type AgentPeriodStats = {
 };
 
 export type AgentStatsDto = {
+  agentType?: 'HUB' | 'VENDOR' | string;
   vendorPickupsCollected: number;
   vendorPickupsAtHub: number;
   buyerDeliveriesCompleted: number;
@@ -139,10 +177,13 @@ export type AgentPaySummary = {
   from: string;
   to: string;
   payEnabled: boolean;
+  payModel?: 'HUB_NETWORK' | 'VENDOR_SHOP' | string;
   pickupRate: number;
   lastMileRate: number;
   completedOrderRate: number;
+  vendorDirectOrderRate?: number;
   payableOrders: number;
+  yourDeliveries?: number;
   unpaidOrderCount: number;
   earned: number;
   paid: number;
@@ -180,9 +221,11 @@ export async function fetchMyPay(
   const data = await apiRequest<AgentPaySummary>(`/api/v1/payments/settlements/agent/me${suffix}`, { token });
   return {
     ...data,
+    payModel: data.payModel ?? 'HUB_NETWORK',
     pickupRate: Number(data.pickupRate ?? 0),
     lastMileRate: Number(data.lastMileRate ?? 0),
     completedOrderRate: Number(data.completedOrderRate ?? 0),
+    vendorDirectOrderRate: Number(data.vendorDirectOrderRate ?? 0),
     payableOrders: Number(data.payableOrders ?? 0),
     unpaidOrderCount: Number(data.unpaidOrderCount ?? 0),
     earned: Number(data.earned ?? 0),
@@ -225,6 +268,8 @@ export type DeliveryManifestView = {
   assignmentId: string;
   orderId: string;
   orderNumber: string;
+  paymentMethod?: 'COD' | 'ONLINE' | string | null;
+  collectCashAmount?: number | null;
   subtotal: number;
   totalItemCount: number;
   items: PickupManifestLineView[];
@@ -324,6 +369,8 @@ export async function fetchDeliveryManifest(token: string, assignmentId: string)
     assignmentId: string;
     orderId: string;
     orderNumber: string;
+    paymentMethod?: string | null;
+    collectCashAmount?: number | null;
     subtotal: number;
     totalItemCount: number;
     items: Array<{
@@ -338,6 +385,8 @@ export async function fetchDeliveryManifest(token: string, assignmentId: string)
     assignmentId: data.assignmentId,
     orderId: data.orderId,
     orderNumber: data.orderNumber,
+    paymentMethod: data.paymentMethod ?? null,
+    collectCashAmount: data.collectCashAmount != null ? Number(data.collectCashAmount) : null,
     subtotal: Number(data.subtotal ?? 0),
     totalItemCount: data.totalItemCount,
     items: (data.items ?? []).map((item) => ({

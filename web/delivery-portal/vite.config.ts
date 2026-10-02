@@ -12,6 +12,7 @@ export default defineConfig({
       '@hlm-theme': fileURLToPath(new URL('../shared/theme', import.meta.url)),
       '@hlm-legal': fileURLToPath(new URL('../shared/legal', import.meta.url)),
     },
+    dedupe: ['react', 'react-dom', 'react-router-dom'],
   },
   server: {
     port: 5174,

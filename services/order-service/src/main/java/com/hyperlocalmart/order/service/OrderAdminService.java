@@ -155,13 +155,14 @@ public class OrderAdminService {
                 .storeCreditApplied(order.getStoreCreditApplied())
                 .promoDiscount(order.getPromoDiscount())
                 .promoCode(order.getPromoCode())
-                .totalAmount(order.getTotalAmount())
+                .totalAmount(OrderService.buyerPayableTotal(order))
                 .placedAt(order.getPlacedAt())
                 .deliveredAt(order.getDeliveredAt())
                 .cancelledAt(order.getCancelledAt())
                 .cancelReason(order.getCancelReason())
                 .subOrders(subOrders)
                 .assignments(assignments)
+                .vendorAgentDelivery(order.isVendorAgentDelivery())
                 .build();
     }
 
@@ -248,13 +249,14 @@ public class OrderAdminService {
                 .status(order.getStatus())
                 .paymentMethod(order.getPaymentMethod())
                 .paymentStatus(order.getPaymentStatus())
-                .totalAmount(order.getTotalAmount())
+                .totalAmount(OrderService.buyerPayableTotal(order))
                 .placedAt(order.getPlacedAt())
                 .subOrderCount(activeSubs.size())
                 .rejectedSubOrderCount(rejectedSubOrderCount)
                 .readySubOrderCount(readySubOrderCount)
                 .atHubSubOrderCount(atHubSubOrderCount)
                 .assignments(assignmentHints)
+                .vendorAgentDelivery(order.isVendorAgentDelivery())
                 .build();
     }
 

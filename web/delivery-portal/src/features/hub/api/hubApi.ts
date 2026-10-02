@@ -36,6 +36,7 @@ export type AdminOrderDto = {
     status: string;
     subOrderNumber?: string | null;
   }>;
+  vendorAgentDelivery?: boolean;
 };
 
 export type AdminOrderDetailDto = {
@@ -114,6 +115,8 @@ export type AssignmentDto = {
   destinationName?: string | null;
   destinationPhone?: string | null;
   destinationAddress?: string | null;
+  paymentMethod?: string | null;
+  collectCashAmount?: number | null;
   events?: Array<{
     eventId: string;
     eventType: string;
@@ -153,6 +156,7 @@ export type OrderRowView = {
   atHubSubOrderCount: number;
   pickupReadiness: 'none' | 'partial' | 'all';
   assignments: OrderAssignmentHint[];
+  vendorAgentDelivery: boolean;
 };
 
 export type SubOrderItemView = {
@@ -231,6 +235,7 @@ export function toOrderRow(dto: AdminOrderDto): OrderRowView {
     atHubSubOrderCount: atHub,
     pickupReadiness,
     assignments,
+    vendorAgentDelivery: Boolean(dto.vendorAgentDelivery),
   };
 }
 

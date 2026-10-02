@@ -1,11 +1,11 @@
-HYPERLOCALMART — TERMS AND CONDITIONS
+KOYAKART — TERMS AND CONDITIONS
 
-These Terms govern use of HyperLocalMart: the buyer app, vendor portal, hub/agent (delivery) portal, and super-admin tools (together, the “Platform”).
+These Terms govern use of KoYaKart: the buyer app, vendor portal, hub/agent (delivery) portal, and super-admin tools (together, the “Platform”).
 
 By creating an account, ticking “I agree”, or signing in and using any portal, you accept these Terms, the Privacy Policy, and the Refund & Store Credit Policy. Super Admin may update this text at any time under Platform settings. The version and date shown in the app are the current Terms. Continued use after an update means you accept the new Terms, except where law requires a fresh consent.
 
 1. WHO WE ARE
-HyperLocalMart is a town marketplace. We connect buyers with neighbourhood shops and a town delivery hub. We are not a dark store, not the seller of every item, and not a bank. Vendors sell goods. The hub and agents move orders. Prices, stock, and packing are the vendor’s responsibility unless we say otherwise below.
+KoYaKart is a town marketplace. We connect buyers with neighbourhood shops and a town delivery hub. We are not a dark store, not the seller of every item, and not a bank. Vendors sell goods. The hub and agents move orders. Prices, stock, and packing are the vendor’s responsibility unless we say otherwise below.
 
 2. ACCOUNTS
 • Buyers register with an Indian mobile number and a strong password. Soft launch may be invite-only (only listed numbers can register).
@@ -31,7 +31,7 @@ HyperLocalMart is a town marketplace. We connect buyers with neighbourhood shops
 • Buyer-cancelled lines (where that action exists) are not restorable by the shop.
 
 5. WALLET / STORE CREDIT
-The in-app “Wallet” is store credit on HyperLocalMart. It is not a bank account, UPI wallet, or cash you can withdraw to a bank or UPI ID.
+The in-app “Wallet” is store credit on KoYaKart. It is not a bank account, UPI wallet, or cash you can withdraw to a bank or UPI ID.
 
 Store credit may be added when:
 • a shop rejects or cancels items that were payable to you as credit under our money rules;

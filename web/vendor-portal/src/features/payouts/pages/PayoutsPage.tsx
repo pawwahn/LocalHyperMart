@@ -196,7 +196,7 @@ export function PayoutsPage() {
       });
       const supplierCode = gstStateCodeFromGstin(from?.gstin ?? '') || from?.gstStateCode || '';
       setSupplier({
-        legalName: from?.legalName || 'HyperLocalMart',
+        legalName: from?.legalName || 'KoYaKart',
         gstin: (from?.gstin ?? '').trim().toUpperCase(),
         address: from?.address || '',
         phone: from?.phone || '',
@@ -210,7 +210,7 @@ export function PayoutsPage() {
   function supplierParty(): BillParty {
     return (
       supplier ?? {
-        legalName: 'HyperLocalMart',
+        legalName: 'KoYaKart',
         gstin: '',
         address: '',
         phone: '',

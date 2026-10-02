@@ -129,21 +129,30 @@ public class OrderService {
                 .status(order.getStatus())
                 .paymentStatus(order.getPaymentStatus())
                 .paymentMethod(order.getPaymentMethod())
-                .totalAmount(order.getTotalAmount())
+                .totalAmount(buyerPayableTotal(order))
                 .buyerPhone(order.getBuyerPhoneSnapshot())
                 .build();
     }
 
     @Transactional(readOnly = true)
     public SubOrderInternalSnapshotResponse getSubOrderSnapshot(UUID subOrderId) {
-        VendorSubOrder subOrder = vendorSubOrderRepository.findDetailedById(subOrderId)
+        VendorSubOrder subOrder = vendorSubOrderRepository.findDetailedByIdWithItems(subOrderId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Sub-order not found"));
+        String shopName = "Shop";
+        if (subOrder.getItems() != null && !subOrder.getItems().isEmpty()) {
+            String snap = subOrder.getItems().getFirst().getShopNameSnapshot();
+            if (snap != null && !snap.isBlank()) {
+                shopName = snap;
+            }
+        }
         return SubOrderInternalSnapshotResponse.builder()
                 .subOrderId(subOrder.getId())
                 .subOrderNumber(subOrder.getSubOrderNumber())
                 .orderId(subOrder.getOrder().getId())
                 .townId(subOrder.getOrder().getTownId())
                 .vendorId(subOrder.getVendorId())
+                .shopId(subOrder.getShopId())
+                .shopName(shopName)
                 .status(subOrder.getStatus().name())
                 .orderNumber(subOrder.getOrder().getOrderNumber())
                 .build();
@@ -232,9 +241,12 @@ public class OrderService {
             }
         }
         int totalItemCount = lines.stream().mapToInt(DeliveryManifestLineResponse::getQuantity).sum();
+        BigDecimal collectCash = order.getPaymentMethod() == PaymentMethod.COD ? buyerPayableTotal(order) : null;
         return OrderDeliveryManifestResponse.builder()
                 .orderId(order.getId())
                 .orderNumber(order.getOrderNumber())
+                .paymentMethod(order.getPaymentMethod())
+                .collectCashAmount(collectCash)
                 .subtotal(subtotal)
                 .totalItemCount(totalItemCount)
                 .items(lines)
@@ -260,6 +272,10 @@ public class OrderService {
                 .landmark(stringVal(addr, "landmark"))
                 .pincode(stringVal(addr, "pincode"))
                 .addressLabel(stringVal(addr, "label"))
+                .vendorAgentDelivery(order.isVendorAgentDelivery())
+                .paymentMethod(order.getPaymentMethod())
+                .collectCashAmount(
+                        order.getPaymentMethod() == PaymentMethod.COD ? buyerPayableTotal(order) : null)
                 .build();
     }
 
@@ -575,6 +591,21 @@ public class OrderService {
         }
     }
 
+    /** Matches checkout math using persisted order fee columns (after line cancels). */
+    static BigDecimal buyerPayableTotal(Order order) {
+        if (order == null) {
+            return BigDecimal.ZERO;
+        }
+        BigDecimal items = order.getItemsSubtotal() == null ? BigDecimal.ZERO : order.getItemsSubtotal();
+        BigDecimal promo = order.getPromoDiscount() == null ? BigDecimal.ZERO : order.getPromoDiscount();
+        BigDecimal payableItems = items.subtract(promo).max(BigDecimal.ZERO);
+        BigDecimal delivery = order.getDeliveryFee() == null ? BigDecimal.ZERO : order.getDeliveryFee();
+        BigDecimal platform = order.getPlatformFee() == null ? BigDecimal.ZERO : order.getPlatformFee();
+        BigDecimal cod = order.getCodFee() == null ? BigDecimal.ZERO : order.getCodFee();
+        BigDecimal credit = order.getStoreCreditApplied() == null ? BigDecimal.ZERO : order.getStoreCreditApplied();
+        return payableItems.add(delivery).add(platform).add(cod).subtract(credit).max(BigDecimal.ZERO);
+    }
+
     private CheckoutTotals totalsFor(
             BigDecimal payableSubtotal,
             BigDecimal deliveryFee,
@@ -715,7 +746,7 @@ public class OrderService {
                 .orderNumber(order.getOrderNumber())
                 .status(order.getStatus())
                 .displayStatus(displayStatus(order.getStatus()))
-                .totalAmount(order.getTotalAmount())
+                .totalAmount(buyerPayableTotal(order))
                 .paymentMethod(order.getPaymentMethod())
                 .paymentStatus(order.getPaymentStatus())
                 .placedAt(order.getPlacedAt())
@@ -794,7 +825,7 @@ public class OrderService {
                 .platformFee(order.getPlatformFee() == null ? BigDecimal.ZERO : order.getPlatformFee())
                 .codFee(order.getCodFee() == null ? BigDecimal.ZERO : order.getCodFee())
                 .storeCreditApplied(order.getStoreCreditApplied() == null ? BigDecimal.ZERO : order.getStoreCreditApplied())
-                .totalAmount(order.getTotalAmount())
+                .totalAmount(buyerPayableTotal(order))
                 .paymentMethod(order.getPaymentMethod())
                 .paymentStatus(order.getPaymentStatus())
                 .deliveryAddress(order.getDeliveryAddressSnapshot())
@@ -868,6 +899,11 @@ public class OrderService {
             return steps;
         }
 
+        if (order.isVendorAgentDelivery()) {
+            return buildVendorAgentTimeline(
+                    order, activeSubs, assignments, status, placedAt, deliveredAt, deliveredEventAt);
+        }
+
         steps.add(step("ORDER_PLACED", "Order placed", "DONE", placedAt, null));
 
         String preparingState = stateAfter(true, delivered || allReady || anyReady || pickedFromShop || atHub);
@@ -925,6 +961,65 @@ public class OrderService {
                 deliveredAt,
                 null));
 
+        return normalizeCurrent(steps);
+    }
+
+    private List<OrderTimelineStepResponse> buildVendorAgentTimeline(
+            Order order,
+            List<VendorSubOrder> activeSubs,
+            List<DeliveryClient.OrderAssignment> assignments,
+            OrderStatus status,
+            Instant placedAt,
+            Instant deliveredAt,
+            Instant deliveredEventAt) {
+        Instant vendorModeAt = activeSubs.stream()
+                .map(VendorSubOrder::getVendorAgentDeliveryAt)
+                .filter(Objects::nonNull)
+                .min(Instant::compareTo)
+                .orElse(null);
+        Instant assignedAt = firstEventAt(assignments, "VENDOR_DIRECT_ASSIGNED");
+        if (assignedAt == null && assignments != null) {
+            assignedAt = assignments.stream()
+                    .filter(a -> "VENDOR_DIRECT".equalsIgnoreCase(a.legType()))
+                    .map(DeliveryClient.OrderAssignment::assignedAt)
+                    .filter(Objects::nonNull)
+                    .min(Instant::compareTo)
+                    .orElse(null);
+        }
+        Instant pickedAt = firstEventAt(assignments, "VENDOR_DIRECT_PICKED_FROM_SHOP");
+        if (deliveredAt == null) {
+            deliveredAt = deliveredEventAt;
+        }
+        boolean delivered = status == OrderStatus.DELIVERED || deliveredEventAt != null;
+        boolean agentAssigned = assignedAt != null
+                || (assignments != null && assignments.stream()
+                        .anyMatch(a -> "VENDOR_DIRECT".equalsIgnoreCase(a.legType())));
+        boolean outForDelivery = pickedAt != null || hasVendorDirectInProgress(assignments);
+
+        List<OrderTimelineStepResponse> steps = new ArrayList<>();
+        steps.add(step("ORDER_PLACED", "Order placed", "DONE", placedAt, null));
+
+        String preparingState = stateAfter(true, vendorModeAt != null || agentAssigned || outForDelivery || delivered);
+        steps.add(step("SHOP_PREPARING", "Shop is preparing", preparingState, placedAt,
+                "CURRENT".equals(preparingState) ? "The shop is getting your order ready" : null));
+
+        String assignedState = stateAfter(
+                "DONE".equals(preparingState), agentAssigned || outForDelivery || delivered);
+        steps.add(step("AGENT_ASSIGNED", "Shop agent assigned", assignedState, assignedAt != null ? assignedAt : vendorModeAt,
+                "CURRENT".equals(assignedState) ? "Waiting for the shop to assign their delivery agent" : null));
+
+        String outState;
+        if (delivered) {
+            outState = "DONE";
+        } else if (outForDelivery) {
+            outState = "CURRENT";
+        } else {
+            outState = stateAfter("DONE".equals(assignedState), false);
+        }
+        steps.add(step("OUT_FOR_DELIVERY", "On the way to you", outState, pickedAt,
+                "CURRENT".equals(outState) ? "Your order is on the way" : null));
+
+        steps.add(step("DELIVERED", "Delivered", delivered ? "DONE" : "UPCOMING", deliveredAt, null));
         return normalizeCurrent(steps);
     }
 
@@ -991,11 +1086,35 @@ public class OrderService {
                         || "COMPLETED".equalsIgnoreCase(a.status())));
     }
 
+    private boolean hasVendorDirectInProgress(List<DeliveryClient.OrderAssignment> assignments) {
+        if (assignments == null) {
+            return false;
+        }
+        return assignments.stream()
+                .anyMatch(a -> "VENDOR_DIRECT".equalsIgnoreCase(a.legType())
+                        && "IN_PROGRESS".equalsIgnoreCase(a.status()));
+    }
+
     private String buyerDisplayStatus(Order order, List<DeliveryClient.OrderAssignment> assignments) {
         OrderStatus status = order.getStatus();
         if (status == OrderStatus.PAYMENT_PENDING) return "Awaiting Payment";
         if (status == OrderStatus.PAYMENT_FAILED) return "Payment Failed";
         if (status == OrderStatus.CANCELLED) return "Cancelled";
+        if (order.isVendorAgentDelivery()) {
+            if (status == OrderStatus.DELIVERED || firstEventAt(assignments, "DELIVERED") != null) {
+                return "Delivered";
+            }
+            if (firstEventAt(assignments, "VENDOR_DIRECT_PICKED_FROM_SHOP") != null
+                    || hasVendorDirectInProgress(assignments)) {
+                return "Out for Delivery";
+            }
+            if (firstEventAt(assignments, "VENDOR_DIRECT_ASSIGNED") != null
+                    || (assignments != null && assignments.stream()
+                            .anyMatch(a -> "VENDOR_DIRECT".equalsIgnoreCase(a.legType())))) {
+                return "Agent Assigned";
+            }
+            return "Shop Preparing";
+        }
         if (status == OrderStatus.DELIVERED || firstEventAt(assignments, "DELIVERED") != null) {
             return "Delivered";
         }

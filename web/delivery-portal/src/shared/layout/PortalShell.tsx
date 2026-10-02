@@ -92,7 +92,7 @@ export function PortalShell({ title, subtitle, children, onRefresh, footerNav, d
         <header style={styles.appBar}>
           <div style={styles.appBarTop}>
             <div style={styles.appBarTitleBlock}>
-              <p style={styles.appBarBrand}>HyperLocalMart</p>
+              <p style={styles.appBarBrand}>KoYaKart</p>
               <h1 style={styles.appBarTitle}>{title}</h1>
             </div>
             <div style={styles.appBarActions}>
@@ -119,7 +119,7 @@ export function PortalShell({ title, subtitle, children, onRefresh, footerNav, d
       ) : (
         <header style={dense ? styles.headerDense : styles.header}>
           <div style={styles.headerText}>
-            <p style={dense ? styles.brandDense : styles.brand}>HyperLocalMart · Delivery</p>
+            <p style={dense ? styles.brandDense : styles.brand}>KoYaKart · Delivery</p>
             <h1 style={dense ? styles.titleDense : styles.title}>{title}</h1>
             <p style={dense ? styles.subDense : styles.sub}>{identityDesktop}</p>
             {showSubtitle ? (

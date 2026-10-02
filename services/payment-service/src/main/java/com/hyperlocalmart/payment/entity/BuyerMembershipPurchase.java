@@ -72,4 +72,7 @@ public class BuyerMembershipPurchase extends BaseAuditEntity {
 
     @Column(name = "gateway_payment_id")
     private String gatewayPaymentId;
+
+    @Column(name = "idempotency_key", length = 128)
+    private String idempotencyKey;
 }

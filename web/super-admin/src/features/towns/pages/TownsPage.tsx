@@ -14,7 +14,6 @@ import {
 } from '../api/townsApi';
 import { getPlatformSettings } from '@/features/settings/api/settingsApi';
 import { TownSettingsDialog } from '../components/TownSettingsDialog';
-import { TownIncentiveDialog } from '../components/TownIncentiveDialog';
 import { AdminHistoryPanel } from '@/shared/audit/AdminHistoryPanel';
 
 type Filter = 'all' | 'enabled' | 'disabled';
@@ -48,7 +47,6 @@ export function TownsPage() {
   const [pincodes, setPincodes] = useState('');
   const [radius, setRadius] = useState('10');
   const [configTown, setConfigTown] = useState<TownVm | null>(null);
-  const [incentiveTown, setIncentiveTown] = useState<TownVm | null>(null);
   const [pendingStatus, setPendingStatus] = useState<{ town: TownVm; next: 'ENABLED' | 'DISABLED' } | null>(null);
   const [historyTick, setHistoryTick] = useState(0);
   const [pageView, setPageView] = useState<'towns' | 'history'>('towns');
@@ -133,6 +131,13 @@ export function TownsPage() {
   useEffect(() => {
     void reload();
   }, [reload]);
+
+  useEffect(() => {
+    setConfigTown((prev) => {
+      if (!prev) return null;
+      return towns.find((t) => t.id === prev.id) ?? prev;
+    });
+  }, [towns]);
 
   useEffect(() => {
     if (!selectedCountry) return;
@@ -444,17 +449,13 @@ export function TownsPage() {
                 <tbody>
                   {pagedTowns.map((town) => {
                     const disabled = town.status !== 'ENABLED';
-                    const rowBusy = busyId === town.id;
                     return (
                       <tr key={town.id}>
                         <td style={styles.td}>
                           <button
                             type="button"
                             style={styles.townLink}
-                            onClick={() => {
-                              setIncentiveTown(null);
-                              setConfigTown(town);
-                            }}
+                            onClick={() => setConfigTown(town)}
                           >
                             <strong style={styles.townName}>{town.displayName}</strong>
                           </button>
@@ -468,48 +469,14 @@ export function TownsPage() {
                           </span>
                         </td>
                         <td style={styles.tdRight}>
-                          <div style={styles.actionRow}>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              disabled={busy}
-                              onClick={() => {
-                                setIncentiveTown(null);
-                                setConfigTown(town);
-                              }}
-                            >
-                              Settings
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              disabled={busy}
-                              onClick={() => {
-                                setConfigTown(null);
-                                setIncentiveTown(town);
-                              }}
-                            >
-                              Hub & agent pay
-                            </Button>
-                            {disabled ? (
-                              <Button
-                                size="sm"
-                                disabled={rowBusy || busy}
-                                onClick={() => requestStatus(town, 'ENABLED')}
-                              >
-                                {rowBusy ? '…' : 'Enable'}
-                              </Button>
-                            ) : (
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                disabled={rowBusy || busy}
-                                onClick={() => requestStatus(town, 'DISABLED')}
-                              >
-                                {rowBusy ? '…' : 'Disable'}
-                              </Button>
-                            )}
-                          </div>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            disabled={busy}
+                            onClick={() => setConfigTown(town)}
+                          >
+                            Settings
+                          </Button>
                         </td>
                       </tr>
                     );
@@ -552,19 +519,8 @@ export function TownsPage() {
             setError(null);
             setHistoryTick((n) => n + 1);
           }}
-        />
-      ) : null}
-
-      {incentiveTown ? (
-        <TownIncentiveDialog
-          town={incentiveTown}
-          token={token}
-          onClose={() => setIncentiveTown(null)}
-          onSaved={(message) => {
-            setNotice(message);
-            setError(null);
-            setHistoryTick((n) => n + 1);
-          }}
+          onRequestTownStatus={(next) => requestStatus(configTown, next)}
+          townStatusBusy={busyId === configTown.id}
         />
       ) : null}
 

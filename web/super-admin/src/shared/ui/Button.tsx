@@ -21,7 +21,7 @@ const variantStyles: Record<Variant, CSSProperties> = {
     background: 'var(--accent)',
     color: 'var(--text-inverse)',
     border: 'none',
-    boxShadow: '0 4px 12px rgba(27, 139, 76, 0.22)',
+    boxShadow: '0 4px 12px rgba(12, 131, 31, 0.25)',
   },
   secondary: {
     background: 'var(--bg-elevated)',

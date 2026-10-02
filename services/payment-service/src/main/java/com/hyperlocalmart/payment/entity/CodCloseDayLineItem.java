@@ -32,4 +32,8 @@ public class CodCloseDayLineItem extends BaseAuditEntity {
 
     @Column(nullable = false, precision = 12, scale = 2)
     private BigDecimal amount;
+
+    @OneToMany(mappedBy = "closeDayLine", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
+    @Builder.Default
+    private java.util.List<CodCloseDayAllocation> allocations = new java.util.ArrayList<>();
 }

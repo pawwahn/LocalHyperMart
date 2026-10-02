@@ -45,8 +45,8 @@ export function injectGlobalStyles(): void {
       margin: 0;
       font-family: var(--font-body);
       background:
-        radial-gradient(ellipse at 10% -8%, rgba(196, 123, 23, 0.12), transparent 42%),
-        radial-gradient(ellipse at 92% 8%, rgba(55, 65, 81, 0.06), transparent 40%),
+        radial-gradient(ellipse at 10% -8%, rgba(12, 131, 31, 0.12), transparent 42%),
+        radial-gradient(ellipse at 92% 8%, rgba(12, 131, 31, 0.06), transparent 40%),
         var(--bg);
       color: var(--text);
       line-height: 1.5;

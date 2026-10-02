@@ -1,6 +1,7 @@
 import type { CSSProperties, ReactNode } from 'react';
 import { NavLink } from 'react-router-dom';
 import { PortalShell } from '@/shared/layout/PortalShell';
+import { useAgentKind } from '../hooks/useAgentKind';
 
 type Props = {
   title: string;
@@ -9,15 +10,26 @@ type Props = {
   children: ReactNode;
 };
 
-const NAV = [
+const HUB_NAV = [
   { to: '/agent', label: 'Home', icon: '🏠', end: true },
   { to: '/agent/pickups', label: 'From shop', icon: '🛍️', end: false },
   { to: '/agent/deliveries', label: 'To home', icon: '🛵', end: false },
+  { to: '/agent/cod-handover', label: 'COD', icon: '💵', end: false },
+  { to: '/agent/history', label: 'Done', icon: '✅', end: false },
+  { to: '/agent/pay', label: 'Pay', icon: '₹', end: false },
+] as const;
+
+const VENDOR_NAV = [
+  { to: '/agent', label: 'Home', icon: '🏠', end: true },
+  { to: '/agent/deliveries', label: 'Deliveries', icon: '🛵', end: false },
+  { to: '/agent/cod-handover', label: 'COD', icon: '💵', end: false },
   { to: '/agent/history', label: 'Done', icon: '✅', end: false },
   { to: '/agent/pay', label: 'Pay', icon: '₹', end: false },
 ] as const;
 
 export function AgentShell({ title, subtitle, onRefresh, children }: Props) {
+  const { vendorShop } = useAgentKind();
+  const nav = vendorShop ? VENDOR_NAV : HUB_NAV;
   return (
     <PortalShell
       title={title}
@@ -25,8 +37,16 @@ export function AgentShell({ title, subtitle, onRefresh, children }: Props) {
       onRefresh={onRefresh}
       dense
       footerNav={
-        <nav style={styles.tabbar} aria-label="Agent work">
-          {NAV.map((item) => (
+        <nav
+          style={{
+            ...styles.tabbar,
+            ...(vendorShop
+              ? { ['--agent-tab-cols' as string]: 'repeat(5, 1fr)' }
+              : { ['--agent-tab-cols' as string]: 'repeat(6, 1fr)' }),
+          }}
+          aria-label="Agent work"
+        >
+          {nav.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
@@ -62,7 +82,7 @@ const styles: Record<string, CSSProperties> = {
     height: 'calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px))',
     paddingBottom: 'env(safe-area-inset-bottom, 0px)',
     display: 'grid',
-    gridTemplateColumns: 'repeat(5, 1fr)',
+    gridTemplateColumns: 'var(--agent-tab-cols, repeat(5, 1fr))',
     background: 'var(--bg-elevated)',
     borderTop: '1px solid var(--border)',
     zIndex: 50,

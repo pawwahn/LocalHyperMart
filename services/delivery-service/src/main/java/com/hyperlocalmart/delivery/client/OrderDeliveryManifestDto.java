@@ -10,6 +10,8 @@ import java.util.UUID;
 public class OrderDeliveryManifestDto {
     private UUID orderId;
     private String orderNumber;
+    private String paymentMethod;
+    private BigDecimal collectCashAmount;
     private BigDecimal subtotal;
     private int totalItemCount;
     private List<Line> items;

@@ -235,7 +235,7 @@ export function OrdersPage() {
                         </div>
                       </div>
                       <div style={styles.rowSide}>
-                        <p style={styles.amount}>₹{Number(o.totalAmount).toFixed(0)}</p>
+                        <p style={styles.amount}>₹{Number(o.totalAmount).toFixed(2).replace(/\.00$/, '')}</p>
                         <p style={styles.chevron}>›</p>
                       </div>
                     </button>

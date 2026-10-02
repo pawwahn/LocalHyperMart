@@ -26,8 +26,19 @@ public class CodCloseDay extends BaseAuditEntity {
     @Column(name = "town_id", nullable = false)
     private UUID townId;
 
-    @Column(name = "hub_id", nullable = false)
+    @Column(name = "hub_id")
     private UUID hubId;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "custodian_type", nullable = false, length = 20)
+    @Builder.Default
+    private CodCustodianType custodianType = CodCustodianType.HUB;
+
+    @Column(name = "vendor_id")
+    private UUID vendorId;
+
+    @Column(name = "agent_handover_id")
+    private UUID agentHandoverId;
 
     @Column(name = "agent_id", nullable = false)
     private UUID agentId;

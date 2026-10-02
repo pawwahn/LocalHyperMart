@@ -38,6 +38,11 @@ export function AgentHomePage() {
             ? stats.month
             : stats.allTime;
 
+  const vendorShop = stats?.agentType === 'VENDOR';
+  const vendorOpenAtShop = workSummary.deliveryAtHub;
+  const vendorEnRoute = workSummary.deliveryEnRoute;
+  const vendorOpen = vendorOpenAtShop + vendorEnRoute;
+
   return (
     <AgentShell title="Your jobs" onRefresh={() => void reload()}>
       {error ? <p style={styles.error}>{error}</p> : null}
@@ -48,7 +53,9 @@ export function AgentHomePage() {
           ? 'Checking jobs…'
           : workSummary.totalActive > 0
             ? `${workSummary.totalActive} open · tap a row`
-            : 'No open jobs · waiting for hub'}
+            : vendorShop
+              ? 'No open jobs · your shop will assign deliveries'
+              : 'No open jobs · waiting for hub'}
       </p>
 
       {stats ? (
@@ -67,17 +74,37 @@ export function AgentHomePage() {
               </button>
             ))}
           </div>
-          <div style={styles.metrics}>
-            <Metric label="Picked" value={period.shopPicked} hint="from shop" />
-            <Metric label="At hub" value={period.droppedAtHub} hint="drop-off" />
-            <Metric label="Delivered" value={period.homeDelivered} hint="to home" />
-            <Metric label="Returns" value={period.returnsToHub} hint="buyer refused" />
+          <div style={{ ...styles.metrics, ...(vendorShop ? styles.metricsVendor : null) }}>
+            {vendorShop ? (
+              <>
+                <Metric label="From shop" value={period.shopPicked} hint="bag taken" />
+                <Metric label="Delivered" value={period.homeDelivered} hint="to customer" />
+                <Metric label="Returns" value={period.returnsToHub} hint="buyer refused" />
+              </>
+            ) : (
+              <>
+                <Metric label="Picked" value={period.shopPicked} hint="from shop" />
+                <Metric label="At hub" value={period.droppedAtHub} hint="drop-off" />
+                <Metric label="Delivered" value={period.homeDelivered} hint="to home" />
+                <Metric label="Returns" value={period.returnsToHub} hint="buyer refused" />
+              </>
+            )}
           </div>
           {period.cancelledPickups > 0 ? (
             <p style={styles.note}>{period.cancelledPickups} shop pickup{period.cancelledPickups === 1 ? '' : 's'} cancelled</p>
           ) : null}
         </section>
       ) : null}
+
+      <Link to="/agent/cod-handover" style={styles.codStrip}>
+        <div>
+          <p style={styles.payTitle}>Hand over COD cash</p>
+          <p style={styles.payMeta}>Declare cash given to hub or shop · IST day</p>
+        </div>
+        <span style={styles.chevron} aria-hidden>
+          ›
+        </span>
+      </Link>
 
       <Link to="/agent/pay" style={styles.payStrip}>
         <div>
@@ -97,31 +124,41 @@ export function AgentHomePage() {
         <p style={styles.muted}>Loading…</p>
       ) : (
         <section style={styles.list} aria-label="Job types">
-          <JobRow
-            to="/agent/pickups"
-            tone="shop"
-            icon="🛍️"
-            title="From shop"
-            flow="Shop → bag → hub"
-            detail={
-              pickupCount > 0
-                ? `${workSummary.pickupAtShop} at shop · ${workSummary.pickupToHub} to hub`
-                : 'No pickups open'
-            }
-            count={pickupCount}
-          />
+          {vendorShop ? null : (
+            <JobRow
+              to="/agent/pickups"
+              tone="shop"
+              icon="🛍️"
+              title="From shop"
+              flow="Shop → bag → hub"
+              detail={
+                pickupCount > 0
+                  ? `${workSummary.pickupAtShop} at shop · ${workSummary.pickupToHub} to hub`
+                  : 'No pickups open'
+              }
+              count={pickupCount}
+            />
+          )}
           <JobRow
             to="/agent/deliveries"
             tone="home"
             icon="🛵"
-            title="To home"
-            flow="Take FULL order from hub → Give to customer → OTP → Submit"
-            detail={
-              deliveryCount > 0
-                ? `${workSummary.deliveryAtHub} at hub · ${workSummary.deliveryEnRoute} on way`
-                : 'No deliveries open'
+            title={vendorShop ? 'Shop deliveries' : 'To home'}
+            flow={
+              vendorShop
+                ? 'Shop → customer · OTP · Submit'
+                : 'Take FULL order from hub → Give to customer → OTP → Submit'
             }
-            count={deliveryCount}
+            detail={
+              vendorShop
+                ? vendorOpen > 0
+                  ? `${vendorOpenAtShop} at shop · ${vendorEnRoute} on way`
+                  : 'No deliveries open'
+                : deliveryCount > 0
+                  ? `${workSummary.deliveryAtHub} at hub · ${workSummary.deliveryEnRoute} on way`
+                  : 'No deliveries open'
+            }
+            count={vendorShop ? vendorOpen : deliveryCount}
           />
         </section>
       )}
@@ -248,6 +285,9 @@ const styles: Record<string, CSSProperties> = {
     gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
     gap: '0.35rem',
   },
+  metricsVendor: {
+    gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+  },
   metric: {
     display: 'grid',
     justifyItems: 'center',
@@ -266,6 +306,18 @@ const styles: Record<string, CSSProperties> = {
   metricLabel: { fontSize: '0.7rem', fontWeight: 800 },
   metricHint: { fontSize: '0.62rem', fontWeight: 650, color: 'var(--text-muted)', textAlign: 'center' },
   note: { margin: 0, fontSize: '0.72rem', fontWeight: 650, color: 'var(--text-muted)' },
+  codStrip: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: '0.5rem',
+    textDecoration: 'none',
+    color: 'var(--text)',
+    padding: '0.55rem 0.65rem',
+    borderRadius: 12,
+    border: '1px solid #fbbf24',
+    background: 'var(--warning-soft, #fffbeb)',
+  },
   payStrip: {
     display: 'flex',
     alignItems: 'center',

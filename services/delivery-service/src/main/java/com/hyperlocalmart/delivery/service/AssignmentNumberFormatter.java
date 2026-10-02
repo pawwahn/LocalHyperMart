@@ -12,4 +12,8 @@ public final class AssignmentNumberFormatter {
     public static String lastMile(String orderNumber) {
         return orderNumber + "-TO-BUYER";
     }
+
+    public static String vendorDirect(String subOrderNumber) {
+        return subOrderNumber + "-VENDOR-DIRECT";
+    }
 }

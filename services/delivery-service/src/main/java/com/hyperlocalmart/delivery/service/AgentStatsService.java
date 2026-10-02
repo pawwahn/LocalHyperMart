@@ -51,10 +51,10 @@ public class AgentStatsService {
 
         long openShop = deliveryAssignmentRepository.countByAgentIdAndLegTypeAndStatusIn(
                 agentId, AssignmentLegType.PICKUP, OPEN);
-        long openHome = deliveryAssignmentRepository.countByAgentIdAndLegTypeAndStatusIn(
-                agentId, AssignmentLegType.LAST_MILE, OPEN);
+        long openHome = openHomeDeliveries(agentId);
 
         return AgentStatsResponse.builder()
+                .agentType(agent.getAgentType() == null ? "HUB" : agent.getAgentType().name())
                 .vendorPickupsCollected(allTime.getShopPicked())
                 .vendorPickupsAtHub(allTime.getDroppedAtHub())
                 .buyerDeliveriesCompleted(allTime.getHomeDelivered())
@@ -74,11 +74,12 @@ public class AgentStatsService {
 
     private AgentStatsResponse.AgentPeriodStats period(UUID agentId, Instant start, Instant end) {
         long shopPicked = deliveryAssignmentRepository.countByAgentIdAndLegTypeAndStatusInAndUpdatedAtBetween(
-                agentId, AssignmentLegType.PICKUP, PICKED, start, end);
+                agentId, AssignmentLegType.PICKUP, PICKED, start, end)
+                + deliveryAssignmentRepository.countByAgentIdAndLegTypeAndStatusInAndUpdatedAtBetween(
+                        agentId, AssignmentLegType.VENDOR_DIRECT, PICKED, start, end);
         long droppedAtHub = deliveryAssignmentRepository.countCompletedByAgentIdAndLegTypeBetween(
                 agentId, AssignmentLegType.PICKUP, start, end);
-        long homeDelivered = deliveryAssignmentRepository.countCompletedByAgentIdAndLegTypeBetween(
-                agentId, AssignmentLegType.LAST_MILE, start, end);
+        long homeDelivered = completedHomeDeliveries(agentId, start, end);
         long returns = deliveryAssignmentRepository.countBuyerRejectedByAgentIdBetween(agentId, start, end);
         long cancelledPickups = deliveryAssignmentRepository.countCancelledByAgentIdAndLegTypeBetween(
                 agentId, AssignmentLegType.PICKUP, start, end);
@@ -93,11 +94,15 @@ public class AgentStatsService {
 
     private AgentStatsResponse.AgentPeriodStats allTime(UUID agentId) {
         long shopPicked = deliveryAssignmentRepository.countByAgentIdAndLegTypeAndStatusIn(
-                agentId, AssignmentLegType.PICKUP, PICKED);
+                agentId, AssignmentLegType.PICKUP, PICKED)
+                + deliveryAssignmentRepository.countByAgentIdAndLegTypeAndStatusIn(
+                        agentId, AssignmentLegType.VENDOR_DIRECT, PICKED);
         long droppedAtHub = deliveryAssignmentRepository.countByAgentIdAndLegTypeAndStatus(
                 agentId, AssignmentLegType.PICKUP, AssignmentStatus.COMPLETED);
         long homeDelivered = deliveryAssignmentRepository.countByAgentIdAndLegTypeAndStatus(
-                agentId, AssignmentLegType.LAST_MILE, AssignmentStatus.COMPLETED);
+                agentId, AssignmentLegType.LAST_MILE, AssignmentStatus.COMPLETED)
+                + deliveryAssignmentRepository.countByAgentIdAndLegTypeAndStatus(
+                        agentId, AssignmentLegType.VENDOR_DIRECT, AssignmentStatus.COMPLETED);
         long returns = deliveryAssignmentRepository.countBuyerRejectedByAgentId(agentId);
         long cancelledPickups = deliveryAssignmentRepository.countByAgentIdAndLegTypeAndStatus(
                 agentId, AssignmentLegType.PICKUP, AssignmentStatus.CANCELLED);
@@ -108,5 +113,19 @@ public class AgentStatsService {
                 .returnsToHub(returns)
                 .cancelledPickups(cancelledPickups)
                 .build();
+    }
+
+    private long openHomeDeliveries(UUID agentId) {
+        return deliveryAssignmentRepository.countByAgentIdAndLegTypeAndStatusIn(
+                        agentId, AssignmentLegType.LAST_MILE, OPEN)
+                + deliveryAssignmentRepository.countByAgentIdAndLegTypeAndStatusIn(
+                        agentId, AssignmentLegType.VENDOR_DIRECT, OPEN);
+    }
+
+    private long completedHomeDeliveries(UUID agentId, Instant start, Instant end) {
+        return deliveryAssignmentRepository.countCompletedByAgentIdAndLegTypeBetween(
+                        agentId, AssignmentLegType.LAST_MILE, start, end)
+                + deliveryAssignmentRepository.countCompletedByAgentIdAndLegTypeBetween(
+                        agentId, AssignmentLegType.VENDOR_DIRECT, start, end);
     }
 }

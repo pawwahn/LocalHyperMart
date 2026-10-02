@@ -3,6 +3,7 @@ package com.hyperlocalmart.order.service;
 import com.hyperlocalmart.common.exception.BusinessException;
 import com.hyperlocalmart.order.client.NotificationClient;
 import com.hyperlocalmart.order.client.PaymentClient;
+import com.hyperlocalmart.order.client.TownClient;
 import com.hyperlocalmart.order.dto.request.CancelOrderItemRequest;
 import com.hyperlocalmart.order.dto.request.RejectSubOrderRequest;
 import com.hyperlocalmart.order.dto.response.VendorSubOrderResponse;
@@ -11,6 +12,7 @@ import com.hyperlocalmart.order.repository.OrderItemRepository;
 import com.hyperlocalmart.order.repository.OrderRepository;
 import com.hyperlocalmart.order.repository.OrderStatusHistoryRepository;
 import com.hyperlocalmart.order.repository.VendorSubOrderRepository;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -40,10 +42,17 @@ class VendorSubOrderServiceTest {
     @Mock private PaymentClient paymentClient;
     @Mock private NotificationClient notificationClient;
     @Mock private com.hyperlocalmart.order.client.DeliveryClient deliveryClient;
+    @Mock private TownClient townClient;
     @Mock private OrderMoneyUnwindService orderMoneyUnwindService;
 
     @InjectMocks
     private VendorSubOrderService vendorSubOrderService;
+
+    @BeforeEach
+    void stubTownVendorAgentSettings() {
+        when(townClient.getVendorAgentDeliverySettings(any()))
+                .thenReturn(new TownClient.VendorAgentDeliverySettings(false, BigDecimal.ZERO, BigDecimal.ZERO));
+    }
 
     @Test
     void markReady_updatesStatusAndRecordsHistory() {
@@ -61,6 +70,62 @@ class VendorSubOrderServiceTest {
         assertThat(response.getStatus()).isEqualTo(VendorSubOrderStatus.READY_FOR_PICKUP);
         assertThat(response.getReadyForPickupAt()).isNotNull();
         verify(orderStatusHistoryRepository).save(any());
+    }
+
+    @Test
+    void chooseDeliveryByVendorAgent_wholeOrder_switchesStatus() {
+        UUID vendorId = UUID.randomUUID();
+        UUID subOrderId = UUID.randomUUID();
+        UUID actorId = UUID.randomUUID();
+        VendorSubOrder subOrder = placedSubOrder(vendorId, subOrderId);
+        UUID townId = subOrder.getOrder().getTownId();
+
+        when(vendorSubOrderRepository.findDetailedByIdAndVendorId(subOrderId, vendorId))
+                .thenReturn(Optional.of(subOrder));
+        when(townClient.getVendorAgentDeliverySettings(townId))
+                .thenReturn(new TownClient.VendorAgentDeliverySettings(true, BigDecimal.TEN, BigDecimal.ONE));
+        when(vendorSubOrderRepository.save(subOrder)).thenReturn(subOrder);
+        when(orderRepository.save(subOrder.getOrder())).thenReturn(subOrder.getOrder());
+
+        VendorSubOrderResponse response =
+                vendorSubOrderService.chooseDeliveryByVendorAgent(vendorId, subOrderId, actorId);
+
+        assertThat(response.getStatus()).isEqualTo(VendorSubOrderStatus.DELIVERY_BY_VENDOR_AGENT);
+        assertThat(response.isVendorAgentDelivery()).isTrue();
+        assertThat(subOrder.getOrder().isVendorAgentDelivery()).isTrue();
+        verify(orderStatusHistoryRepository).save(any());
+    }
+
+    @Test
+    void chooseDeliveryByVendorAgent_whenTownDisabled_throws() {
+        UUID vendorId = UUID.randomUUID();
+        UUID subOrderId = UUID.randomUUID();
+        VendorSubOrder subOrder = placedSubOrder(vendorId, subOrderId);
+
+        when(vendorSubOrderRepository.findDetailedByIdAndVendorId(subOrderId, vendorId))
+                .thenReturn(Optional.of(subOrder));
+
+        assertThatThrownBy(() -> vendorSubOrderService.chooseDeliveryByVendorAgent(
+                        vendorId, subOrderId, UUID.randomUUID()))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("not enabled");
+    }
+
+    @Test
+    void assignVendorAgent_delegatesToDeliveryClient() {
+        UUID vendorId = UUID.randomUUID();
+        UUID subOrderId = UUID.randomUUID();
+        UUID actorId = UUID.randomUUID();
+        UUID agentId = UUID.randomUUID();
+        VendorSubOrder subOrder = placedSubOrder(vendorId, subOrderId);
+        subOrder.setStatus(VendorSubOrderStatus.DELIVERY_BY_VENDOR_AGENT);
+
+        when(vendorSubOrderRepository.findDetailedByIdAndVendorId(subOrderId, vendorId))
+                .thenReturn(Optional.of(subOrder));
+
+        vendorSubOrderService.assignVendorAgent(vendorId, subOrderId, actorId, agentId);
+
+        verify(deliveryClient).assignVendorDirectDelivery(vendorId, subOrderId, agentId, actorId);
     }
 
     @Test

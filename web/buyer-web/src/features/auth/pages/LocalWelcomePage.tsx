@@ -18,7 +18,7 @@ export function LocalWelcomePage() {
           <span style={styles.people}>● ● ●</span>
         </div>
 
-        <p style={styles.eyebrow}>WELCOME TO HYPERLOCALMART</p>
+        <p style={styles.eyebrow}>WELCOME TO KOYAKART</p>
         <h1 style={styles.title}>Shop local. Keep {localTown} thriving.</h1>
         <p style={styles.copy}>
           Every order supports neighbourhood shopkeepers, local jobs, and families in your community.

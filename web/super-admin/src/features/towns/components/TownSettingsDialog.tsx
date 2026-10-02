@@ -3,13 +3,29 @@ import type { CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import { ApiError } from '@/shared/api/http';
 import { Banner, Button, TextField } from '@/shared/ui';
-import { AdminHistoryPanel, LastChangeStrip } from '@/shared/audit/AdminHistoryPanel';
+import { AdminHistoryPanel, LastChangeStrip, type HistoryTab } from '@/shared/audit/AdminHistoryPanel';
 import {
   getTownConfig,
   updateTownConfig,
   type DeliverySlabVm,
   type TownVm,
 } from '../api/townsApi';
+import { TownIncentiveDialog } from './TownIncentiveDialog';
+import {
+  TownVendorAgentDeliveryDialog,
+  type VendorAgentDeliveryHandle,
+  type VendorAgentEmbeddedState,
+} from './TownVendorAgentDeliveryDialog';
+
+type SettingsSection =
+  | 'shop'
+  | 'delivery'
+  | 'payments'
+  | 'promotions'
+  | 'hub-pay'
+  | 'vendor-delivery'
+  | 'status'
+  | 'log';
 
 type Props = {
   town: TownVm;
@@ -17,7 +33,43 @@ type Props = {
   platformDeliveryFee: number;
   onClose: () => void;
   onSaved: (message: string) => void;
+  onRequestTownStatus: (next: 'ENABLED' | 'DISABLED') => void;
+  townStatusBusy?: boolean;
 };
+
+const CONFIG_SECTIONS: SettingsSection[] = ['shop', 'delivery', 'payments', 'promotions'];
+
+const TOWN_AUDIT_TABS: HistoryTab[] = [
+  { id: 'checkout', label: 'Checkout', screen: 'town-settings' },
+  { id: 'hub', label: 'Hub pay', screen: 'town-incentives' },
+  { id: 'vendor', label: 'Vendor delivery', screen: 'town-vendor-agent-delivery' },
+];
+
+const NAV_GROUPS: { title: string; items: { id: SettingsSection; label: string }[] }[] = [
+  {
+    title: 'Buyer checkout',
+    items: [
+      { id: 'shop', label: 'Theme & deals' },
+      { id: 'delivery', label: 'Delivery fees' },
+      { id: 'payments', label: 'Payments' },
+      { id: 'promotions', label: 'Scratch card' },
+    ],
+  },
+  {
+    title: 'Delivery ops',
+    items: [
+      { id: 'hub-pay', label: 'Hub & agent pay' },
+      { id: 'vendor-delivery', label: 'Vendor delivery' },
+    ],
+  },
+  {
+    title: 'Town',
+    items: [
+      { id: 'status', label: 'Enable / disable' },
+      { id: 'log', label: 'Change log' },
+    ],
+  },
+];
 
 const THEME_PRESETS = ['#0C831F', '#0D9488', '#2563EB', '#D97706', '#E11D48', '#7C3AED'];
 
@@ -42,6 +94,8 @@ export function TownSettingsDialog({
   platformDeliveryFee,
   onClose,
   onSaved,
+  onRequestTownStatus,
+  townStatusBusy,
 }: Props) {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -63,8 +117,22 @@ export function TownSettingsDialog({
   const [codCharge, setCodCharge] = useState('0');
   const [savedNotice, setSavedNotice] = useState<string | null>(null);
   const [historyTick, setHistoryTick] = useState(0);
-  const [panel, setPanel] = useState<'edit' | 'log'>('edit');
+  const [section, setSection] = useState<SettingsSection>('shop');
   const bodyRef = useRef<HTMLDivElement>(null);
+  const vendorDeliveryRef = useRef<VendorAgentDeliveryHandle>(null);
+  const [vendorDeliveryUi, setVendorDeliveryUi] = useState<VendorAgentEmbeddedState>({
+    busy: false,
+    loading: true,
+    editing: false,
+  });
+  const [logTabId, setLogTabId] = useState(TOWN_AUDIT_TABS[0].id);
+  const townDisabled = town.status !== 'ENABLED';
+
+  function openTownChangeLog(screen: string) {
+    const tab = TOWN_AUDIT_TABS.find((t) => t.screen === screen) ?? TOWN_AUDIT_TABS[0];
+    setLogTabId(tab.id);
+    setSection('log');
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -119,7 +187,11 @@ export function TownSettingsDialog({
 
   useEffect(() => {
     if (bodyRef.current) bodyRef.current.scrollTop = 0;
-  }, [panel]);
+  }, [section]);
+
+  const isConfigSection = CONFIG_SECTIONS.includes(section);
+  const sectionHeading =
+    NAV_GROUPS.flatMap((g) => g.items).find((i) => i.id === section)?.label ?? 'Settings';
 
   function updateSlab(index: number, patch: Partial<DeliverySlabVm>) {
     setSlabs((prev) => prev.map((s, i) => (i === index ? { ...s, ...patch } : s)));
@@ -174,7 +246,7 @@ export function TownSettingsDialog({
       });
       setSavedNotice('Saved and logged.');
       setHistoryTick((n) => n + 1);
-      setPanel('log');
+      setSection('log');
       onSaved(`Town settings saved for ${town.displayName}`);
     } catch (err) {
       setError(err instanceof ApiError || err instanceof Error ? err.message : 'Save failed');
@@ -202,51 +274,73 @@ export function TownSettingsDialog({
             </h2>
             <p style={styles.sub}>{town.displayName}</p>
           </div>
-          <div style={styles.headRight}>
-            <div style={styles.viewTabs} role="tablist" aria-label="Edit or change log">
-              <button
-                type="button"
-                role="tab"
-                aria-selected={panel === 'edit'}
-                style={panel === 'edit' ? styles.viewTabActive : styles.viewTab}
-                onClick={() => setPanel('edit')}
-              >
-                Edit
-              </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={panel === 'log'}
-                style={panel === 'log' ? styles.viewTabActive : styles.viewTab}
-                onClick={() => setPanel('log')}
-              >
-                Change log
-              </button>
-            </div>
-            <button type="button" style={styles.close} onClick={onClose} aria-label="Close">
-              ✕
-            </button>
-          </div>
+          <button type="button" style={styles.close} onClick={onClose} aria-label="Close">
+            ✕
+          </button>
         </div>
 
         {error ? <Banner tone="danger">{error}</Banner> : null}
         {savedNotice ? <Banner tone="success">{savedNotice}</Banner> : null}
-        {panel === 'edit' && token ? (
-          <LastChangeStrip
-            token={token}
-            screen="town-settings"
-            townId={town.id}
-            refreshTick={historyTick}
-            onSeeAll={() => setPanel('log')}
-          />
-        ) : null}
-        {panel === 'edit' && loading ? <p style={styles.muted}>Loading…</p> : null}
 
-        <div ref={bodyRef} className="town-settings-scroll">
-        {panel === 'edit' && !loading ? (
-          <div className="town-settings-grid">
-            <section style={styles.card}>
-              <h3 style={styles.sectionTitle}>Appearance</h3>
+        <div className="town-settings-layout">
+          <nav className="town-settings-side" aria-label="Settings sections">
+            {NAV_GROUPS.map((group, groupIndex) => (
+              <div
+                key={group.title}
+                className={groupIndex > 0 ? 'town-settings-side-group town-settings-side-group--sep' : 'town-settings-side-group'}
+                style={styles.sideGroup}
+              >
+                <p className="town-settings-side-label" style={styles.sideGroupTitle}>
+                  {group.title}
+                </p>
+                {group.items.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    style={section === item.id ? styles.sideItemActive : styles.sideItem}
+                    aria-current={section === item.id ? 'page' : undefined}
+                    onClick={() => {
+                      if (item.id === 'log') setLogTabId(TOWN_AUDIT_TABS[0].id);
+                      setSection(item.id);
+                    }}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            ))}
+          </nav>
+
+          <div className="town-settings-main">
+            {section !== 'vendor-delivery' && section !== 'hub-pay' ? (
+              <div style={styles.mainHead}>
+                <h3 style={styles.mainTitle}>{sectionHeading}</h3>
+                {isConfigSection && token ? (
+                  <LastChangeStrip
+                    token={token}
+                    screen="town-settings"
+                    townId={town.id}
+                    refreshTick={historyTick}
+                    onSeeAll={() => openTownChangeLog('town-settings')}
+                  />
+                ) : null}
+              </div>
+            ) : section === 'log' ? (
+              <div style={styles.mainHeadCompact}>
+                <h3 style={styles.mainTitle}>Change log</h3>
+                <p style={styles.mainSub}>Audit trail for this town — checkout, hub pay, and vendor delivery.</p>
+              </div>
+            ) : (
+              <div style={styles.mainHeadCompact}>
+                <h3 style={styles.mainTitle}>{sectionHeading}</h3>
+              </div>
+            )}
+
+            {isConfigSection && loading ? <p style={styles.muted}>Loading…</p> : null}
+
+            <div ref={bodyRef} className="town-settings-scroll">
+        {isConfigSection && !loading && section === 'shop' ? (
+          <section style={styles.card}>
               <div style={styles.fieldRow}>
                 <div style={styles.fieldGrow}>
                   <p style={styles.label}>Theme color</p>
@@ -356,9 +450,11 @@ export function TownSettingsDialog({
                 </div>
                 <p style={styles.hint}>Shown on the buyer basket below delivery fee</p>
               </div>
+          </section>
+        ) : null}
 
-              <div style={styles.scratchBlock}>
-              <h3 style={styles.sectionTitle}>Payments</h3>
+        {isConfigSection && !loading && section === 'payments' ? (
+          <section style={styles.card}>
               <div style={styles.toggleRow}>
                 <span>
                   <strong style={styles.toggleTitle}>Cash on delivery (COD)</strong>
@@ -416,8 +512,6 @@ export function TownSettingsDialog({
                   <span style={upiEnabled ? styles.knobOn : styles.knobOff} />
                 </button>
               </div>
-              </div>
-
               <div style={styles.toggleRow}>
                 <span>
                   <strong style={styles.toggleTitle}>Sell membership</strong>
@@ -433,8 +527,11 @@ export function TownSettingsDialog({
                   <span style={buyerMembershipEnabled ? styles.knobOn : styles.knobOff} />
                 </button>
               </div>
+          </section>
+        ) : null}
 
-              <div style={styles.scratchBlock}>
+        {isConfigSection && !loading && section === 'promotions' ? (
+          <section style={styles.card}>
                 <div style={styles.scratchHead}>
                   <span>
                     <strong style={styles.toggleTitle}>Scratch card</strong>
@@ -478,11 +575,11 @@ export function TownSettingsDialog({
                     ))}
                   </div>
                 ) : null}
-              </div>
-            </section>
+          </section>
+        ) : null}
 
+        {isConfigSection && !loading && section === 'delivery' ? (
             <section style={styles.card}>
-              <h3 style={styles.sectionTitle}>Delivery</h3>
               <div className="town-settings-delivery-row">
                 <TextField
                   label="Min order value (₹)"
@@ -589,32 +686,111 @@ export function TownSettingsDialog({
                 </div>
               ) : null}
             </section>
-          </div>
         ) : null}
 
-        {panel === 'log' && token ? (
-          <AdminHistoryPanel
-            token={token}
-            screen="town-settings"
-            townId={town.id}
-            title="Change log"
+        {section === 'hub-pay' ? (
+          <TownIncentiveDialog
             embedded
-            tall
+            town={town}
+            token={token}
+            onClose={onClose}
+            onSaved={onSaved}
+            onOpenChangeLog={() => openTownChangeLog('town-incentives')}
+          />
+        ) : null}
+
+        {section === 'vendor-delivery' ? (
+          <TownVendorAgentDeliveryDialog
+            ref={vendorDeliveryRef}
+            embedded
+            town={town}
+            token={token}
+            onClose={onClose}
+            onSaved={onSaved}
+            onEmbeddedState={setVendorDeliveryUi}
+            onOpenChangeLog={() => openTownChangeLog('town-vendor-agent-delivery')}
+          />
+        ) : null}
+
+        {section === 'status' ? (
+          <section style={styles.card}>
+            <h3 style={styles.sectionTitle}>Town on platform</h3>
+            <p style={styles.hint}>
+              {townDisabled
+                ? 'This town is disabled. Buyers and vendors cannot operate until you enable it again.'
+                : 'This town is live. Disable to pause orders and access without deleting the town.'}
+            </p>
+            <p style={styles.statusLine}>
+              Current status:{' '}
+              <span style={townDisabled ? styles.pillDanger : styles.pillOk}>
+                {townDisabled ? 'Disabled' : 'Enabled'}
+              </span>
+            </p>
+            {townDisabled ? (
+              <Button disabled={townStatusBusy} onClick={() => onRequestTownStatus('ENABLED')}>
+                {townStatusBusy ? '…' : 'Enable town'}
+              </Button>
+            ) : (
+              <Button variant="ghost" disabled={townStatusBusy} onClick={() => onRequestTownStatus('DISABLED')}>
+                {townStatusBusy ? '…' : 'Disable town'}
+              </Button>
+            )}
+          </section>
+        ) : null}
+
+        {section === 'log' && token ? (
+          <AdminHistoryPanel
+            key={logTabId}
+            token={token}
+            townId={town.id}
+            tabs={TOWN_AUDIT_TABS}
+            defaultTabId={logTabId}
+            embedded
+            compact
+            inlineScroll
             refreshTick={historyTick}
           />
         ) : null}
-        </div>
+            </div>
 
-        {panel === 'edit' && !loading ? (
-          <div style={styles.actions}>
-            <Button disabled={busy} onClick={() => void onSave()}>
-              {busy ? 'Saving…' : 'Save'}
-            </Button>
-            <Button variant="ghost" disabled={busy} onClick={onClose}>
-              Close
-            </Button>
+            {!loading || !isConfigSection || section === 'vendor-delivery' || section === 'hub-pay' ? (
+              <div style={styles.actions}>
+                {isConfigSection && !loading ? (
+                  <Button disabled={busy} onClick={() => void onSave()}>
+                    {busy ? 'Saving…' : 'Save checkout settings'}
+                  </Button>
+                ) : null}
+                {section === 'vendor-delivery' &&
+                !vendorDeliveryUi.loading &&
+                !vendorDeliveryUi.editing ? (
+                  <Button onClick={() => vendorDeliveryRef.current?.startEdit()}>Edit</Button>
+                ) : null}
+                {section === 'vendor-delivery' &&
+                vendorDeliveryUi.editing &&
+                !vendorDeliveryUi.loading ? (
+                  <>
+                    <Button
+                      variant="ghost"
+                      disabled={vendorDeliveryUi.busy}
+                      onClick={() => vendorDeliveryRef.current?.cancel()}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      disabled={vendorDeliveryUi.busy}
+                      onClick={() => vendorDeliveryRef.current?.save()}
+                    >
+                      {vendorDeliveryUi.busy ? 'Saving…' : 'Save'}
+                    </Button>
+                  </>
+                ) : null}
+                <Button variant="ghost" disabled={busy || vendorDeliveryUi.busy} onClick={onClose}>
+                  Close
+                </Button>
+              </div>
+            ) : null}
           </div>
-        ) : null}
+        </div>
       </div>
     </div>,
     document.body,
@@ -623,21 +799,72 @@ export function TownSettingsDialog({
 
 const PANEL_CSS = `
   .town-settings-panel {
-    width: min(920px, 100%);
-    max-height: min(92vh, 860px);
+    width: min(980px, 100%);
+    max-height: min(92vh, 880px);
     overflow: hidden;
     background: var(--bg-elevated);
     border-radius: 16px;
     padding: 1rem 1.05rem 1.05rem;
     display: flex;
     flex-direction: column;
-    gap: 0.65rem;
+    gap: 0.55rem;
     box-shadow: 0 18px 48px rgba(2, 6, 12, 0.28);
+  }
+  .town-settings-layout {
+    display: flex;
+    flex: 1 1 auto;
+    min-height: 0;
+    gap: 0;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    background: var(--bg);
+  }
+  .town-settings-side {
+    width: 11.5rem;
+    flex-shrink: 0;
+    padding: 0.65rem 0.5rem;
+    border-right: 1px solid var(--border);
+    background: color-mix(in srgb, var(--bg-elevated) 92%, var(--border));
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+  }
+  .town-settings-side-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+  .town-settings-side-group--sep {
+    margin-top: 0.85rem;
+    padding-top: 0.85rem;
+    border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  }
+  .town-settings-side-label {
+    font-family: var(--font-display);
+    font-size: 0.72rem;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+    text-transform: none;
+    color: var(--text);
+  }
+  .town-settings-side .town-settings-side-group button {
+    font-family: var(--font-body);
+  }
+  .town-settings-main {
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-elevated);
   }
   .town-settings-scroll {
     flex: 1 1 auto;
     min-height: 0;
     overflow: auto;
+    padding: 0 0.65rem 0.65rem;
   }
   .town-settings-panel input[type='color'] {
     width: 28px;
@@ -646,12 +873,6 @@ const PANEL_CSS = `
     border: none;
     background: none;
     cursor: pointer;
-  }
-  .town-settings-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 0.7rem;
-    align-items: start;
   }
   .town-settings-deal-row {
     display: grid;
@@ -689,7 +910,17 @@ const PANEL_CSS = `
       border-radius: 0;
       padding: 0.8rem 0.75rem 1rem;
     }
-    .town-settings-grid,
+    .town-settings-layout {
+      flex-direction: column;
+    }
+    .town-settings-side {
+      width: 100%;
+      flex-direction: row;
+      flex-wrap: wrap;
+      border-right: none;
+      border-bottom: 1px solid var(--border);
+      max-height: none;
+    }
     .town-settings-delivery-row,
     .town-settings-slab-head,
     .town-settings-slab-row {
@@ -715,37 +946,55 @@ const styles: Record<string, CSSProperties> = {
     padding: '0.75rem',
   },
   head: { display: 'flex', justifyContent: 'space-between', gap: '0.75rem', alignItems: 'flex-start' },
-  headRight: { display: 'flex', alignItems: 'center', gap: '0.45rem', flexShrink: 0 },
-  viewTabs: {
-    display: 'flex',
-    gap: 3,
-    padding: 3,
-    border: '1px solid var(--border)',
-    borderRadius: 8,
-    background: 'var(--bg)',
+  mainSub: { margin: 0, fontSize: '0.8rem', color: 'var(--text-muted)', lineHeight: 1.35 },
+  mainHead: {
+    padding: '0.65rem 0.65rem 0.35rem',
+    display: 'grid',
+    gap: '0.35rem',
+    borderBottom: '1px solid var(--border)',
+    flexShrink: 0,
   },
-  viewTab: {
+  mainHeadCompact: {
+    padding: '0.55rem 0.65rem 0.25rem',
+    borderBottom: '1px solid var(--border)',
+    flexShrink: 0,
+  },
+  mainTitle: {
+    margin: 0,
+    fontSize: '1rem',
+    fontWeight: 800,
+    fontFamily: 'var(--font-display)',
+  },
+  sideGroup: {},
+  sideGroupTitle: {
+    margin: '0 0.35rem 0.2rem',
+  },
+  sideItem: {
     appearance: 'none',
     border: 'none',
     background: 'transparent',
+    textAlign: 'left',
+    padding: '0.4rem 0.55rem',
+    borderRadius: 8,
+    fontSize: '0.82rem',
+    fontWeight: 650,
+    fontFamily: 'var(--font-body)',
     color: 'var(--text-muted)',
-    fontWeight: 700,
-    fontSize: '0.78rem',
-    padding: '0.28rem 0.6rem',
-    borderRadius: 6,
     cursor: 'pointer',
   },
-  viewTabActive: {
+  sideItemActive: {
     appearance: 'none',
     border: 'none',
     background: 'var(--bg-elevated)',
+    textAlign: 'left',
+    padding: '0.4rem 0.55rem',
+    borderRadius: 8,
+    fontSize: '0.82rem',
+    fontWeight: 700,
+    fontFamily: 'var(--font-body)',
     color: 'var(--text)',
-    fontWeight: 800,
-    fontSize: '0.78rem',
-    padding: '0.28rem 0.6rem',
-    borderRadius: 6,
     cursor: 'pointer',
-    boxShadow: 'var(--shadow-card)',
+    boxShadow: 'inset 3px 0 0 var(--accent)',
   },
   title: { margin: 0, fontFamily: 'var(--font-display)', fontSize: '1.2rem', fontWeight: 800 },
   sub: { margin: '0.15rem 0 0', color: 'var(--text-muted)', fontSize: '0.85rem', fontWeight: 600 },
@@ -760,12 +1009,13 @@ const styles: Record<string, CSSProperties> = {
   },
   card: {
     display: 'grid',
-    gap: '0.55rem',
-    padding: '0.7rem 0.75rem',
+    gap: '0.5rem',
+    padding: '0.65rem 0.7rem',
     border: '1px solid var(--border)',
-    borderRadius: 12,
+    borderRadius: 10,
     background: 'var(--bg)',
     minWidth: 0,
+    maxWidth: 640,
   },
   sectionTitle: {
     margin: 0,
@@ -970,7 +1220,29 @@ const styles: Record<string, CSSProperties> = {
     gap: '0.5rem',
     flexWrap: 'wrap',
     flexShrink: 0,
-    paddingTop: '0.15rem',
+    padding: '0.55rem 0.65rem',
     borderTop: '1px solid var(--border)',
+    background: 'var(--bg-elevated)',
+  },
+  statusLine: { margin: '0.25rem 0 0.75rem', fontSize: '0.88rem', fontWeight: 600 },
+  pillOk: {
+    fontSize: '0.7rem',
+    fontWeight: 800,
+    letterSpacing: '0.03em',
+    textTransform: 'uppercase',
+    padding: '0.15rem 0.45rem',
+    borderRadius: 6,
+    background: 'color-mix(in srgb, var(--accent) 14%, transparent)',
+    color: 'var(--accent)',
+  },
+  pillDanger: {
+    fontSize: '0.7rem',
+    fontWeight: 800,
+    letterSpacing: '0.03em',
+    textTransform: 'uppercase',
+    padding: '0.15rem 0.45rem',
+    borderRadius: 6,
+    background: 'var(--danger-soft, #fee2e2)',
+    color: 'var(--danger, #b42318)',
   },
 };

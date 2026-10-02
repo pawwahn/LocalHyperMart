@@ -37,4 +37,6 @@ public interface BuyerMembershipPurchaseRepository extends JpaRepository<BuyerMe
             @Param("buyerId") UUID buyerId);
 
     Optional<BuyerMembershipPurchase> findByGatewayOrderId(String gatewayOrderId);
+
+    Optional<BuyerMembershipPurchase> findByIdempotencyKey(String idempotencyKey);
 }

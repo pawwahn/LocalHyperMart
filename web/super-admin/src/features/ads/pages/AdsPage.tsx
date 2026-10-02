@@ -51,7 +51,7 @@ const PAGE_CSS = `
     background: var(--accent-soft);
     border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
     color: var(--accent-hover);
-    box-shadow: 0 1px 0 rgba(196, 123, 23, 0.12);
+    box-shadow: 0 1px 0 rgba(12, 131, 31, 0.12);
   }
   .ads-toggle--live.ads-toggle--on {
     background: var(--success-soft);

@@ -12,6 +12,8 @@ import org.springframework.stereotype.Service;
 import java.awt.Color;
 import java.io.ByteArrayOutputStream;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.text.NumberFormat;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -29,6 +31,17 @@ public class InvoicePdfService {
     private static final Font HEADING_FONT = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 10);
     private static final Font BODY_FONT = FontFactory.getFont(FontFactory.HELVETICA, 9);
     private static final Font SMALL_FONT = FontFactory.getFont(FontFactory.HELVETICA, 8, Font.NORMAL, Color.DARK_GRAY);
+    private static final Font MONEY_FONT = FontFactory.getFont(FontFactory.HELVETICA, 8);
+    private static final Font MONEY_HEAD_FONT = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 8);
+    private static final NumberFormat MONEY_FORMAT;
+
+    static {
+        NumberFormat format = NumberFormat.getNumberInstance(Locale.ENGLISH);
+        format.setMinimumFractionDigits(2);
+        format.setMaximumFractionDigits(2);
+        format.setGroupingUsed(true);
+        MONEY_FORMAT = format;
+    }
 
     public byte[] generate(InvoiceDocument invoice) {
         ByteArrayOutputStream output = new ByteArrayOutputStream();
@@ -37,7 +50,7 @@ public class InvoicePdfService {
             PdfWriter.getInstance(document, output);
             document.open();
 
-            document.add(new Paragraph("HyperLocalMart", TITLE_FONT));
+            document.add(new Paragraph("KoYaKart", TITLE_FONT));
             document.add(new Paragraph("Tax Invoice / Bill of Supply", HEADING_FONT));
             document.add(new Paragraph(invoice.getTownName(), BODY_FONT));
             document.add(Chunk.NEWLINE);
@@ -53,6 +66,9 @@ public class InvoicePdfService {
             }
             document.add(Chunk.NEWLINE);
 
+            Paragraph amountsNote = new Paragraph("All amounts in Rs.", SMALL_FONT);
+            amountsNote.setSpacingAfter(4f);
+            document.add(amountsNote);
             document.add(buildLineItemsTable(invoice));
             document.add(Chunk.NEWLINE);
 
@@ -94,37 +110,40 @@ public class InvoicePdfService {
     }
 
     private PdfPTable buildLineItemsTable(InvoiceDocument invoice) throws DocumentException {
-        PdfPTable table = new PdfPTable(new float[]{3f, 1.2f, 0.8f, 0.8f, 1f, 0.8f, 0.8f, 0.8f, 1f});
+        // Wide enough for one-line "9,999.99" (4 digits + 2 decimals) in every money column.
+        PdfPTable table = new PdfPTable(new float[]{2.55f, 1.05f, 0.55f, 0.65f, 1.15f, 1.1f, 1.1f, 1.0f, 1.2f});
         table.setWidthPercentage(100);
-        addHeaderCell(table, "Item");
-        addHeaderCell(table, "HSN");
-        addHeaderCell(table, "Qty");
-        addHeaderCell(table, "GST%");
-        addHeaderCell(table, "Rate");
-        addHeaderCell(table, "CGST");
-        addHeaderCell(table, "SGST");
-        addHeaderCell(table, "Cess");
-        addHeaderCell(table, "Amount");
+        table.setHeaderRows(1);
+        table.setSplitLate(false);
+        addHeaderCell(table, "Item", Element.ALIGN_LEFT);
+        addHeaderCell(table, "HSN", Element.ALIGN_CENTER);
+        addHeaderCell(table, "Qty", Element.ALIGN_RIGHT);
+        addHeaderCell(table, "GST%", Element.ALIGN_RIGHT);
+        addHeaderCell(table, "Rate", Element.ALIGN_RIGHT);
+        addHeaderCell(table, "CGST", Element.ALIGN_RIGHT);
+        addHeaderCell(table, "SGST", Element.ALIGN_RIGHT);
+        addHeaderCell(table, "Cess", Element.ALIGN_RIGHT);
+        addHeaderCell(table, "Amount", Element.ALIGN_RIGHT);
 
         for (InvoiceDocument.InvoiceLineItem item : invoice.getLineItems()) {
-            addBodyCell(table, item.getItemName());
-            addBodyCell(table, nullToDash(item.getHsnCode()));
-            addBodyCell(table, String.valueOf(item.getQuantity()));
+            addBodyCell(table, item.getItemName(), Element.ALIGN_LEFT, false);
+            addBodyCell(table, nullToDash(item.getHsnCode()), Element.ALIGN_CENTER, true);
+            addBodyCell(table, String.valueOf(item.getQuantity()), Element.ALIGN_RIGHT, true);
             addBodyCell(table, item.getGstPercent() != null
                     ? item.getGstPercent().stripTrailingZeros().toPlainString()
-                    : "-");
-            addBodyCell(table, formatMoney(item.getUnitPrice()));
-            addBodyCell(table, formatMoney(item.getCgstAmount()));
-            addBodyCell(table, formatMoney(item.getSgstAmount()));
-            addBodyCell(table, formatMoney(item.getCessAmount()));
-            addBodyCell(table, formatMoney(item.getLineTotal()));
+                    : "-", Element.ALIGN_RIGHT, true);
+            addMoneyCell(table, item.getUnitPrice());
+            addMoneyCell(table, item.getCgstAmount());
+            addMoneyCell(table, item.getSgstAmount());
+            addMoneyCell(table, item.getCessAmount());
+            addMoneyCell(table, item.getLineTotal());
         }
         return table;
     }
 
     private PdfPTable buildTotalsTable(InvoiceDocument invoice) throws DocumentException {
-        PdfPTable table = new PdfPTable(new float[]{3f, 1f});
-        table.setWidthPercentage(45);
+        PdfPTable table = new PdfPTable(new float[]{3f, 1.15f});
+        table.setWidthPercentage(50);
         table.setHorizontalAlignment(Element.ALIGN_RIGHT);
 
         addTotalRow(table, "Items Subtotal", invoice.getItemsSubtotal());
@@ -142,16 +161,33 @@ public class InvoicePdfService {
         return table;
     }
 
-    private void addHeaderCell(PdfPTable table, String text) {
-        PdfPCell cell = new PdfPCell(new Phrase(text, HEADING_FONT));
+    private void addHeaderCell(PdfPTable table, String text, int alignment) {
+        PdfPCell cell = new PdfPCell(new Phrase(text, MONEY_HEAD_FONT));
         cell.setBackgroundColor(new Color(240, 240, 240));
+        cell.setHorizontalAlignment(alignment);
+        cell.setVerticalAlignment(Element.ALIGN_MIDDLE);
+        cell.setNoWrap(true);
         cell.setPadding(4f);
         table.addCell(cell);
     }
 
-    private void addBodyCell(PdfPTable table, String text) {
+    private void addBodyCell(PdfPTable table, String text, int alignment, boolean nowrap) {
         PdfPCell cell = new PdfPCell(new Phrase(text, BODY_FONT));
+        cell.setHorizontalAlignment(alignment);
+        cell.setVerticalAlignment(Element.ALIGN_MIDDLE);
+        cell.setNoWrap(nowrap);
         cell.setPadding(4f);
+        table.addCell(cell);
+    }
+
+    private void addMoneyCell(PdfPTable table, BigDecimal amount) {
+        PdfPCell cell = new PdfPCell(new Phrase(formatAmount(amount), MONEY_FONT));
+        cell.setHorizontalAlignment(Element.ALIGN_RIGHT);
+        cell.setVerticalAlignment(Element.ALIGN_MIDDLE);
+        cell.setNoWrap(true);
+        cell.setPadding(3.5f);
+        cell.setPaddingLeft(2f);
+        cell.setPaddingRight(4f);
         table.addCell(cell);
     }
 
@@ -170,6 +206,7 @@ public class InvoicePdfService {
         PdfPCell amountCell = new PdfPCell(new Phrase(formatMoney(amount), font));
         amountCell.setBorder(Rectangle.NO_BORDER);
         amountCell.setHorizontalAlignment(Element.ALIGN_RIGHT);
+        amountCell.setNoWrap(true);
         amountCell.setPadding(3f);
         table.addCell(amountCell);
     }
@@ -187,11 +224,16 @@ public class InvoicePdfService {
         return DATE_FORMAT.format(instant.atZone(IST));
     }
 
-    private String formatMoney(BigDecimal amount) {
-        if (amount == null) {
-            return "Rs. 0.00";
+    /** Compact one-line amount. Currency is labelled above the grid so cells stay aligned. */
+    private String formatAmount(BigDecimal amount) {
+        BigDecimal value = amount == null ? BigDecimal.ZERO : amount.setScale(2, RoundingMode.HALF_UP);
+        synchronized (MONEY_FORMAT) {
+            return MONEY_FORMAT.format(value);
         }
-        return "Rs. " + amount.setScale(2, java.math.RoundingMode.HALF_UP);
+    }
+
+    private String formatMoney(BigDecimal amount) {
+        return "Rs. " + formatAmount(amount);
     }
 
     private boolean isPositive(BigDecimal amount) {

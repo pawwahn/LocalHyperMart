@@ -5,8 +5,8 @@ type Tone = 'info' | 'success' | 'warning' | 'danger' | 'brand';
 type Props = { tone?: Tone; children: ReactNode; style?: CSSProperties };
 
 const tones: Record<Tone, CSSProperties> = {
-  brand: { background: 'var(--accent)', color: 'var(--text-inverse)' },
-  info: { background: 'var(--accent-soft)', color: 'var(--accent-hover)', border: '1px solid #bfdbfe' },
+  brand: { background: 'var(--brand, #0C831F)', color: '#FFFFFF' },
+  info: { background: 'var(--accent-soft)', color: 'var(--accent-hover)', border: '1px solid #c6e9d4' },
   success: { background: 'var(--success-soft)', color: '#047857', border: '1px solid #a7f3d0' },
   warning: { background: 'var(--warning-soft)', color: '#92400e', border: '1px solid #fde68a' },
   danger: { background: 'var(--danger-soft)', color: '#b91c1c', border: '1px solid #fecaca' },

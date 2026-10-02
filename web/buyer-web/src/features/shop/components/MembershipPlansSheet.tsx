@@ -1,6 +1,7 @@
 import { useEffect, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import { MembershipPlansPanel } from './MembershipPlansPanel';
+import { APP_NAME } from '@/shared/brand';
 
 type Props = {
   open: boolean;
@@ -31,7 +32,7 @@ export function MembershipPlansSheet({ open, onClose, onBought }: Props) {
         <div style={styles.handle} aria-hidden />
         <header style={styles.head}>
           <div style={styles.headCopy}>
-            <p style={styles.kicker}>HyperLocalMart</p>
+            <p style={styles.kicker}>{APP_NAME}</p>
             <h2 id="membership-sheet-title" style={styles.title}>
               Free delivery
             </h2>

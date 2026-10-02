@@ -100,6 +100,16 @@ public class CodCloseDayService {
                     "One or more orders are not COD DELIVERED");
         }
 
+        List<OrderClient.CodCashBreakdown> breakdowns = orderClient.codCashBreakdown(orderIds);
+        long vendorCustodian = breakdowns.stream()
+                .filter(b -> "VENDOR".equalsIgnoreCase(b.custodianType()))
+                .count();
+        if (vendorCustodian > 0) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR,
+                    "Shop-agent COD cannot use hub close-day — " + vendorCustodian
+                            + " order(s) remit to the shop, not the hub");
+        }
+
         Map<UUID, CodDeliveredItem> byId = resolved.stream()
                 .collect(Collectors.toMap(CodDeliveredItem::orderId, i -> i, (a, b) -> a));
 
@@ -204,7 +214,7 @@ public class CodCloseDayService {
         }
     }
 
-    private CodCloseDayResponse toResponse(CodCloseDay closeDay) {
+    public CodCloseDayResponse toResponse(CodCloseDay closeDay) {
         List<CodCloseDayResponse.Line> lines = closeDay.getLineItems() == null ? List.of()
                 : closeDay.getLineItems().stream()
                 .sorted(Comparator.comparing(CodCloseDayLineItem::getOrderNumber,

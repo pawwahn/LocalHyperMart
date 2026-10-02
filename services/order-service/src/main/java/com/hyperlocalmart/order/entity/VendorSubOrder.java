@@ -49,6 +49,9 @@ public class VendorSubOrder extends BaseAuditEntity {
     @Column(name = "ready_for_pickup_at")
     private Instant readyForPickupAt;
 
+    @Column(name = "vendor_agent_delivery_at")
+    private Instant vendorAgentDeliveryAt;
+
     @OneToMany(mappedBy = "vendorSubOrder", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
     @Builder.Default
     private List<OrderItem> items = new ArrayList<>();

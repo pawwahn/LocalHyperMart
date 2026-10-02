@@ -238,6 +238,11 @@ export function OrdersPage() {
                   </td>
                   <td style={styles.td}>
                     <span style={styles.pill}>{o.status}</span>
+                    {o.vendorAgentDelivery ? (
+                      <span style={styles.vendorPill} title="Delivered by vendor shop agent">
+                        Vendor agent
+                      </span>
+                    ) : null}
                   </td>
                   <td style={styles.tdMuted}>
                     {formatAdminPaymentLabel({
@@ -372,6 +377,17 @@ const styles: Record<string, CSSProperties> = {
     borderRadius: 'var(--radius-full)',
     background: 'color-mix(in srgb, var(--accent) 12%, var(--bg))',
     fontSize: '0.72rem',
+    fontWeight: 800,
+    letterSpacing: '0.02em',
+  },
+  vendorPill: {
+    display: 'inline-block',
+    marginLeft: '0.35rem',
+    padding: '0.12rem 0.45rem',
+    borderRadius: 'var(--radius-full)',
+    background: 'color-mix(in srgb, #7C3AED 14%, var(--bg))',
+    color: '#5B21B6',
+    fontSize: '0.68rem',
     fontWeight: 800,
     letterSpacing: '0.02em',
   },

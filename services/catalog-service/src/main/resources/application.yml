@@ -21,6 +21,8 @@ spring:
     locations: classpath:db/migration
   kafka:
     bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+  cache:
+    type: ${HLM_SPRING_CACHE_TYPE:none}
 
 management:
   endpoints:
@@ -33,6 +35,10 @@ springdoc:
     path: /v3/api-docs
 
 hyperlocalmart:
+  cache:
+    catalog-browse:
+      enabled: ${HLM_CATALOG_BROWSE_CACHE:false}
+      ttl-seconds: ${HLM_CATALOG_BROWSE_CACHE_TTL:45}
   security:
     jwt:
       secret: ${JWT_SECRET:hyperlocalmart-dev-secret-change-in-production-min-32-chars!!}

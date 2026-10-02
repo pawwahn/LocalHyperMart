@@ -12,7 +12,7 @@ export function LoginPage() {
       <LoginThemeCorner />
       <div style={styles.panel}>
         <div style={styles.hero}>
-          <p style={styles.brand}>HyperLocalMart</p>
+          <p style={styles.brand}>KoYaKart</p>
           <h1 style={styles.heroTitle}>Delivery control</h1>
           <p style={styles.heroSub}>Hub assigns pickups. Agents move goods with OTP confirmation.</p>
         </div>
@@ -65,7 +65,7 @@ const styles: Record<string, CSSProperties> = {
     gap: '1rem',
   },
   hero: {
-    background: 'linear-gradient(155deg, var(--accent) 0%, #1D4ED8 55%, #1e3a8a 100%)',
+    background: 'linear-gradient(155deg, #064E16 0%, #0C831F 55%, #149A2C 100%)',
     color: 'var(--text-inverse)',
     borderRadius: 'var(--radius-xl)',
     padding: '2rem 1.75rem',

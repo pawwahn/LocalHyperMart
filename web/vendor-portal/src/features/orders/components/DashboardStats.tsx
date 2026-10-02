@@ -8,6 +8,7 @@ type Props = {
   loading: boolean;
   moneyWaitingLabel: string;
   moneyWaitingHint: string;
+  agentAssignPendingCount?: number;
 };
 
 export function DashboardStats({
@@ -15,6 +16,7 @@ export function DashboardStats({
   loading,
   moneyWaitingLabel,
   moneyWaitingHint,
+  agentAssignPendingCount = 0,
 }: Props) {
   const narrow = useIsNarrow();
 
@@ -23,14 +25,22 @@ export function DashboardStats({
   }
   if (!dashboard) return null;
 
+  const needsTotal = dashboard.pendingActionCount + agentAssignPendingCount;
+  const needsHint =
+    agentAssignPendingCount > 0 && dashboard.pendingActionCount > 0
+      ? 'New orders to pack · assign your delivery agent'
+      : agentAssignPendingCount > 0
+        ? 'Assign your shop agent — hub will not deliver'
+        : 'New orders — Mark ready / Reject my items';
+
   return (
     <section style={styles.wrap}>
       <div style={{ ...styles.primary, ...(narrow ? styles.primaryNarrow : null) }}>
         <Stat
           label="Needs action"
-          value={String(dashboard.pendingActionCount)}
-          hint="New orders — Mark ready / Reject my items"
-          emphasize={dashboard.pendingActionCount > 0}
+          value={String(needsTotal)}
+          hint={needsHint}
+          emphasize={needsTotal > 0}
           large
           compact={narrow}
         />

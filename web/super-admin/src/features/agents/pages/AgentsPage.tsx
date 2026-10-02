@@ -296,7 +296,8 @@ export function AgentsPage() {
                     <tr>
                       <th style={styles.th}>Boy</th>
                       <th style={styles.th}>Phone</th>
-                      <th style={styles.th}>Hub</th>
+                      <th style={styles.th}>Type</th>
+                      <th style={styles.th}>Hub / shop</th>
                       <th style={styles.th}>Status</th>
                     </tr>
                   </thead>
@@ -319,7 +320,16 @@ export function AgentsPage() {
                           <strong>{agent.name}</strong>
                         </td>
                         <td style={styles.tdMuted}>{agent.phone}</td>
-                        <td style={styles.tdMuted}>{agent.hubName || '—'}</td>
+                        <td style={styles.td}>
+                          {agent.agentType === 'VENDOR' ? (
+                            <span style={styles.vendorTag}>Vendor shop</span>
+                          ) : (
+                            <span style={styles.hubTag}>Hub network</span>
+                          )}
+                        </td>
+                        <td style={styles.tdMuted}>
+                          {agent.agentType === 'VENDOR' ? 'Shop agent' : agent.hubName || '—'}
+                        </td>
                         <td style={styles.td}>
                           <span
                             style={
@@ -553,6 +563,22 @@ const styles: Record<string, CSSProperties> = {
     fontWeight: 800,
     color: 'var(--danger)',
     background: 'var(--danger-soft)',
+    borderRadius: 999,
+    padding: '0.15rem 0.5rem',
+  },
+  vendorTag: {
+    fontSize: '0.7rem',
+    fontWeight: 800,
+    color: '#5B21B6',
+    background: 'color-mix(in srgb, #7C3AED 14%, transparent)',
+    borderRadius: 999,
+    padding: '0.15rem 0.5rem',
+  },
+  hubTag: {
+    fontSize: '0.7rem',
+    fontWeight: 800,
+    color: '#1D4ED8',
+    background: 'color-mix(in srgb, #2563EB 12%, transparent)',
     borderRadius: 999,
     padding: '0.15rem 0.5rem',
   },

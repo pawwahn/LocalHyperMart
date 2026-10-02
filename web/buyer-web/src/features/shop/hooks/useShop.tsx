@@ -25,6 +25,7 @@ import {
   isPlaceholderListingId,
   listAddresses,
   listMyOrders,
+  fetchPaymentCheckout,
   placeOrder,
   removeCartItem,
   removePromo,
@@ -37,6 +38,7 @@ import {
   type CreateOrderDto,
   type OrderSummaryDto,
 } from '../api/shopApi';
+import { pollUntilCheckoutReady } from '../lib/paymentCheckoutPoll';
 import type { GatewayCheckout } from '../lib/razorpayCheckout';
 
 export type CheckoutOutcome =
@@ -917,16 +919,25 @@ function useShopState() {
         useStoreCredit: Boolean(opts?.useStoreCredit),
         paymentMethod: opts?.paymentMethod ?? 'COD',
       });
-      const checkout = order.payment?.checkout;
-      if (order.status === 'PAYMENT_PENDING' && checkout?.gatewayOrderId) {
-        void reload();
-        return {
-          ok: true,
-          kind: 'pay',
-          orderId: order.orderId,
-          orderNumber: order.orderNumber,
-          checkout,
-        };
+      if (order.status === 'PAYMENT_PENDING') {
+        let checkout = order.payment?.checkout;
+        const paymentId = order.payment?.paymentId;
+        if (!checkout?.gatewayOrderId && paymentId) {
+          checkout = await pollUntilCheckoutReady(
+            () => fetchPaymentCheckout(session.accessToken, paymentId),
+            { timeoutMs: 28_000, intervalMs: 350 },
+          );
+        }
+        if (checkout?.gatewayOrderId) {
+          void reload();
+          return {
+            ok: true,
+            kind: 'pay',
+            orderId: order.orderId,
+            orderNumber: order.orderNumber,
+            checkout,
+          };
+        }
       }
       void reload();
       return { ok: true, kind: 'placed', orderId: order.orderId, orderNumber: order.orderNumber, status: order.status };
@@ -945,9 +956,15 @@ function useShopState() {
         setError(raw);
       } else if (/cart service is busy|could not load your basket/i.test(raw)) {
         setError(raw);
-      } else if (/internal server error|request timed out/i.test(raw)) {
+      } else if (err instanceof ApiError && err.status >= 500) {
+        const rebuildHint =
+          /internal server error/i.test(raw)
+            ? ' Order-service may be on an old build — run .\\scripts\\stop-dev.ps1 then .\\scripts\\start-dev.ps1 -Rebuild.'
+            : ' If this keeps happening, run stop-dev then start-dev -Rebuild.';
+        setError(`${raw}.${rebuildHint}`);
+      } else if (/internal server error|request timed out|failed to fetch|networkerror/i.test(raw)) {
         setError(
-          'Checkout could not reach the server. Refresh the page. If it keeps failing, run stop-dev then start-dev locally.',
+          'Checkout could not reach the server. Refresh the page. If it keeps failing, run stop-dev then start-dev with -Rebuild after backend changes.',
         );
       } else {
         setError(raw);

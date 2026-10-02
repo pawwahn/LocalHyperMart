@@ -1,6 +1,6 @@
-HYPERLOCALMART — PRIVACY POLICY
+KOYAKART — PRIVACY POLICY
 
-This policy explains how HyperLocalMart uses personal data on the buyer, vendor, hub/agent, and super-admin portals. It should be read with the Terms.
+This policy explains how KoYaKart uses personal data on the buyer, vendor, hub/agent, and super-admin portals. It should be read with the Terms.
 
 1. DATA WE COLLECT
 • Account: mobile number, name, password hash, role (buyer / vendor / hub / agent / super-admin), town.

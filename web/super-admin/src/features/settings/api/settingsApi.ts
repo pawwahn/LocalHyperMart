@@ -74,7 +74,7 @@ function mapSettings(data: SettingsDto): PlatformSettingsVm {
     supportPhone: asString(data.supportPhone),
     deliveryFee: asNumber(data.deliveryFee, 40),
     vendorOrderAlertMessage: asString(data.vendorOrderAlertMessage, 'Order received'),
-    supplierLegalName: asString(data.supplierLegalName, 'HyperLocalMart') || 'HyperLocalMart',
+    supplierLegalName: asString(data.supplierLegalName, 'KoYaKart') || 'KoYaKart',
     supplierGstin: asString(data.supplierGstin).toUpperCase(),
     supplierAddress: asString(data.supplierAddress),
     supplierState: asString(data.supplierState),
@@ -94,7 +94,7 @@ function mapSettings(data: SettingsDto): PlatformSettingsVm {
     referralShareBaseUrl: asString(data.referralShareBaseUrl),
     referralShareMessageTemplate: asString(
       data.referralShareMessageTemplate,
-      'Order groceries from local shops on HyperLocalMart. Use my code {code}: {link}',
+      'Order groceries from local shops on KoYaKart. Use my code {code}: {link}',
     ),
   };
 }

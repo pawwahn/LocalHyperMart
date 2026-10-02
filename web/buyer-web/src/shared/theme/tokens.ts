@@ -1,4 +1,4 @@
-/** Design tokens — Instamart / Zepto / Blinkit grocery light skin. */
+/** Design tokens — Swiggy / Instamart grocery light skin. */
 export const tokens = {
   color: {
     bg: '#F4F6F5',
@@ -25,8 +25,8 @@ export const tokens = {
     successSoft: '#E7F6EC',
   },
   font: {
-    display: '"Outfit", "DM Sans", system-ui, sans-serif',
-    body: '"DM Sans", system-ui, sans-serif',
+    display: '"Poppins", "DM Sans", system-ui, sans-serif',
+    body: '"Poppins", "DM Sans", system-ui, sans-serif',
   },
   space: {
     xs: '0.25rem',

@@ -72,7 +72,7 @@ export function InviteFriendsPage() {
     try {
       if (navigator.share) {
         await navigator.share({
-          title: 'HyperLocalMart invite',
+          title: 'KoYaKart invite',
           text: info.shareMessage,
           url: info.shareLink || undefined,
         });

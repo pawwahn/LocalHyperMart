@@ -3,6 +3,7 @@ package com.hyperlocalmart.order.web;
 import com.hyperlocalmart.common.api.ApiResponse;
 import com.hyperlocalmart.order.dto.request.DeliverOrderRequest;
 import com.hyperlocalmart.order.dto.request.PaymentCallbackRequest;
+import com.hyperlocalmart.order.dto.response.CodCashBreakdownResponse;
 import com.hyperlocalmart.order.dto.response.CodDeliveredResponse;
 import com.hyperlocalmart.order.dto.response.HubOrderStatsResponse;
 import com.hyperlocalmart.order.dto.response.HubTownReportStatsResponse;
@@ -171,6 +172,17 @@ public class OrderInternalController {
                 codDeliveredService.list(townId, agentId, date)));
     }
 
+    @GetMapping("/api/v1/internal/orders/cod-delivered/range")
+    public ResponseEntity<ApiResponse<CodDeliveredResponse>> listCodDeliveredRange(
+            @RequestParam UUID townId,
+            @RequestParam(required = false) UUID agentId,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                codDeliveredService.listRange(townId, agentId, from, to)));
+    }
+
     @GetMapping("/api/v1/internal/orders/delivery-complete")
     public ResponseEntity<ApiResponse<List<DeliveryCompleteOrderService.CompleteOrder>>> listDeliveryComplete(
             @RequestParam UUID townId,
@@ -193,5 +205,12 @@ public class OrderInternalController {
             @RequestBody List<UUID> orderIds,
             HttpServletRequest httpRequest) {
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, codDeliveredService.resolve(orderIds)));
+    }
+
+    @PostMapping("/api/v1/internal/orders/cod-cash/breakdown")
+    public ResponseEntity<ApiResponse<List<CodCashBreakdownResponse>>> codCashBreakdown(
+            @RequestBody List<UUID> orderIds,
+            HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest, codDeliveredService.breakdown(orderIds)));
     }
 }

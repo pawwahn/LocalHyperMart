@@ -354,7 +354,7 @@ export function vendorServiceBillHtml(
 <article class="sheet">
   <div class="top">
     <div>
-      <div class="brand">HYPERLOCALMART</div>
+      <div class="brand">KOYAKART</div>
       <h1>${esc(title)}</h1>
       <div class="sub">${hasFee ? 'Marketplace service fee, deducted from your shop payout' : 'No service fee on this payout'}</div>
     </div>
@@ -440,7 +440,7 @@ export function downloadVendorServiceBill(
   const start = (settlement.periodStart ?? 'payout').slice(0, 10);
   const end = (settlement.periodEnd ?? start).slice(0, 10);
   link.href = url;
-  link.download = `HyperLocalMart-bill-${start}-to-${end}.html`;
+  link.download = `KoYaKart-bill-${start}-to-${end}.html`;
   document.body.appendChild(link);
   link.click();
   link.remove();

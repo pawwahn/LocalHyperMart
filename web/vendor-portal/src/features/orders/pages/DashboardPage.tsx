@@ -1,22 +1,30 @@
-import { useState, type CSSProperties } from 'react';
+import { useEffect, useMemo, useState, type CSSProperties } from 'react';
+import { useLocation } from 'react-router-dom';
 import { usePortalChrome } from '@/shared/layout/PortalChromeContext';
-import { Banner } from '@/shared/ui';
+import { useAuth } from '@/shared/auth/AuthContext';
+import { Banner, Button } from '@/shared/ui';
 import { useVendorOrders } from '../hooks/useVendorOrders';
 import { useVendorShop } from '@/features/shop/hooks/useVendorShop';
 import { DashboardStats } from '../components/DashboardStats';
 import { SubOrderList } from '../components/SubOrderList';
 import { ReasonDialog } from '../components/ReasonDialog';
 import { ConfirmDialog } from '../components/ConfirmDialog';
+import { AssignVendorAgentDialog } from '@/features/delivery/components/AssignVendorAgentDialog';
+import { vendorBagDisplayNumber, vendorBagLabelHint } from '../orderBagLabel';
 
 const FILTERS: Array<{ value: string; label: string }> = [
   { value: 'PLACED', label: 'New' },
   { value: 'READY_FOR_PICKUP', label: 'Ready' },
+  { value: 'DELIVERY_BY_VENDOR_AGENT', label: 'My agent' },
   { value: 'VENDOR_REJECTED', label: 'Rejected' },
   { value: '', label: 'All' },
 ];
 
 type PromptState =
   | { kind: 'markReady'; subOrderId: string; label: string }
+  | { kind: 'deliveryByVendorAgent'; subOrderId: string; label: string }
+  | { kind: 'assignVendorAgent'; subOrderId: string; label: string }
+  | { kind: 'notifyAgent'; subOrderId: string; label: string }
   | { kind: 'reject'; subOrderId: string }
   | { kind: 'cancelItemAsk'; subOrderId: string; itemId: string; itemName: string }
   | { kind: 'cancelItem'; subOrderId: string; itemId: string; itemName: string }
@@ -31,9 +39,12 @@ type PromptState =
   | null;
 
 export function DashboardPage({ active = true }: { active?: boolean }) {
+  const { session } = useAuth();
   const {
     dashboard,
     orders,
+    ordersNeedingAgent,
+    myAgentPendingCount,
     statusFilter,
     setStatusFilter,
     loading,
@@ -44,6 +55,9 @@ export function DashboardPage({ active = true }: { active?: boolean }) {
     moneyWaitingHint,
     reload,
     markReady,
+    deliveryByVendorAgent,
+    assignVendorAgent,
+    notifyVendorAgent,
     reject,
     cancelItem,
     restoreItem,
@@ -55,6 +69,25 @@ export function DashboardPage({ active = true }: { active?: boolean }) {
     setAcceptingOrders,
   } = useVendorShop();
   const [prompt, setPrompt] = useState<PromptState>(null);
+  const location = useLocation();
+  const { shop } = useVendorShop();
+  const agentPendingCount = ordersNeedingAgent.length;
+
+  useEffect(() => {
+    const focus = (location.state as { focusAgentAssign?: boolean } | null)?.focusAgentAssign;
+    if (focus) {
+      setStatusFilter('DELIVERY_BY_VENDOR_AGENT');
+    }
+  }, [location.state, setStatusFilter]);
+  const agentScope = useMemo(() => {
+    if (!session?.accessToken || !session.vendorId || !shop?.shopId || !shop?.townId) return null;
+    return {
+      token: session.accessToken,
+      vendorId: session.vendorId,
+      shopId: shop.shopId,
+      townId: shop.townId,
+    };
+  }, [session?.accessToken, session?.vendorId, shop?.shopId, shop?.townId]);
 
   usePortalChrome(
     {
@@ -69,9 +102,18 @@ export function DashboardPage({ active = true }: { active?: boolean }) {
     active,
   );
 
+  const promptBagHint = useMemo(() => {
+    if (!prompt || !('subOrderId' in prompt)) return null;
+    const o = orders.find((x) => x.id === prompt.subOrderId);
+    return o ? vendorBagLabelHint(o) : null;
+  }, [orders, prompt]);
+
   const dialogBusy = Boolean(
     prompt &&
-      (prompt.kind === 'markReady' || prompt.kind === 'reject'
+      (prompt.kind === 'markReady' ||
+      prompt.kind === 'deliveryByVendorAgent' ||
+      prompt.kind === 'assignVendorAgent' ||
+      prompt.kind === 'reject'
         ? actionId === prompt.subOrderId
         : prompt.kind === 'cancelItem' || prompt.kind === 'restoreItem'
           ? actionId === `${prompt.subOrderId}:${prompt.itemId}` ||
@@ -90,11 +132,51 @@ export function DashboardPage({ active = true }: { active?: boolean }) {
       {error ? <Banner tone="danger">{error}</Banner> : null}
       {notice ? <Banner tone="success">{notice}</Banner> : null}
 
+      {agentPendingCount > 0 ? (
+        <Banner tone="warning" style={styles.agentBanner}>
+          <div style={styles.agentBannerText}>
+            <strong>Assign your delivery agent</strong>
+            <span style={styles.agentBannerSub}>
+              {agentPendingCount === 1
+                ? `Order ${vendorBagDisplayNumber(ordersNeedingAgent[0])} is on “My agent” delivery — hub will not pick it up until you assign someone.`
+                : `${agentPendingCount} orders need a shop agent before delivery can start.`}
+            </span>
+          </div>
+          <div style={styles.agentBannerActions}>
+            {ordersNeedingAgent.slice(0, 2).map((o) => (
+              <Button
+                key={o.id}
+                size="sm"
+                onClick={() =>
+                  setPrompt({
+                    kind: 'assignVendorAgent',
+                    subOrderId: o.id,
+                    label: vendorBagDisplayNumber(o),
+                  })
+                }
+              >
+                Assign — {vendorBagDisplayNumber(o)}
+              </Button>
+            ))}
+            {agentPendingCount > 2 ? (
+              <Button size="sm" variant="secondary" onClick={() => setStatusFilter('DELIVERY_BY_VENDOR_AGENT')}>
+                View all ({agentPendingCount})
+              </Button>
+            ) : (
+              <Button size="sm" variant="ghost" onClick={() => setStatusFilter('DELIVERY_BY_VENDOR_AGENT')}>
+                Open My agent list
+              </Button>
+            )}
+          </div>
+        </Banner>
+      ) : null}
+
       <DashboardStats
         dashboard={dashboard}
         loading={loading}
         moneyWaitingLabel={moneyWaitingLabel}
         moneyWaitingHint={moneyWaitingHint}
+        agentAssignPendingCount={agentPendingCount}
       />
 
       <section style={styles.section}>
@@ -103,14 +185,23 @@ export function DashboardPage({ active = true }: { active?: boolean }) {
           <div style={styles.filters}>
             {FILTERS.map((f) => {
               const active = statusFilter === f.value;
+              const badge =
+                f.value === 'DELIVERY_BY_VENDOR_AGENT' ? myAgentPendingCount : 0;
               return (
                 <button
                   key={f.label}
                   type="button"
-                  style={active ? styles.filterActive : styles.filter}
+                  style={
+                    badge > 0 && !active
+                      ? styles.filterAttention
+                      : active
+                        ? styles.filterActive
+                        : styles.filter
+                  }
                   onClick={() => setStatusFilter(f.value)}
                 >
                   {f.label}
+                  {f.value === 'DELIVERY_BY_VENDOR_AGENT' ? ` (${badge})` : ''}
                 </button>
               );
             })}
@@ -124,6 +215,15 @@ export function DashboardPage({ active = true }: { active?: boolean }) {
             orders={orders}
             actionId={actionId}
             onReady={(id, label) => setPrompt({ kind: 'markReady', subOrderId: id, label })}
+            onDeliveryByVendorAgent={(id, label) =>
+              setPrompt({ kind: 'deliveryByVendorAgent', subOrderId: id, label })
+            }
+            onAssignVendorAgent={(id, label) =>
+              setPrompt({ kind: 'assignVendorAgent', subOrderId: id, label })
+            }
+            onNotifyAgent={(id, label) =>
+              setPrompt({ kind: 'notifyAgent', subOrderId: id, label })
+            }
             onReject={(id) => setPrompt({ kind: 'reject', subOrderId: id })}
             onCancelItem={(subOrderId, itemId, itemName) =>
               setPrompt({ kind: 'cancelItemAsk', subOrderId, itemId, itemName })
@@ -135,6 +235,49 @@ export function DashboardPage({ active = true }: { active?: boolean }) {
         )}
       </section>
 
+      <ConfirmDialog
+        open={prompt?.kind === 'notifyAgent'}
+        title="Notify your delivery agent?"
+        description={
+          prompt?.kind === 'notifyAgent'
+            ? `Ring ${prompt.label} on the agent's KoYaKart Delivery app. Sound and vibration repeat until they tap Got it.`
+            : 'Notify the assigned agent on their delivery app.'
+        }
+        confirmLabel="Yes — notify agent"
+        cancelLabel="Cancel"
+        busy={dialogBusy}
+        onClose={() => {
+          if (!dialogBusy) setPrompt(null);
+        }}
+        onConfirm={() => {
+          if (prompt?.kind !== 'notifyAgent') return;
+          const id = prompt.subOrderId;
+          void notifyVendorAgent(id).then(() => setPrompt(null));
+        }}
+      />
+      <ConfirmDialog
+        open={prompt?.kind === 'deliveryByVendorAgent'}
+        title="Delivery by your agent?"
+        description={
+          prompt?.kind === 'deliveryByVendorAgent'
+            ? `Order ${prompt.label}. Hub will not handle delivery. You must assign your shop agent afterward.${promptBagHint ? `\n\n${promptBagHint}` : ''}`
+            : 'Hub will not handle delivery for this order.'
+        }
+        confirmLabel="Yes — my agent delivers"
+        cancelLabel="Cancel"
+        busy={dialogBusy}
+        onClose={() => {
+          if (!dialogBusy) setPrompt(null);
+        }}
+        onConfirm={() => {
+          if (prompt?.kind !== 'deliveryByVendorAgent') return;
+          const { subOrderId: id, label } = prompt;
+          void deliveryByVendorAgent(id).then(() => {
+            setStatusFilter('DELIVERY_BY_VENDOR_AGENT');
+            setPrompt({ kind: 'assignVendorAgent', subOrderId: id, label });
+          });
+        }}
+      />
       <ConfirmDialog
         open={prompt?.kind === 'markReady'}
         title="Bag packed and ready?"
@@ -267,6 +410,21 @@ export function DashboardPage({ active = true }: { active?: boolean }) {
           });
         }}
       />
+      <AssignVendorAgentDialog
+        open={prompt?.kind === 'assignVendorAgent'}
+        subOrderLabel={
+          prompt?.kind === 'assignVendorAgent' ? prompt.label : ''
+        }
+        scope={agentScope}
+        busy={dialogBusy}
+        onClose={() => {
+          if (!dialogBusy) setPrompt(null);
+        }}
+        onConfirm={(agentId) => {
+          if (prompt?.kind !== 'assignVendorAgent') return;
+          void assignVendorAgent(prompt.subOrderId, agentId).then(() => setPrompt(null));
+        }}
+      />
     </>
   );
 }
@@ -303,4 +461,24 @@ const styles: Record<string, CSSProperties> = {
     fontWeight: 700,
   },
   muted: { color: 'var(--text-muted)' },
+  agentBanner: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: '0.75rem',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  agentBannerText: { display: 'grid', gap: '0.25rem', flex: '1 1 12rem', minWidth: 0 },
+  agentBannerSub: { fontWeight: 600, fontSize: '0.85rem', lineHeight: 1.35 },
+  agentBannerActions: { display: 'flex', flexWrap: 'wrap', gap: '0.4rem', alignItems: 'center' },
+  filterAttention: {
+    border: '1px solid #d97706',
+    background: 'var(--warning-soft)',
+    color: '#92400e',
+    borderRadius: 'var(--radius-full)',
+    padding: '0.4rem 0.8rem',
+    cursor: 'pointer',
+    fontSize: '0.8rem',
+    fontWeight: 800,
+  },
 };

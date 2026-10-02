@@ -3,7 +3,7 @@ import type { CSSProperties } from 'react';
 import { PortalShell } from '@/shared/layout/PortalShell';
 import { useAuth } from '@/shared/auth/AuthContext';
 import { ApiError } from '@/shared/api/http';
-import { Banner, Button, Card } from '@/shared/ui';
+import { Banner, Button, Card, ConfirmDialog } from '@/shared/ui';
 import { listTowns, type TownVm } from '@/features/towns/api/townsApi';
 import { listVendors, type VendorVm } from '@/features/vendors/api/vendorsApi';
 import {
@@ -23,7 +23,21 @@ import {
   type SettlementVm,
 } from '../api/settlementsApi';
 import { DeliveryPayoutPanel } from '../components/DeliveryPayoutPanel';
-import { AdminHistoryPanel } from '@/shared/audit/AdminHistoryPanel';
+import { ListPager } from '../components/ListPager';
+import { VendorCodRemittancePanel } from '../components/VendorCodRemittancePanel';
+import {
+  codCashLocationLabel,
+  codCashStage,
+  formatSettlementPayment,
+  selectedCandidatesByCodStage,
+  sumSelectedByCashStage,
+} from '../codCashLabels';
+import {
+  SettlementAuditSection,
+  type SettlementChangeLogProps,
+} from '../components/SettlementAuditSection';
+
+const DEFAULT_ORDER_PAGE_SIZE = 50;
 
 type PeriodPreset = 'day' | 'week' | 'month' | 'custom';
 
@@ -79,8 +93,43 @@ function rangeForPreset(preset: PeriodPreset): { from: string; to: string; perio
 
 const PAYOUT_METHODS = ['UPI', 'NEFT', 'IMPS', 'RTGS', 'CASH', 'CHEQUE', 'OTHER'];
 
+function roundMoney(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
 function feeModelLabel(model?: string | null): string {
   return FEE_MODEL_OPTIONS.find((m) => m.id === model)?.label ?? model ?? 'Billing';
+}
+
+function settlementChangeLog(
+  tab: 'VENDOR' | 'HUB' | 'AGENT',
+  token: string,
+  townId: string | undefined,
+  refreshTick: number,
+): SettlementChangeLogProps {
+  return {
+    token,
+    townId,
+    refreshTick,
+    actions:
+      tab === 'AGENT'
+        ? ['DELIVERY_PAYOUT', 'AGENT_PAYOUT']
+        : tab === 'HUB'
+          ? ['FRANCHISE_COLLECT', 'DELIVERY_PAYOUT', 'HUB_PAYOUT']
+          : ['VENDOR_PAYOUT'],
+    prefixes:
+      tab === 'AGENT'
+        ? ['Paid AGENT', 'Paid agent']
+        : tab === 'HUB'
+          ? ['Collected franchise', 'Paid HUB', 'Paid hub']
+          : undefined,
+    emptyHint:
+      tab === 'AGENT'
+        ? 'No agent payout changes for this town.'
+        : tab === 'HUB'
+          ? 'No hub payout or franchise collection changes for this town.'
+          : 'No vendor payout changes for this town.',
+  };
 }
 
 export function SettlementsPage() {
@@ -118,6 +167,9 @@ export function SettlementsPage() {
   const [confirmPayOpen, setConfirmPayOpen] = useState(false);
   const [tab, setTab] = useState<'VENDOR' | 'HUB' | 'AGENT'>('VENDOR');
   const [deliveryRefreshTick, setDeliveryRefreshTick] = useState(0);
+  const [orderSearch, setOrderSearch] = useState('');
+  const [orderPage, setOrderPage] = useState(0);
+  const [orderPageSize, setOrderPageSize] = useState(DEFAULT_ORDER_PAGE_SIZE);
 
   const selectedVendor = useMemo(
     () => vendors.find((v) => v.id === vendorId) ?? null,
@@ -129,20 +181,82 @@ export function SettlementsPage() {
     [candidates],
   );
 
+  const filteredCandidates = useMemo(() => {
+    const needle = orderSearch.trim().toLowerCase();
+    if (!needle) return candidates;
+    return candidates.filter((c) => {
+      const stage = codCashStage(c);
+      const hay = `${c.orderNumber ?? ''} ${c.subOrderNumber ?? ''} ${c.paymentMethod ?? ''} ${stage}`.toLowerCase();
+      return hay.includes(needle);
+    });
+  }, [candidates, orderSearch]);
+
+  const selectedCashSplit = useMemo(
+    () => sumSelectedByCashStage(candidates, selected),
+    [candidates, selected],
+  );
+
+  const selectedStillWithAgent = useMemo(
+    () => selectedCandidatesByCodStage(candidates, selected, 'WITH_AGENT'),
+    [candidates, selected],
+  );
+
+  const codHeldByAgent = useMemo(() => {
+    const totals = new Map<string, number>();
+    for (const c of selectedStillWithAgent) {
+      const name = c.codDeliveringAgentName?.trim() || 'Unknown agent';
+      totals.set(name, (totals.get(name) ?? 0) + Number(c.subtotal ?? 0));
+    }
+    return [...totals.entries()].sort((a, b) => b[1] - a[1]);
+  }, [selectedStillWithAgent]);
+
+  const orderPageCount = Math.max(1, Math.ceil(filteredCandidates.length / orderPageSize));
+  const safeOrderPage = Math.min(orderPage, orderPageCount - 1);
+
+  const pagedCandidates = useMemo(() => {
+    const start = safeOrderPage * orderPageSize;
+    return filteredCandidates.slice(start, start + orderPageSize);
+  }, [filteredCandidates, safeOrderPage, orderPageSize]);
+
+  const selectedFingerprint = useMemo(
+    () => Array.from(selected).sort().join('\n'),
+    [selected],
+  );
+
+  useEffect(() => {
+    setOrderPage(0);
+  }, [candidates.length, orderSearch, orderPageSize, townId, vendorId, from, to]);
+
   const selectedTotal = useMemo(() => {
     let sum = 0;
     for (const c of candidates) {
       if (selected.has(c.subOrderId)) sum += Number(c.subtotal ?? 0);
     }
-    return sum;
+    return roundMoney(sum);
   }, [candidates, selected]);
 
-  const commissionNum = Number(commissionAmount || 0);
-  const otherChargesNum = Math.max(0, Number(otherChargesAmount || 0));
-  const expectedNet = Math.max(
-    0,
-    selectedTotal - commissionNum - pendingClaimChargebacks - otherChargesNum,
-  );
+  const quoteGross =
+    feeQuote?.grossAmount != null ? roundMoney(Number(feeQuote.grossAmount)) : null;
+  const commissionNum = feeQuote
+    ? roundMoney(Number(feeQuote.totalFeeAmount ?? 0))
+    : roundMoney(Number(commissionAmount || 0));
+  const otherChargesNum = Math.max(0, roundMoney(Number(otherChargesAmount || 0)));
+  const grossMismatch =
+    quoteGross != null && Math.abs(quoteGross - selectedTotal) > 0.009;
+
+  const expectedNet = useMemo(() => {
+    const afterFees =
+      feeQuote?.suggestedNet != null
+        ? roundMoney(Number(feeQuote.suggestedNet))
+        : roundMoney(selectedTotal - commissionNum);
+    return Math.max(0, roundMoney(afterFees - pendingClaimChargebacks - otherChargesNum));
+  }, [
+    feeQuote,
+    selectedTotal,
+    commissionNum,
+    pendingClaimChargebacks,
+    otherChargesNum,
+  ]);
 
   useEffect(() => {
     if (!token || !vendorId || selected.size === 0) {
@@ -153,45 +267,49 @@ export function SettlementsPage() {
       return;
     }
     let cancelled = false;
-    void (async () => {
-      setFeeQuoteLoading(true);
-      setFeeQuoteError(null);
-      try {
-        const orderLines = candidates
-          .filter((c) => selected.has(c.subOrderId))
-          .map((c) => ({
-            amount: Number(c.subtotal ?? 0),
-            placedAt: c.placedAt ?? undefined,
-          }));
-        const quote = await quoteVendorCommercialTerms(token, vendorId, {
-          grossAmount: selectedTotal,
-          orderCount: selected.size,
-          periodStart: from,
-          periodEnd: to,
-          markSubscriptionCharged: false,
-          orderLines,
-        });
-        if (cancelled) return;
-        setFeeQuote(quote);
-        setCommissionAmount(String(Number(quote.totalFeeAmount ?? 0)));
-      } catch (err) {
-        if (!cancelled) {
-          setFeeQuote(null);
-          setCommissionAmount('0');
-          setFeeQuoteError(
-            err instanceof ApiError || err instanceof Error
-              ? err.message
-              : 'Could not load billing fees for this payout',
-          );
+    const debounceMs = selected.size > 40 ? 550 : 200;
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        setFeeQuoteLoading(true);
+        setFeeQuoteError(null);
+        try {
+          const orderLines = candidates
+            .filter((c) => selected.has(c.subOrderId))
+            .map((c) => ({
+              amount: Number(c.subtotal ?? 0),
+              placedAt: c.placedAt ?? undefined,
+            }));
+          const quote = await quoteVendorCommercialTerms(token, vendorId, {
+            grossAmount: selectedTotal,
+            orderCount: selected.size,
+            periodStart: from,
+            periodEnd: to,
+            markSubscriptionCharged: false,
+            orderLines,
+          });
+          if (cancelled) return;
+          setFeeQuote(quote);
+          setCommissionAmount(String(Number(quote.totalFeeAmount ?? 0)));
+        } catch (err) {
+          if (!cancelled) {
+            setFeeQuote(null);
+            setCommissionAmount('0');
+            setFeeQuoteError(
+              err instanceof ApiError || err instanceof Error
+                ? err.message
+                : 'Could not load billing fees for this payout',
+            );
+          }
+        } finally {
+          if (!cancelled) setFeeQuoteLoading(false);
         }
-      } finally {
-        if (!cancelled) setFeeQuoteLoading(false);
-      }
-    })();
+      })();
+    }, debounceMs);
     return () => {
       cancelled = true;
+      window.clearTimeout(timer);
     };
-  }, [token, vendorId, selectedTotal, selected, candidates, from, to]);
+  }, [token, vendorId, selectedTotal, selectedFingerprint, selected.size, candidates, from, to]);
 
   const applyPreset = (next: PeriodPreset) => {
     setPreset(next);
@@ -253,7 +371,25 @@ export function SettlementsPage() {
       if (vendorId && !vendorList.some((v) => v.id === vendorId)) {
         setVendorId('');
       }
-      await Promise.all([reloadCandidates(), reloadHistory()]);
+      const candidateErr = await reloadCandidates().then(
+        () => null,
+        (err: unknown) =>
+          err instanceof ApiError || err instanceof Error ? err.message : 'Failed to load payout orders',
+      );
+      const historyErr = await reloadHistory().then(
+        () => null,
+        (err: unknown) =>
+          err instanceof ApiError || err instanceof Error ? err.message : 'Failed to load payout history',
+      );
+      if (candidateErr) {
+        setCandidates([]);
+        setPendingClaimChargebacks(0);
+        setPendingClaims([]);
+        setSelected(new Set());
+      }
+      if (candidateErr || historyErr) {
+        setError([candidateErr, historyErr].filter(Boolean).join(' · '));
+      }
     } catch (err) {
       setError(err instanceof ApiError || err instanceof Error ? err.message : 'Failed to load settlements');
     } finally {
@@ -409,6 +545,7 @@ export function SettlementsPage() {
           payeeType={tab}
           refreshTick={deliveryRefreshTick}
           onSettled={() => setDeliveryRefreshTick((n) => n + 1)}
+          changeLog={settlementChangeLog(tab, token, undefined, deliveryRefreshTick)}
         />
       ) : null}
       {tab === 'VENDOR' && error ? <Banner tone="danger">{error}</Banner> : null}
@@ -543,7 +680,8 @@ export function SettlementsPage() {
               <h2 style={styles.sectionTitle}>
                 Orders{' '}
                 <span style={styles.count}>
-                  {candidates.length} · {selected.size} selected
+                  {candidates.length} bag{candidates.length === 1 ? '' : 's'} · {selected.size} selected ·{' '}
+                  {formatMoney(selectedTotal)} gross
                 </span>
               </h2>
               <label style={styles.checkInline}>
@@ -562,8 +700,31 @@ export function SettlementsPage() {
               <p style={styles.muted}>Loading…</p>
             ) : candidates.length === 0 ? (
               <p style={styles.muted}>No delivered unsettled orders in this range.</p>
+            ) : filteredCandidates.length === 0 ? (
+              <p style={styles.muted}>No bags match your search.</p>
             ) : (
-              <div style={styles.tableWrap}>
+              <>
+                <div style={styles.ordersToolbar}>
+                  <input
+                    style={styles.searchInput}
+                    value={orderSearch}
+                    onChange={(e) => setOrderSearch(e.target.value)}
+                    placeholder="Search order or bag #…"
+                    aria-label="Search orders"
+                  />
+                  <ListPager
+                    page={safeOrderPage}
+                    pageCount={orderPageCount}
+                    total={filteredCandidates.length}
+                    pageSize={orderPageSize}
+                    onPage={setOrderPage}
+                    onPageSize={(size) => {
+                      setOrderPageSize(size);
+                      setOrderPage(0);
+                    }}
+                  />
+                </div>
+                <div style={styles.tableWrapPaged}>
                 <table style={styles.table}>
                   <thead>
                     <tr>
@@ -571,13 +732,13 @@ export function SettlementsPage() {
                       <th style={styles.th}>Placed</th>
                       <th style={styles.th}>Order</th>
                       <th style={styles.th}>Status</th>
-                      <th style={styles.th}>Buyer pay</th>
-                      <th style={styles.thRight}>Amount</th>
+                      <th style={styles.th}>Payment</th>
+                      <th style={styles.thRight}>Bag total</th>
                       <th style={styles.th}>Settlement</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {candidates.map((row) => (
+                    {pagedCandidates.map((row) => (
                       <tr
                         key={row.subOrderId}
                         style={
@@ -609,7 +770,43 @@ export function SettlementsPage() {
                           <div style={styles.sub}>{row.subOrderNumber}</div>
                         </td>
                         <td style={styles.tdMuted}>{row.status}</td>
-                        <td style={styles.tdMuted}>{row.paymentStatus ?? '—'}</td>
+                        <td style={styles.td}>
+                          <div>{formatSettlementPayment(row)}</div>
+                          {(() => {
+                            const stage = codCashStage(row);
+                            if (stage === 'ONLINE') {
+                              return (
+                                <span style={styles.onlinePayHint}>{codCashLocationLabel('ONLINE')}</span>
+                              );
+                            }
+                            const label = codCashLocationLabel(stage);
+                            const badgeStyle =
+                              stage === 'AT_HUB'
+                                ? styles.codHubBadge
+                                : stage === 'WITH_VENDOR'
+                                  ? styles.codVendorBadge
+                                  : stage === 'DECLARED_TO_VENDOR' || stage === 'DECLARED_TO_HUB'
+                                    ? styles.codDeclaredBadge
+                                    : styles.codAgentBadge;
+                            const title =
+                              stage === 'AT_HUB'
+                                ? 'Hub recorded agent remittance (close-day)'
+                                : stage === 'WITH_VENDOR'
+                                  ? 'Shop confirmed COD receipt from their agent'
+                                  : stage === 'DECLARED_TO_VENDOR'
+                                    ? 'Agent declared to shop — shop has not confirmed yet'
+                                    : stage === 'DECLARED_TO_HUB'
+                                      ? 'Agent declared to hub — hub has not confirmed yet'
+                                      : row.codDeliveringAgentName
+                                        ? `Cash still with ${row.codDeliveringAgentName}`
+                                        : 'Cash still with the delivery agent';
+                            return (
+                              <span style={badgeStyle} title={title}>
+                                {label}
+                              </span>
+                            );
+                          })()}
+                        </td>
                         <td style={styles.tdRight}>{formatMoney(row.subtotal)}</td>
                         <td style={styles.td}>
                           {row.alreadySettled ? (
@@ -623,8 +820,18 @@ export function SettlementsPage() {
                   </tbody>
                 </table>
               </div>
+              </>
             )}
+            {candidates.length > 0 ? (
+              <p style={styles.tableHint}>
+                Each row is this shop&apos;s bag (sub-order). Multi-shop buyer orders only include this vendor&apos;s
+                portion — not the full order total. COD cash is tracked per buyer order; all bags on the same order
+                share the same cash location.
+              </p>
+            ) : null}
           </Card>
+
+          {townId ? <VendorCodRemittancePanel token={token} townId={townId} from={from} to={to} /> : null}
         </div>
 
         <aside className="sp-side">
@@ -639,10 +846,104 @@ export function SettlementsPage() {
                   <strong style={styles.netValue}>{formatMoney(expectedNet)}</strong>
                 </div>
 
+                {grossMismatch ? (
+                  <p style={styles.feeError}>
+                    Selected bags total ({formatMoney(selectedTotal)}) does not match billing gross (
+                    {formatMoney(quoteGross)}). Refresh or re-select orders.
+                  </p>
+                ) : null}
+                {(selectedCashSplit.codWithAgent > 0 ||
+                  selectedCashSplit.codAtHub > 0 ||
+                  selectedCashSplit.codWithVendor > 0 ||
+                  selectedCashSplit.codDeclaredToVendor > 0 ||
+                  selectedCashSplit.codDeclaredToHub > 0 ||
+                  selectedCashSplit.online > 0) && (
+                  <div style={styles.cashSplit}>
+                    <span style={styles.cashSplitTitle}>Buyer money (selected bags)</span>
+                    {selectedCashSplit.online > 0 ? (
+                      <div style={styles.mathRow}>
+                        <span>Online · with platform</span>
+                        <strong>{formatMoney(selectedCashSplit.online)}</strong>
+                      </div>
+                    ) : null}
+                    {selectedCashSplit.codWithAgent > 0 ? (
+                      <>
+                        <div style={styles.mathRow}>
+                          <span>COD · still with agent</span>
+                          <strong style={styles.codWarnAmt}>{formatMoney(selectedCashSplit.codWithAgent)}</strong>
+                        </div>
+                        {codHeldByAgent.length > 0 ? (
+                          <div style={styles.codAgentHeldBy}>
+                            {codHeldByAgent.map(([name, amt]) => (
+                              <p key={name} style={styles.codAgentHeldRow}>
+                                <span>Held by</span>
+                                <strong>{name}</strong>
+                                <span>{formatMoney(amt)}</span>
+                              </p>
+                            ))}
+                          </div>
+                        ) : null}
+                        {selectedStillWithAgent.length > 0 ? (
+                          <ul style={styles.codAgentOrderList}>
+                            {selectedStillWithAgent.map((c) => (
+                              <li key={c.subOrderId}>
+                                <strong>{c.orderNumber}</strong> · {formatMoney(c.subtotal)}
+                                <span style={styles.codAgentOrderHint}>
+                                  {c.codDeliveringAgentName
+                                    ? ` · ${c.codDeliveringAgentName}`
+                                    : c.vendorAgentDelivery
+                                      ? ` · shop agent (unknown)`
+                                      : ' · hub agent (unknown)'}
+                                </span>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : null}
+                      </>
+                    ) : null}
+                    {selectedCashSplit.codDeclaredToHub > 0 ? (
+                      <div style={styles.mathRow}>
+                        <span>COD · declared to hub</span>
+                        <strong style={styles.codWarnAmt}>
+                          {formatMoney(selectedCashSplit.codDeclaredToHub)}
+                        </strong>
+                      </div>
+                    ) : null}
+                    {selectedCashSplit.codDeclaredToVendor > 0 ? (
+                      <div style={styles.mathRow}>
+                        <span>COD · declared to shop</span>
+                        <strong style={styles.codWarnAmt}>
+                          {formatMoney(selectedCashSplit.codDeclaredToVendor)}
+                        </strong>
+                      </div>
+                    ) : null}
+                    {selectedCashSplit.codWithVendor > 0 ? (
+                      <div style={styles.mathRow}>
+                        <span>COD · with shop (confirmed)</span>
+                        <strong>{formatMoney(selectedCashSplit.codWithVendor)}</strong>
+                      </div>
+                    ) : null}
+                    {selectedCashSplit.codAtHub > 0 ? (
+                      <div style={styles.mathRow}>
+                        <span>COD · at hub</span>
+                        <strong>{formatMoney(selectedCashSplit.codAtHub)}</strong>
+                      </div>
+                    ) : null}
+                    {selectedCashSplit.codWithAgent > 0 ||
+                    selectedCashSplit.codDeclaredToVendor > 0 ||
+                    selectedCashSplit.codDeclaredToHub > 0 ? (
+                      <p style={styles.cashSplitHint}>
+                        Paying the vendor does not pull COD from agents — confirm handover or hub close-day before you
+                        pay out large COD totals.
+                      </p>
+                    ) : null}
+                  </div>
+                )}
+
                 <div style={styles.mathStack}>
                   <div style={styles.mathRow}>
-                    <span>Gross · {selected.size} orders</span>
-                    <strong>{formatMoney(selectedTotal)}</strong>
+                    <span>Gross · {selected.size} bag{selected.size === 1 ? '' : 's'}</span>
+                    <strong>{formatMoney(quoteGross ?? selectedTotal)}</strong>
                   </div>
                   <div style={styles.mathRow}>
                     <span>Billing fees</span>
@@ -733,59 +1034,26 @@ export function SettlementsPage() {
         </aside>
       </div>
 
-      {confirmPayOpen ? (
-        <div
-          style={styles.confirmOverlay}
-          role="presentation"
-          onMouseDown={(e) => {
-            if (e.target === e.currentTarget && !saving) setConfirmPayOpen(false);
-          }}
-        >
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-label="Confirm mark paid"
-            style={styles.confirmDialog}
-            onMouseDown={(e) => e.stopPropagation()}
-          >
-            <h2 style={styles.confirmTitle}>Confirm payout?</h2>
-            <p style={styles.confirmBody}>
-              Pay <strong>{formatMoney(expectedNet)}</strong> to{' '}
-              <strong>
-                {selectedVendor?.shopName || selectedVendor?.businessName || 'vendor'}
-              </strong>
-              ?
-            </p>
-            <p style={styles.confirmMeta}>
-              {selected.size} order{selected.size === 1 ? '' : 's'} · {payoutMethod} · ref{' '}
-              <strong>{transactionReference.trim()}</strong>
-            </p>
-            <p style={styles.confirmWarn}>This cannot be undone from here. Check UTR / amount first.</p>
-            <div style={styles.confirmActions}>
-              <Button
-                size="sm"
-                variant="secondary"
-                disabled={saving}
-                onClick={() => setConfirmPayOpen(false)}
-              >
-                Cancel
-              </Button>
-              <Button size="sm" disabled={saving} onClick={() => void submitPayout()}>
-                {saving ? 'Paying…' : 'Yes, mark paid'}
-              </Button>
-            </div>
-          </div>
-        </div>
-      ) : null}
+      <ConfirmDialog
+        open={confirmPayOpen}
+        title="Confirm vendor payout?"
+        description={`Pay ${formatMoney(expectedNet)} to ${selectedVendor?.shopName || selectedVendor?.businessName || 'vendor'} for ${selected.size} bag${selected.size === 1 ? '' : 's'}.\n\n${payoutMethod} · ref ${transactionReference.trim()}\n\nThis cannot be undone from here. Check UTR and amount before confirming.`}
+        confirmLabel="Yes, mark paid"
+        cancelLabel="Cancel"
+        danger={false}
+        busy={saving}
+        onClose={() => {
+          if (!saving) setConfirmPayOpen(false);
+        }}
+        onConfirm={() => void submitPayout()}
+      />
 
-      <Card padding="sm" style={styles.cardPad}>
-        <h2 style={styles.sectionTitle}>
-          History <span style={styles.count}>{history.length}</span>
-        </h2>
-        {history.length === 0 ? (
-          <p style={styles.muted}>No payouts recorded yet.</p>
-        ) : (
-          <div style={styles.tableWrapWide}>
+      <SettlementAuditSection
+        historyCount={history.length}
+        historyEmpty="No payouts recorded yet."
+        changeLog={settlementChangeLog('VENDOR', token, townId || undefined, deliveryRefreshTick)}
+        historyContent={
+          <div style={styles.tableInAudit}>
             <table style={styles.table}>
               <thead>
                 <tr>
@@ -904,39 +1172,9 @@ export function SettlementsPage() {
               </tbody>
             </table>
           </div>
-        )}
-      </Card>
+        }
+      />
       </>
-      ) : null}
-      {token ? (
-        <AdminHistoryPanel
-          key={tab}
-          token={token}
-          screen="settlements"
-          townId={townId || undefined}
-          refreshTick={deliveryRefreshTick}
-          actions={
-            tab === 'AGENT'
-              ? ['DELIVERY_PAYOUT', 'AGENT_PAYOUT']
-              : tab === 'HUB'
-                ? ['FRANCHISE_COLLECT', 'DELIVERY_PAYOUT', 'HUB_PAYOUT']
-                : ['VENDOR_PAYOUT']
-          }
-          prefixes={
-            tab === 'AGENT'
-              ? ['Paid AGENT', 'Paid agent']
-              : tab === 'HUB'
-                ? ['Collected franchise', 'Paid HUB', 'Paid hub']
-                : undefined
-          }
-          emptyHint={
-            tab === 'AGENT'
-              ? 'No agent payout changes for this town.'
-              : tab === 'HUB'
-                ? 'No hub payout or franchise collection changes for this town.'
-                : 'No vendor payout changes for this town.'
-          }
-        />
       ) : null}
     </PortalShell>
   );
@@ -1128,53 +1366,26 @@ const styles: Record<string, CSSProperties> = {
     lineHeight: 1.3,
   },
   feeHint: { margin: 0, fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 600 },
+  tableHint: { margin: '0.15rem 0 0', fontSize: '0.72rem', color: 'var(--text-muted)', lineHeight: 1.35 },
+  tfootLabel: {
+    padding: '0.4rem 0.45rem',
+    borderTop: '2px solid var(--border)',
+    fontWeight: 800,
+    fontSize: '0.78rem',
+    textAlign: 'right',
+    color: 'var(--text-muted)',
+  },
+  tfootAmt: {
+    padding: '0.4rem 0.45rem',
+    borderTop: '2px solid var(--border)',
+    textAlign: 'right',
+    fontWeight: 800,
+    fontSize: '0.88rem',
+    fontVariantNumeric: 'tabular-nums',
+  },
   feeError: { margin: 0, fontSize: '0.72rem', color: '#b91c1c', fontWeight: 650, lineHeight: 1.3 },
   sideActions: { display: 'grid', gap: '0.35rem' },
   req: { color: '#b91c1c', fontWeight: 800 },
-  confirmOverlay: {
-    position: 'fixed',
-    inset: 0,
-    zIndex: 1000,
-    display: 'grid',
-    placeItems: 'center',
-    padding: '1rem',
-    background: 'rgba(15, 23, 42, 0.5)',
-  },
-  confirmDialog: {
-    width: 'min(26rem, 100%)',
-    background: 'var(--bg-elevated)',
-    border: '1px solid var(--border)',
-    borderRadius: 'var(--radius-lg)',
-    boxShadow: 'var(--shadow-elevated)',
-    padding: '1.1rem',
-    display: 'grid',
-    gap: '0.55rem',
-  },
-  confirmTitle: {
-    margin: 0,
-    fontFamily: 'var(--font-display)',
-    fontWeight: 800,
-    fontSize: '1.15rem',
-  },
-  confirmBody: { margin: 0, fontSize: '0.92rem', fontWeight: 650, lineHeight: 1.4 },
-  confirmMeta: { margin: 0, fontSize: '0.82rem', color: 'var(--text-muted)', fontWeight: 650 },
-  confirmWarn: {
-    margin: 0,
-    padding: '0.5rem 0.65rem',
-    borderRadius: 8,
-    background: 'rgba(255, 183, 77, 0.18)',
-    border: '1px solid rgba(255, 183, 77, 0.45)',
-    fontSize: '0.8rem',
-    fontWeight: 700,
-    lineHeight: 1.35,
-  },
-  confirmActions: {
-    display: 'flex',
-    justifyContent: 'flex-end',
-    gap: '0.5rem',
-    flexWrap: 'wrap',
-    marginTop: '0.25rem',
-  },
   claimAmt: { color: '#7c3aed' },
   claimList: {
     margin: 0,
@@ -1217,6 +1428,25 @@ const styles: Record<string, CSSProperties> = {
     fontWeight: 650,
     color: 'var(--text-muted)',
   },
+  ordersToolbar: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+    gap: '0.35rem 0.75rem',
+    marginBottom: '0.4rem',
+  },
+  searchInput: {
+    flex: '1 1 12rem',
+    minWidth: 0,
+    maxWidth: '20rem',
+    padding: '0.35rem 0.5rem',
+    borderRadius: 'var(--radius-md)',
+    border: '1px solid var(--border)',
+    background: 'var(--bg-elevated)',
+    fontSize: '0.78rem',
+    fontFamily: 'inherit',
+  },
   tableWrap: {
     overflowX: 'auto',
     border: '1px solid var(--border)',
@@ -1224,10 +1454,19 @@ const styles: Record<string, CSSProperties> = {
     maxHeight: 'min(52vh, 520px)',
     overflowY: 'auto',
   },
+  tableWrapPaged: {
+    overflowX: 'auto',
+    border: '1px solid var(--border)',
+    borderRadius: 'var(--radius-md)',
+  },
   tableWrapWide: {
     overflowX: 'auto',
     border: '1px solid var(--border)',
     borderRadius: 'var(--radius-md)',
+  },
+  tableInAudit: {
+    overflowX: 'auto',
+    minWidth: 0,
   },
   table: { width: '100%', borderCollapse: 'separate', borderSpacing: 0, fontSize: '0.8rem' },
   th: {
@@ -1258,15 +1497,16 @@ const styles: Record<string, CSSProperties> = {
     textTransform: 'uppercase',
     letterSpacing: '0.03em',
   },
-  td: { padding: '0.35rem 0.45rem', borderBottom: '1px solid var(--border)', verticalAlign: 'top' },
+  td: { padding: '0.28rem 0.4rem', borderBottom: '1px solid var(--border)', verticalAlign: 'middle' },
   tdMuted: {
-    padding: '0.35rem 0.45rem',
+    padding: '0.28rem 0.4rem',
     borderBottom: '1px solid var(--border)',
     color: 'var(--text-muted)',
-    verticalAlign: 'top',
+    verticalAlign: 'middle',
+    fontSize: '0.76rem',
   },
   tdRight: {
-    padding: '0.35rem 0.45rem',
+    padding: '0.28rem 0.4rem',
     borderBottom: '1px solid var(--border)',
     textAlign: 'right',
     fontWeight: 650,
@@ -1291,5 +1531,100 @@ const styles: Record<string, CSSProperties> = {
     padding: '0.1rem 0.35rem',
     fontWeight: 700,
   },
+  codAgentBadge: {
+    display: 'inline-block',
+    marginTop: '0.15rem',
+    fontSize: '0.62rem',
+    fontWeight: 800,
+    color: '#c2410c',
+    background: '#ffedd5',
+    borderRadius: 'var(--radius-full)',
+    padding: '0.08rem 0.32rem',
+  },
+  codHubBadge: {
+    display: 'inline-block',
+    marginTop: '0.15rem',
+    fontSize: '0.62rem',
+    fontWeight: 800,
+    color: '#1d4ed8',
+    background: '#dbeafe',
+    borderRadius: 'var(--radius-full)',
+    padding: '0.08rem 0.32rem',
+  },
+  codVendorBadge: {
+    display: 'inline-block',
+    marginTop: '0.15rem',
+    fontSize: '0.62rem',
+    fontWeight: 800,
+    color: '#047857',
+    background: '#d1fae5',
+    borderRadius: 'var(--radius-full)',
+    padding: '0.08rem 0.32rem',
+  },
+  codDeclaredBadge: {
+    display: 'inline-block',
+    marginTop: '0.15rem',
+    fontSize: '0.62rem',
+    fontWeight: 800,
+    color: '#7c2d12',
+    background: '#ffedd5',
+    borderRadius: 'var(--radius-full)',
+    padding: '0.08rem 0.32rem',
+  },
+  onlinePayHint: {
+    display: 'block',
+    marginTop: '0.1rem',
+    fontSize: '0.62rem',
+    color: 'var(--text-muted)',
+    fontWeight: 600,
+  },
+  codAgentHeldBy: { display: 'grid', gap: '0.15rem', marginTop: '0.05rem' },
+  codAgentHeldRow: {
+    margin: 0,
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: '0.25rem 0.4rem',
+    alignItems: 'baseline',
+    fontSize: '0.72rem',
+    fontWeight: 650,
+    color: '#9a3412',
+  },
+  codAgentOrderList: {
+    margin: '0.1rem 0 0',
+    padding: '0.35rem 0.45rem',
+    listStyle: 'none',
+    display: 'grid',
+    gap: '0.2rem',
+    fontSize: '0.68rem',
+    fontWeight: 650,
+    lineHeight: 1.35,
+    borderRadius: 'var(--radius-md)',
+    background: '#fff7ed',
+    border: '1px solid #fed7aa',
+  },
+  codAgentOrderHint: { color: 'var(--text-muted)', fontWeight: 600 },
+  cashSplit: {
+    display: 'grid',
+    gap: '0.2rem',
+    padding: '0.45rem 0.55rem',
+    borderRadius: 'var(--radius-md)',
+    border: '1px solid var(--border)',
+    background: 'var(--bg-muted)',
+  },
+  cashSplitTitle: {
+    fontSize: '0.68rem',
+    fontWeight: 800,
+    color: 'var(--text-muted)',
+    textTransform: 'uppercase',
+    letterSpacing: '0.04em',
+  },
+  cashSplitHint: {
+    margin: '0.15rem 0 0',
+    fontSize: '0.68rem',
+    color: '#b45309',
+    lineHeight: 1.35,
+    fontWeight: 600,
+  },
+  codWarnAmt: { color: '#c2410c' },
   muted: { margin: 0, color: 'var(--text-muted)', fontSize: '0.8rem' },
 };
