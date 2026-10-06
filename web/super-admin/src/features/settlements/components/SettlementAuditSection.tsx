@@ -18,6 +18,10 @@ type Props = {
   historyEmpty: ReactNode;
   historyContent: ReactNode;
   changeLog: SettlementChangeLogProps;
+  historyTabLabel?: string;
+  historyHint?: string;
+  /** When false, Records is a parent tab — always open, no collapse chrome. */
+  collapsible?: boolean;
 };
 
 export function SettlementAuditSection({
@@ -25,21 +29,29 @@ export function SettlementAuditSection({
   historyEmpty,
   historyContent,
   changeLog,
+  historyTabLabel = 'Payout history',
+  historyHint = 'Payout history & audit log',
+  collapsible = true,
 }: Props) {
   const [tab, setTab] = useState<Tab>('history');
   const [open, setOpen] = useState(true);
+  const showBody = !collapsible || open;
 
   return (
     <Card padding="sm" style={styles.card}>
       <div style={styles.head}>
-        <button type="button" style={styles.collapseBtn} onClick={() => setOpen((v) => !v)}>
-          <span style={styles.collapseIcon} aria-hidden>
-            {open ? '▾' : '▸'}
-          </span>
-          <span style={styles.headTitle}>Records</span>
-          <span style={styles.headHint}>Payout history &amp; audit log</span>
-        </button>
-        {open ? (
+        {collapsible ? (
+          <button type="button" style={styles.collapseBtn} onClick={() => setOpen((v) => !v)}>
+            <span style={styles.collapseIcon} aria-hidden>
+              {open ? '▾' : '▸'}
+            </span>
+            <span style={styles.headTitle}>Records</span>
+            <span style={styles.headHint}>{historyHint}</span>
+          </button>
+        ) : (
+          <span style={styles.headHint}>{historyHint}</span>
+        )}
+        {showBody ? (
           <div style={styles.tabs} role="tablist" aria-label="Payout records">
             <button
               type="button"
@@ -48,7 +60,7 @@ export function SettlementAuditSection({
               style={tab === 'history' ? styles.tabOn : styles.tabOff}
               onClick={() => setTab('history')}
             >
-              Payout history
+              {historyTabLabel}
               <span style={styles.tabCount}>{historyCount}</span>
             </button>
             <button
@@ -64,8 +76,8 @@ export function SettlementAuditSection({
         ) : null}
       </div>
 
-      {open ? (
-        <div style={styles.scrollPane}>
+      {showBody ? (
+        <div style={collapsible ? styles.scrollPane : styles.pagePane}>
           {tab === 'history' ? (
             historyCount === 0 ? (
               <p style={styles.muted}>{historyEmpty}</p>
@@ -168,6 +180,13 @@ const styles: Record<string, CSSProperties> = {
   },
   scrollPane: {
     maxHeight: 'min(42vh, 420px)',
+    overflow: 'auto',
+    border: '1px solid var(--border)',
+    borderRadius: 'var(--radius-md)',
+    padding: '0.35rem',
+    background: 'var(--bg)',
+  },
+  pagePane: {
     overflow: 'auto',
     border: '1px solid var(--border)',
     borderRadius: 'var(--radius-md)',

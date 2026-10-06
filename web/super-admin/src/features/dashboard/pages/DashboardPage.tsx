@@ -7,7 +7,7 @@ const LINKS = [
   {
     to: '/reports',
     title: 'Reports',
-    body: 'GMV, AOV, COD, SLA, town and vendor performance — Instamart-style ops desk.',
+    body: 'GMV, GST by HSN, claims, payout aging, wallet liability, ads, and referral cash burn by candidate.',
   },
   {
     to: '/towns',

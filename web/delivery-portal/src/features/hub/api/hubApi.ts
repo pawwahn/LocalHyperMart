@@ -239,6 +239,56 @@ export function toOrderRow(dto: AdminOrderDto): OrderRowView {
   };
 }
 
+/** Hub phase banner — derived from order detail when list row is missing or filtered out. */
+export function orderRowFromDetail(
+  d: AdminOrderDetailDto,
+  hints?: Pick<OrderRowView, 'paymentStatus' | 'vendorAgentDelivery'>,
+): OrderRowView {
+  const assignments = (d.assignments ?? []).map((a) => ({
+    legType: a.legType,
+    status: a.status,
+    subOrderNumber: a.subOrderNumber,
+  }));
+  const allSubs = d.subOrders ?? [];
+  const activeSubs = allSubs.filter((s) => s.status !== 'VENDOR_REJECTED');
+  const rejected = allSubs.length - activeSubs.length;
+  const total = activeSubs.length;
+  const atHub = activeSubs.filter(
+    (s) =>
+      s.status === 'DELIVERED' ||
+      assignments.some(
+        (a) =>
+          a.legType === 'PICKUP' &&
+          a.status === 'COMPLETED' &&
+          a.subOrderNumber === s.subOrderNumber,
+      ),
+  ).length;
+  const readyRaw = activeSubs.filter((s) => s.status === 'READY_FOR_PICKUP').length;
+  const readyForShop = Math.max(0, readyRaw - Math.min(readyRaw, atHub));
+  const pickupReadiness: OrderRowView['pickupReadiness'] =
+    atHub >= total && total > 0
+      ? 'none'
+      : readyForShop <= 0
+        ? 'none'
+        : readyForShop >= Math.max(0, total - atHub)
+          ? 'all'
+          : 'partial';
+  return {
+    id: d.orderId,
+    orderNumber: d.orderNumber,
+    status: d.status,
+    paymentStatus: hints?.paymentStatus ?? '',
+    totalLabel: money(d.totalAmount),
+    subOrderCount: total,
+    rejectedSubOrderCount: rejected,
+    readySubOrderCount: readyForShop,
+    atHubSubOrderCount: atHub,
+    pickupReadiness,
+    assignments,
+    vendorAgentDelivery: hints?.vendorAgentDelivery ?? false,
+  };
+}
+
 export async function fetchMyHub(token: string): Promise<HubMeDto> {
   return apiRequest<HubMeDto>('/api/v1/delivery/hubs/me', { token });
 }
@@ -252,11 +302,11 @@ export async function fetchHubPinStatus(token: string): Promise<HubPinStatusDto>
   return apiRequest<HubPinStatusDto>('/api/v1/delivery/hubs/me/pin-status', { token });
 }
 
-export async function setHubPin(token: string, pin: string): Promise<void> {
+export async function setHubPin(token: string, pin: string, otp: string): Promise<void> {
   await apiRequest<null>('/api/v1/delivery/hubs/me/pin', {
     method: 'PUT',
     token,
-    body: { pin },
+    body: { pin, otp },
   });
 }
 
@@ -300,6 +350,114 @@ export async function fetchHubReport(
 ): Promise<HubReportDto> {
   return apiRequest<HubReportDto>(
     `/api/v1/delivery/hubs/${hubId}/reports?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+    { token },
+  );
+}
+
+export type HubDailyOrdersReportDto = {
+  hubId: string;
+  townId: string;
+  from: string;
+  to: string;
+  days: Array<{
+    date: string;
+    ordersPlaced: number;
+    ordersDelivered: number;
+    ordersCancelled: number;
+    deliveredGmv: number;
+    codDeliveredGmv: number;
+  }>;
+};
+
+export async function fetchHubDailyOrdersReport(
+  token: string,
+  hubId: string,
+  from: string,
+  to: string,
+): Promise<HubDailyOrdersReportDto> {
+  return apiRequest<HubDailyOrdersReportDto>(
+    `/api/v1/delivery/hubs/${hubId}/reports/daily-orders?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+    { token },
+  );
+}
+
+export type HubAssignmentReportDto = {
+  hubId: string;
+  from: string;
+  to: string;
+  trips: Array<{
+    assignmentId: string;
+    assignmentNumber?: string | null;
+    orderNumber?: string | null;
+    subOrderNumber?: string | null;
+    agentId: string;
+    agentName?: string | null;
+    agentPhone?: string | null;
+    legType: string;
+    completedAt?: string | null;
+  }>;
+};
+
+export async function fetchHubAssignmentReport(
+  token: string,
+  hubId: string,
+  from: string,
+  to: string,
+  agentId?: string,
+): Promise<HubAssignmentReportDto> {
+  const agentQ =
+    agentId && agentId !== 'all' ? `&agentId=${encodeURIComponent(agentId)}` : '';
+  return apiRequest<HubAssignmentReportDto>(
+    `/api/v1/delivery/hubs/${hubId}/reports/assignments?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}${agentQ}`,
+    { token },
+  );
+}
+
+export type HubPaymentMixReportDto = {
+  hubId: string;
+  townId: string;
+  from: string;
+  to: string;
+  deliveredOrders: number;
+  codDeliveredOrders: number;
+  onlineDeliveredOrders: number;
+  deliveredGmv: number;
+  codDeliveredGmv: number;
+  onlineDeliveredGmv: number;
+};
+
+export async function fetchHubPaymentMixReport(
+  token: string,
+  hubId: string,
+  from: string,
+  to: string,
+): Promise<HubPaymentMixReportDto> {
+  return apiRequest<HubPaymentMixReportDto>(
+    `/api/v1/delivery/hubs/${hubId}/reports/payment-mix?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+    { token },
+  );
+}
+
+export type HubQualityReportDto = {
+  hubId: string;
+  townId: string;
+  from: string;
+  to: string;
+  ordersCancelled: number;
+  shopBagsPlaced: number;
+  shopBagsRejected: number;
+  rejectRatePercent: number;
+  cancelReasons: Array<{ reason: string; count: number }>;
+};
+
+export async function fetchHubQualityReport(
+  token: string,
+  hubId: string,
+  from: string,
+  to: string,
+): Promise<HubQualityReportDto> {
+  return apiRequest<HubQualityReportDto>(
+    `/api/v1/delivery/hubs/${hubId}/reports/quality?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
     { token },
   );
 }

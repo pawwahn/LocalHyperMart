@@ -1,4 +1,4 @@
-# HyperLocalMart
+# KoyaKart
 
 Town-based hyperlocal marketplace for Tier-2/3 India. Monorepo with Java 21 microservices, Flutter mobile apps (future), and React web portals (future).
 

@@ -8,7 +8,9 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -42,5 +44,59 @@ public class PaymentWalletClient {
                 .body(body)
                 .retrieve()
                 .body(new ParameterizedTypeReference<ApiResponse<Map<String, Object>>>() {});
+    }
+
+    /** Key = referenceType + "|" + referenceId. Empty map if payment-service is down. */
+    public Map<String, BigDecimal> lookupCredits(List<String> referenceTypes, List<UUID> referenceIds) {
+        Map<String, BigDecimal> out = new HashMap<>();
+        if (referenceIds == null || referenceIds.isEmpty() || referenceTypes == null || referenceTypes.isEmpty()) {
+            return out;
+        }
+        try {
+            RestClient client = restClientBuilder.baseUrl(paymentServiceProperties.getBaseUrl()).build();
+            int from = 0;
+            while (from < referenceIds.size()) {
+                int to = Math.min(from + 400, referenceIds.size());
+                Map<String, Object> body = new HashMap<>();
+                body.put("referenceTypes", referenceTypes);
+                body.put("referenceIds", new ArrayList<>(referenceIds.subList(from, to)));
+                ApiResponse<Map<String, Object>> response = client.post()
+                        .uri("/api/v1/internal/wallet/credits/lookup")
+                        .body(body)
+                        .retrieve()
+                        .body(new ParameterizedTypeReference<ApiResponse<Map<String, Object>>>() {});
+                Object data = response == null ? null : response.getData();
+                if (data instanceof Map<?, ?> map) {
+                    Object items = map.get("items");
+                    if (items instanceof List<?> list) {
+                        for (Object row : list) {
+                            if (!(row instanceof Map<?, ?> item)) {
+                                continue;
+                            }
+                            Object type = item.get("referenceType");
+                            Object id = item.get("referenceId");
+                            if (type == null || id == null) {
+                                continue;
+                            }
+                            out.put(type + "|" + id, money(item.get("amount")));
+                        }
+                    }
+                }
+                from = to;
+            }
+        } catch (Exception ignored) {
+            return Map.of();
+        }
+        return out;
+    }
+
+    private static BigDecimal money(Object raw) {
+        if (raw instanceof Number n) {
+            return BigDecimal.valueOf(n.doubleValue());
+        }
+        if (raw instanceof String s && !s.isBlank()) {
+            return new BigDecimal(s.trim());
+        }
+        return BigDecimal.ZERO;
     }
 }

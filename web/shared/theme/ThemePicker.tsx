@@ -106,7 +106,7 @@ export function ThemePicker({ compact = true }: Props) {
                 Dark
               </button>
             </div>
-            <p style={styles.hint}>KoYaKart green · {preference.mode === 'dark' ? 'Dark' : 'Light'}</p>
+            <p style={styles.hint}>KoyaKart green · {preference.mode === 'dark' ? 'Dark' : 'Light'}</p>
           </div>,
           document.body,
         )

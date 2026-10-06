@@ -36,7 +36,7 @@ export function injectGlobalStyles(): void {
       --shadow-soft: ${tokens.shadow.soft};
       --motion-fast: ${tokens.motion.fast};
       --motion-normal: ${tokens.motion.normal};
-      --shell-max: 1100px;
+      --shell-max: min(1680px, calc(100vw - 1.25rem));
       --tabbar-h: 72px;
       --touch-min: 44px;
     }

@@ -22,7 +22,7 @@ export async function fetchSupplierBillProfile(): Promise<SupplierBillProfile> {
     return typeof raw === 'string' ? raw.trim() : fallback;
   };
   return {
-    legalName: text('supplierLegalName', 'KoYaKart') || 'KoYaKart',
+    legalName: text('supplierLegalName', 'KoyaKart') || 'KoyaKart',
     gstin: text('supplierGstin'),
     address: text('supplierAddress'),
     stateName: text('supplierState'),

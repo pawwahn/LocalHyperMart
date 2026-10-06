@@ -79,6 +79,60 @@ export type AdminOrderDetail = {
   }>;
 };
 
+export type AdminOrderCashHolder = {
+  orderId?: string | null;
+  paymentMethod?: string | null;
+  holderRole?: string | null;
+  holderLabel: string;
+  holderDetail?: string | null;
+  agentName?: string | null;
+  agentPhone?: string | null;
+  hubName?: string | null;
+};
+
+export async function lookupAdminCodCashHolders(
+  token: string,
+  orderIds: string[],
+): Promise<Record<string, AdminOrderCashHolder>> {
+  if (orderIds.length === 0) return {};
+  const data = await apiRequest<{ items: AdminOrderCashHolder[] }>(
+    '/api/v1/payments/settlements/admin/cod-cash-holders',
+    {
+      method: 'POST',
+      token,
+      body: { orderIds },
+    },
+  );
+  const map: Record<string, AdminOrderCashHolder> = {};
+  for (const item of data.items ?? []) {
+    if (item.orderId) map[item.orderId] = item;
+  }
+  return map;
+}
+
+/** Who physically holds buyer COD cash (shop agent, hub agent, hub desk, shop). */
+export function formatCashWithHolder(
+  order: Pick<AdminOrderSummary, 'paymentMethod' | 'vendorAgentDelivery'>,
+  holder?: AdminOrderCashHolder | null,
+): string {
+  const method = (order.paymentMethod ?? '').toUpperCase();
+  if (method !== 'COD') return '—';
+  if (!holder?.holderLabel) {
+    if (order.vendorAgentDelivery) return 'Shop agent (estimate)';
+    return 'Hub agent (estimate)';
+  }
+  const name = holder.agentName?.trim();
+  const phone = holder.agentPhone?.trim();
+  const detail = holder.holderDetail?.trim();
+  if (name) {
+    return phone ? `${holder.holderLabel} · ${name} · ${phone}` : `${holder.holderLabel} · ${name}`;
+  }
+  if (detail && detail !== holder.holderLabel) {
+    return `${holder.holderLabel} · ${detail}`;
+  }
+  return holder.holderLabel;
+}
+
 export async function listAdminOrders(
   token: string,
   opts: {

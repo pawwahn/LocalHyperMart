@@ -6,3 +6,4 @@ export { Toast } from './Toast';
 export { SearchSelect } from './SearchSelect';
 export type { SearchSelectOption } from './SearchSelect';
 export { TextField } from './TextField';
+export { KpiCard } from './KpiCard';

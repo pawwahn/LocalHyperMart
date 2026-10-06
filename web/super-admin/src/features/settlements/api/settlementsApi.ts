@@ -16,6 +16,7 @@ export type SettlementCandidate = {
   codCashLocation?: string | null;
   codDeliveringAgentId?: string | null;
   codDeliveringAgentName?: string | null;
+  codDeliveringAgentPhone?: string | null;
   subtotal: number;
   alreadySettled: boolean;
 };
@@ -69,6 +70,7 @@ export type SettlementVm = {
   transactionReference?: string | null;
   transactionNotes?: string | null;
   paidAt?: string | null;
+  vendorAcknowledgedAt?: string | null;
   createdAt?: string | null;
   lines: SettlementLine[];
 };
@@ -100,6 +102,7 @@ export type CreateSettlementInput = {
   periodStart: string;
   periodEnd: string;
   periodType: 'DAY' | 'WEEK' | 'MONTH' | 'CUSTOM';
+  direction?: 'PAYOUT' | 'COLLECTION';
   subOrderIds: string[];
   commissionAmount?: number;
   markPaid?: boolean;

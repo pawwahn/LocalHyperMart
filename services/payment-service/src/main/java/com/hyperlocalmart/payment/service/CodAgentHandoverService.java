@@ -4,6 +4,7 @@ import com.hyperlocalmart.common.exception.BusinessException;
 import com.hyperlocalmart.common.exception.ErrorCode;
 import com.hyperlocalmart.payment.client.DeliveryClient;
 import com.hyperlocalmart.payment.client.OrderClient;
+import com.hyperlocalmart.payment.client.VendorClient;
 import com.hyperlocalmart.payment.dto.request.ConfirmCodHandoverRequest;
 import com.hyperlocalmart.payment.dto.request.DeclareCodHandoverRequest;
 import com.hyperlocalmart.payment.dto.response.CodAgentHandoverResponse;
@@ -33,7 +34,7 @@ public class CodAgentHandoverService {
     private static final ZoneId IST = ZoneId.of("Asia/Kolkata");
     private static final BigDecimal MATCH_TOLERANCE = new BigDecimal("0.01");
     /** How far back to include delivered COD still with the agent (undeclared). */
-    private static final int PENDING_COD_LOOKBACK_DAYS = 730;
+    private static final int PENDING_COD_LOOKBACK_DAYS = 365;
     /** Recent declarations shown on the agent handover screen. */
     private static final int RECENT_HANDOVER_DAYS = 90;
 
@@ -43,8 +44,8 @@ public class CodAgentHandoverService {
     private final CodCloseDayLineItemRepository codCloseDayLineItemRepository;
     private final OrderClient orderClient;
     private final DeliveryClient deliveryClient;
+    private final VendorClient vendorClient;
 
-    @Transactional(readOnly = true)
     public CodAgentHandoverSummaryResponse agentSummary(UUID agentUserId) {
         DeliveryClient.AgentContext agent = deliveryClient.getAgentByUserId(agentUserId);
         LocalDate today = LocalDate.now(IST);
@@ -58,9 +59,6 @@ public class CodAgentHandoverService {
                 .filter(i -> !closed.contains(i.orderId()))
                 .toList();
 
-        Map<UUID, String> custodianByOrder = custodianTypeByOrder(
-                pendingItems.stream().map(OrderClient.CodDeliveredItem::orderId).toList());
-
         BigDecimal pending = pendingItems.stream()
                 .map(OrderClient.CodDeliveredItem::totalAmount)
                 .filter(Objects::nonNull)
@@ -70,7 +68,7 @@ public class CodAgentHandoverService {
         BigDecimal pendingVendor = BigDecimal.ZERO;
         for (OrderClient.CodDeliveredItem item : pendingItems) {
             BigDecimal amt = item.totalAmount() != null ? item.totalAmount() : BigDecimal.ZERO;
-            if ("VENDOR".equalsIgnoreCase(custodianByOrder.get(item.orderId()))) {
+            if ("VENDOR".equalsIgnoreCase(custodianTypeForItem(item))) {
                 pendingVendor = pendingVendor.add(amt);
             } else {
                 pendingHub = pendingHub.add(amt);
@@ -88,7 +86,7 @@ public class CodAgentHandoverService {
                 .pendingHubTotal(pendingHub.setScale(2, RoundingMode.HALF_UP))
                 .pendingVendorTotal(pendingVendor.setScale(2, RoundingMode.HALF_UP))
                 .pendingOrderCount(pendingItems.size())
-                .handovers(recentHandovers.stream().map(this::toResponse).toList())
+                .handovers(recentHandovers.stream().map(this::toSummaryResponse).toList())
                 .orders(pendingItems.stream()
                         .sorted(Comparator.comparing(
                                         OrderClient.CodDeliveredItem::deliveredAt,
@@ -100,7 +98,7 @@ public class CodAgentHandoverService {
                                 .collectAmount(i.totalAmount())
                                 .deliveredAt(i.deliveredAt())
                                 .remittanceStatus("PENDING")
-                                .custodianType(custodianByOrder.getOrDefault(i.orderId(), "HUB"))
+                                .custodianType(custodianTypeForItem(i))
                                 .build())
                         .toList())
                 .build();
@@ -259,11 +257,14 @@ public class CodAgentHandoverService {
     @Transactional(readOnly = true)
     public List<CodAgentHandoverResponse> listPendingForCustodian(
             UUID actorUserId, UUID townId, UUID hubId, UUID vendorId, LocalDate date, boolean superAdmin) {
-        return handoverRepository.findByStatusAndHandoverDate(CodAgentHandoverStatus.DECLARED, date).stream()
+        List<CodAgentHandover> handovers = handoverRepository.findByStatusAndHandoverDate(CodAgentHandoverStatus.DECLARED, date).stream()
                 .filter(h -> townId == null || townId.equals(h.getTownId()))
                 .filter(h -> hubId == null || hubId.equals(h.getHubId()))
                 .filter(h -> vendorId == null || vendorId.equals(h.getVendorId()))
-                .map(this::toResponse)
+                .toList();
+        Map<UUID, DeliveryClient.AgentSummary> agents = agentDirectoryForHandovers(handovers, hubId, vendorId);
+        return handovers.stream()
+                .map(h -> toResponse(h, agents.get(h.getAgentId())))
                 .toList();
     }
 
@@ -300,21 +301,46 @@ public class CodAgentHandoverService {
         if (vendorIdFromRequest == null || !handover.getVendorId().equals(vendorIdFromRequest)) {
             throw new BusinessException(ErrorCode.FORBIDDEN, "Handover is for another shop");
         }
+        if (pin == null || pin.isBlank()) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Shop COD PIN is required");
+        }
+        vendorClient.verifyVendorCodPin(handover.getVendorId(), pin);
     }
 
     private static CodCustodianType resolveCustodianType(OrderClient.CodCashBreakdown row) {
         return "VENDOR".equalsIgnoreCase(row.custodianType()) ? CodCustodianType.VENDOR : CodCustodianType.HUB;
     }
 
-    private Map<UUID, String> custodianTypeByOrder(List<UUID> orderIds) {
-        if (orderIds == null || orderIds.isEmpty()) {
-            return Map.of();
+    private Map<UUID, DeliveryClient.AgentSummary> agentDirectoryForHandovers(
+            List<CodAgentHandover> handovers, UUID hubId, UUID vendorId) {
+        List<DeliveryClient.AgentSummary> roster = new ArrayList<>();
+        if (vendorId != null) {
+            roster.addAll(deliveryClient.listVendorAgents(vendorId));
+        } else if (hubId != null) {
+            roster.addAll(deliveryClient.listHubAgents(hubId));
+        } else {
+            Set<UUID> hubIds = handovers.stream()
+                    .map(CodAgentHandover::getHubId)
+                    .filter(Objects::nonNull)
+                    .collect(java.util.stream.Collectors.toSet());
+            for (UUID id : hubIds) {
+                roster.addAll(deliveryClient.listHubAgents(id));
+            }
         }
-        Map<UUID, String> map = new HashMap<>();
-        for (OrderClient.CodCashBreakdown row : orderClient.codCashBreakdown(orderIds)) {
-            map.put(row.orderId(), resolveCustodianType(row).name());
+        Map<UUID, DeliveryClient.AgentSummary> map = new HashMap<>();
+        for (DeliveryClient.AgentSummary agent : roster) {
+            if (agent.agentId() != null) {
+                map.putIfAbsent(agent.agentId(), agent);
+            }
         }
         return map;
+    }
+
+    private static String custodianTypeForItem(OrderClient.CodDeliveredItem item) {
+        if (item.custodianType() != null && !item.custodianType().isBlank()) {
+            return "VENDOR".equalsIgnoreCase(item.custodianType()) ? "VENDOR" : "HUB";
+        }
+        return "HUB";
     }
 
     private List<UUID> submittedHandoverOrderIds(Collection<UUID> orderIds) {
@@ -334,7 +360,7 @@ public class CodAgentHandoverService {
 
     private List<CodAgentHandover> handoversForAgentBetween(UUID agentId, LocalDate from, LocalDate to) {
         try {
-            return handoverRepository.findByAgentIdAndHandoverDateBetweenOrderByCreatedAtDesc(agentId, from, to);
+            return handoverRepository.findRecentWithLinesForAgent(agentId, from, to);
         } catch (DataAccessException ex) {
             if (isMissingHandoverSchema(ex)) {
                 log.warn("COD handover tables unavailable — apply payment-service Flyway V17 and restart");
@@ -356,10 +382,30 @@ public class CodAgentHandoverService {
         return false;
     }
 
+    /** Agent summary list — line count only, no vendor allocation slices. */
+    private CodAgentHandoverResponse toSummaryResponse(CodAgentHandover handover) {
+        return buildResponse(handover, null, null, false);
+    }
+
     private CodAgentHandoverResponse toResponse(CodAgentHandover handover) {
+        return buildResponse(handover, null, null, true);
+    }
+
+    private CodAgentHandoverResponse toResponse(CodAgentHandover handover, DeliveryClient.AgentSummary agent) {
+        String agentName = agent != null && agent.name() != null && !agent.name().isBlank()
+                ? agent.name()
+                : null;
+        String agentPhone = agent != null ? agent.phone() : null;
+        return buildResponse(handover, agentName, agentPhone, true);
+    }
+
+    private CodAgentHandoverResponse buildResponse(
+            CodAgentHandover handover, String agentName, String agentPhone, boolean withAllocations) {
         return CodAgentHandoverResponse.builder()
                 .handoverId(handover.getId())
                 .agentId(handover.getAgentId())
+                .agentName(agentName)
+                .agentPhone(agentPhone)
                 .handoverDate(handover.getHandoverDate().toString())
                 .custodianType(handover.getCustodianType().name())
                 .hubId(handover.getHubId())
@@ -367,11 +413,13 @@ public class CodAgentHandoverService {
                 .declaredAmount(handover.getDeclaredAmount())
                 .status(handover.getStatus().name())
                 .lines(handover.getLines().stream()
-                        .map(l -> CodAgentHandoverResponse.Line.builder()
-                                .orderId(l.getOrderId())
-                                .orderNumber(l.getOrderNumber())
-                                .collectAmount(l.getCollectAmount())
-                                .vendorAllocations(l.getAllocations().stream()
+                        .map(l -> {
+                            CodAgentHandoverResponse.Line.LineBuilder lb = CodAgentHandoverResponse.Line.builder()
+                                    .orderId(l.getOrderId())
+                                    .orderNumber(l.getOrderNumber())
+                                    .collectAmount(l.getCollectAmount());
+                            if (withAllocations) {
+                                lb.vendorAllocations(l.getAllocations().stream()
                                         .map(a -> CodAgentHandoverResponse.VendorSlice.builder()
                                                 .subOrderId(a.getSubOrderId())
                                                 .vendorId(a.getVendorId())
@@ -379,8 +427,10 @@ public class CodAgentHandoverService {
                                                 .goodsSubtotal(a.getGoodsSubtotal())
                                                 .allocatedCash(a.getAllocatedCash())
                                                 .build())
-                                        .toList())
-                                .build())
+                                        .toList());
+                            }
+                            return lb.build();
+                        })
                         .toList())
                 .build();
     }

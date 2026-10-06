@@ -27,7 +27,7 @@ export type AccentPreset = {
 export const ACCENT_PRESETS: AccentPreset[] = [
   {
     id: 'forest',
-    label: 'KoYaKart',
+    label: 'KoyaKart',
     accent: '#0C831F',
     accentHover: '#086318',
     accentSoftLight: '#E7F6EC',

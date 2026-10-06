@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -58,4 +59,41 @@ public interface SettlementRepository extends JpaRepository<Settlement, UUID> {
 
     @Query("SELECT DISTINCT s FROM Settlement s LEFT JOIN FETCH s.lineItems WHERE s.id = :id")
     Optional<Settlement> findDetailedById(@Param("id") UUID id);
+
+    @Query("""
+            SELECT DISTINCT s FROM Settlement s
+            LEFT JOIN FETCH s.lineItems
+            WHERE s.status = com.hyperlocalmart.payment.entity.SettlementStatus.PAID
+              AND s.paidAt IS NOT NULL
+              AND s.paidAt >= :start AND s.paidAt < :endExclusive
+              AND (:townId IS NULL OR s.townId = :townId)
+            ORDER BY s.paidAt ASC
+            """)
+    List<Settlement> findPaidWithLinesBetween(
+            @Param("townId") UUID townId,
+            @Param("start") Instant start,
+            @Param("endExclusive") Instant endExclusive);
+
+    @Query("""
+            SELECT s FROM Settlement s
+            WHERE s.payeeType = com.hyperlocalmart.payment.entity.SettlementPayeeType.VENDOR
+              AND s.status = com.hyperlocalmart.payment.entity.SettlementStatus.PAID
+              AND s.paidAt IS NOT NULL
+              AND s.paidAt >= :start AND s.paidAt < :endExclusive
+              AND (:townId IS NULL OR s.townId = :townId)
+            ORDER BY s.paidAt ASC
+            """)
+    List<Settlement> findPaidVendorSettlementsBetween(
+            @Param("townId") UUID townId,
+            @Param("start") Instant start,
+            @Param("endExclusive") Instant endExclusive);
+
+    @Query("""
+            SELECT s FROM Settlement s
+            WHERE s.direction = com.hyperlocalmart.payment.entity.SettlementDirection.PAYOUT
+              AND s.status <> com.hyperlocalmart.payment.entity.SettlementStatus.PAID
+              AND (:townId IS NULL OR s.townId = :townId)
+            ORDER BY s.createdAt ASC
+            """)
+    List<Settlement> findUnpaidPayouts(@Param("townId") UUID townId);
 }

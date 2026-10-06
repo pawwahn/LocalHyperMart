@@ -3,9 +3,13 @@ package com.hyperlocalmart.order.web;
 import com.hyperlocalmart.common.api.ApiResponse;
 import com.hyperlocalmart.order.dto.request.DeliverOrderRequest;
 import com.hyperlocalmart.order.dto.request.PaymentCallbackRequest;
+import com.hyperlocalmart.order.dto.response.CashHolderContextResponse;
 import com.hyperlocalmart.order.dto.response.CodCashBreakdownResponse;
 import com.hyperlocalmart.order.dto.response.CodDeliveredResponse;
 import com.hyperlocalmart.order.dto.response.HubOrderStatsResponse;
+import com.hyperlocalmart.order.dto.response.HubTownDailyReportStatsResponse;
+import com.hyperlocalmart.order.dto.response.HubTownPaymentMixResponse;
+import com.hyperlocalmart.order.dto.response.HubTownQualityReportResponse;
 import com.hyperlocalmart.order.dto.response.HubTownReportStatsResponse;
 import com.hyperlocalmart.order.dto.response.OrderDeliveryInfoResponse;
 import com.hyperlocalmart.order.dto.response.OrderDeliveryManifestResponse;
@@ -15,7 +19,10 @@ import com.hyperlocalmart.order.dto.response.SubOrderInternalSnapshotResponse;
 import com.hyperlocalmart.order.dto.response.SubOrderPickupManifestResponse;
 import com.hyperlocalmart.order.service.CodDeliveredService;
 import com.hyperlocalmart.order.service.DeliveryCompleteOrderService;
+import com.hyperlocalmart.order.dto.response.PlatformFinanceAccrualResponse;
 import com.hyperlocalmart.order.service.HubOrderStatsService;
+import com.hyperlocalmart.order.service.PlatformFinanceAccrualService;
+import com.hyperlocalmart.order.service.OrderCashHolderContextService;
 import com.hyperlocalmart.order.service.OrderHistorySuggestionService;
 import com.hyperlocalmart.order.service.OrderService;
 import com.hyperlocalmart.order.service.SettlementCandidateService;
@@ -37,8 +44,10 @@ public class OrderInternalController {
 
     private final OrderService orderService;
     private final HubOrderStatsService hubOrderStatsService;
+    private final PlatformFinanceAccrualService platformFinanceAccrualService;
     private final SettlementCandidateService settlementCandidateService;
     private final CodDeliveredService codDeliveredService;
+    private final OrderCashHolderContextService orderCashHolderContextService;
     private final OrderHistorySuggestionService orderHistorySuggestionService;
     private final DeliveryCompleteOrderService deliveryCompleteOrderService;
 
@@ -137,6 +146,46 @@ public class OrderInternalController {
                 hubOrderStatsService.getTownReportStats(townId, from, to)));
     }
 
+    @GetMapping("/api/v1/internal/finance/accrual")
+    public ResponseEntity<ApiResponse<PlatformFinanceAccrualResponse>> financeAccrual(
+            @RequestParam(required = false) UUID townId,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                platformFinanceAccrualService.accrual(townId, from, to)));
+    }
+
+    @GetMapping("/api/v1/internal/towns/{townId}/hub-report-daily")
+    public ResponseEntity<ApiResponse<HubTownDailyReportStatsResponse>> getHubDailyReportStats(
+            @PathVariable UUID townId,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                hubOrderStatsService.getTownDailyReportStats(townId, from, to)));
+    }
+
+    @GetMapping("/api/v1/internal/towns/{townId}/hub-report-payment-mix")
+    public ResponseEntity<ApiResponse<HubTownPaymentMixResponse>> getHubPaymentMix(
+            @PathVariable UUID townId,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                hubOrderStatsService.getTownPaymentMix(townId, from, to)));
+    }
+
+    @GetMapping("/api/v1/internal/towns/{townId}/hub-report-quality")
+    public ResponseEntity<ApiResponse<HubTownQualityReportResponse>> getHubQualityReport(
+            @PathVariable UUID townId,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                hubOrderStatsService.getTownQualityReport(townId, from, to)));
+    }
+
     @GetMapping("/api/v1/internal/orders/settlement-candidates")
     public ResponseEntity<ApiResponse<SettlementCandidateResponse>> getSettlementCandidates(
             @RequestParam UUID vendorId,
@@ -178,9 +227,10 @@ public class OrderInternalController {
             @RequestParam(required = false) UUID agentId,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam(required = false) Boolean vendorAgentDelivery,
             HttpServletRequest httpRequest) {
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
-                codDeliveredService.listRange(townId, agentId, from, to)));
+                codDeliveredService.listRange(townId, agentId, from, to, vendorAgentDelivery)));
     }
 
     @GetMapping("/api/v1/internal/orders/delivery-complete")
@@ -212,5 +262,12 @@ public class OrderInternalController {
             @RequestBody List<UUID> orderIds,
             HttpServletRequest httpRequest) {
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, codDeliveredService.breakdown(orderIds)));
+    }
+
+    @PostMapping("/api/v1/internal/orders/cash-holder-context")
+    public ResponseEntity<ApiResponse<List<CashHolderContextResponse>>> cashHolderContext(
+            @RequestBody List<UUID> orderIds,
+            HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest, orderCashHolderContextService.resolve(orderIds)));
     }
 }

@@ -3,6 +3,7 @@ package com.hyperlocalmart.payment.web;
 import com.hyperlocalmart.common.api.ApiResponse;
 import com.hyperlocalmart.common.exception.BusinessException;
 import com.hyperlocalmart.common.exception.ErrorCode;
+import com.hyperlocalmart.payment.dto.request.AdminCodCashHolderLookupRequest;
 import com.hyperlocalmart.payment.dto.request.CreateDeliverySettlementRequest;
 import com.hyperlocalmart.payment.dto.request.CreateSettlementRequest;
 import com.hyperlocalmart.payment.dto.request.MarkSettlementPaidRequest;
@@ -11,6 +12,7 @@ import com.hyperlocalmart.payment.dto.response.AgentPaySummaryResponse;
 import com.hyperlocalmart.payment.dto.response.DeliverySettlementCandidateView;
 import com.hyperlocalmart.payment.dto.response.SettlementCandidateView;
 import com.hyperlocalmart.payment.dto.response.SettlementResponse;
+import com.hyperlocalmart.payment.dto.response.VendorCodCashHolderResponse;
 import com.hyperlocalmart.payment.dto.response.VendorOrderPayoutResponse;
 import com.hyperlocalmart.payment.dto.response.VendorSettlementAdjustmentResponse;
 import com.hyperlocalmart.payment.entity.SettlementPayeeType;
@@ -155,6 +157,17 @@ public class SettlementController {
                 settlementService.getForVendor(vendorIdHeader, settlementId)));
     }
 
+    @PostMapping("/{settlementId}/acknowledge")
+    public ResponseEntity<ApiResponse<SettlementResponse>> acknowledge(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @PathVariable UUID settlementId,
+            @RequestHeader("X-Vendor-Id") UUID vendorId,
+            HttpServletRequest httpRequest) {
+        requireVendor(principal);
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                settlementService.acknowledgeByVendor(principal.getUserId(), vendorId, settlementId)));
+    }
+
     @PostMapping("/vendor/me/lookup")
     public ResponseEntity<ApiResponse<VendorOrderPayoutResponse>> lookupVendorPayouts(
             @AuthenticationPrincipal AuthUserPrincipal principal,
@@ -164,6 +177,29 @@ public class SettlementController {
         requireVendor(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
                 settlementService.lookupVendorPayouts(vendorId, request.getSubOrderIds())));
+    }
+
+    /** Super-admin: who holds buyer COD cash for these orders (shop agent, hub agent, hub desk, shop). */
+    @PostMapping("/admin/cod-cash-holders")
+    public ResponseEntity<ApiResponse<VendorCodCashHolderResponse>> lookupAdminCashHolders(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @Valid @RequestBody AdminCodCashHolderLookupRequest request,
+            HttpServletRequest httpRequest) {
+        requireSuperAdmin(principal);
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                settlementService.lookupAdminCashHolders(request.getOrderIds())));
+    }
+
+    /** Who currently holds buyer cash for this vendor's unpaid bags (shop / shop agent / hub desk / hub agent). */
+    @PostMapping("/vendor/me/cash-holders")
+    public ResponseEntity<ApiResponse<VendorCodCashHolderResponse>> lookupVendorCashHolders(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @RequestHeader("X-Vendor-Id") UUID vendorId,
+            @Valid @RequestBody VendorPayoutLookupRequest request,
+            HttpServletRequest httpRequest) {
+        requireVendor(principal);
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                settlementService.lookupVendorCashHolders(vendorId, request.getSubOrderIds())));
     }
 
     /** Pending + applied claim chargebacks that reduce this vendor's payouts. */

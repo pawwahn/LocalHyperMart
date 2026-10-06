@@ -2,7 +2,8 @@ import { useCallback, useEffect, useState, type CSSProperties } from 'react';
 import { PortalShell } from '@/shared/layout/PortalShell';
 import { useAuth } from '@/shared/auth/AuthContext';
 import { ApiError } from '@/shared/api/http';
-import { Banner, Button, Card, ConfirmDialog, TextField } from '@/shared/ui';
+import { Banner, Button, Card, ConfirmDialog, KpiCard, TextField } from '@/shared/ui';
+import { MEMBERSHIP_DELIVERY_TIPS } from '@/shared/glossary/membershipDeliveryTips';
 import { AdminHistoryPanel } from '@/shared/audit/AdminHistoryPanel';
 import {
   cancelMembershipCash,
@@ -533,15 +534,20 @@ export function MembershipsPage() {
 
       {report ? (
         <div style={styles.kpis}>
-          <Kpi label="Active members" value={String(report.activeMembers)} hint="Usable credits now" />
-          <Kpi label="Expiring 7d" value={String(report.expiringIn7Days)} hint="Need renew" />
-          <Kpi label="Credits left" value={String(report.usableCreditsOutstanding)} hint="Not yet used" />
-          <Kpi label="Packs sold" value={String(report.packsSold)} hint={`${money(report.paidRevenue)} collected for the app`} />
-          <Kpi label="Gifts" value={String(report.gifts)} hint="Free. Not a sale" />
-          <Kpi label="Cash pending" value={String(report.cashPending)} hint="Hub to confirm" />
-          <Kpi label="Granted" value={String(report.creditsGranted)} hint="Credits issued" />
-          <Kpi label="Deliveries waived" value={String(report.deliveriesWaived)} hint={money(report.deliveryFeeWaived)} />
-          <Kpi label="Credits restored" value={String(report.creditsRestored)} hint="We cancelled / failed" />
+          <KpiCard label="Active members" value={String(report.activeMembers)} hint="Usable credits now" />
+          <KpiCard label="Expiring 7d" value={String(report.expiringIn7Days)} hint="Need renew" />
+          <KpiCard label="Credits left" value={String(report.usableCreditsOutstanding)} hint="Not yet used" />
+          <KpiCard label="Packs sold" value={String(report.packsSold)} hint={`${money(report.paidRevenue)} collected for the app`} />
+          <KpiCard label="Gifts" value={String(report.gifts)} hint="Free. Not a sale" />
+          <KpiCard label="Cash pending" value={String(report.cashPending)} hint="Hub to confirm" />
+          <KpiCard label="Granted" value={String(report.creditsGranted)} hint="Credits issued" />
+          <KpiCard
+            label="Deliveries waived"
+            value={String(report.deliveriesWaived)}
+            hint={`Waived ${money(report.deliveryFeeWaived)}`}
+            tip={MEMBERSHIP_DELIVERY_TIPS.creditsUsedInRange}
+          />
+          <KpiCard label="Credits restored" value={String(report.creditsRestored)} hint="We cancelled / failed" />
         </div>
       ) : null}
 
@@ -728,16 +734,6 @@ function SlabFields({
   );
 }
 
-function Kpi({ label, value, hint }: { label: string; value: string; hint: string }) {
-  return (
-    <div style={styles.kpi}>
-      <span style={styles.kpiLabel}>{label}</span>
-      <strong style={styles.kpiValue}>{value}</strong>
-      <span style={styles.kpiHint}>{hint}</span>
-    </div>
-  );
-}
-
 const styles: Record<string, CSSProperties> = {
   tabs: {
     display: 'inline-flex',
@@ -787,17 +783,6 @@ const styles: Record<string, CSSProperties> = {
     minWidth: 90,
   },
   kpis: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: '0.4rem', margin: '0.35rem 0' },
-  kpi: {
-    background: 'var(--bg-elevated)',
-    border: '1px solid var(--border)',
-    borderRadius: 10,
-    padding: '0.4rem 0.5rem',
-    display: 'grid',
-    gap: '0.05rem',
-  },
-  kpiLabel: { fontSize: '0.65rem', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase' },
-  kpiValue: { fontFamily: 'var(--font-display)', fontSize: '1.05rem' },
-  kpiHint: { fontSize: '0.65rem', color: 'var(--text-muted)' },
   split: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '0.45rem' },
   table: { width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem' },
   th: { textAlign: 'left', padding: '0.25rem 0.3rem', color: 'var(--text-muted)', borderBottom: '1px solid var(--border)' },

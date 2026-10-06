@@ -5,42 +5,13 @@ import { useAuth } from '@/shared/auth/AuthContext';
 import { ApiError } from '@/shared/api/http';
 import { fetchSalesReport, type ItemPerformance } from '@/features/reports/api/reportsApi';
 import { ItemRankTable } from '@/features/reports/components/ItemRankTable';
-
-type DatePreset = 'today' | 'week' | 'month' | 'custom';
-
-const PRESETS: Array<{ id: DatePreset; label: string }> = [
-  { id: 'today', label: 'Today' },
-  { id: 'week', label: 'Week' },
-  { id: 'month', label: 'Month' },
-  { id: 'custom', label: 'Custom' },
-];
-
-function isoDate(d: Date): string {
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-}
-
-function rangeForPreset(preset: DatePreset): { from: string; to: string } {
-  const today = new Date();
-  const to = isoDate(today);
-  if (preset === 'today') return { from: to, to };
-  if (preset === 'week') {
-    const from = new Date(today);
-    from.setDate(from.getDate() - 6);
-    return { from: isoDate(from), to };
-  }
-  if (preset === 'month') {
-    return { from: isoDate(new Date(today.getFullYear(), today.getMonth(), 1)), to };
-  }
-  const from = new Date(today);
-  from.setDate(from.getDate() - 6);
-  return { from: isoDate(from), to };
-}
+import { DateRangePresetBar } from '@hlm-dates/DateRangePresetBar';
+import { rangeForReportPreset, type ReportDatePreset } from '@hlm-dates/istReportPresets';
 
 export function SellersPage() {
   const { session } = useAuth();
-  const initial = rangeForPreset('week');
-  const [preset, setPreset] = useState<DatePreset>('week');
+  const initial = rangeForReportPreset('week');
+  const [preset, setPreset] = useState<ReportDatePreset>('week');
   const [from, setFrom] = useState(initial.from);
   const [to, setTo] = useState(initial.to);
   const [productTab, setProductTab] = useState<'top' | 'least'>('top');
@@ -49,17 +20,11 @@ export function SellersPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const applyPreset = (next: DatePreset) => {
-    setPreset(next);
-    if (next !== 'custom') {
-      const range = rangeForPreset(next);
-      setFrom(range.from);
-      setTo(range.to);
-    }
-  };
-
   const reload = useCallback(async () => {
-    if (!session) return;
+    if (!session) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
@@ -90,53 +55,15 @@ export function SellersPage() {
       {error ? <Banner tone="danger">{error}</Banner> : null}
 
       <Card elevated padding="sm" style={styles.filterCard}>
-        <div style={styles.presets}>
-          {PRESETS.map((p) => (
-            <button
-              key={p.id}
-              type="button"
-              style={preset === p.id ? styles.presetActive : styles.preset}
-              onClick={() => applyPreset(p.id)}
-            >
-              {p.label}
-            </button>
-          ))}
-        </div>
-
-        {preset === 'custom' ? (
-          <div style={styles.dateRow}>
-            <label style={styles.label}>
-              From
-              <input
-                style={styles.input}
-                type="date"
-                value={from}
-                max={to || undefined}
-                onChange={(e) => {
-                  setPreset('custom');
-                  setFrom(e.target.value);
-                }}
-              />
-            </label>
-            <label style={styles.label}>
-              To
-              <input
-                style={styles.input}
-                type="date"
-                value={to}
-                min={from || undefined}
-                onChange={(e) => {
-                  setPreset('custom');
-                  setTo(e.target.value);
-                }}
-              />
-            </label>
-          </div>
-        ) : (
-          <p style={styles.rangeHint}>
-            {from} → {to}
-          </p>
-        )}
+        <DateRangePresetBar
+          preset={preset}
+          from={from}
+          to={to}
+          onPresetChange={setPreset}
+          onFromChange={setFrom}
+          onToChange={setTo}
+          ariaLabel="Seller report period"
+        />
 
         <div style={styles.actions}>
           <Button size="sm" onClick={() => void reload()} disabled={loading}>

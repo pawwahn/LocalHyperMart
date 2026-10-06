@@ -1,4 +1,5 @@
 import type { CSSProperties } from 'react';
+import { BrandMark } from '@hlm-brand';
 import { LoginThemeCorner } from '@hlm-theme';
 import { LegalLinks } from '@hlm-legal';
 import { Banner, Button, TextField } from '@/shared/ui';
@@ -12,7 +13,7 @@ export function LoginPage() {
       <LoginThemeCorner />
       <div style={styles.panel}>
         <div style={styles.hero}>
-          <p style={styles.brand}>KoYaKart</p>
+          <BrandMark variant="login" fallbackName="KoyaKart" />
           <h1 style={styles.heroTitle}>Platform control</h1>
           <p style={styles.heroSub}>Towns, vendors, master catalog, and policies for every hub.</p>
         </div>

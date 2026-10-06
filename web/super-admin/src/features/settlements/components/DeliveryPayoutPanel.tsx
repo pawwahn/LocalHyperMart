@@ -1,5 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { ApiError } from '@/shared/api/http';
+import { displayPayeeLabel } from '@/shared/display/displayNames';
 import { Banner, Button, Card, ConfirmDialog } from '@/shared/ui';
 import { listTowns, type TownVm } from '@/features/towns/api/townsApi';
 import { listHubs, type AdminHubVm } from '@/features/hubs/api/hubsApi';
@@ -19,40 +20,18 @@ import {
   type SettlementChangeLogProps,
 } from './SettlementAuditSection';
 import { ListPager } from './ListPager';
+import { HubPayoutWorkspace, type HubPayoutTab, type HubPaysSubTab } from './HubPayoutWorkspace';
+import {
+  rangeForReportPreset,
+  REPORT_DATE_PRESET_OPTIONS,
+  settlementPeriodKind,
+  type ReportDatePreset,
+  type SettlementPeriodKind,
+} from '@/shared/dates/istReportPresets';
 
 const DEFAULT_ORDER_PAGE_SIZE = 50;
 
-type PeriodPreset = 'day' | 'week' | 'month' | 'custom';
-type PeriodType = 'DAY' | 'WEEK' | 'MONTH' | 'CUSTOM';
-
-const IST = 'Asia/Kolkata';
 const PAYOUT_METHODS = ['UPI', 'NEFT', 'IMPS', 'RTGS', 'CASH', 'CHEQUE', 'OTHER'];
-
-function isoDateInIst(d: Date = new Date()): string {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: IST,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(d);
-}
-
-function rangeForPreset(preset: PeriodPreset): { from: string; to: string; periodType: PeriodType } {
-  const to = isoDateInIst();
-  if (preset === 'day') return { from: to, to, periodType: 'DAY' };
-  if (preset === 'week') {
-    const from = new Date();
-    from.setDate(from.getDate() - 6);
-    return { from: isoDateInIst(from), to, periodType: 'WEEK' };
-  }
-  if (preset === 'month') {
-    const [y, m] = to.split('-');
-    return { from: `${y}-${m}-01`, to, periodType: 'MONTH' };
-  }
-  const from = new Date();
-  from.setDate(from.getDate() - 6);
-  return { from: isoDateInIst(from), to, periodType: 'CUSTOM' };
-}
 
 function cadenceLabel(cadence?: string): string {
   switch ((cadence ?? '').toUpperCase()) {
@@ -73,20 +52,28 @@ type Props = {
   refreshTick: number;
   onSettled?: () => void;
   changeLog: Omit<SettlementChangeLogProps, 'townId'> & { townId?: string };
+  codRefreshTick?: number;
 };
 
-export function DeliveryPayoutPanel({ token, payeeType, refreshTick, onSettled, changeLog }: Props) {
+export function DeliveryPayoutPanel({
+  token,
+  payeeType,
+  refreshTick,
+  onSettled,
+  changeLog,
+  codRefreshTick = 0,
+}: Props) {
   const isHub = payeeType === 'HUB';
-  const initial = rangeForPreset('week');
+  const initial = rangeForReportPreset('week');
   const [towns, setTowns] = useState<TownVm[]>([]);
   const [hubs, setHubs] = useState<AdminHubVm[]>([]);
   const [agents, setAgents] = useState<AdminAgentVm[]>([]);
   const [townId, setTownId] = useState('');
   const [payeeId, setPayeeId] = useState('');
-  const [preset, setPreset] = useState<PeriodPreset>('week');
+  const [preset, setPreset] = useState<ReportDatePreset>('week');
   const [from, setFrom] = useState(initial.from);
   const [to, setTo] = useState(initial.to);
-  const [periodType, setPeriodType] = useState<PeriodType>(initial.periodType);
+  const [periodType, setPeriodType] = useState<SettlementPeriodKind>(settlementPeriodKind('week'));
   const [items, setItems] = useState<DeliverySettlementCandidate[]>([]);
   const [franchise, setFranchise] = useState<DeliveryFranchiseDue | null>(null);
   const [model, setModel] = useState('PER_ORDER');
@@ -104,8 +91,17 @@ export function DeliveryPayoutPanel({ token, payeeType, refreshTick, onSettled, 
   const [orderSearch, setOrderSearch] = useState('');
   const [orderPage, setOrderPage] = useState(0);
   const [orderPageSize, setOrderPageSize] = useState(DEFAULT_ORDER_PAGE_SIZE);
+  const [hubPaymentRefreshTick, setHubPaymentRefreshTick] = useState(0);
+  const [hubTab, setHubTab] = useState<HubPayoutTab>('app-to-hub');
+  const [hubPaysTab, setHubPaysTab] = useState<HubPaysSubTab>('cod-statement');
+  const [recordPage, setRecordPage] = useState(0);
+  const [recordPageSize, setRecordPageSize] = useState(25);
 
   const townHubs = useMemo(() => hubs.filter((h) => h.townId === townId), [hubs, townId]);
+  const selectedHubName = useMemo(
+    () => townHubs.find((h) => h.hubId === payeeId)?.name ?? '',
+    [townHubs, payeeId],
+  );
   const townAgents = useMemo(() => {
     if (!townId) return [];
     const hubIds = new Set(townHubs.map((h) => h.hubId));
@@ -117,6 +113,20 @@ export function DeliveryPayoutPanel({ token, payeeType, refreshTick, onSettled, 
     );
     return [...shopAgents, ...hubAgents].sort((a, b) => a.name.localeCompare(b.name));
   }, [agents, townHubs, townId]);
+
+  const hubNameById = useMemo(() => new Map(townHubs.map((h) => [h.hubId, h.name])), [townHubs]);
+  const agentNameById = useMemo(() => new Map(townAgents.map((a) => [a.agentId, a.name])), [townAgents]);
+  const settlementPayeeLabel = useCallback(
+    (s: SettlementVm) => {
+      const type = (s.payeeType ?? payeeType).toUpperCase();
+      const mapped =
+        type === 'HUB'
+          ? hubNameById.get(s.payeeId) ?? (s.payeeId === payeeId ? selectedHubName : undefined)
+          : agentNameById.get(s.payeeId);
+      return displayPayeeLabel(mapped ?? s.payeeName, s.payeeId, type);
+    },
+    [hubNameById, agentNameById, payeeType, payeeId, selectedHubName],
+  );
 
   const selectedPayee = useMemo(() => {
     if (isHub) return townHubs.find((h) => h.hubId === payeeId) ?? null;
@@ -158,12 +168,13 @@ export function DeliveryPayoutPanel({ token, payeeType, refreshTick, onSettled, 
     return sum;
   }, [items, selected]);
 
-  const applyPreset = (next: PeriodPreset) => {
+  const applyPreset = (next: ReportDatePreset) => {
     setPreset(next);
-    const range = rangeForPreset(next);
+    setPeriodType(settlementPeriodKind(next));
+    if (next === 'custom') return;
+    const range = rangeForReportPreset(next);
     setFrom(range.from);
     setTo(range.to);
-    setPeriodType(range.periodType);
   };
 
   const reloadCandidates = useCallback(async () => {
@@ -218,13 +229,25 @@ export function DeliveryPayoutPanel({ token, payeeType, refreshTick, onSettled, 
       setTowns(townList);
       setHubs(hubList);
       setAgents(agentList);
-      await Promise.all([reloadCandidates(), reloadHistory()]);
+      const loadCandidates = !isHub || hubTab === 'app-to-hub';
+      const loadHistory = !isHub || hubTab === 'app-to-hub';
+      await Promise.all([
+        loadCandidates ? reloadCandidates() : Promise.resolve(),
+        loadHistory ? reloadHistory() : Promise.resolve(),
+      ]);
     } catch (err) {
       setError(err instanceof ApiError || err instanceof Error ? err.message : 'Failed to load payouts');
     } finally {
       setLoading(false);
     }
-  }, [token, isHub, reloadCandidates, reloadHistory]);
+  }, [token, isHub, hubTab, reloadCandidates, reloadHistory]);
+
+  useEffect(() => {
+    if (!isHub || hubTab !== 'hub-to-app' || hubPaysTab !== 'records' || !token) return;
+    void reloadHistory().catch((err) => {
+      setError(err instanceof ApiError || err instanceof Error ? err.message : 'Failed to load records');
+    });
+  }, [isHub, hubTab, hubPaysTab, token, reloadHistory, hubPaymentRefreshTick]);
 
   useEffect(() => {
     void reload();
@@ -325,24 +348,252 @@ export function DeliveryPayoutPanel({ token, payeeType, refreshTick, onSettled, 
 
   const showOrders = model === 'PER_ORDER' || model === 'BOTH' || !isHub;
   const showFranchise = isHub && !!franchise?.enabled;
+  const hubRefreshCombined = codRefreshTick + refreshTick + hubPaymentRefreshTick;
+
+  const auditHistory = useMemo(() => {
+    if (!isHub) return history;
+    const isCollection = (s: SettlementVm) => (s.direction ?? '').toUpperCase() === 'COLLECTION';
+    if (hubTab === 'hub-to-app') {
+      return history.filter(isCollection);
+    }
+    return history.filter((s) => !isCollection(s));
+  }, [history, isHub, hubTab]);
+
+  const recordPageCount = Math.max(1, Math.ceil(auditHistory.length / recordPageSize));
+  const safeRecordPage = Math.min(recordPage, recordPageCount - 1);
+  const pagedAuditHistory = useMemo(() => {
+    const start = safeRecordPage * recordPageSize;
+    return auditHistory.slice(start, start + recordPageSize);
+  }, [auditHistory, safeRecordPage, recordPageSize]);
+
+  useEffect(() => {
+    setRecordPage(0);
+  }, [auditHistory.length, recordPageSize, hubTab, townId, payeeId]);
+
+  const hubRecordsTable = (
+    <div>
+      <ListPager
+        page={safeRecordPage}
+        pageCount={recordPageCount}
+        total={auditHistory.length}
+        pageSize={recordPageSize}
+        pageSizes={[25, 50, 100, 200]}
+        onPage={setRecordPage}
+        onPageSize={(size) => {
+          setRecordPageSize(size);
+          setRecordPage(0);
+        }}
+      />
+      <div style={styles.tableInAudit}>
+        <table style={styles.table}>
+          <thead>
+            <tr>
+              <th style={styles.th}>When</th>
+              <th style={styles.th}>{isHub ? 'Hub' : 'Agent'}</th>
+              <th style={styles.th}>Period</th>
+              <th style={styles.th}>Mode</th>
+              <th style={styles.thRight}>Amount</th>
+              <th style={styles.th}>Type</th>
+            </tr>
+          </thead>
+          <tbody>
+            {pagedAuditHistory.map((s) => {
+              const collection = (s.direction ?? '').toUpperCase() === 'COLLECTION';
+              const lines = s.lines ?? [];
+              const open = expandedHistoryId === s.id;
+              return (
+                <Fragment key={s.id}>
+                  <tr>
+                    <td style={styles.tdMuted}>
+                      {s.paidAt
+                        ? new Date(s.paidAt).toLocaleString(undefined, {
+                            day: '2-digit',
+                            month: 'short',
+                            year: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })
+                        : '—'}
+                    </td>
+                    <td style={styles.td}>{settlementPayeeLabel(s)}</td>
+                    <td style={styles.tdMuted}>
+                      {s.periodStart} → {s.periodEnd}
+                      <div style={styles.sub}>
+                        {s.periodType} · {lines.length} line{lines.length === 1 ? '' : 's'}
+                      </div>
+                      {lines.length > 0 ? (
+                        <button
+                          type="button"
+                          style={styles.linkBtn}
+                          onClick={() => setExpandedHistoryId(open ? null : s.id)}
+                        >
+                          {open ? 'Hide lines' : 'Lines'}
+                        </button>
+                      ) : null}
+                    </td>
+                    <td style={styles.tdMuted}>
+                      {s.payoutMethod ?? '—'}
+                      <div style={styles.sub}>{s.transactionReference || 'No txn ref'}</div>
+                    </td>
+                    <td style={styles.tdRight}>{formatMoney(s.netAmount)}</td>
+                    <td style={styles.td}>
+                      <span style={collection ? styles.collectBadge : styles.settled}>
+                        {collection ? 'Received' : s.status}
+                      </span>
+                    </td>
+                  </tr>
+                  {open ? (
+                    <tr>
+                      <td colSpan={6} style={styles.detailCell}>
+                        <ul style={styles.lineList}>
+                          {lines.map((l) => (
+                            <li key={l.id}>
+                              {formatMoney(l.amount)} · {l.orderNumber || l.description || l.lineType}
+                            </li>
+                          ))}
+                        </ul>
+                      </td>
+                    </tr>
+                  ) : null}
+                </Fragment>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+
+  const ordersTableCard = showOrders ? (
+    <Card padding="sm" style={styles.cardPad}>
+      <div style={styles.tableHead}>
+        <h2 style={styles.sectionTitle}>
+          Completed orders{' '}
+          <span style={styles.count}>
+            {items.length} · {selected.size} selected
+          </span>
+        </h2>
+        <label style={styles.checkInline}>
+          <input
+            type="checkbox"
+            checked={openItems.length > 0 && selected.size === openItems.length}
+            onChange={(e) => toggleAllOpen(e.target.checked)}
+            disabled={openItems.length === 0}
+          />
+          All payable
+        </label>
+      </div>
+      {!townId || !payeeId ? (
+        <p style={styles.muted}>Select a town and {isHub ? 'hub' : 'agent'} to load delivered orders.</p>
+      ) : loading ? (
+        <p style={styles.muted}>Loading…</p>
+      ) : items.length === 0 ? (
+        <p style={styles.muted}>No delivered orders in this range. Cancelled orders are excluded.</p>
+      ) : filteredItems.length === 0 ? (
+        <p style={styles.muted}>No orders match your search.</p>
+      ) : (
+        <>
+          <div style={styles.ordersToolbar}>
+            <input
+              style={styles.searchInput}
+              value={orderSearch}
+              onChange={(e) => setOrderSearch(e.target.value)}
+              placeholder="Search order #…"
+              aria-label="Search orders"
+            />
+            <ListPager
+              page={safeOrderPage}
+              pageCount={orderPageCount}
+              total={filteredItems.length}
+              pageSize={orderPageSize}
+              onPage={setOrderPage}
+              onPageSize={(size) => {
+                setOrderPageSize(size);
+                setOrderPage(0);
+              }}
+            />
+          </div>
+          <div style={styles.tableWrapPaged}>
+            <table style={styles.table}>
+              <thead>
+                <tr>
+                  <th style={styles.th} />
+                  <th style={styles.th}>Delivered</th>
+                  <th style={styles.th}>Order</th>
+                  <th style={styles.th}>Legs</th>
+                  <th style={styles.thRight}>Pay</th>
+                  <th style={styles.th}>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pagedItems.map((row) => {
+                  const payable = !row.alreadySettled && !row.skipReason && Number(row.amount) > 0;
+                  return (
+                    <tr key={row.orderId} style={selected.has(row.orderId) && payable ? styles.rowSelected : undefined}>
+                      <td style={styles.td}>
+                        <input
+                          type="checkbox"
+                          disabled={!payable}
+                          checked={selected.has(row.orderId)}
+                          onChange={(e) => toggleOne(row.orderId, e.target.checked)}
+                        />
+                      </td>
+                      <td style={styles.tdMuted}>
+                        {row.deliveredAt
+                          ? new Date(row.deliveredAt).toLocaleString(undefined, {
+                              day: '2-digit',
+                              month: 'short',
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })
+                          : '—'}
+                      </td>
+                      <td style={styles.td}>
+                        <strong>{row.orderNumber}</strong>
+                        <div style={styles.sub}>{row.paymentStatus ?? '—'}</div>
+                      </td>
+                      <td style={styles.tdMuted}>
+                        {row.vendorAgentDelivery
+                          ? row.lastMileCompleted
+                            ? 'Shop → customer'
+                            : 'Shop trip open'
+                          : `${row.pickupCompleted ? 'Pickup' : 'No pickup'} · ${row.lastMileCompleted ? 'Home' : 'No home'}`}
+                      </td>
+                      <td style={styles.tdRight}>{formatMoney(row.amount)}</td>
+                      <td style={styles.td}>
+                        {row.alreadySettled ? (
+                          <span style={styles.settled}>Settled</span>
+                        ) : row.skipReason ? (
+                          <span style={styles.skipBadge}>{row.skipReason}</span>
+                        ) : (
+                          <span style={styles.openBadge}>Open</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </Card>
+  ) : (
+    <Card padding="sm" style={styles.cardPad}>
+      <p style={styles.muted}>Per-order pay is off for this town. Turn it on in Towns → Incentives, or collect franchise only.</p>
+    </Card>
+  );
 
   return (
     <>
       {error ? <Banner tone="danger">{error}</Banner> : null}
       {success ? <Banner tone="success">{success}</Banner> : null}
 
-      <div className="dp-layout">
+      <div className={isHub ? 'dp-layout dp-layout-hub' : 'dp-layout'}>
         <div className="dp-main">
           <Card padding="sm" style={styles.cardPad}>
             <div style={styles.presets}>
-              {(
-                [
-                  ['day', 'Today'],
-                  ['week', 'This week'],
-                  ['month', 'This month'],
-                  ['custom', 'Custom'],
-                ] as const
-              ).map(([id, label]) => (
+              {REPORT_DATE_PRESET_OPTIONS.map(({ id, label }) => (
                 <button
                   key={id}
                   type="button"
@@ -421,184 +672,113 @@ export function DeliveryPayoutPanel({ token, payeeType, refreshTick, onSettled, 
                   }}
                 />
               </label>
-              <label style={styles.label}>
-                Mode
-                <select style={styles.input} value={payoutMethod} onChange={(e) => setPayoutMethod(e.target.value)}>
-                  {PAYOUT_METHODS.map((m) => (
-                    <option key={m} value={m}>
-                      {m}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label style={styles.label}>
-                Txn ref <span style={styles.req}>*</span>
-                <input
-                  style={styles.input}
-                  value={transactionReference}
-                  onChange={(e) => setTransactionReference(e.target.value)}
-                  placeholder="UTR / UPI / cheque (required)"
-                />
-              </label>
-              <label style={styles.label} className="dp-notes">
-                Notes
-                <input
-                  style={styles.input}
-                  value={transactionNotes}
-                  onChange={(e) => setTransactionNotes(e.target.value)}
-                  placeholder="Optional remark"
-                />
-              </label>
+              {!isHub || hubTab === 'app-to-hub' ? (
+                <>
+                  <label style={styles.label}>
+                    Mode
+                    <select style={styles.input} value={payoutMethod} onChange={(e) => setPayoutMethod(e.target.value)}>
+                      {PAYOUT_METHODS.map((m) => (
+                        <option key={m} value={m}>
+                          {m}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label style={styles.label}>
+                    Txn ref <span style={styles.req}>*</span>
+                    <input
+                      style={styles.input}
+                      value={transactionReference}
+                      onChange={(e) => setTransactionReference(e.target.value)}
+                      placeholder="UTR / UPI / cheque (required)"
+                    />
+                  </label>
+                  <label style={styles.label} className="dp-notes">
+                    Notes
+                    <input
+                      style={styles.input}
+                      value={transactionNotes}
+                      onChange={(e) => setTransactionNotes(e.target.value)}
+                      placeholder="Optional remark"
+                    />
+                  </label>
+                </>
+              ) : null}
             </div>
             <p style={styles.hint}>
               {isHub
-                ? 'Rates live in Towns → Hub & agent pay. Cancelled and incomplete orders never appear as payable.'
+                ? hubTab === 'app-to-hub'
+                  ? 'Commission payouts only — use “KoyaKart pays hub”. Switch tab for hub franchise/COD.'
+                  : 'Hub collections only — confirm hub online payments here. Commission is on the other tab.'
                 : 'Hub agents: Towns → Hub & agent pay. Shop delivery agents: Towns → Vendor delivery (₹ per order). Pick the agent who completed the trip — vendor shop orders pay the shop’s agent, not hub agents.'}
             </p>
           </Card>
 
-          {showFranchise && franchise ? (
-            <Card padding="sm" style={styles.cardPad}>
-              <div style={styles.tableHead}>
-                <h2 style={styles.sectionTitle}>Franchise · hub pays us</h2>
-                <span style={franchise.alreadyCollected ? styles.settled : styles.openBadge}>
-                  {franchise.alreadyCollected ? 'Collected' : 'Due'}
-                </span>
-              </div>
-              <p style={styles.muted}>
-                {franchise.label} · window uses the {cadenceLabel(franchise.cadence)} of the To date
-                {franchise.cadence === 'LIFETIME' ? ' · once ever' : ''}.
-              </p>
-            </Card>
-          ) : null}
-
-          {showOrders ? (
-            <Card padding="sm" style={styles.cardPad}>
-              <div style={styles.tableHead}>
-                <h2 style={styles.sectionTitle}>
-                  Completed orders{' '}
-                  <span style={styles.count}>
-                    {items.length} · {selected.size} selected
-                  </span>
-                </h2>
-                <label style={styles.checkInline}>
-                  <input
-                    type="checkbox"
-                    checked={openItems.length > 0 && selected.size === openItems.length}
-                    onChange={(e) => toggleAllOpen(e.target.checked)}
-                    disabled={openItems.length === 0}
+          {isHub ? (
+            townId && payeeId ? (
+              <HubPayoutWorkspace
+                tab={hubTab}
+                onTab={setHubTab}
+                token={token}
+                townId={townId}
+                hubId={payeeId}
+                hubName={selectedHubName}
+                from={from}
+                to={to}
+                refreshTick={hubRefreshCombined}
+                onPaymentReviewed={() => setHubPaymentRefreshTick((t) => t + 1)}
+                franchise={franchise}
+                selectedTotal={selectedTotal}
+                selectedCount={selected.size}
+                openCount={openItems.length}
+                loading={loading}
+                onRefresh={() => void reload()}
+                onMarkPaid={() => requestConfirm('PER_ORDER')}
+                onMarkFranchise={() => requestConfirm('FRANCHISE')}
+                canPayOrders={canPayOrders}
+                canCollectFranchise={canCollectFranchise}
+                saving={saving}
+                commissionSection={ordersTableCard}
+                onSubTabChange={setHubPaysTab}
+                recordsSection={
+                  <SettlementAuditSection
+                    collapsible={false}
+                    historyCount={auditHistory.length}
+                    historyTabLabel="Hub → KK collections"
+                    historyHint="Franchise & amounts received from hub (not commission)."
+                    historyEmpty="No collections from hub in this range."
+                    changeLog={{ ...changeLog, townId: townId || changeLog.townId }}
+                    historyContent={hubRecordsTable}
                   />
-                  All payable
-                </label>
-              </div>
-              {!townId || !payeeId ? (
-                <p style={styles.muted}>
-                  Select a town and {isHub ? 'hub' : 'agent'} to load delivered orders.
-                </p>
-              ) : loading ? (
-                <p style={styles.muted}>Loading…</p>
-              ) : items.length === 0 ? (
-                <p style={styles.muted}>
-                  No delivered orders in this range. Cancelled orders are excluded.
-                </p>
-              ) : filteredItems.length === 0 ? (
-                <p style={styles.muted}>No orders match your search.</p>
-              ) : (
-                <>
-                  <div style={styles.ordersToolbar}>
-                    <input
-                      style={styles.searchInput}
-                      value={orderSearch}
-                      onChange={(e) => setOrderSearch(e.target.value)}
-                      placeholder="Search order #…"
-                      aria-label="Search orders"
-                    />
-                    <ListPager
-                      page={safeOrderPage}
-                      pageCount={orderPageCount}
-                      total={filteredItems.length}
-                      pageSize={orderPageSize}
-                      onPage={setOrderPage}
-                      onPageSize={(size) => {
-                        setOrderPageSize(size);
-                        setOrderPage(0);
-                      }}
-                    />
-                  </div>
-                <div style={styles.tableWrapPaged}>
-                  <table style={styles.table}>
-                    <thead>
-                      <tr>
-                        <th style={styles.th} />
-                        <th style={styles.th}>Delivered</th>
-                        <th style={styles.th}>Order</th>
-                        <th style={styles.th}>Legs</th>
-                        <th style={styles.thRight}>Pay</th>
-                        <th style={styles.th}>Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {pagedItems.map((row) => {
-                        const payable = !row.alreadySettled && !row.skipReason && Number(row.amount) > 0;
-                        return (
-                          <tr key={row.orderId} style={selected.has(row.orderId) && payable ? styles.rowSelected : undefined}>
-                            <td style={styles.td}>
-                              <input
-                                type="checkbox"
-                                disabled={!payable}
-                                checked={selected.has(row.orderId)}
-                                onChange={(e) => toggleOne(row.orderId, e.target.checked)}
-                              />
-                            </td>
-                            <td style={styles.tdMuted}>
-                              {row.deliveredAt
-                                ? new Date(row.deliveredAt).toLocaleString(undefined, {
-                                    day: '2-digit',
-                                    month: 'short',
-                                    hour: '2-digit',
-                                    minute: '2-digit',
-                                  })
-                                : '—'}
-                            </td>
-                            <td style={styles.td}>
-                              <strong>{row.orderNumber}</strong>
-                              <div style={styles.sub}>{row.paymentStatus ?? '—'}</div>
-                            </td>
-                            <td style={styles.tdMuted}>
-                              {row.vendorAgentDelivery
-                                ? row.lastMileCompleted
-                                  ? 'Shop → customer'
-                                  : 'Shop trip open'
-                                : `${row.pickupCompleted ? 'Pickup' : 'No pickup'} · ${row.lastMileCompleted ? 'Home' : 'No home'}`}
-                            </td>
-                            <td style={styles.tdRight}>{formatMoney(row.amount)}</td>
-                            <td style={styles.td}>
-                              {row.alreadySettled ? (
-                                <span style={styles.settled}>Settled</span>
-                              ) : row.skipReason ? (
-                                <span style={styles.skipBadge}>{row.skipReason}</span>
-                              ) : (
-                                <span style={styles.openBadge}>Open</span>
-                              )}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-                </>
-              )}
-            </Card>
+                }
+              />
+            ) : (
+              <Card padding="sm" style={styles.cardPad}>
+                <p style={styles.muted}>Select a town and hub to open the hub workspace.</p>
+              </Card>
+            )
           ) : (
-            <Card padding="sm" style={styles.cardPad}>
-              <p style={styles.muted}>
-                Per-order pay is off for this town. Turn it on in Towns → Incentives, or collect franchise only.
-              </p>
-            </Card>
+            <>
+              {showFranchise && franchise ? (
+                <Card padding="sm" style={styles.cardPad}>
+                  <div style={styles.tableHead}>
+                    <h2 style={styles.sectionTitle}>Franchise · hub pays us</h2>
+                    <span style={franchise.alreadyCollected ? styles.settled : styles.openBadge}>
+                      {franchise.alreadyCollected ? 'Collected' : 'Due'}
+                    </span>
+                  </div>
+                  <p style={styles.muted}>
+                    {franchise.label} · window uses the {cadenceLabel(franchise.cadence)} of the To date
+                    {franchise.cadence === 'LIFETIME' ? ' · once ever' : ''}.
+                  </p>
+                </Card>
+              ) : null}
+              {ordersTableCard}
+            </>
           )}
         </div>
 
+        {!isHub ? (
         <aside className="dp-side">
           <Card padding="sm" elevated style={{ ...styles.cardPad, ...styles.summaryCard }}>
             <h2 style={styles.sectionTitle}>Summary</h2>
@@ -613,9 +793,20 @@ export function DeliveryPayoutPanel({ token, payeeType, refreshTick, onSettled, 
                   </div>
                 ) : null}
                 {showFranchise && franchise ? (
-                  <div style={styles.collectHero}>
-                    <span style={styles.netLabel}>Franchise due from hub</span>
-                    <strong style={styles.netValue}>{formatMoney(franchise.amount)}</strong>
+                  <div
+                    style={
+                      franchise.alreadyCollected ? styles.collectHeroSettled : styles.collectHero
+                    }
+                  >
+                    <span style={styles.netLabel}>
+                      {franchise.alreadyCollected ? 'Franchise from hub' : 'Franchise due from hub'}
+                    </span>
+                    <strong style={styles.netValue}>
+                      {franchise.alreadyCollected ? 'Collected' : formatMoney(franchise.amount)}
+                    </strong>
+                    {franchise.alreadyCollected ? (
+                      <span style={styles.collectSub}>{formatMoney(franchise.amount)} · {franchise.periodStart} → {franchise.periodEnd}</span>
+                    ) : null}
                   </div>
                 ) : null}
                 <p style={styles.muted}>
@@ -651,6 +842,7 @@ export function DeliveryPayoutPanel({ token, payeeType, refreshTick, onSettled, 
             </div>
           </Card>
         </aside>
+        ) : null}
       </div>
 
       <ConfirmDialog
@@ -680,90 +872,28 @@ export function DeliveryPayoutPanel({ token, payeeType, refreshTick, onSettled, 
         onConfirm={() => void submit('FRANCHISE')}
       />
 
+      {isHub && hubTab === 'hub-to-app' ? null : isHub && !payeeId ? null : (
       <SettlementAuditSection
-        historyCount={history.length}
-        historyEmpty="No hub/agent settlements in this range."
-        changeLog={{ ...changeLog, townId: townId || changeLog.townId }}
-        historyContent={
-          <div style={styles.tableInAudit}>
-            <table style={styles.table}>
-              <thead>
-                <tr>
-                  <th style={styles.th}>When</th>
-                  <th style={styles.th}>{isHub ? 'Hub' : 'Agent'}</th>
-                  <th style={styles.th}>Period</th>
-                  <th style={styles.th}>Mode</th>
-                  <th style={styles.thRight}>Amount</th>
-                  <th style={styles.th}>Type</th>
-                </tr>
-              </thead>
-              <tbody>
-                {history.map((s) => {
-                  const collection = (s.direction ?? '').toUpperCase() === 'COLLECTION';
-                  const lines = s.lines ?? [];
-                  const open = expandedHistoryId === s.id;
-                  return (
-                    <Fragment key={s.id}>
-                      <tr>
-                        <td style={styles.tdMuted}>
-                          {s.paidAt
-                            ? new Date(s.paidAt).toLocaleString(undefined, {
-                                day: '2-digit',
-                                month: 'short',
-                                year: 'numeric',
-                                hour: '2-digit',
-                                minute: '2-digit',
-                              })
-                            : '—'}
-                        </td>
-                        <td style={styles.td}>{s.payeeName ?? s.payeeId}</td>
-                        <td style={styles.tdMuted}>
-                          {s.periodStart} → {s.periodEnd}
-                          <div style={styles.sub}>
-                            {s.periodType} · {lines.length} line{lines.length === 1 ? '' : 's'}
-                          </div>
-                          {lines.length > 0 ? (
-                            <button
-                              type="button"
-                              style={styles.linkBtn}
-                              onClick={() => setExpandedHistoryId(open ? null : s.id)}
-                            >
-                              {open ? 'Hide lines' : 'Lines'}
-                            </button>
-                          ) : null}
-                        </td>
-                        <td style={styles.tdMuted}>
-                          {s.payoutMethod ?? '—'}
-                          <div style={styles.sub}>{s.transactionReference || 'No txn ref'}</div>
-                        </td>
-                        <td style={styles.tdRight}>{formatMoney(s.netAmount)}</td>
-                        <td style={styles.td}>
-                          <span style={collection ? styles.collectBadge : styles.settled}>
-                            {collection ? 'Received' : s.status}
-                          </span>
-                        </td>
-                      </tr>
-                      {open ? (
-                        <tr>
-                          <td colSpan={6} style={styles.detailCell}>
-                            <ul style={styles.lineList}>
-                              {lines.map((l) => (
-                                <li key={l.id}>
-                                  {formatMoney(l.amount)} · {l.orderNumber || l.description || l.lineType}
-                                </li>
-                              ))}
-                            </ul>
-                          </td>
-                        </tr>
-                      ) : null}
-                    </Fragment>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+        historyCount={auditHistory.length}
+        historyTabLabel={
+          isHub
+            ? 'KK → Hub payouts'
+            : 'Payout history'
         }
+        historyHint={
+          isHub
+            ? 'Commission paid to hub (not franchise/COD).'
+            : 'Payout history & audit log'
+        }
+        historyEmpty={
+          isHub
+            ? 'No commission payouts to hub in this range.'
+            : 'No hub/agent settlements in this range.'
+        }
+        changeLog={{ ...changeLog, townId: townId || changeLog.townId }}
+        historyContent={hubRecordsTable}
       />
+      )}
 
       <style>{`
 .dp-layout { display: grid; gap: 0.55rem; align-items: start; }
@@ -776,8 +906,11 @@ export function DeliveryPayoutPanel({ token, payeeType, refreshTick, onSettled, 
   .dp-notes { grid-column: 1 / -1; }
 }
 @media (min-width: 1040px) {
-  .dp-layout { grid-template-columns: minmax(0, 1fr) minmax(240px, 270px); }
+  .dp-layout:not(.dp-layout-hub) { grid-template-columns: minmax(0, 1fr) minmax(240px, 270px); }
   .dp-side { position: sticky; top: 0.5rem; }
+}
+@media (max-width: 640px) {
+  .hub-payout-tabs { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
 }
 `}</style>
     </>
@@ -856,6 +989,15 @@ const styles: Record<string, CSSProperties> = {
     background: 'var(--warning-soft)',
     border: '1px solid color-mix(in srgb, #d97706 35%, transparent)',
   },
+  collectHeroSettled: {
+    display: 'grid',
+    gap: '0.05rem',
+    padding: '0.5rem 0.65rem',
+    borderRadius: 'var(--radius-md)',
+    background: '#ecfdf5',
+    border: '1px solid #a7f3d0',
+  },
+  collectSub: { fontSize: '0.68rem', fontWeight: 650, color: 'var(--text-muted)' },
   netLabel: { fontSize: '0.68rem', fontWeight: 700, color: 'var(--accent-hover)' },
   netValue: {
     fontFamily: 'var(--font-display)',

@@ -88,6 +88,7 @@ public class AgentService {
                 .userId(userId)
                 .hubId(hub.getId())
                 .townId(hub.getTownId())
+                .hubName(hub.getName())
                 .build();
     }
 
@@ -111,6 +112,29 @@ public class AgentService {
                     .build());
         }
         return contacts;
+    }
+
+    @Transactional(readOnly = true)
+    public HubContactResponse getHubSnapshot(UUID hubId) {
+        DeliveryHub hub = deliveryHubRepository.findById(hubId).orElse(null);
+        if (hub == null) {
+            return null;
+        }
+        return HubContactResponse.builder()
+                .userId(null)
+                .hubId(hub.getId())
+                .hubName(hub.getName())
+                .phone(hub.getPhone())
+                .build();
+    }
+
+    @Transactional(readOnly = true)
+    public String getAgentDisplayName(UUID agentId) {
+        return deliveryAgentRepository.findById(agentId)
+                .map(DeliveryAgent::getName)
+                .map(String::trim)
+                .filter(name -> !name.isEmpty())
+                .orElse(null);
     }
 
     @Transactional(readOnly = true)

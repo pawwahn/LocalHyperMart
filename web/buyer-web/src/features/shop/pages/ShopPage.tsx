@@ -1,5 +1,5 @@
 import type { CSSProperties } from 'react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { AdSlot } from '@/features/ads/components/AdSlot';
 import { PortalShell } from '@/shared/layout/PortalShell';
 import { useTown } from '@/shared/town/TownContext';
@@ -15,10 +15,14 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/shared/auth/AuthContext';
 import { getPublicPlatformSettings } from '@/features/auth/api/platformSettingsApi';
 import { DeliveryHero } from '../components/DeliveryHero';
+import { ShopHomeFooter } from '../components/ShopHomeFooter';
 import { MembershipPlansSheet } from '../components/MembershipPlansSheet';
 import { ProductCard } from '../components/ProductCard';
 import { ProductQuickView } from '../components/ProductQuickView';
 import { ProductRail } from '../components/ProductRail';
+import { ShopSpecialOffersBanner } from '../components/ShopSpecialOffersBanner';
+import { ensureShopHomeAislesCss } from '../components/shopHomeAisles.css';
+import { BestDealsSheet } from '../components/BestDealsSheet';
 import { groupCategoriesIntoAisles } from '../lib/aisles';
 import { useBrowserVoiceSearch } from '../hooks/useBrowserVoiceSearch';
 import { useShop } from '../hooks/useShop';
@@ -28,35 +32,6 @@ const PAGE_SIZE = 24;
 const CATEGORY_COLS = 4;
 /** Insert sponsored mid-grid ad after this many full category rows on home. */
 const MID_AD_AFTER_ROW = 4;
-
-type HomeBlock =
-  | { type: 'aisle-start'; title: string }
-  | { type: 'category'; cat: CategoryView }
-  | { type: 'mid-ad' };
-
-function buildCategoryHomeBlocks(aisles: ReturnType<typeof groupCategoriesIntoAisles>): HomeBlock[] {
-  const blocks: HomeBlock[] = [];
-  let tileIndex = 0;
-  let midAdInserted = false;
-
-  for (const aisle of aisles) {
-    if (aisle.categories.length === 0) continue;
-    blocks.push({ type: 'aisle-start', title: aisle.title });
-    for (const cat of aisle.categories) {
-      tileIndex += 1;
-      blocks.push({ type: 'category', cat });
-      if (
-        !midAdInserted &&
-        tileIndex % CATEGORY_COLS === 0 &&
-        tileIndex / CATEGORY_COLS === MID_AD_AFTER_ROW
-      ) {
-        blocks.push({ type: 'mid-ad' });
-        midAdInserted = true;
-      }
-    }
-  }
-  return blocks;
-}
 
 type ItemSort = 'name-az' | 'name-za' | 'price-asc' | 'price-desc' | 'rating';
 
@@ -76,7 +51,7 @@ function sortParams(sort: ItemSort): { sort: string; dir: string } {
 export function ShopPage({ browseOnly = false }: Props) {
   const navigate = useNavigate();
   const { isAuthenticated } = useAuth();
-  const { townId, townLabel } = useTown();
+  const { townId, townLabel, bestDealsEnabled } = useTown();
   const {
     cart,
     busy,
@@ -106,6 +81,7 @@ export function ShopPage({ browseOnly = false }: Props) {
   const [hintIndex, setHintIndex] = useState(0);
   const [quickView, setQuickView] = useState<CatalogItemView | null>(null);
   const [plansOpen, setPlansOpen] = useState(false);
+  const [dealsOpen, setDealsOpen] = useState(false);
   const [membershipOnSale, setMembershipOnSale] = useState(false);
   const [featured, setFeatured] = useState<CatalogItemView[]>([]);
   const sentinelRef = useRef<HTMLDivElement>(null);
@@ -114,6 +90,10 @@ export function ShopPage({ browseOnly = false }: Props) {
   const { listening, supported, error: voiceError, toggle: toggleVoice } = useBrowserVoiceSearch(
     (transcript) => setQuery(transcript),
   );
+
+  useEffect(() => {
+    ensureShopHomeAislesCss();
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -188,11 +168,6 @@ export function ShopPage({ browseOnly = false }: Props) {
       : categories;
     return groupCategoriesIntoAisles(list);
   }, [categories, query]);
-
-  const categoryHomeBlocks = useMemo(
-    () => (searching ? [] : buildCategoryHomeBlocks(aisles)),
-    [aisles, searching],
-  );
 
   useEffect(() => {
     if (!townId || browseOnly) {
@@ -407,34 +382,80 @@ export function ShopPage({ browseOnly = false }: Props) {
                 description="Catalog categories will show up here."
               />
             ) : (
-              <div style={styles.homeDirectory}>
-                {categoryHomeBlocks.map((block, index) => {
-                  if (block.type === 'aisle-start') {
-                    return (
-                      <h2 key={`aisle-${block.title}-${index}`} style={styles.aisleHeading}>
-                        {block.title}
+              <div className="hlm-shop-home-sections">
+                {(() => {
+                  let tileIndex = 0;
+                  let midAdInserted = false;
+                  return aisles.map((aisle, aisleIndex) => {
+                    if (aisle.categories.length === 0) return null;
+                    const showPromoRail = aisleIndex === 0 && !browseOnly;
+                    const tiles: ReactNode[] = [];
+                    for (const cat of aisle.categories) {
+                      tileIndex += 1;
+                      tiles.push(
+                        <CategoryTile
+                          key={cat.id}
+                          label={cat.name}
+                          imageUrl={cat.imageUrl}
+                          onClick={() => openCategory(cat)}
+                        />,
+                      );
+                      if (
+                        !browseOnly &&
+                        !midAdInserted &&
+                        tileIndex % CATEGORY_COLS === 0 &&
+                        tileIndex / CATEGORY_COLS === MID_AD_AFTER_ROW
+                      ) {
+                        midAdInserted = true;
+                        tiles.push(
+                          <div key="home-mid-grid-ad" className="hlm-mid-ad-full">
+                            <AdSlot slot="home_mid_grid" variant="strip" />
+                          </div>,
+                        );
+                      }
+                    }
+                    const heading = (
+                      <h2
+                        key={`${aisle.title}-heading`}
+                        className="hlm-aisle-heading-full"
+                        style={styles.aisleHeading}
+                      >
+                        {aisle.title}
                       </h2>
                     );
-                  }
-                  if (block.type === 'mid-ad') {
-                    return browseOnly ? null : (
-                      <div key="home-mid-grid-ad" style={styles.midAdWrap}>
-                        <AdSlot slot="home_mid_grid" variant="strip" />
+                    if (showPromoRail) {
+                      return (
+                        <div key={aisle.title} className="hlm-shop-home-aisles">
+                          <ShopSpecialOffersBanner
+                            dealsEnabled={bestDealsEnabled}
+                            showPlans={membershipOnSale}
+                            onOpenDeals={() => setDealsOpen(true)}
+                            onOpenPlans={() => {
+                              if (isAuthenticated) setPlansOpen(true);
+                              else navigate('/membership');
+                            }}
+                          />
+                          <div className="hlm-shop-home-directory">
+                            {heading}
+                            {tiles}
+                          </div>
+                        </div>
+                      );
+                    }
+                    return (
+                      <div key={aisle.title} className="hlm-shop-home-aisle-full">
+                        <div className="hlm-shop-home-directory hlm-shop-home-directory--full">
+                          {heading}
+                          {tiles}
+                        </div>
                       </div>
                     );
-                  }
-                  return (
-                    <CategoryTile
-                      key={block.cat.id}
-                      label={block.cat.name}
-                      imageUrl={block.cat.imageUrl}
-                      onClick={() => openCategory(block.cat)}
-                    />
-                  );
-                })}
+                  });
+                })()}
               </div>
             )
           ) : null}
+          {!showFeed ? <ShopHomeFooter /> : null}
         </>
       ) : null}
 
@@ -483,7 +504,7 @@ export function ShopPage({ browseOnly = false }: Props) {
             />
           ) : (
             <>
-              <div style={styles.grid}>
+              <div className="hlm-shop-product-grid">
                 {products.map((item) => (
                   <ProductCard
                     key={item.listingId}
@@ -528,6 +549,15 @@ export function ShopPage({ browseOnly = false }: Props) {
         />
       ) : null}
       <MembershipPlansSheet open={plansOpen} onClose={() => setPlansOpen(false)} />
+      <BestDealsSheet
+        open={dealsOpen && bestDealsEnabled}
+        busyKey={busyKey}
+        quantityFor={quantityFor}
+        rememberItems={rememberItems}
+        onIncrease={(id) => void doIncrease(id)}
+        onDecrease={(id) => void doDecrease(id)}
+        onClose={() => setDealsOpen(false)}
+      />
     </PortalShell>
   );
 }
@@ -670,14 +700,7 @@ const styles: Record<string, CSSProperties> = {
   },
   aisles: { display: 'grid', gap: '1.05rem' },
   aisle: { display: 'grid', gap: '0.55rem' },
-  homeDirectory: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
-    gap: '0.75rem 0.4rem',
-    alignContent: 'start',
-  },
   aisleHeading: {
-    gridColumn: '1 / -1',
     margin: '0.15rem 0 0',
     fontFamily: 'var(--font-display)',
     fontSize: '1.02rem',
@@ -690,21 +713,10 @@ const styles: Record<string, CSSProperties> = {
     zIndex: 0,
     marginTop: '0.15rem',
   },
-  midAdWrap: {
-    gridColumn: '1 / -1',
-    margin: '0.1rem 0',
-  },
   catGrid: {
     display: 'grid',
     gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
     gap: '0.75rem 0.4rem',
-  },
-  grid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-    gap: '0.55rem',
-    width: '100%',
-    minWidth: 0,
   },
   sentinel: { height: 1 },
   moreHint: {

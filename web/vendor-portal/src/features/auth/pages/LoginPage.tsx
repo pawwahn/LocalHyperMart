@@ -1,4 +1,5 @@
 import { useState, type CSSProperties } from 'react';
+import { BrandMark } from '@hlm-brand';
 import { Banner, Button, TextField } from '@/shared/ui';
 import { LegalLinks } from '@hlm-legal';
 import { useLoginForm } from '../hooks/useLoginForm';
@@ -63,7 +64,7 @@ export function LoginPage() {
     <div style={styles.shell}>
       <div style={styles.panel}>
         <div style={styles.hero}>
-          <p style={styles.brand}>KoYaKart</p>
+          <BrandMark variant="login" fallbackName="KoyaKart" />
           <h1 style={styles.heroTitle}>Vendor workspace</h1>
           <p style={styles.heroSub}>Accept orders, mark ready for pickup, keep listings fresh.</p>
         </div>

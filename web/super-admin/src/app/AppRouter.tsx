@@ -1,6 +1,7 @@
 import { lazy, Suspense } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { routerBasename } from '../../../shared/routerBasename';
+import { PlatformBrandProvider } from '@hlm-brand';
 import { ThemeProvider } from '@hlm-theme';
 import { AuthProvider } from '@/shared/auth/AuthContext';
 import { RequireAuth } from '@/shared/routing/RequireAuth';
@@ -53,6 +54,9 @@ const StoreListingsPage = lazy(() =>
 const SettlementsPage = lazy(() =>
   import('@/features/settlements/pages/SettlementsPage').then((m) => ({ default: m.SettlementsPage })),
 );
+const FinanceLedgerPage = lazy(() =>
+  import('@/features/finance/pages/FinanceLedgerPage').then((m) => ({ default: m.FinanceLedgerPage })),
+);
 const HubsPage = lazy(() => import('@/features/hubs/pages/HubsPage').then((m) => ({ default: m.HubsPage })));
 const AgentsPage = lazy(() =>
   import('@/features/agents/pages/AgentsPage').then((m) => ({ default: m.AgentsPage })),
@@ -68,6 +72,7 @@ function RouteFallback() {
 export function AppRouter() {
   return (
     <ThemeProvider storageKey="hlm.koyakart.superadmin.theme" defaultAccent="forest">
+      <PlatformBrandProvider>
       <AuthProvider>
         <BrowserRouter basename={routerBasename()}>
           <Suspense fallback={<RouteFallback />}>
@@ -91,6 +96,7 @@ export function AppRouter() {
                 <Route path="/recipes" element={<RecipesPage />} />
                 <Route path="/store-listings" element={<StoreListingsPage />} />
                 <Route path="/settlements" element={<SettlementsPage />} />
+                <Route path="/finance-ledger" element={<FinanceLedgerPage />} />
                 <Route path="/hubs" element={<HubsPage />} />
                 <Route path="/agents" element={<AgentsPage />} />
                 <Route path="/settings" element={<SettingsPage />} />
@@ -100,6 +106,7 @@ export function AppRouter() {
           </Suspense>
         </BrowserRouter>
       </AuthProvider>
+      </PlatformBrandProvider>
     </ThemeProvider>
   );
 }

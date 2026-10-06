@@ -122,7 +122,7 @@ export function DashboardPage({ active = true }: { active?: boolean }) {
   );
 
   return (
-    <>
+    <div style={styles.page}>
       {!acceptingOrders ? (
         <Banner tone="warning">
           Shop is paused — buyers cannot see your products. Resume when you are ready.
@@ -201,7 +201,7 @@ export function DashboardPage({ active = true }: { active?: boolean }) {
                   onClick={() => setStatusFilter(f.value)}
                 >
                   {f.label}
-                  {f.value === 'DELIVERY_BY_VENDOR_AGENT' ? ` (${badge})` : ''}
+                  {badge > 0 ? ` (${badge})` : ''}
                 </button>
               );
             })}
@@ -240,7 +240,7 @@ export function DashboardPage({ active = true }: { active?: boolean }) {
         title="Notify your delivery agent?"
         description={
           prompt?.kind === 'notifyAgent'
-            ? `Ring ${prompt.label} on the agent's KoYaKart Delivery app. Sound and vibration repeat until they tap Got it.`
+            ? `Ring ${prompt.label} on the agent's KoyaKart Delivery app. Sound and vibration repeat until they tap Got it.`
             : 'Notify the assigned agent on their delivery app.'
         }
         confirmLabel="Yes — notify agent"
@@ -425,20 +425,21 @@ export function DashboardPage({ active = true }: { active?: boolean }) {
           void assignVendorAgent(prompt.subOrderId, agentId).then(() => setPrompt(null));
         }}
       />
-    </>
+    </div>
   );
 }
 
 const styles: Record<string, CSSProperties> = {
-  section: { display: 'grid', gap: '1rem' },
+  page: { display: 'grid', gap: '0.65rem', alignContent: 'start', minWidth: 0 },
+  section: { display: 'grid', gap: '0.5rem' },
   sectionHead: {
     display: 'flex',
     justifyContent: 'space-between',
-    gap: '1rem',
+    gap: '0.5rem',
     flexWrap: 'wrap',
     alignItems: 'center',
   },
-  sectionTitle: { margin: 0, fontSize: '1.2rem', fontFamily: 'var(--font-display)', fontWeight: 800 },
+  sectionTitle: { margin: 0, fontSize: '1.05rem', fontFamily: 'var(--font-display)', fontWeight: 800 },
   filters: { display: 'flex', gap: '0.4rem', flexWrap: 'wrap' },
   filter: {
     border: '1px solid var(--border)',

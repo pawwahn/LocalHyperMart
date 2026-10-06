@@ -9,6 +9,22 @@ export type ScratchGiftTownRow = {
   giftedAmount: number;
 };
 
+export type ScratchGiftLine = {
+  cardId: string;
+  issuedAt: string;
+  revealedAt?: string | null;
+  status: string;
+  townId: string;
+  townName?: string | null;
+  orderId: string;
+  orderNumber?: string | null;
+  buyerPhone?: string | null;
+  revealedAmount: number;
+  rewardMin: number;
+  rewardMax: number;
+  companySpent: number;
+};
+
 export type ScratchGiftReport = {
   from?: string | null;
   to?: string | null;
@@ -16,7 +32,13 @@ export type ScratchGiftReport = {
   scratched: number;
   unopened: number;
   giftedAmount: number;
+  avgGift?: number;
+  minGift?: number;
+  maxGift?: number;
+  pendingMin?: number;
+  pendingMax?: number;
   towns: ScratchGiftTownRow[];
+  lines?: ScratchGiftLine[];
 };
 
 export async function fetchScratchGiftReport(

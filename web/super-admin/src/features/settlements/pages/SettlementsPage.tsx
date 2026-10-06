@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { PortalShell } from '@/shared/layout/PortalShell';
 import { useAuth } from '@/shared/auth/AuthContext';
@@ -23,34 +23,42 @@ import {
   type SettlementVm,
 } from '../api/settlementsApi';
 import { DeliveryPayoutPanel } from '../components/DeliveryPayoutPanel';
+import { displayPayeeLabel } from '@/shared/display/displayNames';
 import { ListPager } from '../components/ListPager';
-import { VendorCodRemittancePanel } from '../components/VendorCodRemittancePanel';
+import {
+  VendorPayoutWorkspace,
+  type VendorAppSubTab,
+  type VendorPaysSubTab,
+  type VendorPayoutTab,
+} from '../components/VendorPayoutWorkspace';
 import {
   codCashLocationLabel,
   codCashStage,
   formatSettlementPayment,
   selectedCandidatesByCodStage,
   sumSelectedByCashStage,
+  vendorSettlementBucket,
 } from '../codCashLabels';
+import { MoneyFlowSummary, buyerMoneyFromCashSplit } from '@hlm-money-flow';
 import {
   SettlementAuditSection,
   type SettlementChangeLogProps,
 } from '../components/SettlementAuditSection';
+import {
+  isoIstDate,
+  rangeForReportPreset,
+  REPORT_DATE_PRESET_OPTIONS,
+  settlementPeriodKind,
+  type ReportDatePreset,
+  type SettlementPeriodKind,
+} from '@/shared/dates/istReportPresets';
 
 const DEFAULT_ORDER_PAGE_SIZE = 50;
-
-type PeriodPreset = 'day' | 'week' | 'month' | 'custom';
-
-const IST = 'Asia/Kolkata';
+const DEFAULT_HISTORY_PAGE_SIZE = 50;
 
 /** Calendar YYYY-MM-DD in Asia/Kolkata — matches Billing / settlement day bounds. */
 function isoDateInIst(d: Date = new Date()): string {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: IST,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(d);
+  return isoIstDate(d);
 }
 
 function placedDateInIst(placedAt?: string | null): string | null {
@@ -72,23 +80,6 @@ function oldestFirst(a: SettlementCandidate, b: SettlementCandidate): number {
   const right = Number.isNaN(tb) ? Number.POSITIVE_INFINITY : tb;
   if (left !== right) return left - right;
   return (a.orderNumber ?? '').localeCompare(b.orderNumber ?? '');
-}
-
-function rangeForPreset(preset: PeriodPreset): { from: string; to: string; periodType: 'DAY' | 'WEEK' | 'MONTH' | 'CUSTOM' } {
-  const to = isoDateInIst();
-  if (preset === 'day') return { from: to, to, periodType: 'DAY' };
-  if (preset === 'week') {
-    const from = new Date();
-    from.setDate(from.getDate() - 6);
-    return { from: isoDateInIst(from), to, periodType: 'WEEK' };
-  }
-  if (preset === 'month') {
-    const [y, m] = to.split('-');
-    return { from: `${y}-${m}-01`, to, periodType: 'MONTH' };
-  }
-  const from = new Date();
-  from.setDate(from.getDate() - 6);
-  return { from: isoDateInIst(from), to, periodType: 'CUSTOM' };
 }
 
 const PAYOUT_METHODS = ['UPI', 'NEFT', 'IMPS', 'RTGS', 'CASH', 'CHEQUE', 'OTHER'];
@@ -116,19 +107,19 @@ function settlementChangeLog(
         ? ['DELIVERY_PAYOUT', 'AGENT_PAYOUT']
         : tab === 'HUB'
           ? ['FRANCHISE_COLLECT', 'DELIVERY_PAYOUT', 'HUB_PAYOUT']
-          : ['VENDOR_PAYOUT'],
+          : ['VENDOR_PAYOUT', 'VENDOR_COLLECTION'],
     prefixes:
       tab === 'AGENT'
         ? ['Paid AGENT', 'Paid agent']
         : tab === 'HUB'
           ? ['Collected franchise', 'Paid HUB', 'Paid hub']
-          : undefined,
+          : ['Paid vendor', 'Collected from vendor'],
     emptyHint:
       tab === 'AGENT'
         ? 'No agent payout changes for this town.'
         : tab === 'HUB'
           ? 'No hub payout or franchise collection changes for this town.'
-          : 'No vendor payout changes for this town.',
+          : 'No vendor payout or fee-collection changes for this town.',
   };
 }
 
@@ -136,15 +127,15 @@ export function SettlementsPage() {
   const { session } = useAuth();
   const token = session?.accessToken ?? '';
 
-  const initial = rangeForPreset('week');
+  const initial = rangeForReportPreset('week');
   const [towns, setTowns] = useState<TownVm[]>([]);
   const [vendors, setVendors] = useState<VendorVm[]>([]);
   const [townId, setTownId] = useState('');
   const [vendorId, setVendorId] = useState('');
-  const [preset, setPreset] = useState<PeriodPreset>('week');
+  const [preset, setPreset] = useState<ReportDatePreset>('week');
   const [from, setFrom] = useState(initial.from);
   const [to, setTo] = useState(initial.to);
-  const [periodType, setPeriodType] = useState<'DAY' | 'WEEK' | 'MONTH' | 'CUSTOM'>(initial.periodType);
+  const [periodType, setPeriodType] = useState<SettlementPeriodKind>(settlementPeriodKind('week'));
   const [candidates, setCandidates] = useState<SettlementCandidate[]>([]);
   const [pendingClaimChargebacks, setPendingClaimChargebacks] = useState(0);
   const [pendingClaims, setPendingClaims] = useState<PendingSettlementClaim[]>([]);
@@ -166,7 +157,17 @@ export function SettlementsPage() {
   const [saving, setSaving] = useState(false);
   const [confirmPayOpen, setConfirmPayOpen] = useState(false);
   const [tab, setTab] = useState<'VENDOR' | 'HUB' | 'AGENT'>('VENDOR');
+  const [vendorTab, setVendorTab] = useState<VendorPayoutTab>('app-to-vendor');
+  const [vendorAppSubTab, setVendorAppSubTab] = useState<VendorAppSubTab>('pay');
+  const [vendorPaysSubTab, setVendorPaysSubTab] = useState<VendorPaysSubTab>('collect');
+  const [vendorRecordsLoaded, setVendorRecordsLoaded] = useState(false);
+  const [historyPage, setHistoryPage] = useState(0);
+  const [historyPageSize, setHistoryPageSize] = useState(DEFAULT_HISTORY_PAGE_SIZE);
+  const collectFromVendor = vendorTab === 'vendor-to-app';
+  const vendorTabRef = useRef(vendorTab);
+  vendorTabRef.current = vendorTab;
   const [deliveryRefreshTick, setDeliveryRefreshTick] = useState(0);
+  const [codRefreshTick, setCodRefreshTick] = useState(0);
   const [orderSearch, setOrderSearch] = useState('');
   const [orderPage, setOrderPage] = useState(0);
   const [orderPageSize, setOrderPageSize] = useState(DEFAULT_ORDER_PAGE_SIZE);
@@ -176,20 +177,55 @@ export function SettlementsPage() {
     [vendors, vendorId],
   );
 
-  const openCandidates = useMemo(
-    () => candidates.filter((c) => !c.alreadySettled),
+  const scopedCandidates = useMemo(
+    () => candidates.filter((c) => vendorSettlementBucket(c) === vendorTab),
+    [candidates, vendorTab],
+  );
+
+  const payOpenCount = useMemo(
+    () =>
+      candidates.filter((c) => !c.alreadySettled && vendorSettlementBucket(c) === 'app-to-vendor').length,
     [candidates],
+  );
+
+  const collectOpenCount = useMemo(
+    () =>
+      candidates.filter((c) => !c.alreadySettled && vendorSettlementBucket(c) === 'vendor-to-app').length,
+    [candidates],
+  );
+
+  const openCandidates = useMemo(
+    () => scopedCandidates.filter((c) => !c.alreadySettled),
+    [scopedCandidates],
   );
 
   const filteredCandidates = useMemo(() => {
     const needle = orderSearch.trim().toLowerCase();
-    if (!needle) return candidates;
-    return candidates.filter((c) => {
+    if (!needle) return scopedCandidates;
+    return scopedCandidates.filter((c) => {
       const stage = codCashStage(c);
       const hay = `${c.orderNumber ?? ''} ${c.subOrderNumber ?? ''} ${c.paymentMethod ?? ''} ${stage}`.toLowerCase();
       return hay.includes(needle);
     });
-  }, [candidates, orderSearch]);
+  }, [scopedCandidates, orderSearch]);
+
+  const payoutHistory = useMemo(
+    () => history.filter((s) => (s.direction ?? 'PAYOUT').toUpperCase() !== 'COLLECTION'),
+    [history],
+  );
+
+  const collectionHistory = useMemo(
+    () => history.filter((s) => (s.direction ?? '').toUpperCase() === 'COLLECTION'),
+    [history],
+  );
+
+  const visibleHistory = collectFromVendor ? collectionHistory : payoutHistory;
+  const historyPageCount = Math.max(1, Math.ceil(visibleHistory.length / historyPageSize));
+  const safeHistoryPage = Math.min(historyPage, historyPageCount - 1);
+  const pagedHistory = useMemo(() => {
+    const start = safeHistoryPage * historyPageSize;
+    return visibleHistory.slice(start, start + historyPageSize);
+  }, [visibleHistory, safeHistoryPage, historyPageSize]);
 
   const selectedCashSplit = useMemo(
     () => sumSelectedByCashStage(candidates, selected),
@@ -202,12 +238,22 @@ export function SettlementsPage() {
   );
 
   const codHeldByAgent = useMemo(() => {
-    const totals = new Map<string, number>();
+    const totals = new Map<
+      string,
+      { name: string; phone: string | null; amount: number }
+    >();
     for (const c of selectedStillWithAgent) {
       const name = c.codDeliveringAgentName?.trim() || 'Unknown agent';
-      totals.set(name, (totals.get(name) ?? 0) + Number(c.subtotal ?? 0));
+      const key = c.codDeliveringAgentId ?? name;
+      const prev = totals.get(key);
+      const phone = c.codDeliveringAgentPhone?.trim() || prev?.phone || null;
+      totals.set(key, {
+        name,
+        phone,
+        amount: (prev?.amount ?? 0) + Number(c.subtotal ?? 0),
+      });
     }
-    return [...totals.entries()].sort((a, b) => b[1] - a[1]);
+    return [...totals.values()].sort((a, b) => b.amount - a.amount);
   }, [selectedStillWithAgent]);
 
   const orderPageCount = Math.max(1, Math.ceil(filteredCandidates.length / orderPageSize));
@@ -245,12 +291,16 @@ export function SettlementsPage() {
     quoteGross != null && Math.abs(quoteGross - selectedTotal) > 0.009;
 
   const expectedNet = useMemo(() => {
+    if (collectFromVendor) {
+      return roundMoney(commissionNum + otherChargesNum);
+    }
     const afterFees =
       feeQuote?.suggestedNet != null
         ? roundMoney(Number(feeQuote.suggestedNet))
         : roundMoney(selectedTotal - commissionNum);
     return Math.max(0, roundMoney(afterFees - pendingClaimChargebacks - otherChargesNum));
   }, [
+    collectFromVendor,
     feeQuote,
     selectedTotal,
     commissionNum,
@@ -259,7 +309,14 @@ export function SettlementsPage() {
   ]);
 
   useEffect(() => {
-    if (!token || !vendorId || selected.size === 0) {
+    if (!token || !vendorId) {
+      setFeeQuote(null);
+      setFeeQuoteError(null);
+      setFeeQuoteLoading(false);
+      setCommissionAmount('0');
+      return;
+    }
+    if (!collectFromVendor && selected.size === 0) {
       setFeeQuote(null);
       setFeeQuoteError(null);
       setFeeQuoteLoading(false);
@@ -285,6 +342,8 @@ export function SettlementsPage() {
             periodStart: from,
             periodEnd: to,
             markSubscriptionCharged: false,
+            includeSubscription: collectFromVendor,
+            allowFeeExceedGross: collectFromVendor,
             orderLines,
           });
           if (cancelled) return;
@@ -297,7 +356,9 @@ export function SettlementsPage() {
             setFeeQuoteError(
               err instanceof ApiError || err instanceof Error
                 ? err.message
-                : 'Could not load billing fees for this payout',
+                : collectFromVendor
+                  ? 'Could not load billing fees for this collection'
+                  : 'Could not load billing fees for this payout',
             );
           }
         } finally {
@@ -309,14 +370,25 @@ export function SettlementsPage() {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [token, vendorId, selectedTotal, selectedFingerprint, selected.size, candidates, from, to]);
+  }, [
+    token,
+    vendorId,
+    selectedTotal,
+    selectedFingerprint,
+    selected.size,
+    candidates,
+    from,
+    to,
+    collectFromVendor,
+  ]);
 
-  const applyPreset = (next: PeriodPreset) => {
+  const applyPreset = (next: ReportDatePreset) => {
     setPreset(next);
-    const range = rangeForPreset(next);
+    setPeriodType(settlementPeriodKind(next));
+    if (next === 'custom') return;
+    const range = rangeForReportPreset(next);
     setFrom(range.from);
     setTo(range.to);
-    setPeriodType(range.periodType);
   };
 
   const reloadMeta = useCallback(async () => {
@@ -341,8 +413,24 @@ export function SettlementsPage() {
     setCandidates(items);
     setPendingClaimChargebacks(Number(data.pendingClaimChargebacks ?? 0));
     setPendingClaims(data.pendingClaims ?? []);
-    setSelected(new Set(items.filter((i) => !i.alreadySettled).map((i) => i.subOrderId)));
+    setSelected(
+      new Set(
+        items
+          .filter((i) => !i.alreadySettled && vendorSettlementBucket(i) === vendorTabRef.current)
+          .map((i) => i.subOrderId),
+      ),
+    );
   }, [token, townId, vendorId, from, to]);
+
+  useEffect(() => {
+    setSelected(
+      new Set(
+        candidates
+          .filter((c) => !c.alreadySettled && vendorSettlementBucket(c) === vendorTab)
+          .map((c) => c.subOrderId),
+      ),
+    );
+  }, [vendorTab, candidates]);
 
   const reloadHistory = useCallback(async () => {
     if (!token) return;
@@ -376,11 +464,14 @@ export function SettlementsPage() {
         (err: unknown) =>
           err instanceof ApiError || err instanceof Error ? err.message : 'Failed to load payout orders',
       );
-      const historyErr = await reloadHistory().then(
-        () => null,
-        (err: unknown) =>
-          err instanceof ApiError || err instanceof Error ? err.message : 'Failed to load payout history',
-      );
+      const historyErr =
+        vendorRecordsLoaded
+          ? await reloadHistory().then(
+              () => null,
+              (err: unknown) =>
+                err instanceof ApiError || err instanceof Error ? err.message : 'Failed to load payout history',
+            )
+          : null;
       if (candidateErr) {
         setCandidates([]);
         setPendingClaimChargebacks(0);
@@ -395,7 +486,7 @@ export function SettlementsPage() {
     } finally {
       setLoading(false);
     }
-  }, [token, townId, vendorId, reloadMeta, reloadCandidates, reloadHistory]);
+  }, [token, townId, vendorId, reloadMeta, reloadCandidates, reloadHistory, vendorRecordsLoaded]);
 
   useEffect(() => {
     void reload();
@@ -419,7 +510,8 @@ export function SettlementsPage() {
   }
 
   async function submitPayout() {
-    if (!token || !townId || !vendorId || selected.size === 0) return;
+    if (!token || !townId || !vendorId) return;
+    if (!collectFromVendor && selected.size === 0) return;
     const txnRef = transactionReference.trim();
     if (!txnRef) {
       setError('Txn ref is required (UTR / UPI / cheque number)');
@@ -432,7 +524,12 @@ export function SettlementsPage() {
       return;
     }
     if (feeQuoteError || !feeQuote) {
-      setError(feeQuoteError || 'Billing fees are required before payout. Refresh and try again.');
+      setError(
+        feeQuoteError ||
+          (collectFromVendor
+            ? 'Billing fees are required before collection. Refresh and try again.'
+            : 'Billing fees are required before payout. Refresh and try again.'),
+      );
       setConfirmPayOpen(false);
       return;
     }
@@ -441,11 +538,15 @@ export function SettlementsPage() {
       setConfirmPayOpen(false);
       return;
     }
+    if (collectFromVendor && expectedNet <= 0) {
+      setError('Nothing to collect — no monthly fee, commission, or extra charge.');
+      setConfirmPayOpen(false);
+      return;
+    }
     setSaving(true);
     setError(null);
     setSuccess(null);
     try {
-      // commissionAmount is ignored server-side; payment-service re-quotes Billing and enforces it.
       const created = await createSettlement(token, {
         townId,
         vendorId,
@@ -453,6 +554,7 @@ export function SettlementsPage() {
         periodStart: from,
         periodEnd: to,
         periodType,
+        direction: collectFromVendor ? 'COLLECTION' : 'PAYOUT',
         subOrderIds: Array.from(selected),
         commissionAmount: Number(commissionAmount || 0),
         markPaid: true,
@@ -462,26 +564,46 @@ export function SettlementsPage() {
         otherChargesAmount: otherChargesNum > 0 ? otherChargesNum : undefined,
         otherChargesReason: otherChargesNum > 0 ? otherChargesReason.trim() : undefined,
       });
-      const claimsTaken = settlementClaimAmount(created);
-      const otherTaken = settlementOtherChargesAmount(created);
-      const parts = [
-        `gross ${formatMoney(created.grossAmount)}`,
-        `fees ${formatMoney(created.commissionAmount)}`,
-      ];
-      if (claimsTaken > 0) parts.push(`claims ${formatMoney(claimsTaken)}`);
-      if (otherTaken > 0) parts.push(`other ${formatMoney(otherTaken)}`);
-      setSuccess(
-        `Paid ${formatMoney(created.netAmount)} (${parts.join(' − ')}) to ${created.payeeName ?? 'vendor'} · ${created.payoutMethod} · ref ${txnRef}`,
+      const shop = displayPayeeLabel(
+        created.payeeName,
+        created.payeeId,
+        created.payeeType ?? 'VENDOR',
       );
+      if (collectFromVendor) {
+        setSuccess(
+          `Collected ${formatMoney(created.netAmount)} from ${shop} · fees ${formatMoney(created.commissionAmount)}${
+            selected.size > 0 ? ` · ${selected.size} shop-held bag${selected.size === 1 ? '' : 's'} closed` : ''
+          } · ${created.payoutMethod} · ref ${txnRef}`,
+        );
+      } else {
+        const claimsTaken = settlementClaimAmount(created);
+        const otherTaken = settlementOtherChargesAmount(created);
+        const parts = [
+          `gross ${formatMoney(created.grossAmount)}`,
+          `fees ${formatMoney(created.commissionAmount)}`,
+        ];
+        if (claimsTaken > 0) parts.push(`claims ${formatMoney(claimsTaken)}`);
+        if (otherTaken > 0) parts.push(`other ${formatMoney(otherTaken)}`);
+        setSuccess(
+          `Paid ${formatMoney(created.netAmount)} (${parts.join(' − ')}) to ${shop} · ${created.payoutMethod} · ref ${txnRef}`,
+        );
+      }
       setTransactionReference('');
       setTransactionNotes('');
       setOtherChargesAmount('');
       setOtherChargesReason('');
       setConfirmPayOpen(false);
+      setVendorRecordsLoaded(true);
       setDeliveryRefreshTick((n) => n + 1);
       await Promise.all([reloadCandidates(), reloadHistory()]);
     } catch (err) {
-      setError(err instanceof ApiError || err instanceof Error ? err.message : 'Failed to record payout');
+      setError(
+        err instanceof ApiError || err instanceof Error
+          ? err.message
+          : collectFromVendor
+            ? 'Failed to record collection'
+            : 'Failed to record payout',
+      );
     } finally {
       setSaving(false);
     }
@@ -502,15 +624,227 @@ export function SettlementsPage() {
 
   const canPay =
     !saving &&
-    selected.size > 0 &&
     !!townId &&
     !!vendorId &&
     !feeQuoteLoading &&
     !feeQuoteError &&
     !!feeQuote &&
-    transactionReference.trim().length > 0;
+    transactionReference.trim().length > 0 &&
+    (collectFromVendor ? expectedNet > 0 : selected.size > 0);
 
-  const showSummary = !!townId && !!vendorId && (selected.size > 0 || pendingClaimChargebacks > 0);
+  const payBlockedReason = saving
+    ? null
+    : !townId || !vendorId
+      ? 'Pick a town and vendor'
+      : !collectFromVendor && selected.size === 0
+        ? 'Select at least one unsettled bag'
+        : feeQuoteLoading
+          ? 'Calculating billing fees…'
+          : feeQuoteError || !feeQuote
+            ? feeQuoteError || 'Billing fees not available'
+            : collectFromVendor && expectedNet <= 0
+              ? 'Nothing to collect'
+              : null;
+  const payHint =
+    payBlockedReason ??
+    (transactionReference.trim().length === 0 ? 'Enter Txn ref (UTR / UPI / cheque) at the top to enable' : null);
+
+  const showSummary =
+    !!townId &&
+    !!vendorId &&
+    (selected.size > 0 || collectFromVendor || pendingClaimChargebacks > 0);
+
+  function openVendorRecords(which: 'pay' | 'collect') {
+    if (which === 'pay') setVendorAppSubTab('records');
+    else setVendorPaysSubTab('records');
+    setVendorRecordsLoaded(true);
+    void reloadHistory();
+  }
+
+  useEffect(() => {
+    setHistoryPage(0);
+  }, [vendorTab, historyPageSize, vendorId, from, to]);
+
+  const vendorRecordsSection = (
+    <SettlementAuditSection
+      collapsible={false}
+      historyCount={visibleHistory.length}
+      historyTabLabel={collectFromVendor ? 'Vendor → KK collections' : 'KK → vendor payouts'}
+      historyHint={
+        collectFromVendor
+          ? 'Fees received from this shop (not goods payouts).'
+          : 'Goods payouts to this shop (not fee collections).'
+      }
+      historyEmpty={
+        collectFromVendor
+          ? 'No collections from this vendor in this range.'
+          : 'No payouts recorded yet.'
+      }
+      changeLog={settlementChangeLog('VENDOR', token, townId || undefined, deliveryRefreshTick)}
+      historyContent={
+        <div style={styles.tableInAudit}>
+          {visibleHistory.length > 0 ? (
+            <ListPager
+              page={safeHistoryPage}
+              pageCount={historyPageCount}
+              total={visibleHistory.length}
+              pageSize={historyPageSize}
+              onPage={setHistoryPage}
+              onPageSize={(size) => {
+                setHistoryPageSize(size);
+                setHistoryPage(0);
+              }}
+            />
+          ) : null}
+          <table style={styles.table}>
+            <thead>
+              <tr>
+                <th style={styles.th}>Paid at</th>
+                <th style={styles.th}>Vendor</th>
+                <th style={styles.th}>Period</th>
+                <th style={styles.th}>Mode</th>
+                <th style={styles.thRight}>Gross</th>
+                <th style={styles.thRight}>Fees</th>
+                <th style={styles.thRight}>Claims</th>
+                <th style={styles.thRight}>Other</th>
+                <th style={styles.thRight}>{collectFromVendor ? 'Net in' : 'Net'}</th>
+                <th style={styles.th}>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {pagedHistory.map((s) => {
+                const claims = settlementClaimAmount(s);
+                const other = settlementOtherChargesAmount(s);
+                const isCollection = (s.direction ?? '').toUpperCase() === 'COLLECTION';
+                const orderLines = (s.lines ?? []).filter((l) => {
+                  const t = (l.lineType ?? '').toUpperCase();
+                  return t === 'ORDER' || t === '';
+                });
+                const adjLines = (s.lines ?? []).filter(
+                  (l) => (l.lineType ?? '').toUpperCase() === 'ADJUSTMENT',
+                );
+                const otherLines = (s.lines ?? []).filter((l) => {
+                  const t = (l.lineType ?? '').toUpperCase();
+                  return t === 'OTHER_CHARGE' || t === 'PENALTY';
+                });
+                const feeLines = (s.lines ?? []).filter((l) => {
+                  const t = (l.lineType ?? '').toUpperCase();
+                  return t === 'COMMISSION' || t === 'SUBSCRIPTION';
+                });
+                const open = expandedHistoryId === s.id;
+                return (
+                  <Fragment key={s.id}>
+                    <tr>
+                      <td style={styles.tdMuted}>
+                        {s.paidAt
+                          ? new Date(s.paidAt).toLocaleString(undefined, {
+                              day: '2-digit',
+                              month: 'short',
+                              year: 'numeric',
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })
+                          : '—'}
+                      </td>
+                      <td style={styles.td}>
+                        {displayPayeeLabel(s.payeeName, s.payeeId, s.payeeType)}
+                      </td>
+                      <td style={styles.tdMuted}>
+                        {s.periodStart} → {s.periodEnd}
+                        <div style={styles.sub}>
+                          {s.periodType} · {orderLines.length} order
+                          {orderLines.length === 1 ? '' : 's'}
+                          {adjLines.length > 0 ? ` · ${adjLines.length} claim` : ''}
+                          {otherLines.length > 0 ? ` · ${otherLines.length} other` : ''}
+                        </div>
+                        {(s.lines?.length ?? 0) > 0 ? (
+                          <button
+                            type="button"
+                            style={styles.linkBtn}
+                            onClick={() => setExpandedHistoryId(open ? null : s.id)}
+                          >
+                            {open ? 'Hide lines' : 'Why this net?'}
+                          </button>
+                        ) : null}
+                      </td>
+                      <td style={styles.tdMuted}>
+                        {s.payoutMethod ?? '—'}
+                        <div style={styles.sub}>{s.transactionReference || 'No txn ref'}</div>
+                      </td>
+                      <td style={styles.tdRight}>{formatMoney(s.grossAmount)}</td>
+                      <td style={styles.tdRight}>{formatMoney(s.commissionAmount)}</td>
+                      <td style={{ ...styles.tdRight, ...(claims > 0 ? styles.claimAmt : {}) }}>
+                        {formatMoney(claims)}
+                      </td>
+                      <td style={styles.tdRight}>{formatMoney(other)}</td>
+                      <td style={styles.tdRight}>{formatMoney(s.netAmount)}</td>
+                      <td style={styles.td}>
+                        <span style={s.status === 'PAID' ? styles.settled : styles.openBadge}>
+                          {s.status}
+                        </span>
+                        {s.status === 'PAID' && !isCollection ? (
+                          <div style={styles.sub}>
+                            {s.vendorAcknowledgedAt
+                              ? `Vendor ack · ${new Date(s.vendorAcknowledgedAt).toLocaleString(undefined, {
+                                  day: '2-digit',
+                                  month: 'short',
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                })}`
+                              : 'Awaiting vendor ack'}
+                          </div>
+                        ) : null}
+                      </td>
+                    </tr>
+                    {open ? (
+                      <tr>
+                        <td colSpan={10} style={styles.detailCell}>
+                          <div style={styles.detailTitle}>
+                            {isCollection
+                              ? `${formatMoney(s.commissionAmount)} fees + ${formatMoney(other)} extra = ${formatMoney(s.netAmount)} received. Shop-held GMV ${formatMoney(s.grossAmount)} stayed at vendor.`
+                              : `${formatMoney(s.grossAmount)} − ${formatMoney(s.commissionAmount)} fees − ${formatMoney(claims)} claims − ${formatMoney(other)} other = ${formatMoney(s.netAmount)} net`}
+                          </div>
+                          <ul style={styles.claimList}>
+                            {orderLines.map((l) => (
+                              <li key={l.id}>
+                                {isCollection ? 'closed' : '+'} {formatMoney(l.amount)} ·{' '}
+                                {l.orderNumber ?? l.subOrderNumber ?? 'Order'}
+                                {l.description ? ` — ${l.description}` : ''}
+                              </li>
+                            ))}
+                            {feeLines.map((l) => (
+                              <li key={l.id}>
+                                + {formatMoney(Math.abs(Number(l.amount ?? 0)))} ·{' '}
+                                {l.description || 'Fee collected'}
+                              </li>
+                            ))}
+                            {adjLines.map((l) => (
+                              <li key={l.id}>
+                                − {formatMoney(Math.abs(Number(l.amount ?? 0)))} ·{' '}
+                                {l.description || 'Claim chargeback'}
+                                {l.orderNumber ? ` (${l.orderNumber})` : ''}
+                              </li>
+                            ))}
+                            {otherLines.map((l) => (
+                              <li key={l.id}>
+                                {isCollection ? '+' : '−'}{' '}
+                                {formatMoney(Math.abs(Number(l.amount ?? 0)))} ·{' '}
+                                {l.description || 'Penalty / other charge'}
+                              </li>
+                            ))}
+                          </ul>
+                        </td>
+                      </tr>
+                    ) : null}
+                  </Fragment>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      }
+    />
+  );
 
   return (
     <PortalShell
@@ -518,6 +852,7 @@ export function SettlementsPage() {
       onRefresh={() => {
         if (tab === 'VENDOR') void reload();
         else setDeliveryRefreshTick((n) => n + 1);
+        setCodRefreshTick((n) => n + 1);
       }}
     >
       <style>{layoutCss}</style>
@@ -544,6 +879,7 @@ export function SettlementsPage() {
           token={token}
           payeeType={tab}
           refreshTick={deliveryRefreshTick}
+          codRefreshTick={codRefreshTick}
           onSettled={() => setDeliveryRefreshTick((n) => n + 1)}
           changeLog={settlementChangeLog(tab, token, undefined, deliveryRefreshTick)}
         />
@@ -553,19 +889,11 @@ export function SettlementsPage() {
 
       {tab === 'VENDOR' ? (
       <>
-      <div className="sp-layout">
-        <div className="sp-main">
+      <div style={{ display: 'grid', gap: '0.55rem' }}>
           <Card padding="sm" style={styles.cardPad}>
             <div style={styles.toolbar}>
               <div style={styles.presets}>
-                {(
-                  [
-                    ['day', 'Today'],
-                    ['week', 'This week'],
-                    ['month', 'This month'],
-                    ['custom', 'Custom'],
-                  ] as const
-                ).map(([id, label]) => (
+                {REPORT_DATE_PRESET_OPTIONS.map(({ id, label }) => (
                   <button
                     key={id}
                     type="button"
@@ -675,12 +1003,44 @@ export function SettlementsPage() {
             </div>
           </Card>
 
+          {!townId || !vendorId ? (
+            <Card padding="sm" style={styles.cardPad}>
+              <p style={styles.muted}>Select a town and vendor to open the vendor workspace.</p>
+            </Card>
+          ) : (
+          <VendorPayoutWorkspace
+            tab={vendorTab}
+            onTab={setVendorTab}
+            appSubTab={vendorAppSubTab}
+            onAppSubTab={(t) => {
+              setVendorAppSubTab(t);
+              if (t === 'records') openVendorRecords('pay');
+            }}
+            paysSubTab={vendorPaysSubTab}
+            onPaysSubTab={(t) => {
+              setVendorPaysSubTab(t);
+              if (t === 'records') openVendorRecords('collect');
+            }}
+            payOpenCount={payOpenCount}
+            collectOpenCount={collectOpenCount}
+            selectedCount={selected.size}
+            selectedGross={selectedTotal}
+            expectedNet={expectedNet}
+            loading={loading}
+            saving={saving}
+            canSubmit={canPay}
+            submitHint={canPay ? null : payHint}
+            onRefresh={() => void reload()}
+            onSubmit={requestMarkPaid}
+            workSection={
+      <div className="sp-layout">
+        <div className="sp-main">
           <Card padding="sm" style={styles.cardPad}>
             <div style={styles.tableHead}>
               <h2 style={styles.sectionTitle}>
-                Orders{' '}
+                {collectFromVendor ? 'Shop-held COD' : 'Pay bags'}{' '}
                 <span style={styles.count}>
-                  {candidates.length} bag{candidates.length === 1 ? '' : 's'} · {selected.size} selected ·{' '}
+                  {scopedCandidates.length} bag{scopedCandidates.length === 1 ? '' : 's'} · {selected.size} selected ·{' '}
                   {formatMoney(selectedTotal)} gross
                 </span>
               </h2>
@@ -698,8 +1058,12 @@ export function SettlementsPage() {
               <p style={styles.muted}>Select a town and vendor to load orders.</p>
             ) : loading ? (
               <p style={styles.muted}>Loading…</p>
-            ) : candidates.length === 0 ? (
-              <p style={styles.muted}>No delivered unsettled orders in this range.</p>
+            ) : scopedCandidates.length === 0 ? (
+              <p style={styles.muted}>
+                {collectFromVendor
+                  ? 'No shop-held COD in this range. Monthly fee can still be collected if due.'
+                  : 'No bags where KoyaKart or the hub holds cash in this range.'}
+              </p>
             ) : filteredCandidates.length === 0 ? (
               <p style={styles.muted}>No bags match your search.</p>
             ) : (
@@ -822,27 +1186,29 @@ export function SettlementsPage() {
               </div>
               </>
             )}
-            {candidates.length > 0 ? (
+                {scopedCandidates.length > 0 ? (
               <p style={styles.tableHint}>
-                Each row is this shop&apos;s bag (sub-order). Multi-shop buyer orders only include this vendor&apos;s
-                portion — not the full order total. COD cash is tracked per buyer order; all bags on the same order
-                share the same cash location.
+                {collectFromVendor
+                  ? 'Shop-held COD — collect fees on Vendor pays KoyaKart; do not pay GMV here.'
+                  : 'KoyaKart pays vendor: online UPI + hub close-day COD. Use Money map (right) for who holds cash and who pays whom.'}
               </p>
             ) : null}
           </Card>
-
-          {townId ? <VendorCodRemittancePanel token={token} townId={townId} from={from} to={to} /> : null}
         </div>
 
         <aside className="sp-side">
           <Card padding="sm" elevated style={{ ...styles.cardPad, ...styles.summaryCard }}>
             <h2 style={styles.sectionTitle}>Summary</h2>
             {!showSummary ? (
-              <p style={styles.muted}>Select a vendor and orders to see net pay.</p>
+              <p style={styles.muted}>
+                {collectFromVendor ? 'Select a vendor to see fees due.' : 'Select a vendor and orders to see net pay.'}
+              </p>
             ) : (
               <>
                 <div style={styles.netHero}>
-                  <span style={styles.netLabel}>Net to vendor</span>
+                  <span style={styles.netLabel}>
+                    {collectFromVendor ? 'Collect from vendor' : 'Net to vendor'}
+                  </span>
                   <strong style={styles.netValue}>{formatMoney(expectedNet)}</strong>
                 </div>
 
@@ -852,118 +1218,112 @@ export function SettlementsPage() {
                     {formatMoney(quoteGross)}). Refresh or re-select orders.
                   </p>
                 ) : null}
+
                 {(selectedCashSplit.codWithAgent > 0 ||
                   selectedCashSplit.codAtHub > 0 ||
                   selectedCashSplit.codWithVendor > 0 ||
                   selectedCashSplit.codDeclaredToVendor > 0 ||
                   selectedCashSplit.codDeclaredToHub > 0 ||
                   selectedCashSplit.online > 0) && (
-                  <div style={styles.cashSplit}>
-                    <span style={styles.cashSplitTitle}>Buyer money (selected bags)</span>
-                    {selectedCashSplit.online > 0 ? (
-                      <div style={styles.mathRow}>
-                        <span>Online · with platform</span>
-                        <strong>{formatMoney(selectedCashSplit.online)}</strong>
-                      </div>
-                    ) : null}
-                    {selectedCashSplit.codWithAgent > 0 ? (
-                      <>
-                        <div style={styles.mathRow}>
-                          <span>COD · still with agent</span>
-                          <strong style={styles.codWarnAmt}>{formatMoney(selectedCashSplit.codWithAgent)}</strong>
-                        </div>
-                        {codHeldByAgent.length > 0 ? (
-                          <div style={styles.codAgentHeldBy}>
-                            {codHeldByAgent.map(([name, amt]) => (
-                              <p key={name} style={styles.codAgentHeldRow}>
-                                <span>Held by</span>
-                                <strong>{name}</strong>
-                                <span>{formatMoney(amt)}</span>
-                              </p>
-                            ))}
-                          </div>
-                        ) : null}
-                        {selectedStillWithAgent.length > 0 ? (
-                          <ul style={styles.codAgentOrderList}>
-                            {selectedStillWithAgent.map((c) => (
-                              <li key={c.subOrderId}>
-                                <strong>{c.orderNumber}</strong> · {formatMoney(c.subtotal)}
-                                <span style={styles.codAgentOrderHint}>
-                                  {c.codDeliveringAgentName
-                                    ? ` · ${c.codDeliveringAgentName}`
-                                    : c.vendorAgentDelivery
-                                      ? ` · shop agent (unknown)`
-                                      : ' · hub agent (unknown)'}
-                                </span>
-                              </li>
-                            ))}
-                          </ul>
-                        ) : null}
-                      </>
-                    ) : null}
-                    {selectedCashSplit.codDeclaredToHub > 0 ? (
-                      <div style={styles.mathRow}>
-                        <span>COD · declared to hub</span>
-                        <strong style={styles.codWarnAmt}>
-                          {formatMoney(selectedCashSplit.codDeclaredToHub)}
-                        </strong>
-                      </div>
-                    ) : null}
-                    {selectedCashSplit.codDeclaredToVendor > 0 ? (
-                      <div style={styles.mathRow}>
-                        <span>COD · declared to shop</span>
-                        <strong style={styles.codWarnAmt}>
-                          {formatMoney(selectedCashSplit.codDeclaredToVendor)}
-                        </strong>
-                      </div>
-                    ) : null}
-                    {selectedCashSplit.codWithVendor > 0 ? (
-                      <div style={styles.mathRow}>
-                        <span>COD · with shop (confirmed)</span>
-                        <strong>{formatMoney(selectedCashSplit.codWithVendor)}</strong>
-                      </div>
-                    ) : null}
-                    {selectedCashSplit.codAtHub > 0 ? (
-                      <div style={styles.mathRow}>
-                        <span>COD · at hub</span>
-                        <strong>{formatMoney(selectedCashSplit.codAtHub)}</strong>
-                      </div>
-                    ) : null}
-                    {selectedCashSplit.codWithAgent > 0 ||
-                    selectedCashSplit.codDeclaredToVendor > 0 ||
-                    selectedCashSplit.codDeclaredToHub > 0 ? (
-                      <p style={styles.cashSplitHint}>
-                        Paying the vendor does not pull COD from agents — confirm handover or hub close-day before you
-                        pay out large COD totals.
-                      </p>
-                    ) : null}
-                  </div>
+                  <MoneyFlowSummary
+                    held={buyerMoneyFromCashSplit(selectedCashSplit)}
+                    gross={quoteGross ?? selectedTotal}
+                    fees={commissionNum}
+                    netToVendor={expectedNet}
+                    collectFromVendor={collectFromVendor}
+                    footnote={
+                      !collectFromVendor && selectedCashSplit.codAtHub > 0
+                        ? 'Hub COD remittance is a separate hub → KoyaKart step (Issue COD statement). Vendor payout does not pull cash from agents.'
+                        : null
+                    }
+                    style={{ marginBottom: '0.35rem' }}
+                  />
                 )}
+
+                {selectedCashSplit.codWithAgent > 0 ? (
+                  <div style={styles.cashSplit}>
+                    <span style={styles.cashSplitTitle}>COD still with agent</span>
+                    {codHeldByAgent.length > 0 ? (
+                      <div style={styles.codAgentHeldBy}>
+                        {codHeldByAgent.map((row) => (
+                          <p key={`${row.name}-${row.phone ?? ''}`} style={styles.codAgentHeldRow}>
+                            <span>Held by</span>
+                            <strong>{row.name}</strong>
+                            {row.phone ? (
+                              <a href={`tel:${row.phone}`} style={styles.agentPhoneLink}>
+                                {row.phone}
+                              </a>
+                            ) : null}
+                            <span>{formatMoney(row.amount)}</span>
+                          </p>
+                        ))}
+                      </div>
+                    ) : null}
+                    {selectedStillWithAgent.length > 0 ? (
+                      <ul style={styles.codAgentOrderList}>
+                        {selectedStillWithAgent.map((c) => (
+                          <li key={c.subOrderId}>
+                            <strong>{c.orderNumber}</strong> · {formatMoney(c.subtotal)}
+                            <span style={styles.codAgentOrderHint}>
+                              {c.codDeliveringAgentName
+                                ? ` · ${c.codDeliveringAgentName}`
+                                : c.vendorAgentDelivery
+                                  ? ` · shop agent (unknown)`
+                                  : ' · hub agent (unknown)'}
+                              {c.codDeliveringAgentPhone ? (
+                                <>
+                                  {' · '}
+                                  <a href={`tel:${c.codDeliveringAgentPhone}`} style={styles.agentPhoneLink}>
+                                    {c.codDeliveringAgentPhone}
+                                  </a>
+                                </>
+                              ) : null}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+                    <p style={styles.cashSplitHint}>
+                      Confirm handover or hub close-day before paying vendor on these bags.
+                    </p>
+                  </div>
+                ) : null}
 
                 <div style={styles.mathStack}>
                   <div style={styles.mathRow}>
-                    <span>Gross · {selected.size} bag{selected.size === 1 ? '' : 's'}</span>
+                    <span>
+                      {collectFromVendor ? 'Shop-held GMV' : 'Gross'} · {selected.size} bag
+                      {selected.size === 1 ? '' : 's'}
+                    </span>
                     <strong>{formatMoney(quoteGross ?? selectedTotal)}</strong>
                   </div>
                   <div style={styles.mathRow}>
-                    <span>Billing fees</span>
-                    <strong>− {formatMoney(commissionNum)}</strong>
-                  </div>
-                  <div style={styles.mathRow}>
-                    <span>Claim deductions</span>
-                    <strong style={pendingClaimChargebacks > 0 ? styles.claimAmt : undefined}>
-                      − {formatMoney(pendingClaimChargebacks)}
+                    <span>{collectFromVendor ? 'Fees to collect' : 'Billing fees'}</span>
+                    <strong>
+                      {collectFromVendor ? '' : '− '}
+                      {formatMoney(commissionNum)}
                     </strong>
                   </div>
+                  {!collectFromVendor ? (
+                    <div style={styles.mathRow}>
+                      <span>Claim deductions</span>
+                      <strong style={pendingClaimChargebacks > 0 ? styles.claimAmt : undefined}>
+                        − {formatMoney(pendingClaimChargebacks)}
+                      </strong>
+                    </div>
+                  ) : null}
                   <div style={styles.mathRow}>
-                    <span>Penalty / other</span>
-                    <strong>− {formatMoney(otherChargesNum)}</strong>
+                    <span>{collectFromVendor ? 'Extra charge' : 'Penalty / other'}</span>
+                    <strong>
+                      {collectFromVendor ? '' : '− '}
+                      {formatMoney(otherChargesNum)}
+                    </strong>
                   </div>
                 </div>
 
                 <div style={styles.chargePanel}>
                   <label style={styles.label}>
-                    Penalty / other charge (₹)
+                    {collectFromVendor ? 'Extra to collect (₹)' : 'Penalty / other charge (₹)'}
                     <input
                       style={styles.input}
                       type="number"
@@ -1004,11 +1364,15 @@ export function SettlementsPage() {
                       ))}
                     </ul>
                   ) : (
-                    <p style={styles.feeHint}>Select orders to calculate fees.</p>
+                    <p style={styles.feeHint}>
+                      {collectFromVendor
+                        ? 'Fees include monthly subscription when due, plus commission / slabs on shop-held bags.'
+                        : 'Select orders to calculate order commission / slabs. Monthly fee is on the other tab.'}
+                    </p>
                   )}
                 </div>
 
-                {pendingClaims.length > 0 ? (
+                {!collectFromVendor && pendingClaims.length > 0 ? (
                   <ul style={styles.claimList}>
                     {pendingClaims.map((c) => (
                       <li key={c.claimId}>
@@ -1024,8 +1388,13 @@ export function SettlementsPage() {
 
             <div style={styles.sideActions}>
               <Button size="sm" disabled={!canPay} onClick={requestMarkPaid}>
-                {saving ? 'Saving…' : `Mark paid · ${formatMoney(expectedNet)}`}
+                {saving
+                  ? 'Saving…'
+                  : collectFromVendor
+                    ? `Mark received · ${formatMoney(expectedNet)}`
+                    : `Mark paid · ${formatMoney(expectedNet)}`}
               </Button>
+              {!canPay && payHint ? <p style={styles.payHint}>{payHint}</p> : null}
               <Button size="sm" variant="secondary" onClick={() => void reload()} disabled={loading}>
                 {loading ? 'Loading…' : 'Refresh'}
               </Button>
@@ -1033,12 +1402,22 @@ export function SettlementsPage() {
           </Card>
         </aside>
       </div>
+            }
+            payRecords={vendorRecordsSection}
+            collectRecords={vendorRecordsSection}
+          />
+          )}
+      </div>
 
       <ConfirmDialog
         open={confirmPayOpen}
-        title="Confirm vendor payout?"
-        description={`Pay ${formatMoney(expectedNet)} to ${selectedVendor?.shopName || selectedVendor?.businessName || 'vendor'} for ${selected.size} bag${selected.size === 1 ? '' : 's'}.\n\n${payoutMethod} · ref ${transactionReference.trim()}\n\nThis cannot be undone from here. Check UTR and amount before confirming.`}
-        confirmLabel="Yes, mark paid"
+        title={collectFromVendor ? 'Confirm collection from vendor?' : 'Confirm vendor payout?'}
+        description={
+          collectFromVendor
+            ? `Receive ${formatMoney(expectedNet)} from ${selectedVendor?.shopName || selectedVendor?.businessName || 'vendor'}${selected.size > 0 ? ` · close ${selected.size} shop-held bag${selected.size === 1 ? '' : 's'}` : ' · monthly / extra only'}.\n\n${payoutMethod} · ref ${transactionReference.trim()}\n\nThis cannot be undone from here.`
+            : `Pay ${formatMoney(expectedNet)} to ${selectedVendor?.shopName || selectedVendor?.businessName || 'vendor'} for ${selected.size} bag${selected.size === 1 ? '' : 's'}.\n\n${payoutMethod} · ref ${transactionReference.trim()}\n\nThis cannot be undone from here. Check UTR and amount before confirming.`
+        }
+        confirmLabel={collectFromVendor ? 'Yes, mark received' : 'Yes, mark paid'}
         cancelLabel="Cancel"
         danger={false}
         busy={saving}
@@ -1046,133 +1425,6 @@ export function SettlementsPage() {
           if (!saving) setConfirmPayOpen(false);
         }}
         onConfirm={() => void submitPayout()}
-      />
-
-      <SettlementAuditSection
-        historyCount={history.length}
-        historyEmpty="No payouts recorded yet."
-        changeLog={settlementChangeLog('VENDOR', token, townId || undefined, deliveryRefreshTick)}
-        historyContent={
-          <div style={styles.tableInAudit}>
-            <table style={styles.table}>
-              <thead>
-                <tr>
-                  <th style={styles.th}>Paid at</th>
-                  <th style={styles.th}>Vendor</th>
-                  <th style={styles.th}>Period</th>
-                  <th style={styles.th}>Mode</th>
-                  <th style={styles.thRight}>Gross</th>
-                  <th style={styles.thRight}>Fees</th>
-                  <th style={styles.thRight}>Claims</th>
-                  <th style={styles.thRight}>Other</th>
-                  <th style={styles.thRight}>Net</th>
-                  <th style={styles.th}>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {history.map((s) => {
-                  const claims = settlementClaimAmount(s);
-                  const other = settlementOtherChargesAmount(s);
-                  const orderLines = (s.lines ?? []).filter((l) => {
-                    const t = (l.lineType ?? '').toUpperCase();
-                    return t === 'ORDER' || t === '';
-                  });
-                  const adjLines = (s.lines ?? []).filter(
-                    (l) => (l.lineType ?? '').toUpperCase() === 'ADJUSTMENT',
-                  );
-                  const otherLines = (s.lines ?? []).filter((l) => {
-                    const t = (l.lineType ?? '').toUpperCase();
-                    return t === 'OTHER_CHARGE' || t === 'PENALTY';
-                  });
-                  const open = expandedHistoryId === s.id;
-                  return (
-                    <Fragment key={s.id}>
-                      <tr>
-                        <td style={styles.tdMuted}>
-                          {s.paidAt
-                            ? new Date(s.paidAt).toLocaleString(undefined, {
-                                day: '2-digit',
-                                month: 'short',
-                                year: 'numeric',
-                                hour: '2-digit',
-                                minute: '2-digit',
-                              })
-                            : '—'}
-                        </td>
-                        <td style={styles.td}>{s.payeeName ?? s.payeeId}</td>
-                        <td style={styles.tdMuted}>
-                          {s.periodStart} → {s.periodEnd}
-                          <div style={styles.sub}>
-                            {s.periodType} · {orderLines.length} order
-                            {orderLines.length === 1 ? '' : 's'}
-                            {adjLines.length > 0 ? ` · ${adjLines.length} claim` : ''}
-                            {otherLines.length > 0 ? ` · ${otherLines.length} other` : ''}
-                          </div>
-                          {(s.lines?.length ?? 0) > 0 ? (
-                            <button
-                              type="button"
-                              style={styles.linkBtn}
-                              onClick={() => setExpandedHistoryId(open ? null : s.id)}
-                            >
-                              {open ? 'Hide lines' : 'Why this net?'}
-                            </button>
-                          ) : null}
-                        </td>
-                        <td style={styles.tdMuted}>
-                          {s.payoutMethod ?? '—'}
-                          <div style={styles.sub}>{s.transactionReference || 'No txn ref'}</div>
-                        </td>
-                        <td style={styles.tdRight}>{formatMoney(s.grossAmount)}</td>
-                        <td style={styles.tdRight}>{formatMoney(s.commissionAmount)}</td>
-                        <td style={{ ...styles.tdRight, ...(claims > 0 ? styles.claimAmt : {}) }}>
-                          {formatMoney(claims)}
-                        </td>
-                        <td style={styles.tdRight}>{formatMoney(other)}</td>
-                        <td style={styles.tdRight}>{formatMoney(s.netAmount)}</td>
-                        <td style={styles.td}>
-                          <span style={s.status === 'PAID' ? styles.settled : styles.openBadge}>
-                            {s.status}
-                          </span>
-                        </td>
-                      </tr>
-                      {open ? (
-                        <tr>
-                          <td colSpan={10} style={styles.detailCell}>
-                            <div style={styles.detailTitle}>
-                              {formatMoney(s.grossAmount)} − {formatMoney(s.commissionAmount)} fees −{' '}
-                              {formatMoney(claims)} claims − {formatMoney(other)} other ={' '}
-                              {formatMoney(s.netAmount)} net
-                            </div>
-                            <ul style={styles.claimList}>
-                              {orderLines.map((l) => (
-                                <li key={l.id}>
-                                  + {formatMoney(l.amount)} · {l.orderNumber ?? l.subOrderNumber ?? 'Order'}
-                                </li>
-                              ))}
-                              {adjLines.map((l) => (
-                                <li key={l.id}>
-                                  − {formatMoney(Math.abs(Number(l.amount ?? 0)))} ·{' '}
-                                  {l.description || 'Claim chargeback'}
-                                  {l.orderNumber ? ` (${l.orderNumber})` : ''}
-                                </li>
-                              ))}
-                              {otherLines.map((l) => (
-                                <li key={l.id}>
-                                  − {formatMoney(Math.abs(Number(l.amount ?? 0)))} ·{' '}
-                                  {l.description || 'Penalty / other charge'}
-                                </li>
-                              ))}
-                            </ul>
-                          </td>
-                        </tr>
-                      ) : null}
-                    </Fragment>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        }
       />
       </>
       ) : null}
@@ -1385,6 +1637,7 @@ const styles: Record<string, CSSProperties> = {
   },
   feeError: { margin: 0, fontSize: '0.72rem', color: '#b91c1c', fontWeight: 650, lineHeight: 1.3 },
   sideActions: { display: 'grid', gap: '0.35rem' },
+  payHint: { margin: 0, color: '#b91c1c', fontSize: '0.75rem', fontWeight: 700, lineHeight: 1.3 },
   req: { color: '#b91c1c', fontWeight: 800 },
   claimAmt: { color: '#7c3aed' },
   claimList: {
@@ -1588,6 +1841,12 @@ const styles: Record<string, CSSProperties> = {
     fontSize: '0.72rem',
     fontWeight: 650,
     color: '#9a3412',
+  },
+  agentPhoneLink: {
+    color: 'var(--accent)',
+    fontWeight: 800,
+    textDecoration: 'none',
+    whiteSpace: 'nowrap',
   },
   codAgentOrderList: {
     margin: '0.1rem 0 0',

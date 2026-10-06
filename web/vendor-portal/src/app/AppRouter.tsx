@@ -1,6 +1,7 @@
 import { routerBasename } from '../../../shared/routerBasename';
 import type { ReactNode } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
+import { PlatformBrandProvider } from '@hlm-brand';
 import { ThemeProvider } from '@hlm-theme';
 import { AuthProvider, useAuth } from '@/shared/auth/AuthContext';
 import { RequireAuth } from '@/shared/routing/RequireAuth';
@@ -34,6 +35,7 @@ function KeepAliveRoute() {
 export function AppRouter() {
   return (
     <AuthProvider>
+      <PlatformBrandProvider>
       <AuthBoundTheme>
         <BrowserRouter basename={routerBasename()}>
           <Routes>
@@ -55,6 +57,7 @@ export function AppRouter() {
           </Routes>
         </BrowserRouter>
       </AuthBoundTheme>
+      </PlatformBrandProvider>
     </AuthProvider>
   );
 }

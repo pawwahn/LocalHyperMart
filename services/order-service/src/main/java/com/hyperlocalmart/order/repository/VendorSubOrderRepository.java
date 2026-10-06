@@ -122,6 +122,14 @@ public interface VendorSubOrderRepository extends JpaRepository<VendorSubOrder, 
     @Query("""
             SELECT COUNT(v) FROM VendorSubOrder v JOIN v.order o
             WHERE o.townId = :townId
+              AND v.status = com.hyperlocalmart.order.entity.VendorSubOrderStatus.VENDOR_REJECTED
+              AND v.updatedAt >= :start AND v.updatedAt < :end
+            """)
+    long countRejectedByTownIdAndUpdatedAtBetween(UUID townId, Instant start, Instant end);
+
+    @Query("""
+            SELECT COUNT(v) FROM VendorSubOrder v JOIN v.order o
+            WHERE o.townId = :townId
               AND v.readyForPickupAt IS NOT NULL
               AND v.readyForPickupAt >= :start AND v.readyForPickupAt < :end
             """)

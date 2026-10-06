@@ -41,6 +41,19 @@ public interface CodAgentHandoverLineRepository extends JpaRepository<CodAgentHa
             @Param("status") CodAgentHandoverStatus status);
 
     @Query("""
+            SELECT h.agentId, l.orderId FROM CodAgentHandoverLine l
+            JOIN l.handover h
+            WHERE h.agentId IN :agentIds
+              AND h.handoverDate >= :from AND h.handoverDate <= :to
+              AND h.status = :status
+            """)
+    List<Object[]> findDeclaredOrderIdsByAgentsBetween(
+            @Param("agentIds") Collection<UUID> agentIds,
+            @Param("from") LocalDate from,
+            @Param("to") LocalDate to,
+            @Param("status") CodAgentHandoverStatus status);
+
+    @Query("""
             SELECT DISTINCT l.orderId FROM CodAgentHandoverLine l
             JOIN l.handover h
             WHERE l.orderId IN :orderIds

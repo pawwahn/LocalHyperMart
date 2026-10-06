@@ -275,9 +275,110 @@ function orderKeys(keys: string[], screenKey: string): string[] {
   });
 }
 
+function diffTownIncentivesSnapshots(
+  before: Record<string, unknown>,
+  after: Record<string, unknown>,
+): string[] {
+  const lines: string[] = [];
+  if (!valuesEqual(before.townAdminCanEditAgentRates, after.townAdminCanEditAgentRates)) {
+    lines.push(
+      `Hub can edit agent ₹: ${prettyVal('referralsEnabled', before.townAdminCanEditAgentRates)} → ${prettyVal('referralsEnabled', after.townAdminCanEditAgentRates)}`,
+    );
+  }
+  diffIncentiveParty('Agent', before.agent, after.agent, lines);
+  diffIncentiveParty('Hub', before.hub, after.hub, lines);
+  return lines;
+}
+
+function asRecord(raw: unknown): Record<string, unknown> {
+  return raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
+}
+
+function diffIncentiveParty(
+  party: string,
+  beforeRaw: unknown,
+  afterRaw: unknown,
+  lines: string[],
+): void {
+  const before = asRecord(beforeRaw);
+  const after = asRecord(afterRaw);
+  if (!valuesEqual(before.enabled, after.enabled)) {
+    lines.push(`${party} pay: ${prettyVal('referralsEnabled', before.enabled)} → ${prettyVal('referralsEnabled', after.enabled)}`);
+  }
+  const bPer = asRecord(before.perOrder);
+  const aPer = asRecord(after.perOrder);
+  if (!valuesEqual(bPer.enabled, aPer.enabled)) {
+    lines.push(
+      `${party} per-order pay: ${prettyVal('referralsEnabled', bPer.enabled)} → ${prettyVal('referralsEnabled', aPer.enabled)}`,
+    );
+  }
+  pushMoneyLine(lines, `${party} · Vendor → hub`, bPer.pickupAmount, aPer.pickupAmount);
+  pushMoneyLine(lines, `${party} · Return → shop`, bPer.lastMileAmount, aPer.lastMileAmount);
+  pushMoneyLine(lines, `${party} · To customer`, bPer.completedOrderAmount, aPer.completedOrderAmount);
+  diffIncentivePeriod(party, 'Daily', before.perDay, after.perDay, lines);
+  diffIncentivePeriod(party, 'Monthly', before.perMonth, after.perMonth, lines);
+  if (party === 'Hub') {
+    diffHubFranchise(before.franchise, after.franchise, lines);
+  }
+}
+
+function pushMoneyLine(lines: string[], label: string, before: unknown, after: unknown): void {
+  if (valuesEqual(before, after)) return;
+  lines.push(`${label}: ${prettyVal('amount', before)} → ${prettyVal('amount', after)}`);
+}
+
+function diffIncentivePeriod(
+  party: string,
+  period: string,
+  beforeRaw: unknown,
+  afterRaw: unknown,
+  lines: string[],
+): void {
+  const before = asRecord(beforeRaw);
+  const after = asRecord(afterRaw);
+  if (!valuesEqual(before.enabled, after.enabled)) {
+    lines.push(
+      `${party} ${period} bonus: ${prettyVal('referralsEnabled', before.enabled)} → ${prettyVal('referralsEnabled', after.enabled)}`,
+    );
+  }
+  pushMoneyLine(lines, `${party} ${period} ₹`, before.amount, after.amount);
+  if (!valuesEqual(before.minCompletedOrders, after.minCompletedOrders)) {
+    lines.push(
+      `${party} ${period} min orders: ${prettyVal('membershipQuarterlyCredits', before.minCompletedOrders)} → ${prettyVal('membershipQuarterlyCredits', after.minCompletedOrders)}`,
+    );
+  }
+}
+
+function diffHubFranchise(beforeRaw: unknown, afterRaw: unknown, lines: string[]): void {
+  const before = asRecord(beforeRaw);
+  const after = asRecord(afterRaw);
+  if (!valuesEqual(before.enabled, after.enabled)) {
+    lines.push(
+      `Hub franchise: ${prettyVal('referralsEnabled', before.enabled)} → ${prettyVal('referralsEnabled', after.enabled)}`,
+    );
+  }
+  pushMoneyLine(lines, 'Hub franchise ₹', before.amount, after.amount);
+  if (!valuesEqual(before.cadence, after.cadence)) {
+    lines.push(`Hub franchise cadence: ${prettyVal('status', before.cadence)} → ${prettyVal('status', after.cadence)}`);
+  }
+  if (!valuesEqual(before.effectiveFrom, after.effectiveFrom)) {
+    lines.push(
+      `Hub franchise billing start: ${prettyVal('status', before.effectiveFrom)} → ${prettyVal('status', after.effectiveFrom)}`,
+    );
+  }
+}
+
 function diffFromSnapshots(row: AdminAuditEntry, townName?: string | null): string[] {
   const before = row.beforeSnapshot ?? {};
   const after = row.afterSnapshot ?? {};
+  if (row.screenKey === 'town-incentives') {
+    const lines = diffTownIncentivesSnapshots(before, after);
+    if (lines.length) {
+      const town = (townName || '').trim();
+      return town ? [`Town: ${town}`, ...lines] : lines;
+    }
+    return [];
+  }
   const keys = orderKeys(
     [...new Set([...Object.keys(before), ...Object.keys(after)])].filter((k) => !SKIP_DIFF_KEYS.has(k)),
     row.screenKey,

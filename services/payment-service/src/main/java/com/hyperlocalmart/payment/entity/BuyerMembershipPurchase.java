@@ -75,4 +75,7 @@ public class BuyerMembershipPurchase extends BaseAuditEntity {
 
     @Column(name = "idempotency_key", length = 128)
     private String idempotencyKey;
+
+    @Column(name = "bundled_order_id")
+    private UUID bundledOrderId;
 }

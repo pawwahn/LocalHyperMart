@@ -45,7 +45,7 @@ hyperlocalmart:
     razorpay-key-secret: ${RAZORPAY_KEY_SECRET:}
     razorpay-webhook-secret: ${RAZORPAY_WEBHOOK_SECRET:}
     razorpay-api-base-url: ${RAZORPAY_API_BASE_URL:https://api.razorpay.com/v1}
-    checkout-name: ${RAZORPAY_CHECKOUT_NAME:KoYaKart}
+    checkout-name: ${RAZORPAY_CHECKOUT_NAME:KoyaKart}
     checkout-logo-url: ${RAZORPAY_CHECKOUT_LOGO_URL:}
     dev-webhook-bypass-secret: ${PAYMENT_DEV_WEBHOOK_BYPASS:dev-bypass}
 

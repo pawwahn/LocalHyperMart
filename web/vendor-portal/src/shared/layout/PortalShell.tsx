@@ -1,5 +1,6 @@
 import type { CSSProperties, ReactNode } from 'react';
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom';
+import { BrandMark } from '@hlm-brand';
 import { HeaderIconButton, ThemePicker } from '@hlm-theme';
 import { useAuth } from '@/shared/auth/AuthContext';
 import { useVendorShop } from '@/features/shop/hooks/useVendorShop';
@@ -43,65 +44,52 @@ export function PortalShell({ title, children, onRefresh, shopPause }: Props) {
   const shopName = session?.shopName ?? 'Vendor shop';
   const phone = session?.phone;
   const townName = shopTownName ?? session?.townName ?? null;
+  const metaLine = [townName, phone].filter(Boolean).join(' · ');
 
   return (
     <div
       style={{
         ...styles.page,
+        ...(narrow ? styles.pageNarrow : null),
         paddingBottom: narrow
-          ? 'calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px) + 1.25rem)'
-          : '2rem',
+          ? 'calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px) + 0.75rem)'
+          : '1.5rem',
       }}
     >
-      <header style={{ ...styles.header, ...(narrow ? styles.headerNarrow : null) }}>
-        <div style={styles.brandBlock}>
-          <div style={styles.topRow}>
-            <p style={styles.brand}>KoYaKart</p>
-            <span style={styles.dot} aria-hidden="true">
-              ·
-            </span>
-            <p style={{ ...styles.shop, ...(narrow ? styles.shopNarrow : null) }}>
-              <span style={styles.shopStrong}>{shopName}</span>
-              {townName ? (
-                <>
-                  <span style={styles.shopSep} aria-hidden>
-                    {' '}
-                    ·{' '}
-                  </span>
-                  <span style={styles.shopTown}>{townName}</span>
-                </>
+      <header style={{ ...styles.header, ...(narrow ? styles.headerSticky : null) }}>
+        <div style={styles.headerGrid}>
+          <div style={styles.headerLead}>
+            <div style={styles.identityRow}>
+              <BrandMark variant="compact" fallbackName="KoyaKart" />
+              <span style={styles.shopChip} title={shopName}>
+                {shopName}
+              </span>
+              {metaLine ? (
+                <span style={styles.metaLine} title={metaLine}>
+                  {metaLine}
+                </span>
               ) : null}
-              {phone ? (
-                <>
-                  <span style={styles.shopSep} aria-hidden>
-                    {' '}
-                    ·{' '}
-                  </span>
-                  <span style={styles.shopStrong}>{phone}</span>
-                </>
-              ) : null}
-            </p>
+            </div>
+            <h1 style={{ ...styles.title, ...(narrow ? styles.titleNarrow : null) }}>{title}</h1>
+            {!narrow ? (
+              <nav style={styles.nav} aria-label="Vendor sections">
+                {NAV.map((item) => (
+                  <Link
+                    key={item.to}
+                    to={item.to}
+                    style={
+                      isNavActive(location.pathname, item.to, item.end)
+                        ? styles.navActive
+                        : styles.navLink
+                    }
+                  >
+                    {item.label}
+                  </Link>
+                ))}
+              </nav>
+            ) : null}
           </div>
-          <h1 style={styles.title}>{title}</h1>
-          {!narrow ? (
-            <nav style={styles.nav} aria-label="Vendor sections">
-              {NAV.map((item) => (
-                <Link
-                  key={item.to}
-                  to={item.to}
-                  style={
-                    isNavActive(location.pathname, item.to, item.end)
-                      ? styles.navActive
-                      : styles.navLink
-                  }
-                >
-                  {item.label}
-                </Link>
-              ))}
-            </nav>
-          ) : null}
-        </div>
-        <div style={styles.headerActions}>
+          <div style={styles.headerActions}>
           <ThemePicker />
           {onRefresh ? (
             <HeaderIconButton label="Refresh" onClick={onRefresh}>
@@ -143,6 +131,7 @@ export function PortalShell({ title, children, onRefresh, shopPause }: Props) {
           <HeaderIconButton label="Sign out" onClick={logout}>
             ⎋
           </HeaderIconButton>
+          </div>
         </div>
       </header>
 
@@ -222,91 +211,111 @@ const styles: Record<string, CSSProperties> = {
   page: {
     maxWidth: 'var(--shell-max, 1120px)',
     width: '100%',
+    minHeight: '100dvh',
     margin: '0 auto',
-    padding: '0.75rem 0.75rem 2rem',
-    display: 'grid',
-    gap: '0.85rem',
+    padding: '0.55rem 0.75rem 1.5rem',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '0.5rem',
     boxSizing: 'border-box',
     overflowX: 'hidden',
   },
+  pageNarrow: {
+    padding: '0 0.65rem 0',
+    gap: '0.45rem',
+  },
   header: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    gap: '0.85rem',
-    flexWrap: 'wrap',
-    alignItems: 'flex-start',
     background: 'var(--bg-elevated)',
     border: '1px solid var(--border)',
     borderRadius: 'var(--radius-lg)',
-    padding: '0.75rem 1rem',
+    padding: '0.5rem 0.65rem 0.55rem',
     boxShadow: 'var(--shadow-card)',
     position: 'relative',
     zIndex: 30,
     overflow: 'visible',
+    flexShrink: 0,
   },
-  headerNarrow: {
-    flexDirection: 'column',
-    padding: '0.65rem 0.75rem',
-    gap: '0.55rem',
+  headerSticky: {
+    position: 'sticky',
+    top: 0,
+    borderRadius: 0,
+    borderLeft: 'none',
+    borderRight: 'none',
+    marginLeft: '-0.65rem',
+    marginRight: '-0.65rem',
+    width: 'calc(100% + 1.3rem)',
+    paddingTop: 'max(0.4rem, env(safe-area-inset-top, 0px))',
+    boxShadow: '0 1px 0 rgba(15, 23, 42, 0.05)',
   },
-  brandBlock: { display: 'grid', gap: '0.35rem', minWidth: 0, flex: 1 },
-  topRow: {
+  headerGrid: {
     display: 'flex',
-    alignItems: 'baseline',
-    gap: '0.35rem',
-    flexWrap: 'wrap',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: '0.4rem',
+  },
+  headerLead: {
+    display: 'grid',
+    gap: '0.12rem',
     minWidth: 0,
+    flex: 1,
   },
-  brand: {
-    margin: 0,
-    fontFamily: 'var(--font-display)',
-    fontSize: '0.85rem',
-    fontWeight: 800,
+  identityRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.35rem',
+    minWidth: 0,
+    flexWrap: 'nowrap',
+  },
+  shopChip: {
+    flexShrink: 0,
+    maxWidth: 'min(46vw, 12.5rem)',
+    padding: '0.14rem 0.5rem',
+    borderRadius: 999,
+    background: 'color-mix(in srgb, var(--accent) 14%, var(--bg-elevated))',
+    border: '1px solid color-mix(in srgb, var(--accent) 28%, transparent)',
     color: 'var(--accent)',
-  },
-  dot: { color: 'var(--text-muted)', fontSize: '0.85rem' },
-  shop: {
-    margin: 0,
-    fontSize: '0.82rem',
+    fontWeight: 800,
+    fontSize: '0.76rem',
+    letterSpacing: '-0.02em',
     whiteSpace: 'nowrap',
     overflow: 'hidden',
     textOverflow: 'ellipsis',
+    lineHeight: 1.25,
+  },
+  metaLine: {
+    flex: 1,
     minWidth: 0,
-  },
-  shopStrong: {
-    color: 'var(--text)',
-    fontWeight: 800,
-    letterSpacing: '-0.015em',
-  },
-  shopTown: {
     color: 'var(--text-muted)',
+    fontSize: '0.68rem',
     fontWeight: 600,
-  },
-  shopSep: {
-    color: 'var(--text-muted)',
-    fontWeight: 500,
-  },
-  shopNarrow: {
-    whiteSpace: 'normal',
-    overflow: 'visible',
-    textOverflow: 'unset',
-    lineHeight: 1.35,
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
   },
   title: {
-    margin: 0,
+    margin: '0.08rem 0 0',
     fontFamily: 'var(--font-display)',
-    fontSize: 'clamp(1.15rem, 4vw, 1.45rem)',
+    fontSize: 'clamp(1.05rem, 2.8vw, 1.28rem)',
     fontWeight: 800,
-    letterSpacing: '-0.02em',
+    letterSpacing: '-0.03em',
+    lineHeight: 1.15,
   },
-  nav: { display: 'flex', gap: '0.2rem', flexWrap: 'wrap' },
+  titleNarrow: {
+    fontSize: '1.08rem',
+  },
+  nav: {
+    display: 'flex',
+    gap: '0.12rem',
+    flexWrap: 'wrap',
+    marginTop: '0.28rem',
+  },
   navLink: {
     color: 'var(--text-muted)',
     textDecoration: 'none',
     fontWeight: 600,
-    fontSize: '0.82rem',
-    padding: '0.45rem 0.7rem',
-    minHeight: 'var(--touch-min)',
+    fontSize: '0.76rem',
+    padding: '0.32rem 0.55rem',
+    minHeight: 36,
     display: 'inline-flex',
     alignItems: 'center',
     borderRadius: 'var(--radius-full)',
@@ -316,9 +325,9 @@ const styles: Record<string, CSSProperties> = {
     color: 'var(--accent-hover)',
     textDecoration: 'none',
     fontWeight: 700,
-    fontSize: '0.82rem',
-    padding: '0.45rem 0.7rem',
-    minHeight: 'var(--touch-min)',
+    fontSize: '0.76rem',
+    padding: '0.32rem 0.55rem',
+    minHeight: 36,
     display: 'inline-flex',
     alignItems: 'center',
     borderRadius: 'var(--radius-full)',
@@ -327,10 +336,11 @@ const styles: Record<string, CSSProperties> = {
   },
   headerActions: {
     display: 'flex',
-    gap: '0.35rem',
+    gap: '0.15rem',
     alignItems: 'center',
     flexShrink: 0,
-    flexWrap: 'wrap',
+    flexWrap: 'nowrap',
+    marginTop: '0.05rem',
   },
   alertBanner: {
     display: 'flex',
@@ -368,12 +378,20 @@ const styles: Record<string, CSSProperties> = {
     padding: '0.45rem 0.25rem',
     minHeight: 'var(--touch-min)',
   },
-  main: { display: 'grid', gap: '0.85rem', minWidth: 0 },
+  main: {
+    display: 'grid',
+    gap: '0.5rem',
+    minWidth: 0,
+    flex: 1,
+    minHeight: 0,
+    alignContent: 'start',
+  },
   footer: {
     color: 'var(--text-muted)',
     fontSize: '0.78rem',
     fontWeight: 600,
-    paddingTop: '0.25rem',
+    paddingTop: '0.15rem',
+    flexShrink: 0,
   },
   footerLink: { color: 'var(--accent-hover)', fontWeight: 800, textDecoration: 'none' },
   tabbar: {

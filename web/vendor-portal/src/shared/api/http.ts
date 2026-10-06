@@ -36,7 +36,7 @@ type RequestOptions = {
 };
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
-const DEFAULT_TIMEOUT_MS = 20_000;
+const DEFAULT_TIMEOUT_MS = 45_000;
 
 export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const headers: Record<string, string> = {
@@ -91,7 +91,16 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   }
 
   if (!response.ok) {
-    throw new ApiError(payload?.message || response.statusText || 'Request failed', response.status);
+    const body = payload as (ApiEnvelope<T> & { error?: string }) | null;
+    let message = body?.message?.trim() || body?.error?.trim() || response.statusText || 'Request failed';
+    if (response.status >= 502 && response.status <= 504) {
+      message =
+        'Backend service unavailable. Run .\\scripts\\health-check.ps1 or .\\scripts\\start-dev.ps1, then refresh.';
+    } else if (response.status >= 500 && /internal server error/i.test(message)) {
+      message =
+        'Orders backend error — order-service (port 8086) may be stopped. Restart it or run start-dev, then refresh.';
+    }
+    throw new ApiError(message, response.status);
   }
 
   if (payload == null) {

@@ -58,4 +58,7 @@ public class Vendor extends BaseAuditEntity {
 
     @Column(name = "disabled_reason")
     private String disabledReason;
+
+    @Column(name = "cod_pin_hash")
+    private String codPinHash;
 }

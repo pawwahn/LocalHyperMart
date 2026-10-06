@@ -35,6 +35,15 @@ const RAIL_CSS = `
     gap: 0.5rem;
     width: max-content;
   }
+  @media (min-width: 1024px) {
+    .product-rail-viewport {
+      margin: 0;
+      padding: 0 0 0.2rem;
+    }
+    .product-rail-track {
+      gap: 0.65rem;
+    }
+  }
 `;
 
 function RailCard({

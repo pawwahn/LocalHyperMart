@@ -440,7 +440,7 @@ export function downloadVendorServiceBill(
   const start = (settlement.periodStart ?? 'payout').slice(0, 10);
   const end = (settlement.periodEnd ?? start).slice(0, 10);
   link.href = url;
-  link.download = `KoYaKart-bill-${start}-to-${end}.html`;
+  link.download = `KoyaKart-bill-${start}-to-${end}.html`;
   document.body.appendChild(link);
   link.click();
   link.remove();

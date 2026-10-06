@@ -1,0 +1,33 @@
+---
+description: Admin change history must show explicit old vs new values
+globs:
+  - "**/AdminHistoryPanel.tsx"
+  - "**/adminAuditApi.ts"
+  - "**/AdminAudit*.java"
+  - "**/AdminAuditor.java"
+  - "**/*AuditFormat.java"
+  - "**/TownHistory*.java"
+---
+
+# Admin change history (audit trail)
+
+Every admin-facing **change history** row must answer: **what was the old value and what is the new value?**
+
+## Required behavior
+
+1. **Never** store or display vague placeholders (`"changed"`, `"updated"`, object blobs) as old/new in the UI.
+2. On each save, persist **`beforeSnapshot`** and **`afterSnapshot`** (or equivalent) and derive **`changeLines`** as human-readable diffs: `Field label: old → new`.
+3. Use **field-level lines** with an arrow (`→`). One line per changed scalar; nested config (pay rules, settings maps) gets a dedicated diff formatter (see `DeliveryPayoutAuditFormat`, `PlatformSettingsService.settingsChangeParts`, `CatalogAuditFormat`).
+4. **Headline** (`changeSummary`) is optional context; the table body must still list concrete old → new lines.
+5. When adding a new audited screen, wire `AdminAuditService.buildChangeLines` (or set `changeLines` at write time) — do not rely on generic JSON diff of top-level keys only.
+
+## UI
+
+`AdminHistoryPanel` renders `parseAuditChangeLine` output as **Old** / **New** pairs. Backend and `adminAuditApi.formatAuditChangeLines` must supply lines matching `Label: before → after`.
+
+## Checklist for new features
+
+- [ ] Before/after captured on write
+- [ ] Diff formatter for nested structures
+- [ ] List API returns `changeLines` with `→`
+- [ ] Manual test: history row shows real values, not `"changed"`

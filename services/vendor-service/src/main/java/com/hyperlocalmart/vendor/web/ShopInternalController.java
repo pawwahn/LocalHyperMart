@@ -5,7 +5,9 @@ import com.hyperlocalmart.common.web.CorrelationIdFilter;
 import com.hyperlocalmart.vendor.dto.request.ShopBatchRequest;
 import com.hyperlocalmart.vendor.dto.response.ShopSummaryResponse;
 import com.hyperlocalmart.vendor.dto.response.VendorShopContextResponse;
+import com.hyperlocalmart.vendor.dto.request.VerifyVendorCodPinRequest;
 import com.hyperlocalmart.vendor.service.ShopService;
+import com.hyperlocalmart.vendor.service.VendorCodPinService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -20,6 +22,7 @@ import java.util.List;
 public class ShopInternalController {
 
     private final ShopService shopService;
+    private final VendorCodPinService vendorCodPinService;
 
     @PostMapping("/api/v1/internal/shops/batch")
     public ResponseEntity<ApiResponse<List<ShopSummaryResponse>>> batchLookup(
@@ -41,5 +44,14 @@ public class ShopInternalController {
             @PathVariable java.util.UUID vendorId,
             HttpServletRequest httpRequest) {
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, shopService.getShopContextForVendor(vendorId)));
+    }
+
+    @PostMapping("/api/v1/internal/vendors/{vendorId}/verify-cod-pin")
+    public ResponseEntity<ApiResponse<Void>> verifyCodPin(
+            @PathVariable java.util.UUID vendorId,
+            @Valid @RequestBody VerifyVendorCodPinRequest request,
+            HttpServletRequest httpRequest) {
+        vendorCodPinService.verifyPin(vendorId, request.getPin());
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest, null));
     }
 }

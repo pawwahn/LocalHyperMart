@@ -62,9 +62,11 @@ public class TownDeliveryPayoutConfigResponse {
         /** MONTHLY, QUARTERLY, YEARLY, LIFETIME */
         @Builder.Default
         private String cadence = "MONTHLY";
-        /** Amount the hub pays KoYaKart for that cadence. */
+        /** Amount the hub pays KoyaKart for that cadence. */
         @Builder.Default
         private BigDecimal amount = BigDecimal.ZERO;
+        /** First calendar day (YYYY-MM-DD, IST) when franchise billing applies. */
+        private String effectiveFrom;
     }
 
     @Data

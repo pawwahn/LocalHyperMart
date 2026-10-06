@@ -12,4 +12,5 @@ public class HubAdminContextResponse {
     UUID userId;
     UUID hubId;
     UUID townId;
+    String hubName;
 }

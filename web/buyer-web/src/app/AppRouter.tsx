@@ -1,5 +1,6 @@
 import { routerBasename } from '../../../shared/routerBasename';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
+import { PlatformBrandProvider } from '@hlm-brand';
 import { ThemeProvider } from '@hlm-theme';
 import { AuthProvider, useAuth } from '@/shared/auth/AuthContext';
 import { TownProvider } from '@/shared/town/TownContext';
@@ -41,6 +42,7 @@ function AuthBoundTheme({ children }: { children: ReactNode }) {
 export function AppRouter() {
   return (
     <AuthProvider>
+      <PlatformBrandProvider>
       <AuthBoundTheme>
         <TownProvider>
           <WalletProvider>
@@ -72,6 +74,7 @@ export function AppRouter() {
           </WalletProvider>
         </TownProvider>
       </AuthBoundTheme>
+      </PlatformBrandProvider>
     </AuthProvider>
   );
 }

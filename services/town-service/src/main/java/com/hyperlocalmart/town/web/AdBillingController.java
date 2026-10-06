@@ -6,6 +6,7 @@ import com.hyperlocalmart.town.dto.billing.AdInvoiceResponse;
 import com.hyperlocalmart.town.dto.billing.AdOccupancyResponse;
 import com.hyperlocalmart.town.dto.billing.AdQuoteRequest;
 import com.hyperlocalmart.town.dto.billing.AdQuoteResponse;
+import com.hyperlocalmart.town.dto.billing.AdRevenueReportResponse;
 import com.hyperlocalmart.town.dto.billing.AdRateCardResponse;
 import com.hyperlocalmart.town.dto.billing.CreateAdInvoiceRequest;
 import com.hyperlocalmart.town.dto.billing.PayAdInvoiceRequest;
@@ -58,6 +59,16 @@ public class AdBillingController {
             HttpServletRequest httpRequest) {
         AdminAuth.requireSuperAdmin(httpRequest);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, adBillingService.quote(request)));
+    }
+
+    @GetMapping("/api/v1/platform/ads/revenue-report")
+    public ResponseEntity<ApiResponse<AdRevenueReportResponse>> revenueReport(
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam(required = false) UUID townId,
+            HttpServletRequest httpRequest) {
+        AdminAuth.requireSuperAdmin(httpRequest);
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest, adBillingService.revenueReport(from, to, townId)));
     }
 
     @GetMapping("/api/v1/platform/ads/occupancy")

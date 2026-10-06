@@ -21,6 +21,7 @@ public class HubPinService {
 
     private final HubAdminRepository hubAdminRepository;
     private final PasswordEncoder passwordEncoder;
+    private final com.hyperlocalmart.delivery.client.UserClient userClient;
 
     @Transactional(readOnly = true)
     public boolean pinConfigured(UUID userId) {
@@ -29,8 +30,9 @@ public class HubPinService {
     }
 
     @Transactional
-    public void setPin(UUID userId, String newPin) {
+    public void setPin(UUID userId, String newPin, String otp) {
         validatePinFormat(newPin);
+        userClient.consumeCodPinOtp(userId, otp);
         HubAdmin hubAdmin = resolveActiveHubAdmin(userId);
         hubAdmin.setPinHash(passwordEncoder.encode(newPin));
         hubAdmin.setUpdatedBy(userId);

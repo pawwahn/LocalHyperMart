@@ -8,10 +8,12 @@ import { useAuth } from '@/shared/auth/AuthContext';
 import { ApiError } from '@/shared/api/http';
 import { Banner, Button, Card, TextField } from '@/shared/ui';
 import { AdminHistoryPanel } from '@/shared/audit/AdminHistoryPanel';
+import { usePlatformBrand } from '@hlm-brand';
 import {
   getPlatformSettings,
   patchPlatformSettings,
   resetLegalDefaults,
+  uploadPlatformBrandLogo,
   type PlatformSettingsVm,
 } from '../api/settingsApi';
 
@@ -33,16 +35,19 @@ const EMPTY: PlatformSettingsVm = {
   supportPhone: '',
   deliveryFee: 40,
   vendorOrderAlertMessage: 'Order received',
-  supplierLegalName: 'KoYaKart',
+  supplierLegalName: 'KoyaKart',
   supplierGstin: '',
   supplierAddress: '',
   supplierState: '',
   supplierGstStateCode: '',
+  brandLogoUrl: '',
+  brandLogoMediaId: '',
 };
 
 export function SettingsPage() {
   const { session } = useAuth();
   const { preference, setMode } = useTheme();
+  const { refresh: refreshBrand } = usePlatformBrand();
   const token = session?.accessToken ?? '';
   const [settings, setSettings] = useState<PlatformSettingsVm>(EMPTY);
   const [legalTab, setLegalTab] = useState<LegalTab>('termsText');
@@ -51,6 +56,7 @@ export function SettingsPage() {
   const [busy, setBusy] = useState(false);
   const [pageView, setPageView] = useState<PageView>('settings');
   const [historyTick, setHistoryTick] = useState(0);
+  const [logoUploadBusy, setLogoUploadBusy] = useState(false);
 
   const reload = useCallback(async () => {
     if (!token) return;
@@ -81,9 +87,11 @@ export function SettingsPage() {
     setError(null);
     setNotice(null);
     try {
-      setSettings(await patchPlatformSettings(token, settings));
+      const saved = await patchPlatformSettings(token, settings);
+      setSettings(saved);
       setNotice('Settings saved');
       setHistoryTick((n) => n + 1);
+      await refreshBrand();
     } catch (err) {
       setError(err instanceof ApiError || err instanceof Error ? err.message : 'Save failed');
     } finally {
@@ -93,7 +101,7 @@ export function SettingsPage() {
 
   async function onResetLegal() {
     if (!token) return;
-    if (!window.confirm('Replace Terms, Privacy and Refund with the shipped KoYaKart rules?')) {
+    if (!window.confirm('Replace Terms, Privacy and Refund with the shipped KoyaKart rules?')) {
       return;
     }
     setBusy(true);
@@ -187,6 +195,68 @@ export function SettingsPage() {
           <>
         <Card padding="sm" style={styles.card}>
           <div style={styles.sectionHead}>
+            <h2 style={styles.sectionTitle}>Company logo</h2>
+            <span style={styles.hintInline}>Buyer, vendor, delivery &amp; admin apps</span>
+          </div>
+          <p style={styles.hintInline}>
+            Upload PNG or JPG (square or wide). Shown in headers, login screens, and browser tab. Save settings after
+            upload.
+          </p>
+          <div style={styles.logoRow}>
+            {settings.brandLogoUrl ? (
+              <img src={settings.brandLogoUrl} alt="Current logo" style={styles.logoPreview} />
+            ) : (
+              <div style={styles.logoEmpty}>No logo uploaded</div>
+            )}
+            <div style={styles.logoActions}>
+              <label style={styles.logoUploadBtn}>
+                {logoUploadBusy ? 'Uploading…' : 'Upload logo'}
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,image/gif"
+                  style={{ display: 'none' }}
+                  disabled={logoUploadBusy || !token}
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    e.target.value = '';
+                    if (!file || !token) return;
+                    void (async () => {
+                      setLogoUploadBusy(true);
+                      setError(null);
+                      try {
+                        const uploaded = await uploadPlatformBrandLogo(token, file);
+                        setSettings((s) => ({
+                          ...s,
+                          brandLogoUrl: uploaded.url,
+                          brandLogoMediaId: uploaded.mediaId,
+                        }));
+                        setNotice('Logo uploaded — click Save settings to apply everywhere.');
+                      } catch (err) {
+                        setError(err instanceof ApiError || err instanceof Error ? err.message : 'Upload failed');
+                      } finally {
+                        setLogoUploadBusy(false);
+                      }
+                    })();
+                  }}
+                />
+              </label>
+              {settings.brandLogoUrl ? (
+                <Button
+                  variant="ghost"
+                  disabled={busy}
+                  onClick={() =>
+                    setSettings((s) => ({ ...s, brandLogoUrl: '', brandLogoMediaId: '' }))
+                  }
+                >
+                  Remove logo
+                </Button>
+              ) : null}
+            </div>
+          </div>
+        </Card>
+
+        <Card padding="sm" style={styles.card}>
+          <div style={styles.sectionHead}>
             <h2 style={styles.sectionTitle}>UI theme</h2>
             <span style={styles.hintInline}>This browser only</span>
           </div>
@@ -207,7 +277,7 @@ export function SettingsPage() {
                 Dark
               </button>
             </div>
-            <p style={styles.hintInline}>KoYaKart green</p>
+            <p style={styles.hintInline}>KoyaKart green</p>
           </div>
         </Card>
 
@@ -539,6 +609,47 @@ const styles: Record<string, CSSProperties> = {
     color: 'var(--accent-hover)',
     borderRadius: 'var(--radius-full)',
     padding: '0.3rem 0.75rem',
+    fontSize: '0.78rem',
+    fontWeight: 700,
+    cursor: 'pointer',
+    minHeight: 36,
+  },
+  logoRow: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: '0.75rem',
+    alignItems: 'center',
+  },
+  logoPreview: {
+    maxHeight: 72,
+    maxWidth: 200,
+    objectFit: 'contain',
+    borderRadius: 10,
+    border: '1px solid var(--border)',
+    padding: '0.35rem',
+    background: 'var(--bg-elevated)',
+  },
+  logoEmpty: {
+    minWidth: 120,
+    minHeight: 56,
+    display: 'grid',
+    placeItems: 'center',
+    borderRadius: 10,
+    border: '1px dashed var(--border)',
+    fontSize: '0.75rem',
+    fontWeight: 650,
+    color: 'var(--text-muted)',
+  },
+  logoActions: { display: 'flex', flexWrap: 'wrap', gap: '0.4rem', alignItems: 'center' },
+  logoUploadBtn: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: '0.45rem 0.85rem',
+    borderRadius: 'var(--radius-full)',
+    border: '1px solid var(--accent)',
+    background: 'var(--accent-soft)',
+    color: 'var(--accent-hover)',
     fontSize: '0.78rem',
     fontWeight: 700,
     cursor: 'pointer',

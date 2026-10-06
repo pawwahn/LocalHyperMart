@@ -1,4 +1,5 @@
 import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
+import { BrandMark } from '@hlm-brand';
 import { HeaderIconButton, ThemePicker } from '@hlm-theme';
 import { useAuth } from '@/shared/auth/AuthContext';
 import { useIsMobile } from '@/shared/hooks/useIsMobile';
@@ -57,12 +58,14 @@ export function PortalShell({ title, subtitle, children, onRefresh, footerNav, d
   const placeLabel = townName || session?.hubName || null;
   const placeShort = shortPlace(placeLabel);
   const phone = session?.phone ?? '—';
+  const agentName = session?.agentName?.trim();
+  const isAgent = session?.portalRole === 'DELIVERY_AGENT';
 
-  const identityParts = [roleLabel, placeLabel, phone].filter(Boolean);
-  const identityDesktop = identityParts.join(' · ');
-  const identityMobile = [placeShort, phone].filter(Boolean).join(' · ');
+  const identityHighlight = isAgent && agentName ? agentName : roleLabel;
+  const identityParts = [identityHighlight, placeLabel, phone].filter(Boolean);
+  const identityTitle = identityParts.join(' · ');
 
-  const identityText = identityParts.join(' · ').toLowerCase();
+  const identityText = identityTitle.toLowerCase();
   const subtitleTrimmed = subtitle?.trim() || '';
   const showSubtitle =
     Boolean(subtitleTrimmed) &&
@@ -92,7 +95,7 @@ export function PortalShell({ title, subtitle, children, onRefresh, footerNav, d
         <header style={styles.appBar}>
           <div style={styles.appBarTop}>
             <div style={styles.appBarTitleBlock}>
-              <p style={styles.appBarBrand}>KoYaKart</p>
+              <BrandMark variant="compact" fallbackName="KoyaKart" />
               <h1 style={styles.appBarTitle}>{title}</h1>
             </div>
             <div style={styles.appBarActions}>
@@ -107,8 +110,10 @@ export function PortalShell({ title, subtitle, children, onRefresh, footerNav, d
               </HeaderIconButton>
             </div>
           </div>
-          <p style={styles.appBarMeta} title={identityDesktop}>
-            {identityMobile}
+          <p style={styles.appBarMeta} title={identityTitle}>
+            <span style={styles.identityRoleMobile}>{identityHighlight}</span>
+            {placeShort ? <span> · {placeShort}</span> : null}
+            <span> · {phone}</span>
           </p>
           {showSubtitle ? (
             <p style={styles.appBarFlow} title={subtitleTrimmed}>
@@ -119,9 +124,13 @@ export function PortalShell({ title, subtitle, children, onRefresh, footerNav, d
       ) : (
         <header style={dense ? styles.headerDense : styles.header}>
           <div style={styles.headerText}>
-            <p style={dense ? styles.brandDense : styles.brand}>KoYaKart · Delivery</p>
+            <BrandMark variant="compact" subtitle="Delivery" fallbackName="KoyaKart" />
             <h1 style={dense ? styles.titleDense : styles.title}>{title}</h1>
-            <p style={dense ? styles.subDense : styles.sub}>{identityDesktop}</p>
+            <p style={dense ? styles.subDense : styles.sub} title={identityTitle}>
+              <span style={dense ? styles.identityRoleDense : styles.identityRole}>{identityHighlight}</span>
+              {placeLabel ? <span> · {placeLabel}</span> : null}
+              <span> · {phone}</span>
+            </p>
             {showSubtitle ? (
               <p style={dense ? styles.flowChip : styles.context} title={subtitleTrimmed}>
                 {subtitleTrimmed}
@@ -150,8 +159,9 @@ export function PortalShell({ title, subtitle, children, onRefresh, footerNav, d
 const styles: Record<string, CSSProperties> = {
   page: {
     width: '100%',
+    maxWidth: '100%',
     margin: '0 auto',
-    padding: '1rem 1rem 0',
+    padding: '0.75rem clamp(0.45rem, 1.2vw, 0.85rem) 0',
     display: 'grid',
     gap: '0.85rem',
     minHeight: '100dvh',
@@ -192,7 +202,7 @@ const styles: Record<string, CSSProperties> = {
     fontFamily: 'var(--font-display)',
     fontSize: '0.65rem',
     fontWeight: 800,
-    color: 'var(--accent)',
+    color: 'var(--brand, var(--accent, #0C831F))',
     letterSpacing: '0.02em',
     lineHeight: 1.1,
   },
@@ -320,6 +330,24 @@ const styles: Record<string, CSSProperties> = {
     fontSize: '0.72rem',
     fontWeight: 600,
     lineHeight: 1.25,
+  },
+  identityRole: {
+    color: 'var(--accent)',
+    fontWeight: 800,
+    fontSize: '0.94rem',
+    letterSpacing: '-0.01em',
+  },
+  identityRoleDense: {
+    color: 'var(--accent)',
+    fontWeight: 800,
+    fontSize: '0.82rem',
+    letterSpacing: '-0.01em',
+  },
+  identityRoleMobile: {
+    color: 'var(--accent)',
+    fontWeight: 800,
+    fontSize: '0.8rem',
+    letterSpacing: '-0.01em',
   },
   context: { margin: '0.1rem 0 0', color: 'var(--text-muted)', fontSize: '0.78rem' },
   flowChip: {

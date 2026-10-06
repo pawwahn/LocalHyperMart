@@ -41,18 +41,31 @@ public class CodDeliveredService {
 
     @Transactional(readOnly = true)
     public CodDeliveredResponse listRange(UUID townId, UUID agentId, LocalDate from, LocalDate to) {
+        return listRange(townId, agentId, from, to, null);
+    }
+
+    /**
+     * @param vendorAgentDelivery when non-null, SQL-filters hub-route vs shop-agent COD (avoids loading all town COD).
+     */
+    @Transactional(readOnly = true)
+    public CodDeliveredResponse listRange(
+            UUID townId, UUID agentId, LocalDate from, LocalDate to, Boolean vendorAgentDelivery) {
         if (from == null || to == null || to.isBefore(from)) {
             throw new IllegalArgumentException("from and to are required (from <= to)");
         }
         Instant start = from.atStartOfDay(IST).toInstant();
         Instant end = to.plusDays(1).atStartOfDay(IST).toInstant();
-        List<Order> orders = orderRepository.findCodDeliveredByTownAndDeliveredAtBetween(townId, start, end);
-
+        List<Order> orders;
         boolean agentFilterApplied = false;
-        if (agentId != null && !orders.isEmpty()) {
-            FilterResult filtered = filterByDeliveringAgent(orders, agentId);
-            agentFilterApplied = filtered.applied();
-            orders = filtered.orders();
+        if (agentId != null) {
+            FilterResult agentScoped = listCodDeliveredForAgent(townId, agentId, start, end, vendorAgentDelivery);
+            orders = agentScoped.orders();
+            agentFilterApplied = agentScoped.applied();
+        } else {
+            orders = vendorAgentDelivery == null
+                    ? orderRepository.findCodDeliveredByTownAndDeliveredAtBetween(townId, start, end)
+                    : orderRepository.findCodDeliveredByTownAndDeliveredAtBetweenAndVendorAgentDelivery(
+                            townId, start, end, vendorAgentDelivery);
         }
 
         return CodDeliveredResponse.builder()
@@ -72,7 +85,7 @@ public class CodDeliveredService {
 
         boolean agentFilterApplied = false;
         if (agentId != null && !orders.isEmpty()) {
-            FilterResult filtered = filterByDeliveringAgent(orders, agentId);
+            FilterResult filtered = filterByDeliveringAgentBatch(orders, agentId);
             agentFilterApplied = filtered.applied();
             orders = filtered.orders();
         }
@@ -96,63 +109,53 @@ public class CodDeliveredService {
                 .toList();
     }
 
-    private FilterResult filterByDeliveringAgent(List<Order> orders, UUID agentId) {
-        boolean anyAssignmentData = false;
-        List<Order> matched = new java.util.ArrayList<>();
-        for (Order order : orders) {
-            UUID deliveringAgent = resolveDeliveringAgentId(order.getId());
-            if (deliveringAgent != null) {
-                anyAssignmentData = true;
-            }
-            if (agentId.equals(deliveringAgent)) {
-                matched.add(order);
-            }
+    private FilterResult listCodDeliveredForAgent(
+            UUID townId, UUID agentId, Instant start, Instant end, Boolean vendorAgentDelivery) {
+        List<UUID> orderIds = deliveryClient.listAgentCompletedDeliveryOrderIds(agentId, start, end);
+        if (orderIds.isEmpty()) {
+            return new FilterResult(List.of(), true);
         }
-        if (!anyAssignmentData) {
-            log.info("COD delivered agent filter skipped for town day — no delivery assignment data; returning town list");
+        List<Order> orders = orderRepository.findCodDeliveredByIds(orderIds).stream()
+                .filter(o -> townId.equals(o.getTownId()))
+                .filter(o -> o.getDeliveredAt() != null
+                        && !o.getDeliveredAt().isBefore(start)
+                        && o.getDeliveredAt().isBefore(end))
+                .filter(o -> vendorAgentDelivery == null || o.isVendorAgentDelivery() == vendorAgentDelivery)
+                .toList();
+        return new FilterResult(orders, true);
+    }
+
+    private FilterResult filterByDeliveringAgentBatch(List<Order> orders, UUID agentId) {
+        if (orders.isEmpty()) {
+            return new FilterResult(List.of(), false);
+        }
+        List<UUID> orderIds = orders.stream().map(Order::getId).toList();
+        java.util.Map<UUID, UUID> agentByOrder = resolveDeliveringAgentIds(orderIds);
+        if (agentByOrder.isEmpty()) {
+            log.info("COD delivered agent filter skipped — no delivery assignment data; returning town list");
             return new FilterResult(orders, false);
         }
+        List<Order> matched = orders.stream()
+                .filter(o -> agentId.equals(agentByOrder.get(o.getId())))
+                .toList();
         return new FilterResult(matched, true);
     }
 
-    /**
-     * Same delivering-agent rules as delivery payout legs (vendor-direct, else last-mile).
-     */
-    private UUID resolveDeliveringAgentId(UUID orderId) {
-        List<DeliveryClient.OrderAssignment> assignments = deliveryClient.getAssignmentsForOrder(orderId);
-        if (assignments == null || assignments.isEmpty()) {
-            return null;
+    private java.util.Map<UUID, UUID> resolveDeliveringAgentIds(List<UUID> orderIds) {
+        java.util.Map<UUID, UUID> map = new java.util.HashMap<>();
+        if (orderIds.isEmpty()) {
+            return map;
         }
-        DeliveryClient.OrderAssignment vendorDirect = latestCompleted(assignments, "VENDOR_DIRECT");
-        if (vendorDirect != null) {
-            return vendorDirect.agentId();
-        }
-        DeliveryClient.OrderAssignment lastMile = latestCompleted(assignments, "LAST_MILE");
-        return lastMile != null ? lastMile.agentId() : null;
-    }
-
-    private static DeliveryClient.OrderAssignment latestCompleted(
-            List<DeliveryClient.OrderAssignment> assignments, String legType) {
-        DeliveryClient.OrderAssignment best = null;
-        for (DeliveryClient.OrderAssignment a : assignments) {
-            if (!legType.equalsIgnoreCase(a.legType()) || !"COMPLETED".equalsIgnoreCase(a.status())) {
+        List<DeliveryClient.OrderLegs> legs = deliveryClient.resolveDeliveryLegs(orderIds);
+        for (var leg : legs) {
+            if (leg.orderId() == null || leg.agentId() == null) {
                 continue;
             }
-            if (best == null || completedAfter(a, best)) {
-                best = a;
+            if (leg.vendorDirectCompleted() || leg.lastMileCompleted()) {
+                map.put(leg.orderId(), leg.agentId());
             }
         }
-        return best;
-    }
-
-    private static boolean completedAfter(DeliveryClient.OrderAssignment a, DeliveryClient.OrderAssignment b) {
-        java.time.Instant at = a.completedAt() != null ? a.completedAt() : java.time.Instant.EPOCH;
-        java.time.Instant bt = b.completedAt() != null ? b.completedAt() : java.time.Instant.EPOCH;
-        return at.isAfter(bt);
-    }
-
-    private static boolean isHomeDeliveryLeg(String legType) {
-        return "LAST_MILE".equalsIgnoreCase(legType) || "VENDOR_DIRECT".equalsIgnoreCase(legType);
+        return map;
     }
 
     @Transactional(readOnly = true)
@@ -171,6 +174,7 @@ public class CodDeliveredService {
                 .orderNumber(order.getOrderNumber())
                 .totalAmount(OrderService.buyerPayableTotal(order))
                 .deliveredAt(order.getDeliveredAt())
+                .custodianType(order.isVendorAgentDelivery() ? "VENDOR" : "HUB")
                 .build();
     }
 

@@ -118,7 +118,51 @@ public class DeliveryClient {
             String agentType) {
     }
 
-    public record AgentSummary(UUID agentId, String name) {
+    public record AgentSummary(UUID agentId, String name, String phone) {
+    }
+
+    public String getHubDisplayName(UUID hubId) {
+        if (hubId == null) {
+            return null;
+        }
+        RestClient client = restClientBuilder.baseUrl(deliveryServiceProperties.getBaseUrl()).build();
+        try {
+            ApiResponse<HubSnapshot> response = client.get()
+                    .uri("/api/v1/internal/hubs/{hubId}", hubId)
+                    .retrieve()
+                    .body(new ParameterizedTypeReference<ApiResponse<HubSnapshot>>() {});
+            if (response == null || response.getData() == null) {
+                return null;
+            }
+            return response.getData().hubName();
+        } catch (RestClientResponseException ex) {
+            if (ex.getStatusCode().value() == 404) {
+                return null;
+            }
+            throw new BusinessException(ErrorCode.INTERNAL_ERROR, "Could not load hub name");
+        }
+    }
+
+    public String getAgentDisplayName(UUID agentId) {
+        if (agentId == null) {
+            return null;
+        }
+        RestClient client = restClientBuilder.baseUrl(deliveryServiceProperties.getBaseUrl()).build();
+        try {
+            ApiResponse<Map<String, String>> response = client.get()
+                    .uri("/api/v1/internal/agents/{agentId}/display-name", agentId)
+                    .retrieve()
+                    .body(new ParameterizedTypeReference<ApiResponse<Map<String, String>>>() {});
+            if (response == null || response.getData() == null) {
+                return null;
+            }
+            return response.getData().get("name");
+        } catch (RestClientResponseException ex) {
+            if (ex.getStatusCode().value() == 404) {
+                return null;
+            }
+            throw new BusinessException(ErrorCode.INTERNAL_ERROR, "Could not load agent name");
+        }
     }
 
     public List<AgentSummary> listHubAgents(UUID hubId) {
@@ -154,7 +198,10 @@ public class DeliveryClient {
     ) {
     }
 
-    public record HubAdminContext(UUID userId, UUID hubId, UUID townId) {
+    public record HubAdminContext(UUID userId, UUID hubId, UUID townId, String hubName) {
+    }
+
+    public record HubSnapshot(UUID hubId, String hubName, String phone) {
     }
 
     public record VerifyHubPinResult(boolean valid) {

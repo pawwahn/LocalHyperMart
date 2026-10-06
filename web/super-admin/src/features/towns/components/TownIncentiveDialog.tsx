@@ -1,7 +1,17 @@
-import { useEffect, useMemo, useState, type CSSProperties } from 'react';
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from 'react';
 import { createPortal } from 'react-dom';
 import { ApiError } from '@/shared/api/http';
-import { Banner, Button } from '@/shared/ui';
+import { APP_NAME } from '@hlm-brand';
+import { Banner, Button, Toast } from '@/shared/ui';
 import { AdminHistoryPanel, LastChangeStrip } from '@/shared/audit/AdminHistoryPanel';
 import {
   getTownPayoutConfig,
@@ -10,8 +20,22 @@ import {
   type PerOrderIncentive,
   type TownPayoutConfig,
   type FranchiseTerms,
+  istMonthStartIso,
 } from '../api/payoutApi';
 import type { TownVm } from '../api/townsApi';
+
+export type HubPaySettingsHandle = {
+  save: () => void;
+  startEdit: () => void;
+  cancel: () => void;
+};
+
+export type HubPayEmbeddedState = {
+  busy: boolean;
+  loading: boolean;
+  panel: 'edit' | 'log';
+  editing: boolean;
+};
 
 type Props = {
   town: TownVm;
@@ -20,6 +44,7 @@ type Props = {
   onSaved: (message: string) => void;
   /** Render inside Town Settings (no modal shell). */
   embedded?: boolean;
+  onEmbeddedState?: (state: HubPayEmbeddedState) => void;
   onOpenChangeLog?: () => void;
 };
 
@@ -63,10 +88,13 @@ function offRetainers(party: PayoutPartyConfig): PayoutPartyConfig {
 function applyHubPlan(party: PayoutPartyConfig, plan: HubPlan): PayoutPartyConfig {
   const franchiseOn = plan === 'FRANCHISE' || plan === 'BOTH';
   const perOrderOn = plan === 'PER_ORDER' || plan === 'BOTH';
+  const prevFr = party.franchise ?? { cadence: 'MONTHLY' as const, amount: 0, enabled: false };
+  const effectiveFrom =
+    franchiseOn && !prevFr.enabled ? istMonthStartIso() : franchiseOn ? (prevFr.effectiveFrom ?? null) : null;
   return offRetainers({
     ...party,
     enabled: plan !== 'NONE',
-    franchise: { ...(party.franchise ?? { cadence: 'MONTHLY', amount: 0, enabled: false }), enabled: franchiseOn },
+    franchise: { ...prevFr, enabled: franchiseOn, effectiveFrom: franchiseOn ? effectiveFrom : null },
     perOrder: { ...party.perOrder, enabled: perOrderOn },
   });
 }
@@ -76,7 +104,131 @@ function perOrderUnit(p: PerOrderIncentive): number {
   return Math.max(0, p.completedOrderAmount) + Math.max(0, p.pickupAmount) + Math.max(0, p.lastMileAmount);
 }
 
-export function TownIncentiveDialog({ town, token, onClose, onSaved, embedded, onOpenChangeLog }: Props) {
+function clonePayoutConfig(cfg: TownPayoutConfig): TownPayoutConfig {
+  return structuredClone(cfg);
+}
+
+/** Month input showed a default while state stayed null — persist billing start on load/save. */
+function ensureHubFranchiseBillingStart(party: PayoutPartyConfig): PayoutPartyConfig {
+  const fr = party.franchise;
+  if (!fr?.enabled) return party;
+  if (fr.effectiveFrom?.trim()) return party;
+  return { ...party, franchise: { ...fr, effectiveFrom: istMonthStartIso() } };
+}
+
+function withFranchiseBillingDefaults(cfg: TownPayoutConfig): TownPayoutConfig {
+  return { ...cfg, hub: ensureHubFranchiseBillingStart(cfg.hub) };
+}
+
+function hubPlanLabel(plan: HubPlan): string {
+  switch (plan) {
+    case 'FRANCHISE':
+      return 'Hub pays us';
+    case 'PER_ORDER':
+      return 'We pay per order';
+    case 'BOTH':
+      return 'Both';
+    default:
+      return 'Off';
+  }
+}
+
+function cadenceShort(c: string): string {
+  switch (c) {
+    case 'QUARTERLY':
+      return 'Every 3 months';
+    case 'YEARLY':
+      return 'Once a year';
+    case 'LIFETIME':
+      return 'Once forever';
+    default:
+      return 'Every month';
+  }
+}
+
+function HubPayReadOnlyView({ cfg }: { cfg: TownPayoutConfig }) {
+  const hubPlan = hubPlanOf(cfg.hub);
+  const fee = cfg.hub.franchise;
+  const agentOn = cfg.agent.enabled && cfg.agent.perOrder.enabled;
+
+  return (
+    <div className="hub-pay-readonly" style={styles.readonlyGrid}>
+      <section style={styles.card} className="hub-pay-card">
+        <h3 style={styles.sectionTitle}>Hub</h3>
+        <dl style={styles.viewList}>
+          <div style={styles.viewRow}>
+            <dt style={styles.viewLabel}>Model</dt>
+            <dd style={styles.viewValue}>{hubPlanLabel(hubPlan)}</dd>
+          </div>
+          {fee?.enabled ? (
+            <>
+              <div style={styles.viewRow}>
+                <dt style={styles.viewLabel}>How often hub pays us</dt>
+                <dd style={styles.viewValue}>{cadenceShort(fee.cadence ?? 'MONTHLY')}</dd>
+              </div>
+              <div style={styles.viewRow}>
+                <dt style={styles.viewLabel}>Hub pays ₹</dt>
+                <dd style={styles.viewValue}>{money(fee.amount)}</dd>
+              </div>
+            </>
+          ) : null}
+          {cfg.hub.enabled && cfg.hub.perOrder.enabled ? (
+            <>
+              <div style={styles.viewRow}>
+                <dt style={styles.viewLabel}>To customer</dt>
+                <dd style={styles.viewValue}>{money(cfg.hub.perOrder.completedOrderAmount)}</dd>
+              </div>
+              <div style={styles.viewRow}>
+                <dt style={styles.viewLabel}>Vendor → hub</dt>
+                <dd style={styles.viewValue}>{money(cfg.hub.perOrder.pickupAmount)}</dd>
+              </div>
+              <div style={styles.viewRow}>
+                <dt style={styles.viewLabel}>Return → shop</dt>
+                <dd style={styles.viewValue}>{money(cfg.hub.perOrder.lastMileAmount)}</dd>
+              </div>
+            </>
+          ) : null}
+        </dl>
+      </section>
+      <section style={styles.card} className="hub-pay-card">
+        <h3 style={styles.sectionTitle}>Agent</h3>
+        <dl style={styles.viewList}>
+          <div style={styles.viewRow}>
+            <dt style={styles.viewLabel}>Payouts from KoyaKart</dt>
+            <dd style={styles.viewValue}>{agentOn ? 'On' : 'Off'}</dd>
+          </div>
+          {agentOn ? (
+            <>
+              <div style={styles.viewRow}>
+                <dt style={styles.viewLabel}>To customer</dt>
+                <dd style={styles.viewValue}>{money(cfg.agent.perOrder.completedOrderAmount)}</dd>
+              </div>
+              <div style={styles.viewRow}>
+                <dt style={styles.viewLabel}>Vendor → hub</dt>
+                <dd style={styles.viewValue}>{money(cfg.agent.perOrder.pickupAmount)}</dd>
+              </div>
+              <div style={styles.viewRow}>
+                <dt style={styles.viewLabel}>Return → shop</dt>
+                <dd style={styles.viewValue}>{money(cfg.agent.perOrder.lastMileAmount)}</dd>
+              </div>
+            </>
+          ) : (
+            <p style={styles.hint}>Off — agents get ₹0 from Payouts.</p>
+          )}
+          <div style={styles.viewRow}>
+            <dt style={styles.viewLabel}>Hub can edit agent ₹</dt>
+            <dd style={styles.viewValue}>{cfg.townAdminCanEditAgentRates ? 'On' : 'Off'}</dd>
+          </div>
+        </dl>
+      </section>
+    </div>
+  );
+}
+
+export const TownIncentiveDialog = forwardRef<HubPaySettingsHandle, Props>(function TownIncentiveDialog(
+  { town, token, onClose, onSaved, embedded, onEmbeddedState, onOpenChangeLog },
+  ref,
+) {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -84,15 +236,25 @@ export function TownIncentiveDialog({ town, token, onClose, onSaved, embedded, o
   const [previewOrders, setPreviewOrders] = useState('40');
   const [historyTick, setHistoryTick] = useState(0);
   const [savedNotice, setSavedNotice] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ message: string; tone: 'success' | 'info'; brandName?: string } | null>(
+    null,
+  );
   const [panel, setPanel] = useState<'edit' | 'log'>('edit');
+  const [editing, setEditing] = useState(false);
+  const baselineRef = useRef<TownPayoutConfig | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setError(null);
+    setEditing(false);
     void getTownPayoutConfig(token, town.id)
       .then((data) => {
-        if (!cancelled) setCfg(data);
+        if (!cancelled) {
+          const normalized = withFranchiseBillingDefaults(data);
+          setCfg(normalized);
+          baselineRef.current = clonePayoutConfig(normalized);
+        }
       })
       .catch((err) => {
         if (!cancelled) {
@@ -121,6 +283,28 @@ export function TownIncentiveDialog({ town, token, onClose, onSaved, embedded, o
     };
   }, [busy, onClose, embedded]);
 
+  useEffect(() => {
+    if (!embedded || !onEmbeddedState) return;
+    onEmbeddedState({ busy, loading, panel, editing });
+  }, [embedded, onEmbeddedState, busy, loading, panel, editing]);
+
+  const cancelEdit = useCallback(() => {
+    if (baselineRef.current) {
+      setCfg(clonePayoutConfig(baselineRef.current));
+    }
+    setEditing(false);
+    setError(null);
+  }, []);
+
+  const startEdit = useCallback(() => {
+    if (cfg) {
+      baselineRef.current = clonePayoutConfig(cfg);
+    }
+    setPanel('edit');
+    setEditing(true);
+    setError(null);
+  }, [cfg]);
+
   const n = Math.max(0, Number(previewOrders) || 0);
   const math = useMemo(() => {
     if (!cfg) return null;
@@ -141,25 +325,55 @@ export function TownIncentiveDialog({ town, token, onClose, onSaved, embedded, o
     setCfg((prev) => (prev ? { ...prev, [side]: offRetainers(next) } : prev));
   }
 
-  async function onSave() {
-    if (!cfg) return;
+  const onSave = useCallback(async () => {
+    if (!cfg || !editing) return;
     setBusy(true);
     setError(null);
     try {
-      await saveTownPayoutConfig(token, town.id, {
+      const payload = withFranchiseBillingDefaults({
         ...cfg,
         hub: offRetainers(cfg.hub),
         agent: offRetainers(cfg.agent),
       });
-      setSavedNotice('Saved and logged.');
+      await saveTownPayoutConfig(token, town.id, payload);
+      setSavedNotice(null);
+      setToast({ message: 'Saved successfully', tone: 'success', brandName: APP_NAME });
       setHistoryTick((n) => n + 1);
-      setPanel('log');
+      baselineRef.current = clonePayoutConfig(payload);
+      setEditing(false);
+      if (!embedded) {
+        setPanel('log');
+      }
       onSaved(`Pay rules saved for ${town.displayName}`);
     } catch (err) {
       setError(err instanceof ApiError || err instanceof Error ? err.message : 'Save failed');
     } finally {
       setBusy(false);
     }
+  }, [cfg, editing, embedded, onSaved, token, town.id]);
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      save: () => void onSave(),
+      startEdit,
+      cancel: cancelEdit,
+    }),
+    [cancelEdit, onSave, startEdit],
+  );
+
+  function openChangeLog() {
+    if (editing) {
+      cancelEdit();
+    }
+    setPanel('log');
+  }
+
+  function openPayRules() {
+    if (editing) {
+      cancelEdit();
+    }
+    setPanel('edit');
   }
 
   const inner = (
@@ -173,6 +387,29 @@ export function TownIncentiveDialog({ town, token, onClose, onSaved, embedded, o
         <style>{`
           @media (max-width: 640px) {
             .pay-row3, .pay-math-grid { grid-template-columns: 1fr 1fr !important; }
+          }
+          .hub-pay-embedded-body .hub-pay-card {
+            padding: 0.45rem 0.55rem;
+          }
+          .hub-pay-embedded-body .hub-pay-math {
+            padding: 0.45rem 0.55rem;
+          }
+          @media (min-width: 720px) {
+            .hub-pay-embedded-grid {
+              display: grid;
+              grid-template-columns: 1fr 1fr;
+              gap: 0.4rem;
+              align-items: start;
+            }
+            .hub-pay-embedded-grid .hub-pay-math {
+              grid-column: 1 / -1;
+            }
+            .hub-pay-embedded-grid .hub-pay-readonly {
+              grid-column: 1 / -1;
+              display: grid;
+              grid-template-columns: 1fr 1fr;
+              gap: 0.4rem;
+            }
           }
         `}</style>
         {!embedded ? (
@@ -188,14 +425,14 @@ export function TownIncentiveDialog({ town, token, onClose, onSaved, embedded, o
                 <button
                   type="button"
                   style={panel === 'edit' ? styles.viewTabActive : styles.viewTab}
-                  onClick={() => setPanel('edit')}
+                  onClick={() => openPayRules()}
                 >
-                  Edit
+                  Pay rules
                 </button>
                 <button
                   type="button"
                   style={panel === 'log' ? styles.viewTabActive : styles.viewTab}
-                  onClick={() => setPanel('log')}
+                  onClick={() => openChangeLog()}
                 >
                   Change log
                 </button>
@@ -206,43 +443,67 @@ export function TownIncentiveDialog({ town, token, onClose, onSaved, embedded, o
             </div>
           </div>
         ) : (
-          <p style={styles.subEmbed}>Rules only. Cash is marked on Payouts → Hub / Agent.</p>
+          <div style={styles.embedHead}>
+            <p style={styles.subEmbed}>Rules only. Cash is marked on Payouts → Hub / Agent.</p>
+            <div style={styles.viewTabs}>
+              <button
+                type="button"
+                style={panel === 'edit' ? styles.viewTabActive : styles.viewTab}
+                onClick={() => openPayRules()}
+              >
+                Pay rules
+              </button>
+              <button
+                type="button"
+                style={panel === 'log' ? styles.viewTabActive : styles.viewTab}
+                onClick={() => openChangeLog()}
+              >
+                Change log
+              </button>
+            </div>
+          </div>
         )}
 
         {error ? <Banner tone="danger">{error}</Banner> : null}
         {savedNotice ? <Banner tone="success">{savedNotice}</Banner> : null}
-        {(panel === 'edit' || embedded) && token ? (
+        {panel === 'edit' && token && !editing ? (
           <div style={{ padding: embedded ? 0 : '0 0.85rem' }}>
             <LastChangeStrip
               token={token}
               screen="town-incentives"
               townId={town.id}
               refreshTick={historyTick}
-              onSeeAll={() => (embedded ? onOpenChangeLog?.() : setPanel('log'))}
+              onSeeAll={() => openChangeLog()}
             />
           </div>
         ) : null}
 
-        {panel === 'edit' || embedded ? (
+        {panel === 'edit' ? (
         <>
-        <div style={styles.body}>
+        <div style={embedded ? styles.bodyEmbedded : styles.body} className={embedded ? 'hub-pay-embedded-body' : undefined}>
           {loading || !cfg ? (
             <p style={styles.muted}>Loading…</p>
           ) : (
-            <>
-              <HubCard party={cfg.hub} onChange={(next) => patch('hub', next)} />
-              <AgentCard
-                party={cfg.agent}
-                townAdminCanEdit={cfg.townAdminCanEditAgentRates}
-                onChange={(next) => patch('agent', next)}
-                onToggleTownAdmin={() =>
-                  setCfg((prev) =>
-                    prev ? { ...prev, townAdminCanEditAgentRates: !prev.townAdminCanEditAgentRates } : prev,
-                  )
-                }
-              />
+            <div className={embedded ? 'hub-pay-embedded-grid' : undefined}>
+              {editing ? (
+                <>
+                  <HubCard party={cfg.hub} onChange={(next) => patch('hub', next)} />
+                  <AgentCard
+                    party={cfg.agent}
+                    townAdminCanEdit={cfg.townAdminCanEditAgentRates}
+                    onChange={(next) => patch('agent', next)}
+                    onToggleTownAdmin={() =>
+                      setCfg((prev) =>
+                        prev ? { ...prev, townAdminCanEditAgentRates: !prev.townAdminCanEditAgentRates } : prev,
+                      )
+                    }
+                  />
+                </>
+              ) : (
+                <HubPayReadOnlyView cfg={cfg} />
+              )}
 
-              <section style={styles.math}>
+              <section style={styles.math} className="hub-pay-math">
                 <div style={styles.mathHead}>
                   <strong style={styles.blockTitle}>If {n} orders are delivered</strong>
                   <label style={styles.ordersLabel}>
@@ -251,6 +512,7 @@ export function TownIncentiveDialog({ town, token, onClose, onSaved, embedded, o
                       style={styles.ordersInput}
                       inputMode="numeric"
                       value={previewOrders}
+                      disabled={!editing}
                       onChange={(e) => setPreviewOrders(e.target.value.replace(/[^\d]/g, '').slice(0, 6))}
                     />
                   </label>
@@ -281,30 +543,45 @@ export function TownIncentiveDialog({ town, token, onClose, onSaved, embedded, o
                   Cancelled / not delivered = ₹0. Same order is never paid twice to the same hub or agent.
                 </p>
               </section>
-            </>
+            </div>
           )}
         </div>
 
-        <div style={styles.footer}>
-          {!embedded ? (
-            <Button variant="ghost" disabled={busy} onClick={onClose}>
-              Close
-            </Button>
-          ) : null}
-          <Button disabled={busy || !cfg} onClick={() => void onSave()}>
-            {busy ? 'Saving…' : 'Save'}
-          </Button>
-        </div>
+        {!embedded ? (
+          <div style={styles.footer}>
+            {editing ? (
+              <>
+                <Button variant="ghost" disabled={busy} onClick={cancelEdit}>
+                  Cancel
+                </Button>
+                <Button disabled={busy || !cfg} onClick={() => void onSave()}>
+                  {busy ? 'Saving…' : 'Save'}
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button variant="ghost" disabled={busy} onClick={onClose}>
+                  Close
+                </Button>
+                <Button disabled={loading || !cfg} onClick={startEdit}>
+                  Edit
+                </Button>
+              </>
+            )}
+          </div>
+        ) : null}
         </>
-        ) : !embedded && token ? (
-          <div style={{ padding: '0 0.85rem 0.75rem', minHeight: 0, display: 'grid' }}>
+        ) : token ? (
+          <div style={{ padding: embedded ? 0 : '0 0.85rem 0.75rem', display: 'grid' }}>
             <AdminHistoryPanel
               token={token}
               screen="town-incentives"
               townId={town.id}
               title="Change log"
               embedded
-              tall
+              compact
+              inlineScroll={!embedded}
+              tall={!embedded}
               refreshTick={historyTick}
             />
           </div>
@@ -312,21 +589,42 @@ export function TownIncentiveDialog({ town, token, onClose, onSaved, embedded, o
       </div>
   );
 
-  if (embedded) return inner;
+  const toastUi = (
+    <Toast
+      open={Boolean(toast)}
+      message={toast?.message ?? ''}
+      brandName={toast?.brandName}
+      tone={toast?.tone ?? 'success'}
+      placement="center"
+      onClose={() => setToast(null)}
+    />
+  );
+
+  if (embedded) {
+    return (
+      <>
+        {inner}
+        {toastUi}
+      </>
+    );
+  }
 
   return createPortal(
-    <div
-      style={styles.overlay}
-      role="presentation"
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget && !busy) onClose();
-      }}
-    >
-      {inner}
-    </div>,
+    <>
+      <div
+        style={styles.overlay}
+        role="presentation"
+        onMouseDown={(e) => {
+          if (e.target === e.currentTarget && !busy) onClose();
+        }}
+      >
+        {inner}
+      </div>
+      {toastUi}
+    </>,
     document.body,
   );
-}
+});
 
 function HubCard({
   party,
@@ -341,7 +639,7 @@ function HubCard({
   const showPerOrder = plan === 'PER_ORDER' || plan === 'BOTH';
 
   return (
-    <section style={styles.card}>
+    <section style={styles.card} className="hub-pay-card">
       <h3 style={styles.sectionTitle}>Hub</h3>
       <PillRow
         value={plan}
@@ -379,6 +677,21 @@ function HubCard({
             value={fee.amount}
             onChange={(n) => onChange({ ...party, franchise: { ...fee, enabled: true, amount: n } })}
           />
+          <label style={styles.monthField}>
+            Billing starts (month)
+            <input
+              type="month"
+              value={(fee.effectiveFrom ?? istMonthStartIso()).slice(0, 7)}
+              onChange={(e) => {
+                const ym = e.target.value;
+                onChange({
+                  ...party,
+                  franchise: { ...fee, enabled: true, effectiveFrom: ym ? `${ym}-01` : null },
+                });
+              }}
+              style={styles.monthInput}
+            />
+          </label>
         </div>
       ) : null}
 
@@ -405,7 +718,7 @@ function AgentCard({
 }) {
   const on = party.enabled && party.perOrder.enabled;
   return (
-    <section style={styles.card}>
+    <section style={styles.card} className="hub-pay-card">
       <div style={styles.switchRow}>
         <h3 style={styles.sectionTitle}>Agent</h3>
         <OnOff
@@ -538,10 +851,23 @@ const styles: Record<string, CSSProperties> = {
   embedded: {
     display: 'flex',
     flexDirection: 'column',
-    minHeight: 0,
-    gap: '0.5rem',
+    gap: '0.4rem',
+    flex: '0 0 auto',
   },
-  subEmbed: { margin: 0, fontSize: '0.82rem', color: 'var(--text-muted)', lineHeight: 1.4 },
+  embedHead: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: '0.45rem',
+  },
+  subEmbed: { margin: 0, fontSize: '0.78rem', color: 'var(--text-muted)', lineHeight: 1.35, flex: '1 1 12rem' },
+  bodyEmbedded: {
+    padding: 0,
+    display: 'grid',
+    gap: '0.4rem',
+    flex: '0 0 auto',
+  },
   headRight: { display: 'flex', alignItems: 'center', gap: '0.4rem', flexShrink: 0 },
   viewTabs: {
     display: 'flex',
@@ -630,6 +956,22 @@ const styles: Record<string, CSSProperties> = {
   },
   moneyLabel: { display: 'grid', gap: 2, minWidth: 0 },
   miniLabel: { fontSize: '0.68rem', fontWeight: 700, color: 'var(--text-muted)' },
+  monthField: {
+    display: 'grid',
+    gap: '0.2rem',
+    fontSize: '0.68rem',
+    fontWeight: 700,
+    color: 'var(--text-muted)',
+    gridColumn: '1 / -1',
+  },
+  monthInput: {
+    font: 'inherit',
+    fontSize: '0.78rem',
+    padding: '0.35rem 0.45rem',
+    borderRadius: 8,
+    border: '1px solid var(--border)',
+    maxWidth: '11rem',
+  },
   dealField: {
     display: 'flex',
     alignItems: 'center',
@@ -712,4 +1054,18 @@ const styles: Record<string, CSSProperties> = {
     background: 'var(--bg-elevated)',
     color: 'var(--text)',
   },
+  readonlyGrid: {
+    display: 'grid',
+    gap: '0.4rem',
+    gridColumn: '1 / -1',
+  },
+  viewList: { margin: 0, display: 'grid', gap: '0.4rem' },
+  viewRow: {
+    display: 'grid',
+    gridTemplateColumns: 'minmax(0, 1fr) auto',
+    gap: '0.65rem',
+    alignItems: 'baseline',
+  },
+  viewLabel: { margin: 0, fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 600 },
+  viewValue: { margin: 0, fontSize: '0.85rem', fontWeight: 800, textAlign: 'right' },
 };

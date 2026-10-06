@@ -5,6 +5,7 @@ import { Banner, Button, TextField } from '@/shared/ui';
 import { useAuthForms } from '../hooks/useAuthForms';
 import { useTown } from '@/shared/town/TownContext';
 import { TownPickerSheet } from '@/features/towns/components/TownPickerSheet';
+import { BrandMark } from '@hlm-brand';
 import { APP_NAME } from '@/shared/brand';
 
 const HERO_CHIPS = ['Kirana', 'Fresh', 'Pharmacy', 'Home'];
@@ -130,9 +131,7 @@ export function LoginPage() {
           <div style={styles.orbA} aria-hidden />
           <div style={styles.orbB} aria-hidden />
           <div style={styles.heroTop}>
-            <p className="hlm-login-brand" style={styles.brand}>
-              {APP_NAME}
-            </p>
+            <BrandMark variant="login" fallbackName={APP_NAME} className="hlm-login-brand" style={styles.brand} />
             <span style={styles.heroChip}>Same-day</span>
           </div>
           <p style={styles.heroKicker}>Not just groceries</p>

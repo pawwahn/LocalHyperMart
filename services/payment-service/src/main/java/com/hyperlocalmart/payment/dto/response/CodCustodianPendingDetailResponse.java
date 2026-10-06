@@ -41,6 +41,7 @@ public class CodCustodianPendingDetailResponse {
     public static class AgentBucket {
         UUID agentId;
         String agentName;
+        String agentPhone;
         BigDecimal stillWithAgentAmount;
         int stillWithAgentOrderCount;
         BigDecimal declaredAwaitingAmount;
@@ -64,6 +65,7 @@ public class CodCustodianPendingDetailResponse {
         UUID handoverId;
         UUID agentId;
         String agentName;
+        String agentPhone;
         String handoverDate;
         BigDecimal declaredAmount;
         List<OrderRow> lines;

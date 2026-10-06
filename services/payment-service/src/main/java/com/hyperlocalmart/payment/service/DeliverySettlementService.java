@@ -14,7 +14,11 @@ import com.hyperlocalmart.payment.entity.SettlementDirection;
 import com.hyperlocalmart.payment.entity.SettlementLineItem;
 import com.hyperlocalmart.payment.entity.SettlementPayeeType;
 import com.hyperlocalmart.payment.entity.SettlementPeriodType;
+import com.hyperlocalmart.payment.entity.HubPlatformPaymentLineType;
+import com.hyperlocalmart.payment.entity.HubPlatformPaymentSubmissionStatus;
 import com.hyperlocalmart.payment.entity.SettlementStatus;
+import com.hyperlocalmart.payment.repository.HubPaymentRequestRepository;
+import com.hyperlocalmart.payment.repository.HubPlatformPaymentSubmissionLineRepository;
 import com.hyperlocalmart.payment.repository.SettlementLineItemRepository;
 import com.hyperlocalmart.payment.repository.SettlementRepository;
 import lombok.RequiredArgsConstructor;
@@ -24,6 +28,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
+import java.time.YearMonth;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -46,6 +51,8 @@ public class DeliverySettlementService {
     private final SettlementRepository settlementRepository;
     private final SettlementLineItemRepository settlementLineItemRepository;
     private final SettlementService settlementService;
+    private final HubPlatformPaymentSubmissionLineRepository hubPaymentSubmissionLineRepository;
+    private final HubPaymentRequestRepository hubPaymentRequestRepository;
 
     /** Town and order lookups stay outside a DB transaction so a slow call cannot pin the pool. */
     public DeliverySettlementCandidateView listCandidates(
@@ -468,6 +475,29 @@ public class DeliverySettlementService {
         }
         String cadence = hub.franchise().cadence() == null ? "MONTHLY" : hub.franchise().cadence().toUpperCase(Locale.ROOT);
         LocalDate[] window = franchiseWindow(cadence, from, to);
+        LocalDate billingStart = resolveFranchiseBillingStart(hubId, hub.franchise().effectiveFrom());
+        if (billingStart == null) {
+            return DeliverySettlementCandidateView.FranchiseDue.builder()
+                    .enabled(false)
+                    .cadence(cadence)
+                    .amount(BigDecimal.ZERO)
+                    .periodStart(window[0].toString())
+                    .periodEnd(window[1].toString())
+                    .alreadyCollected(false)
+                    .label("Set franchise billing start in Town → Pay rules")
+                    .build();
+        }
+        if (!franchisePeriodEligible(window[0], billingStart)) {
+            return DeliverySettlementCandidateView.FranchiseDue.builder()
+                    .enabled(false)
+                    .cadence(cadence)
+                    .amount(scale(hub.franchise().amount()))
+                    .periodStart(window[0].toString())
+                    .periodEnd(window[1].toString())
+                    .alreadyCollected(false)
+                    .label("Franchise billing starts " + YearMonth.from(billingStart))
+                    .build();
+        }
         boolean collected;
         if ("LIFETIME".equals(cadence)) {
             collected = !settlementRepository.findAnyFranchiseCollections(
@@ -475,6 +505,14 @@ public class DeliverySettlementService {
         } else {
             collected = !settlementRepository.findFranchiseCollections(
                     SettlementPayeeType.HUB, hubId, window[0], window[1], BLOCKING).isEmpty();
+            if (!collected) {
+                collected = hubPaymentSubmissionLineRepository.existsVerifiedFranchiseForPeriod(
+                        hubId,
+                        HubPlatformPaymentSubmissionStatus.VERIFIED,
+                        HubPlatformPaymentLineType.FRANCHISE_FEE,
+                        window[0],
+                        window[1]);
+            }
         }
         BigDecimal amount = hub.franchise().amount() == null ? BigDecimal.ZERO : hub.franchise().amount();
         return DeliverySettlementCandidateView.FranchiseDue.builder()
@@ -486,6 +524,32 @@ public class DeliverySettlementService {
                 .alreadyCollected(collected)
                 .label(franchiseLabel(cadence, window[0], window[1], amount))
                 .build();
+    }
+
+    private LocalDate resolveFranchiseBillingStart(UUID hubId, String configuredEffectiveFrom) {
+        if (configuredEffectiveFrom != null && !configuredEffectiveFrom.isBlank()) {
+            try {
+                return LocalDate.parse(configuredEffectiveFrom.trim()).withDayOfMonth(1);
+            } catch (Exception ignored) {
+                return null;
+            }
+        }
+        LocalDate earliestBill = hubPaymentRequestRepository.findEarliestFranchiseBillStart(hubId);
+        if (earliestBill != null) {
+            return earliestBill.withDayOfMonth(1);
+        }
+        return null;
+    }
+
+    private static boolean franchisePeriodEligible(LocalDate periodStart, LocalDate billingStart) {
+        return !YearMonth.from(periodStart).isBefore(YearMonth.from(billingStart));
+    }
+
+    private static BigDecimal scale(BigDecimal amount) {
+        if (amount == null) {
+            return BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+        }
+        return amount.setScale(2, RoundingMode.HALF_UP);
     }
 
     private static LocalDate[] franchiseWindow(String cadence, LocalDate from, LocalDate to) {
@@ -509,7 +573,7 @@ public class DeliverySettlementService {
     }
 
     private static String franchiseLabel(String cadence, LocalDate start, LocalDate end, BigDecimal amount) {
-        return "Franchise " + cadence.toLowerCase(Locale.ROOT) + " " + start + "–" + end + " · ₹" + amount;
+        return "Franchise " + cadence.toLowerCase(Locale.ROOT) + " " + start + " → " + end + " · ₹" + amount;
     }
 
     private static SettlementPeriodType franchisePeriodType(String cadence) {

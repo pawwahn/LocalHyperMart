@@ -23,6 +23,8 @@ export type PlatformSettingsVm = {
   supplierAddress: string;
   supplierState: string;
   supplierGstStateCode: string;
+  brandLogoUrl?: string;
+  brandLogoMediaId?: string;
   membershipEnabled?: boolean;
   membershipQuarterlyPrice?: number;
   membershipQuarterlyCredits?: number;
@@ -74,11 +76,13 @@ function mapSettings(data: SettingsDto): PlatformSettingsVm {
     supportPhone: asString(data.supportPhone),
     deliveryFee: asNumber(data.deliveryFee, 40),
     vendorOrderAlertMessage: asString(data.vendorOrderAlertMessage, 'Order received'),
-    supplierLegalName: asString(data.supplierLegalName, 'KoYaKart') || 'KoYaKart',
+    supplierLegalName: asString(data.supplierLegalName, 'KoyaKart') || 'KoyaKart',
     supplierGstin: asString(data.supplierGstin).toUpperCase(),
     supplierAddress: asString(data.supplierAddress),
     supplierState: asString(data.supplierState),
     supplierGstStateCode: asString(data.supplierGstStateCode),
+    brandLogoUrl: asString(data.brandLogoUrl),
+    brandLogoMediaId: asString(data.brandLogoMediaId),
     membershipEnabled: asBool(data.membershipEnabled, false),
     membershipQuarterlyPrice: asNumber(data.membershipQuarterlyPrice, 0),
     membershipQuarterlyCredits: asNumber(data.membershipQuarterlyCredits, 0),
@@ -94,7 +98,7 @@ function mapSettings(data: SettingsDto): PlatformSettingsVm {
     referralShareBaseUrl: asString(data.referralShareBaseUrl),
     referralShareMessageTemplate: asString(
       data.referralShareMessageTemplate,
-      'Order groceries from local shops on KoYaKart. Use my code {code}: {link}',
+      'Order groceries from local shops on KoyaKart. Use my code {code}: {link}',
     ),
   };
 }
@@ -114,6 +118,37 @@ export async function patchPlatformSettings(
     body: patch,
   });
   return mapSettings(data ?? {});
+}
+
+export type UploadedBrandLogo = {
+  mediaId: string;
+  url: string;
+};
+
+export async function uploadPlatformBrandLogo(token: string, file: File): Promise<UploadedBrandLogo> {
+  const form = new FormData();
+  form.append('file', file);
+  form.append('context', 'PLATFORM_BRAND');
+  let response: Response;
+  try {
+    response = await fetch('/api/v1/media/upload', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+      body: form,
+    });
+  } catch {
+    throw new Error('Cannot reach media service. Is it running?');
+  }
+  let payload: { success?: boolean; message?: string; data?: UploadedBrandLogo } = {};
+  try {
+    payload = (await response.json()) as typeof payload;
+  } catch {
+    /* ignore */
+  }
+  if (!response.ok || !payload.data?.mediaId || !payload.data?.url) {
+    throw new Error(payload.message || 'Logo upload failed');
+  }
+  return payload.data;
 }
 
 export async function resetLegalDefaults(token: string): Promise<PlatformSettingsVm> {

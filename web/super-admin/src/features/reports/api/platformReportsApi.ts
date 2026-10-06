@@ -36,6 +36,7 @@ export type PlatformReport = {
   codGmv: number;
   onlineGmv: number;
   platformFees: number;
+  deliveryFeesCollected: number;
   promoDiscounts: number;
   averageOrderValue: number;
   deliveryRate: number;

@@ -83,6 +83,59 @@ function writeCartDraft(userId: string, townId: string, lines: CartDraftLine[]):
   }
 }
 
+function sameListingId(a: string, b: string): boolean {
+  return a.replace(/-/g, '').toLowerCase() === b.replace(/-/g, '').toLowerCase();
+}
+
+type AddressSelectionSnapshot = {
+  id: string;
+  label?: string;
+  line1: string;
+  recipientName?: string;
+  recipientPhone?: string;
+  line2?: string;
+  landmark?: string;
+  pincode?: string;
+};
+
+function addressSelectionKey(userId: string, townId: string): string {
+  return `hlm.address.selected.${userId}.${townId}`;
+}
+
+function readAddressSelection(userId: string, townId: string): AddressSelectionSnapshot | null {
+  try {
+    const raw = sessionStorage.getItem(addressSelectionKey(userId, townId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as AddressSelectionSnapshot;
+    return parsed?.id ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeAddressSelection(userId: string, townId: string, snap: AddressSelectionSnapshot | null): void {
+  try {
+    const key = addressSelectionKey(userId, townId);
+    if (!snap?.id) sessionStorage.removeItem(key);
+    else sessionStorage.setItem(key, JSON.stringify(snap));
+  } catch {
+    /* ignore */
+  }
+}
+
+function snapshotFromAddress(a: AddressDto): AddressSelectionSnapshot {
+  return {
+    id: a.id,
+    label: a.label,
+    line1: a.line1,
+    recipientName: a.recipientName,
+    recipientPhone: a.recipientPhone,
+    line2: a.line2,
+    landmark: a.landmark,
+    pincode: a.pincode,
+  };
+}
+
 function useShopState() {
   const { session } = useAuth();
   const { townId, townLabel, hasTown, openPicker, switchNotice, clearSwitchNotice } = useTown();
@@ -90,7 +143,42 @@ function useShopState() {
   const [cart, setCart] = useState<CartView | null>(null);
   const [addresses, setAddresses] = useState<AddressDto[]>([]);
   const [orders, setOrders] = useState<OrderSummaryDto[]>([]);
-  const [selectedAddressId, setSelectedAddressId] = useState<string>('');
+  const [selectedAddressId, setSelectedAddressIdState] = useState<string>('');
+  const [addressSelectionSnap, setAddressSelectionSnap] = useState<AddressSelectionSnapshot | null>(
+    null,
+  );
+
+  const setSelectedAddressId = useCallback(
+    (idOrFn: string | ((prev: string) => string)) => {
+      setSelectedAddressIdState((prev) =>
+        typeof idOrFn === 'function' ? idOrFn(prev) : idOrFn,
+      );
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (!session?.userId || !townId) {
+      setAddressSelectionSnap(null);
+      return;
+    }
+    if (!selectedAddressId) {
+      setAddressSelectionSnap(null);
+      writeAddressSelection(session.userId, townId, null);
+      return;
+    }
+    const match = addresses.find((a) => a.id === selectedAddressId);
+    if (match) {
+      const snap = snapshotFromAddress(match);
+      setAddressSelectionSnap(snap);
+      writeAddressSelection(session.userId, townId, snap);
+      return;
+    }
+    const saved = readAddressSelection(session.userId, townId);
+    if (saved?.id === selectedAddressId) {
+      setAddressSelectionSnap(saved);
+    }
+  }, [selectedAddressId, addresses, session?.userId, townId]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [busyKey, setBusyKey] = useState<string | null>(null);
@@ -127,19 +215,14 @@ function useShopState() {
     clearSwitchNotice();
   }, [switchNotice, clearSwitchNotice]);
 
-  const qtyByListingId = useMemo(() => {
-    const map = new Map<string, CartLineView>();
-    for (const line of cart?.items ?? []) {
-      map.set(line.listingId, line);
-    }
-    return map;
-  }, [cart]);
-
   function quantityFor(listingId: string): number {
-    if (desiredQtyRef.current.has(listingId)) {
-      return desiredQtyRef.current.get(listingId) ?? 0;
+    for (const [id, qty] of desiredQtyRef.current.entries()) {
+      if (sameListingId(id, listingId)) return qty;
     }
-    return qtyByListingId.get(listingId)?.quantity ?? 0;
+    for (const line of cart?.items ?? []) {
+      if (sameListingId(line.listingId, listingId)) return line.quantity;
+    }
+    return 0;
   }
 
   function moneyLabel(v: number): string {
@@ -195,9 +278,68 @@ function useShopState() {
       return;
     }
     serverCartRef.current = next;
-    cartRef.current = next;
-    setCart(next);
-    persistCartDraft(next);
+    const previousItems = local?.items ?? cartRef.current?.items ?? [];
+    let merged = mergePendingDesiredQuantities(next);
+    merged = {
+      ...merged,
+      items: orderCartItems(previousItems, merged.items),
+    };
+    cartRef.current = merged;
+    setCart(merged);
+    persistCartDraft(merged);
+  }
+
+  function orderCartItems(previous: CartLineView[], next: CartLineView[]): CartLineView[] {
+    if (previous.length === 0) return next;
+    const used = new Set<string>();
+    const ordered: CartLineView[] = [];
+    for (const prev of previous) {
+      const match = next.find(
+        (line) => !used.has(line.itemId) && sameListingId(line.listingId, prev.listingId),
+      );
+      if (match) {
+        ordered.push(match);
+        used.add(match.itemId);
+      }
+    }
+    for (const line of next) {
+      if (!used.has(line.itemId)) {
+        ordered.push(line);
+        used.add(line.itemId);
+      }
+    }
+    return ordered;
+  }
+
+  function findRealCartLine(listingId: string): CartLineView | undefined {
+    return (
+      serverCartRef.current?.items.find(
+        (i) => sameListingId(i.listingId, listingId) && !i.itemId.startsWith('optimistic-'),
+      ) ??
+      cartRef.current?.items.find(
+        (i) => sameListingId(i.listingId, listingId) && !i.itemId.startsWith('optimistic-'),
+      )
+    );
+  }
+
+  function desiredQtyEntry(listingId: string): [string, number] | undefined {
+    for (const [id, qty] of desiredQtyRef.current.entries()) {
+      if (sameListingId(id, listingId)) return [id, qty];
+    }
+    return undefined;
+  }
+
+  function setDesiredQty(listingId: string, qty: number) {
+    for (const id of [...desiredQtyRef.current.keys()]) {
+      if (sameListingId(id, listingId)) desiredQtyRef.current.delete(id);
+    }
+    desiredQtyRef.current.set(listingId, qty);
+  }
+
+  function clearDesiredQty(listingId: string) {
+    for (const id of [...desiredQtyRef.current.keys()]) {
+      if (sameListingId(id, listingId)) desiredQtyRef.current.delete(id);
+    }
   }
 
   function resetCartState() {
@@ -207,100 +349,116 @@ function useShopState() {
     setCart(null);
   }
 
-  function patchLocalQuantity(listingId: string, nextQty: number) {
-    desiredQtyRef.current.set(listingId, nextQty);
-    setCart((prev) => {
-      const base = prev ?? emptyCartView();
-      const catalog = itemsRef.current.find((i) => i.listingId === listingId);
-      const existing = base.items.find((i) => i.listingId === listingId);
-      let items: CartLineView[];
+  function cartViewWithLineQuantity(base: CartView, listingId: string, nextQty: number): CartView {
+    const catalog = itemsRef.current.find((i) => sameListingId(i.listingId, listingId));
+    const existing = base.items.find((i) => sameListingId(i.listingId, listingId));
+    let items: CartLineView[];
 
-      if (nextQty <= 0) {
-        items = base.items.filter((i) => i.listingId !== listingId);
-      } else if (existing) {
-        const unitFromLine =
-          existing.quantity > 0
-            ? Number(existing.lineLabel.replace(/[^\d.]/g, '') || 0) / existing.quantity
+    if (nextQty <= 0) {
+      items = base.items.filter((i) => !sameListingId(i.listingId, listingId));
+    } else if (existing) {
+      const unitFromLine =
+        existing.quantity > 0
+          ? Number(existing.lineLabel.replace(/[^\d.]/g, '') || 0) / existing.quantity
+          : 0;
+      const unitPrice =
+        catalog?.price && catalog.price > 0
+          ? catalog.price
+          : Number.isFinite(unitFromLine) && unitFromLine > 0
+            ? unitFromLine
             : 0;
-        const unitPrice =
-          catalog?.price && catalog.price > 0
-            ? catalog.price
-            : Number.isFinite(unitFromLine) && unitFromLine > 0
-              ? unitFromLine
-              : 0;
-        items = base.items.map((i) =>
-          i.listingId === listingId
-            ? {
-                ...i,
-                quantity: nextQty,
-                lineLabel: moneyLabel(unitPrice * nextQty),
-              }
-            : i,
-        );
-      } else {
-        items = [
-          ...base.items,
-          {
-            itemId: `optimistic-${listingId}`,
-            listingId,
-            name: catalog?.name ?? 'Item',
-            shopName: catalog?.shopName ?? '',
-            quantity: nextQty,
-            lineLabel: moneyLabel((catalog?.price ?? 0) * nextQty),
-          },
-        ];
+      items = base.items.map((i) =>
+        sameListingId(i.listingId, listingId)
+          ? {
+              ...i,
+              quantity: nextQty,
+              lineLabel: moneyLabel(unitPrice * nextQty),
+            }
+          : i,
+      );
+    } else {
+      items = [
+        ...base.items,
+        {
+          itemId: `optimistic-${listingId}`,
+          listingId,
+          name: catalog?.name ?? 'Item',
+          shopName: catalog?.shopName ?? '',
+          quantity: nextQty,
+          lineLabel: moneyLabel((catalog?.price ?? 0) * nextQty),
+        },
+      ];
+    }
+
+    const itemCount = items.reduce((sum, i) => sum + i.quantity, 0);
+    const approxSubtotal = items.reduce((sum, i) => {
+      const n = Number(i.lineLabel.replace(/[^\d.]/g, '') || 0);
+      return sum + (Number.isFinite(n) ? n : 0);
+    }, 0);
+
+    const payableSubtotal = Math.max(0, approxSubtotal - (base.promoDiscount ?? 0));
+    return {
+      ...base,
+      items,
+      itemCount,
+      subtotalLabel: moneyLabel(approxSubtotal),
+      payableSubtotal,
+      payableLabel: moneyLabel(payableSubtotal),
+      minOrderMet: true,
+    };
+  }
+
+  function mergePendingDesiredQuantities(serverCart: CartView): CartView {
+    let view = serverCart;
+    for (const [listingId, desired] of desiredQtyRef.current.entries()) {
+      const line = view.items.find((i) => sameListingId(i.listingId, listingId));
+      const serverQty = line?.quantity ?? 0;
+      if (desired !== serverQty) {
+        view = cartViewWithLineQuantity(view, listingId, desired);
       }
+    }
+    return view;
+  }
 
-      const itemCount = items.reduce((sum, i) => sum + i.quantity, 0);
-      const approxSubtotal = items.reduce((sum, i) => {
-        const n = Number(i.lineLabel.replace(/[^\d.]/g, '') || 0);
-        return sum + (Number.isFinite(n) ? n : 0);
-      }, 0);
-
-      const payableSubtotal = Math.max(0, approxSubtotal - (base.promoDiscount ?? 0));
-      const next: CartView = {
-        ...base,
-        items,
-        itemCount,
-        subtotalLabel: moneyLabel(approxSubtotal),
-        payableSubtotal,
-        payableLabel: moneyLabel(payableSubtotal),
-        minOrderMet: true,
-      };
+  function patchLocalQuantity(listingId: string, nextQty: number) {
+    setDesiredQty(listingId, nextQty);
+    setCart((prev) => {
+      const next = cartViewWithLineQuantity(prev ?? emptyCartView(), listingId, nextQty);
       cartRef.current = next;
       persistCartDraft(next);
       return next;
     });
   }
 
-  function sameListingId(a: string, b: string): boolean {
-    return a.replace(/-/g, '').toLowerCase() === b.replace(/-/g, '').toLowerCase();
-  }
-
   async function flushListingToServer(listingId: string) {
     if (!session || !townId) return;
 
     const pushUntilSynced = async () => {
-      for (let step = 0; step < 6; step += 1) {
-        if (!desiredQtyRef.current.has(listingId)) break;
-        const target = desiredQtyRef.current.get(listingId) ?? 0;
+      for (let step = 0; step < 8; step += 1) {
+        const pendingEntry = desiredQtyEntry(listingId);
+        if (!pendingEntry) break;
+        const target = pendingEntry[1];
 
-        const realLine = serverCartRef.current?.items.find(
-          (i) => sameListingId(i.listingId, listingId) && !i.itemId.startsWith('optimistic-'),
-        );
+        let realLine = findRealCartLine(listingId);
+        if (!realLine && target > 0) {
+          const fresh = await fetchCart(session.accessToken, townId);
+          serverCartRef.current = fresh;
+          realLine = findRealCartLine(listingId);
+        }
 
         let next: CartView;
         if (target <= 0) {
           if (realLine) {
             next = await removeCartItem(session.accessToken, realLine.itemId);
           } else {
-            desiredQtyRef.current.delete(listingId);
+            clearDesiredQty(listingId);
             break;
           }
         } else if (!realLine) {
+          // POST /cart/items adds quantity; only use when the listing is not on the server yet.
           next = await addToCart(session.accessToken, townId, listingId, target);
         } else if (realLine.quantity === target) {
-          desiredQtyRef.current.delete(listingId);
+          clearDesiredQty(listingId);
           break;
         } else {
           next = await updateCartItem(session.accessToken, realLine.itemId, target);
@@ -310,13 +468,12 @@ function useShopState() {
 
         const serverQty =
           next.items.find((i) => sameListingId(i.listingId, listingId))?.quantity ?? 0;
-        const pending = desiredQtyRef.current.get(listingId);
+        const pending = desiredQtyEntry(listingId)?.[1];
         if (pending === undefined || pending === serverQty) {
-          desiredQtyRef.current.delete(listingId);
+          clearDesiredQty(listingId);
           break;
         }
       }
-      desiredQtyRef.current.delete(listingId);
     };
 
     try {
@@ -330,16 +487,17 @@ function useShopState() {
           await pushUntilSynced();
           return;
         } catch (recoverErr) {
-          desiredQtyRef.current.delete(listingId);
+          clearDesiredQty(listingId);
           setError(friendlyCartError(recoverErr, 'Could not update cart'));
           return;
         }
       }
 
-      desiredQtyRef.current.delete(listingId);
-      if (isListingUnavailable(err)) {
+      clearDesiredQty(listingId);
+      if (isListingUnavailableError(err)) {
         const serverQty =
-          serverCartRef.current?.items.find((i) => i.listingId === listingId)?.quantity ?? 0;
+          serverCartRef.current?.items.find((i) => sameListingId(i.listingId, listingId))
+            ?.quantity ?? 0;
         patchLocalQuantity(listingId, serverQty);
         setError('This item is no longer available. Choose another deal or refresh the page.');
       } else {
@@ -487,8 +645,13 @@ function useShopState() {
         .then((addrs) => {
           setAddresses(addrs);
           const forTown = addrs.filter((a) => a.townId === townId);
-          setSelectedAddressId((prev) => {
+          setSelectedAddressIdState((prev) => {
             if (prev && forTown.some((a) => a.id === prev)) return prev;
+            const saved =
+              session.userId && townId
+                ? readAddressSelection(session.userId, townId)
+                : null;
+            if (saved?.id && forTown.some((a) => a.id === saved.id)) return saved.id;
             const preferred = forTown.find((a) => a.isDefault || a.default) ?? forTown[0];
             return preferred?.id ?? '';
           });
@@ -1005,6 +1168,7 @@ function useShopState() {
     orders,
     storeCreditBalance,
     selectedAddressId,
+    selectedAddressSnapshot: addressSelectionSnap,
     setSelectedAddressId,
     loading,
     busy,

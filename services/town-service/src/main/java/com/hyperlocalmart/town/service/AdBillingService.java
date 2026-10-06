@@ -13,6 +13,7 @@ import com.hyperlocalmart.town.dto.billing.AdOccupancyResponse;
 import com.hyperlocalmart.town.dto.billing.AdPeriodRateDto;
 import com.hyperlocalmart.town.dto.billing.AdQuoteRequest;
 import com.hyperlocalmart.town.dto.billing.AdQuoteResponse;
+import com.hyperlocalmart.town.dto.billing.AdRevenueReportResponse;
 import com.hyperlocalmart.town.dto.billing.AdRateCardResponse;
 import com.hyperlocalmart.town.dto.billing.AdRatesDocument;
 import com.hyperlocalmart.town.dto.billing.AdSlotRateDto;
@@ -30,6 +31,7 @@ import com.hyperlocalmart.town.entity.TownAdSlot;
 import com.hyperlocalmart.town.entity.TownStatus;
 import com.hyperlocalmart.town.repository.AdInvoiceRepository;
 import com.hyperlocalmart.town.repository.AdRateCardRepository;
+import com.hyperlocalmart.town.repository.TownAdRepository;
 import com.hyperlocalmart.town.repository.TownRepository;
 import jakarta.persistence.criteria.Predicate;
 import lombok.RequiredArgsConstructor;
@@ -48,7 +50,9 @@ import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -75,6 +79,7 @@ public class AdBillingService {
 
     private final AdRateCardRepository rateCardRepository;
     private final AdInvoiceRepository invoiceRepository;
+    private final TownAdRepository townAdRepository;
     private final TownRepository townRepository;
     private final ObjectMapper objectMapper;
     private final AdminAuditor adminAuditService;
@@ -122,6 +127,86 @@ public class AdBillingService {
                 request.getTownIds(), request.getFromDate(), request.getToDate(), null);
     }
 
+    @Transactional(readOnly = true)
+    public AdRevenueReportResponse revenueReport(LocalDate from, LocalDate to, UUID townId) {
+        LocalDate rangeTo = to != null ? to : LocalDate.now(IST);
+        LocalDate rangeFrom = from != null ? from : rangeTo.minusDays(29);
+        if (rangeFrom.isAfter(rangeTo)) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "from must be on or before to");
+        }
+        List<AdInvoice> invoices = invoiceRepository.findOverlappingCampaigns(rangeFrom, rangeTo);
+        if (townId != null) {
+            invoices = invoices.stream()
+                    .filter(inv -> inv.isAllTowns() || readTownIds(inv).contains(townId))
+                    .toList();
+        }
+        Map<String, Acc> bySlot = new LinkedHashMap<>();
+        Map<String, Acc> byStatus = new LinkedHashMap<>();
+        long paid = 0;
+        long issued = 0;
+        long voided = 0;
+        BigDecimal billed = BigDecimal.ZERO;
+        BigDecimal collected = BigDecimal.ZERO;
+        BigDecimal outstanding = BigDecimal.ZERO;
+        BigDecimal tax = BigDecimal.ZERO;
+        for (AdInvoice inv : invoices) {
+            String slot = inv.getSlot() != null ? inv.getSlot().name() : "UNKNOWN";
+            String status = inv.getStatus() != null ? inv.getStatus().name() : "UNKNOWN";
+            BigDecimal total = money(inv.getTotal());
+            bySlot.computeIfAbsent(slot, k -> new Acc()).add(total);
+            byStatus.computeIfAbsent(status, k -> new Acc()).add(total);
+            if (inv.getStatus() == AdInvoiceStatus.VOID) {
+                voided++;
+                continue;
+            }
+            billed = billed.add(total);
+            tax = tax.add(money(inv.getTaxAmount()));
+            if (inv.getStatus() == AdInvoiceStatus.PAID) {
+                paid++;
+                collected = collected.add(total);
+            } else {
+                issued++;
+                outstanding = outstanding.add(total);
+            }
+        }
+        return AdRevenueReportResponse.builder()
+                .from(rangeFrom)
+                .to(rangeTo)
+                .townId(townId)
+                .invoiceCount(invoices.size())
+                .paidCount(paid)
+                .issuedCount(issued)
+                .voidCount(voided)
+                .billed(money(billed))
+                .collected(money(collected))
+                .outstanding(money(outstanding))
+                .taxCollected(money(tax))
+                .bySlot(toNamed(bySlot))
+                .byStatus(toNamed(byStatus))
+                .build();
+    }
+
+    private static List<AdRevenueReportResponse.NamedAmount> toNamed(Map<String, Acc> map) {
+        return map.entrySet().stream()
+                .sorted(Comparator.comparing((Map.Entry<String, Acc> e) -> e.getValue().amount).reversed())
+                .map(e -> AdRevenueReportResponse.NamedAmount.builder()
+                        .name(e.getKey())
+                        .count(e.getValue().count)
+                        .amount(money(e.getValue().amount))
+                        .build())
+                .toList();
+    }
+
+    private static class Acc {
+        long count;
+        BigDecimal amount = BigDecimal.ZERO;
+
+        void add(BigDecimal total) {
+            count++;
+            amount = amount.add(nz(total));
+        }
+    }
+
     @Transactional
     public AdInvoiceResponse createInvoice(CreateAdInvoiceRequest request, UUID actorId) {
         String name = trimRequired(request.getAdvertiserName(), 160, "Advertiser name");
@@ -143,7 +228,7 @@ public class AdBillingService {
                     : "";
             throw new BusinessException(ErrorCode.CONFLICT,
                     "This slot is already booked by " + first.getInvoiceNumber() + " (" + first.getAdvertiserName()
-                            + ") " + first.getFromDate() + "–" + first.getToDate()
+                            + ") " + first.getFromDate() + " → " + first.getToDate()
                             + ". Pick free dates or void that bill." + next);
         }
         Instant now = Instant.now();
@@ -330,6 +415,10 @@ public class AdBillingService {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Ad run must be between 1 and " + MAX_DAYS + " days");
         }
         int slotIndex = normalizeSlotIndex(slot, slotIndexRaw);
+        if (!townAdRepository.existsBySlotAndEnabledTrue(slot)) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR,
+                    slotLabel(slot, slotIndex) + " is hidden on Creatives. Turn it on before billing.");
+        }
         int units = switch (period) {
             case DAY -> (int) days;
             case WEEK -> (int) Math.ceil(days / 7.0d);
@@ -575,6 +664,9 @@ public class AdBillingService {
                 .homeHero(copySlot(doc.getHomeHero()))
                 .homeMidGrid(copySlot(doc.getHomeMidGrid()))
                 .cartUpsell(copySlot(doc.getCartUpsell()))
+                .homeHeroActive(townAdRepository.existsBySlotAndEnabledTrue(TownAdSlot.HOME_HERO))
+                .homeMidGridActive(townAdRepository.existsBySlotAndEnabledTrue(TownAdSlot.HOME_MID_GRID))
+                .cartUpsellActive(townAdRepository.existsBySlotAndEnabledTrue(TownAdSlot.CART_UPSELL))
                 .build();
     }
 

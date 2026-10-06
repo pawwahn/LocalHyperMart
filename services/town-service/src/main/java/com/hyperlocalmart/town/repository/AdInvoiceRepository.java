@@ -53,4 +53,12 @@ public interface AdInvoiceRepository extends JpaRepository<AdInvoice, UUID>, Jpa
             ORDER BY i.invoiceNumber DESC
             """)
     List<String> findNumbersForPrefix(@Param("prefix") String prefix, org.springframework.data.domain.Pageable pageable);
+
+    @Query("""
+            SELECT i FROM AdInvoice i
+            WHERE i.fromDate <= :toDate AND i.toDate >= :fromDate
+            ORDER BY i.issuedAt DESC
+            """)
+    List<AdInvoice> findOverlappingCampaigns(
+            @Param("fromDate") LocalDate fromDate, @Param("toDate") LocalDate toDate);
 }

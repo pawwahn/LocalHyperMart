@@ -57,6 +57,8 @@ public class SettlementCandidateView {
         /** LAST_MILE / shop agent who delivered — when {@code codCashLocation} is WITH_AGENT. */
         UUID codDeliveringAgentId;
         String codDeliveringAgentName;
+        /** Agent mobile for support / settlement follow-up. */
+        String codDeliveringAgentPhone;
         BigDecimal subtotal;
         boolean alreadySettled;
     }

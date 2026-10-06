@@ -10,7 +10,11 @@ import {
   type DeliverySlabVm,
   type TownVm,
 } from '../api/townsApi';
-import { TownIncentiveDialog } from './TownIncentiveDialog';
+import {
+  TownIncentiveDialog,
+  type HubPayEmbeddedState,
+  type HubPaySettingsHandle,
+} from './TownIncentiveDialog';
 import {
   TownVendorAgentDeliveryDialog,
   type VendorAgentDeliveryHandle,
@@ -120,6 +124,13 @@ export function TownSettingsDialog({
   const [section, setSection] = useState<SettingsSection>('shop');
   const bodyRef = useRef<HTMLDivElement>(null);
   const vendorDeliveryRef = useRef<VendorAgentDeliveryHandle>(null);
+  const hubPayRef = useRef<HubPaySettingsHandle>(null);
+  const [hubPayUi, setHubPayUi] = useState<HubPayEmbeddedState>({
+    busy: false,
+    loading: true,
+    panel: 'edit',
+    editing: false,
+  });
   const [vendorDeliveryUi, setVendorDeliveryUi] = useState<VendorAgentEmbeddedState>({
     busy: false,
     loading: true,
@@ -261,7 +272,7 @@ export function TownSettingsDialog({
     <div style={styles.backdrop} role="presentation">
       <style>{PANEL_CSS}</style>
       <div
-        className="town-settings-panel"
+        className={`town-settings-panel${section === 'hub-pay' ? ' town-settings-panel--hub-pay' : ''}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby="town-settings-title"
@@ -338,7 +349,10 @@ export function TownSettingsDialog({
 
             {isConfigSection && loading ? <p style={styles.muted}>Loading…</p> : null}
 
-            <div ref={bodyRef} className="town-settings-scroll">
+            <div
+              ref={bodyRef}
+              className={`town-settings-scroll${section === 'hub-pay' ? ' town-settings-scroll--hub-pay' : ''}`}
+            >
         {isConfigSection && !loading && section === 'shop' ? (
           <section style={styles.card}>
               <div style={styles.fieldRow}>
@@ -690,11 +704,13 @@ export function TownSettingsDialog({
 
         {section === 'hub-pay' ? (
           <TownIncentiveDialog
+            ref={hubPayRef}
             embedded
             town={town}
             token={token}
             onClose={onClose}
             onSaved={onSaved}
+            onEmbeddedState={setHubPayUi}
             onOpenChangeLog={() => openTownChangeLog('town-incentives')}
           />
         ) : null}
@@ -784,7 +800,31 @@ export function TownSettingsDialog({
                     </Button>
                   </>
                 ) : null}
-                <Button variant="ghost" disabled={busy || vendorDeliveryUi.busy} onClick={onClose}>
+                {section === 'hub-pay' &&
+                !hubPayUi.loading &&
+                hubPayUi.panel === 'edit' &&
+                !hubPayUi.editing ? (
+                  <Button onClick={() => hubPayRef.current?.startEdit()}>Edit</Button>
+                ) : null}
+                {section === 'hub-pay' && !hubPayUi.loading && hubPayUi.editing ? (
+                  <>
+                    <Button
+                      variant="ghost"
+                      disabled={hubPayUi.busy}
+                      onClick={() => hubPayRef.current?.cancel()}
+                    >
+                      Cancel
+                    </Button>
+                    <Button disabled={hubPayUi.busy} onClick={() => hubPayRef.current?.save()}>
+                      {hubPayUi.busy ? 'Saving…' : 'Save'}
+                    </Button>
+                  </>
+                ) : null}
+                <Button
+                  variant="ghost"
+                  disabled={busy || vendorDeliveryUi.busy || hubPayUi.busy}
+                  onClick={onClose}
+                >
                   Close
                 </Button>
               </div>
@@ -809,6 +849,10 @@ const PANEL_CSS = `
     flex-direction: column;
     gap: 0.55rem;
     box-shadow: 0 18px 48px rgba(2, 6, 12, 0.28);
+  }
+  .town-settings-panel--hub-pay {
+    width: min(1080px, 100%);
+    max-height: min(96vh, 940px);
   }
   .town-settings-layout {
     display: flex;
@@ -865,6 +909,14 @@ const PANEL_CSS = `
     min-height: 0;
     overflow: auto;
     padding: 0 0.65rem 0.65rem;
+  }
+  .town-settings-scroll--hub-pay {
+    flex: 0 0 auto;
+    overflow: visible;
+    min-height: auto;
+  }
+  .town-settings-panel--hub-pay .town-settings-main {
+    overflow: visible;
   }
   .town-settings-panel input[type='color'] {
     width: 28px;

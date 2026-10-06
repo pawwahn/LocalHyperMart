@@ -6,32 +6,11 @@ import { ApiError } from '@/shared/api/http';
 import { Banner, Button, Card } from '@/shared/ui';
 import { listTowns, type TownVm } from '@/features/towns/api/townsApi';
 import { fetchScratchGiftReport, type ScratchGiftReport } from '../api/scratchGiftApi';
-
-type Preset = 'all' | 'today' | 'week' | 'month';
-
-const IST = 'Asia/Kolkata';
-
-function isoDateInIst(d: Date = new Date()): string {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: IST,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(d);
-}
-
-function rangeFor(preset: Preset): { from: string; to: string } | null {
-  if (preset === 'all') return null;
-  const to = isoDateInIst();
-  if (preset === 'today') return { from: to, to };
-  if (preset === 'week') {
-    const from = new Date();
-    from.setDate(from.getDate() - 6);
-    return { from: isoDateInIst(from), to };
-  }
-  const [y, m] = to.split('-');
-  return { from: `${y}-${m}-01`, to };
-}
+import {
+  TRANSFER_HISTORY_PRESET_OPTIONS,
+  rangeForTransferHistoryPreset,
+  type TransferHistoryPreset,
+} from '@hlm-dates/istReportPresets';
 
 function money(n: number): string {
   return `₹${Number(n ?? 0).toFixed(2)}`;
@@ -47,13 +26,14 @@ function csvEscape(value: string | number | null | undefined): string {
 export function ScratchGiftReportPage() {
   const { session } = useAuth();
   const token = session?.accessToken ?? '';
-  const initialRange = rangeFor('week');
+  const initialRange = rangeForTransferHistoryPreset('week');
   const [towns, setTowns] = useState<TownVm[]>([]);
   const [townId, setTownId] = useState('');
-  const [preset, setPreset] = useState<Preset>('week');
+  const [preset, setPreset] = useState<TransferHistoryPreset>('week');
   const [from, setFrom] = useState(initialRange?.from ?? '');
   const [to, setTo] = useState(initialRange?.to ?? '');
   const [report, setReport] = useState<ScratchGiftReport | null>(null);
+  const [q, setQ] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -92,32 +72,66 @@ export function ScratchGiftReportPage() {
     void reload();
   }, [reload]);
 
-  function applyPreset(next: Preset) {
+  function applyPreset(next: TransferHistoryPreset) {
     setPreset(next);
-    const range = rangeFor(next);
+    const range = rangeForTransferHistoryPreset(next);
     setFrom(range?.from ?? '');
     setTo(range?.to ?? '');
   }
 
-  function exportCsv() {
-    const rows = report?.towns ?? [];
-    const headers = ['Town', 'Issued', 'Scratched', 'GiftedAmount', 'Unopened'];
-    const body = rows.map((row) =>
-      [
-        row.townName || townNameById.get(row.townId) || row.townId,
-        row.issued,
-        row.scratched,
-        Number(row.giftedAmount ?? 0).toFixed(2),
-        row.unopened,
-      ]
-        .map(csvEscape)
-        .join(','),
+  const lines = useMemo(() => {
+    const needle = q.trim().toLowerCase();
+    const all = report?.lines ?? [];
+    if (!needle) return all;
+    return all.filter((row) =>
+      [row.buyerPhone, row.orderNumber, row.townName, row.status].some((v) => (v ?? '').toLowerCase().includes(needle)),
     );
-    const blob = new Blob([[headers.join(','), ...body].join('\n')], { type: 'text/csv;charset=utf-8' });
+  }, [report, q]);
+
+  function exportCsv() {
+    if (!report) return;
+    const linesOut = [
+      ['Gifted (burned)', Number(report.giftedAmount ?? 0).toFixed(2)].join(','),
+      ['Scratched', report.scratched].join(','),
+      ['Issued', report.issued].join(','),
+      ['Unopened now', report.unopened].join(','),
+      ['Pending min', Number(report.pendingMin ?? 0).toFixed(2)].join(','),
+      ['Pending max', Number(report.pendingMax ?? 0).toFixed(2)].join(','),
+      ['Avg gift', Number(report.avgGift ?? 0).toFixed(2)].join(','),
+      '',
+      ['TOWNS'].join(','),
+      ['Town', 'Issued', 'Scratched', 'Gifted', 'Unopened'].join(','),
+      ...(report.towns ?? []).map((row) =>
+        [
+          csvEscape(row.townName || townNameById.get(row.townId) || row.townId),
+          row.issued,
+          row.scratched,
+          Number(row.giftedAmount ?? 0).toFixed(2),
+          row.unopened,
+        ].join(','),
+      ),
+      '',
+      ['CARDS'].join(','),
+      ['Issued', 'Revealed', 'Status', 'Town', 'Order', 'Buyer', 'Gifted', 'Band min', 'Band max'].join(','),
+      ...(report.lines ?? []).map((row) =>
+        [
+          row.issuedAt,
+          row.revealedAt ?? '',
+          row.status,
+          csvEscape(row.townName || ''),
+          csvEscape(row.orderNumber || ''),
+          csvEscape(row.buyerPhone || ''),
+          Number(row.companySpent ?? 0).toFixed(2),
+          Number(row.rewardMin ?? 0).toFixed(2),
+          Number(row.rewardMax ?? 0).toFixed(2),
+        ].join(','),
+      ),
+    ];
+    const blob = new Blob([linesOut.join('\n')], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `scratch-gifts-${isoDateInIst()}.csv`;
+    a.download = `koyakart-scratch-${from || 'all'}-${to || isoDateInIst()}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   }
@@ -174,30 +188,27 @@ export function ScratchGiftReportPage() {
           <div style={styles.presetCol}>
             <span style={styles.presetLabel}>Range</span>
             <div style={styles.presets}>
-              {(['all', 'today', 'week', 'month'] as Preset[]).map((p) => (
+              {TRANSFER_HISTORY_PRESET_OPTIONS.map(({ id, label }) => (
                 <button
-                  key={p}
+                  key={id}
                   type="button"
-                  style={preset === p ? styles.presetOn : styles.presetOff}
-                  onClick={() => applyPreset(p)}
+                  style={preset === id ? styles.presetOn : styles.presetOff}
+                  onClick={() => applyPreset(id)}
                 >
-                  {p === 'all' ? 'All' : p === 'today' ? 'Today' : p === 'week' ? '7d' : 'Month'}
+                  {label}
                 </button>
               ))}
             </div>
           </div>
           <div style={styles.csvWrap}>
-            <Button
-              variant="secondary"
-              disabled={!report || (report.towns?.length ?? 0) === 0}
-              onClick={exportCsv}
-            >
+            <Button variant="secondary" disabled={!report} onClick={exportCsv}>
               CSV
             </Button>
           </div>
         </div>
         <p style={styles.hint}>
           Gifted ₹ is wallet credit after scratch ({periodLabel}). Unopened is still waiting — not burned yet.
+          Pending is the min–max band still sitting on unopened cards.
         </p>
       </Card>
 
@@ -213,6 +224,17 @@ export function ScratchGiftReportPage() {
         </span>
         <span>
           <strong>{loading && !report ? '…' : report?.unopened ?? 0}</strong> unopened
+        </span>
+        <span>
+          <strong>
+            {loading && !report
+              ? '…'
+              : `${money(report?.pendingMin ?? 0)}–${money(report?.pendingMax ?? 0)}`}
+          </strong>{' '}
+          pending
+        </span>
+        <span>
+          <strong>{loading && !report ? '…' : money(report?.avgGift ?? 0)}</strong> avg gift
         </span>
       </div>
 
@@ -243,6 +265,54 @@ export function ScratchGiftReportPage() {
                     <td style={styles.tdRight}>{row.scratched}</td>
                     <td style={styles.tdRight}>{money(row.giftedAmount)}</td>
                     <td style={styles.tdRight}>{row.unopened}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+
+      <Card>
+        <div style={styles.lineHead}>
+          <h2 style={styles.h2}>Cards</h2>
+          <input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Phone, order or town"
+            style={styles.search}
+          />
+        </div>
+        {lines.length === 0 ? (
+          <p style={styles.muted}>No cards in this range.</p>
+        ) : (
+          <div style={styles.tableWrap}>
+            <table style={styles.table}>
+              <thead>
+                <tr>
+                  <th style={styles.th}>Issued</th>
+                  <th style={styles.th}>Buyer</th>
+                  <th style={styles.th}>Order</th>
+                  <th style={styles.th}>Town</th>
+                  <th style={styles.th}>Status</th>
+                  <th style={styles.thRight}>Gifted</th>
+                  <th style={styles.thRight}>Band</th>
+                </tr>
+              </thead>
+              <tbody>
+                {lines.map((row) => (
+                  <tr key={row.cardId}>
+                    <td style={styles.td}>{row.issuedAt}</td>
+                    <td style={styles.td}>{row.buyerPhone || '—'}</td>
+                    <td style={styles.td}>{row.orderNumber || '—'}</td>
+                    <td style={styles.td}>{row.townName || townNameById.get(row.townId) || '—'}</td>
+                    <td style={styles.td}>{row.status === 'REVEALED' ? 'Scratched' : 'Unopened'}</td>
+                    <td style={styles.tdRight}>
+                      {row.status === 'REVEALED' ? money(row.companySpent) : '—'}
+                    </td>
+                    <td style={styles.tdRight}>
+                      {money(row.rewardMin)}–{money(row.rewardMax)}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -298,6 +368,17 @@ const styles: Record<string, CSSProperties> = {
     cursor: 'pointer',
   },
   csvWrap: { alignSelf: 'end' },
+  lineHead: { display: 'flex', alignItems: 'center', gap: '0.45rem', marginBottom: '0.4rem' },
+  h2: { margin: 0, fontSize: '0.92rem', fontWeight: 800, flex: 1 },
+  search: {
+    border: '1px solid var(--border)',
+    borderRadius: 8,
+    padding: '0.3rem 0.5rem',
+    minHeight: 34,
+    minWidth: 180,
+    background: 'var(--bg-elevated)',
+    color: 'var(--text)',
+  },
   hint: { margin: '0.45rem 0 0', color: 'var(--text-muted)', fontSize: '0.75rem', fontWeight: 600 },
   kpis: {
     display: 'flex',

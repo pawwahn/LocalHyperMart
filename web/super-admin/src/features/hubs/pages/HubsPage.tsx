@@ -64,6 +64,8 @@ export function HubsPage() {
     return towns.filter((t) => t.status === 'ENABLED' && !taken.has(t.id));
   }, [towns, hubs]);
 
+  const selectedNewTown = townId ? townById.get(townId) : undefined;
+
   const filteredHubs = useMemo(() => {
     return hubs.filter((h) =>
       matchesQuery(
@@ -348,6 +350,8 @@ export function HubsPage() {
               </select>
             </label>
             <TextField label="Hub name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Chirala Hub" />
+            <TextField label="State name" value={selectedNewTown?.state?.trim() || '—'} disabled />
+            <TextField label="State code" value={selectedNewTown?.stateCode?.trim() || '—'} disabled />
             <div style={styles.span2}>
               <TextField
                 label="Address (optional)"
@@ -538,6 +542,8 @@ export function HubsPage() {
         <HubDetailDialog
           hub={openHub}
           townLabel={townById.get(openHub.townId)?.displayName ?? 'Town'}
+          stateName={townById.get(openHub.townId)?.state}
+          stateCode={townById.get(openHub.townId)?.stateCode}
           token={token}
           onClose={() => setOpenHub(null)}
           onSaved={(saved, message) => {

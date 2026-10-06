@@ -38,3 +38,56 @@ export async function fetchCodCloses(
   );
   return data?.items ?? [];
 }
+
+export type CodHubLedger = {
+  townId: string;
+  hubId: string;
+  from: string;
+  to: string;
+  totalReceivedAllTime: number;
+  totalRemittedAllTime: number;
+  balanceOwedToCompany: number;
+  totalReceivedInRange: number;
+  totalRemittedInRange: number;
+  receipts: Array<{
+    closeDayId: string;
+    agentId: string;
+    agentName: string;
+    closeDate: string;
+    receivedAmount: number;
+    orderCount: number;
+    status: string;
+    fromAgentHandover: boolean;
+  }>;
+  remittances: Array<{
+    remittanceId: string;
+    remittanceDate: string;
+    amount: number;
+    reference?: string | null;
+    notes?: string | null;
+  }>;
+};
+
+export async function fetchCodHubLedger(
+  token: string,
+  params: { townId: string; hubId: string; from?: string; to?: string },
+): Promise<CodHubLedger> {
+  const q = new URLSearchParams({ townId: params.townId, hubId: params.hubId });
+  if (params.from) q.set('from', params.from);
+  if (params.to) q.set('to', params.to);
+  return apiRequest<CodHubLedger>(`/api/v1/payments/cod/hub/ledger?${q}`, { token });
+}
+
+export async function recordCodHubRemittance(
+  token: string,
+  body: {
+    townId: string;
+    hubId: string;
+    remittanceDate?: string;
+    amount: number;
+    reference?: string;
+    notes?: string;
+  },
+): Promise<CodHubLedger['remittances'][number]> {
+  return apiRequest(`/api/v1/payments/cod/hub/remittances`, { method: 'POST', token, body });
+}

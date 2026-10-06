@@ -3,15 +3,18 @@ package com.hyperlocalmart.cart.service;
 import com.hyperlocalmart.cart.client.CatalogListingClient;
 import com.hyperlocalmart.cart.client.CatalogSuggestionClient;
 import com.hyperlocalmart.cart.client.OrderHistoryClient;
+import com.hyperlocalmart.cart.client.TownConfigClient;
 import com.hyperlocalmart.cart.client.VendorShopClient;
 import com.hyperlocalmart.cart.dto.request.AddCartItemRequest;
 import com.hyperlocalmart.cart.dto.request.ApplyPromoRequest;
+import com.hyperlocalmart.cart.dto.request.AttachCartMembershipRequest;
 import com.hyperlocalmart.cart.dto.request.ChangeTownRequest;
 import com.hyperlocalmart.cart.dto.request.ReorderLineRequest;
 import com.hyperlocalmart.cart.dto.request.UpdateCartItemRequest;
 import com.hyperlocalmart.cart.dto.response.CartInternalItemResponse;
 import com.hyperlocalmart.cart.dto.response.CartInternalResponse;
 import com.hyperlocalmart.cart.dto.response.CartItemResponse;
+import com.hyperlocalmart.cart.dto.response.CartMembershipAddonResponse;
 import com.hyperlocalmart.cart.dto.response.CartReorderResponse;
 import com.hyperlocalmart.cart.dto.response.CartResponse;
 import com.hyperlocalmart.cart.dto.response.CartSuggestionsResponse;
@@ -48,6 +51,7 @@ public class CartService {
     private final CatalogSuggestionClient catalogSuggestionClient;
     private final OrderHistoryClient orderHistoryClient;
     private final VendorShopClient vendorShopClient;
+    private final TownConfigClient townConfigClient;
 
     @Transactional(readOnly = true)
     public CartSuggestionsResponse getSuggestions(UUID userId, UUID townId, int limit) {
@@ -189,6 +193,42 @@ public class CartService {
     }
 
     @Transactional
+    public CartResponse attachMembership(UUID userId, AttachCartMembershipRequest request) {
+        Cart cart = getOrCreateCart(userId, request.getTownId());
+        if (cart.getItems().isEmpty()) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Add groceries to your cart first");
+        }
+        TownConfigClient.MembershipConfig config = townConfigClient.getMembershipConfig();
+        if (config == null || !config.enabled()) {
+            throw new BusinessException(ErrorCode.CONFLICT, "Membership is not on sale right now");
+        }
+        TownConfigClient.OperationalConfig townOps = townConfigClient.getOperationalConfig(request.getTownId());
+        if (townOps != null && !townOps.sellsMembership()) {
+            throw new BusinessException(ErrorCode.CONFLICT, "Membership is not sold in this town");
+        }
+        TownConfigClient.MembershipSlabOffer offer = config.slab(request.getSlab());
+        if (offer == null || offer.price() == null || offer.price().compareTo(BigDecimal.ZERO) <= 0
+                || offer.credits() <= 0) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "This plan is not available");
+        }
+        cart.setMembershipSlab(offer.code());
+        cart.setMembershipPriceSnapshot(offer.price().setScale(2, RoundingMode.HALF_UP));
+        return toResponse(cartRepository.save(cart));
+    }
+
+    @Transactional
+    public CartResponse removeMembership(UUID userId, UUID townId) {
+        Cart cart = cartRepository.findByUserIdAndTownIdAndStatus(userId, townId, CartStatus.ACTIVE)
+                .orElse(null);
+        if (cart == null) {
+            return emptyCartResponse(townId);
+        }
+        cart.setMembershipSlab(null);
+        cart.setMembershipPriceSnapshot(null);
+        return toResponse(cartRepository.save(cart));
+    }
+
+    @Transactional
     public CartInternalResponse getCartForCheckout(UUID userId, UUID cartId, UUID townId) {
         Cart cart = cartRepository.findById(cartId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Cart not found"));
@@ -297,6 +337,10 @@ public class CartService {
                 .itemCount(response.getItemCount())
                 .minOrderMet(response.isMinOrderMet())
                 .items(items)
+                .membershipSlab(cart.getMembershipSlab())
+                .membershipFee(cart.getMembershipPriceSnapshot() == null
+                        ? BigDecimal.ZERO
+                        : cart.getMembershipPriceSnapshot())
                 .build();
     }
 
@@ -443,6 +487,26 @@ public class CartService {
                 .items(items)
                 .minOrderValue(BigDecimal.ZERO)
                 .minOrderMet(itemCount > 0)
+                .membershipAddon(membershipAddon(cart))
+                .build();
+    }
+
+    private CartMembershipAddonResponse membershipAddon(Cart cart) {
+        if (cart.getMembershipSlab() == null || cart.getMembershipSlab().isBlank()
+                || cart.getMembershipPriceSnapshot() == null) {
+            return null;
+        }
+        TownConfigClient.MembershipConfig config = townConfigClient.getMembershipConfig();
+        TownConfigClient.MembershipSlabOffer offer =
+                config != null ? config.slab(cart.getMembershipSlab()) : null;
+        int credits = offer != null ? offer.credits() : 0;
+        int months = offer != null ? offer.months() : 0;
+        String label = months > 0 ? months + " months" : cart.getMembershipSlab();
+        return CartMembershipAddonResponse.builder()
+                .slab(cart.getMembershipSlab())
+                .label(label)
+                .credits(credits)
+                .price(cart.getMembershipPriceSnapshot())
                 .build();
     }
 

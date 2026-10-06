@@ -28,5 +28,7 @@ public class CodDeliveredResponse {
         String orderNumber;
         BigDecimal totalAmount;
         Instant deliveredAt;
+        /** HUB or VENDOR — where cash must be remitted. */
+        String custodianType;
     }
 }

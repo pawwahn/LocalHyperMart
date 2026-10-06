@@ -64,10 +64,12 @@ public class CodAgentHandoverController {
             @RequestParam UUID townId,
             @RequestParam(required = false) UUID hubId,
             @RequestParam(required = false) UUID vendorId,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
             HttpServletRequest httpRequest) {
         requireHubVendorOrSuper(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
-                custodianReceivableService.pendingDetail(townId, hubId, vendorId)));
+                custodianReceivableService.pendingDetail(townId, hubId, vendorId, from, to)));
     }
 
     @GetMapping("/api/v1/payments/cod/custodian/receivables/outstanding")

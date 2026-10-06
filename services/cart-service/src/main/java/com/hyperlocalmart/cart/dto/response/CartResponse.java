@@ -22,4 +22,5 @@ public class CartResponse {
     private List<CartItemResponse> items;
     private BigDecimal minOrderValue;
     private boolean minOrderMet;
+    private CartMembershipAddonResponse membershipAddon;
 }

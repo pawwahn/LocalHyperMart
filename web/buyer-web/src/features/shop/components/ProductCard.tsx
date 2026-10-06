@@ -365,14 +365,14 @@ const styles: Record<string, CSSProperties> = {
     fontWeight: 800,
     fontSize: '1.05rem',
     letterSpacing: '-0.03em',
-    color: 'var(--text)',
+    color: 'var(--accent)',
   },
   priceRail: {
     fontFamily: 'var(--font-display)',
     fontWeight: 800,
     fontSize: '0.86rem',
     letterSpacing: '-0.03em',
-    color: 'var(--text)',
+    color: 'var(--accent)',
   },
   mrp: {
     fontSize: '0.72rem',

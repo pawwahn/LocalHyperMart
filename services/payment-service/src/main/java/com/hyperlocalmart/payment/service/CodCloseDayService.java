@@ -196,8 +196,9 @@ public class CodCloseDayService {
         if (to.isBefore(from)) {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, "to must be on or after from");
         }
+        Map<UUID, DeliveryClient.AgentSummary> agents = agentMap(hubId);
         return codCloseDayRepository.findByTownHubAndDateRange(townId, hubId, from, to).stream()
-                .map(this::toResponse)
+                .map(c -> toResponse(c, agents))
                 .toList();
     }
 
@@ -215,6 +216,32 @@ public class CodCloseDayService {
     }
 
     public CodCloseDayResponse toResponse(CodCloseDay closeDay) {
+        return toResponse(closeDay, agentMap(closeDay.getHubId()));
+    }
+
+    private Map<UUID, DeliveryClient.AgentSummary> agentMap(UUID hubId) {
+        Map<UUID, DeliveryClient.AgentSummary> map = new HashMap<>();
+        if (hubId == null) {
+            return map;
+        }
+        for (DeliveryClient.AgentSummary agent : deliveryClient.listHubAgents(hubId)) {
+            if (agent.agentId() != null) {
+                map.put(agent.agentId(), agent);
+            }
+        }
+        return map;
+    }
+
+    private CodCloseDayResponse toResponse(CodCloseDay closeDay, Map<UUID, DeliveryClient.AgentSummary> agents) {
+        DeliveryClient.AgentSummary agent =
+                agents != null ? agents.get(closeDay.getAgentId()) : null;
+        String agentName = agent != null && agent.name() != null && !agent.name().isBlank()
+                ? agent.name().trim()
+                : "Delivery agent";
+        String agentPhone = agent != null && agent.phone() != null && !agent.phone().isBlank()
+                ? agent.phone().trim()
+                : null;
+
         List<CodCloseDayResponse.Line> lines = closeDay.getLineItems() == null ? List.of()
                 : closeDay.getLineItems().stream()
                 .sorted(Comparator.comparing(CodCloseDayLineItem::getOrderNumber,
@@ -232,6 +259,8 @@ public class CodCloseDayService {
                 .townId(closeDay.getTownId())
                 .hubId(closeDay.getHubId())
                 .agentId(closeDay.getAgentId())
+                .agentName(agentName)
+                .agentPhone(agentPhone)
                 .closeDate(closeDay.getCloseDate())
                 .expectedAmount(closeDay.getExpectedAmount())
                 .receivedAmount(closeDay.getReceivedAmount())

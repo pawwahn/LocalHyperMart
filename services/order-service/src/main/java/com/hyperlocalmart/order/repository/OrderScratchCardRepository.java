@@ -8,6 +8,7 @@ import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -81,4 +82,34 @@ public interface OrderScratchCardRepository extends JpaRepository<OrderScratchCa
             group by c.townId
             """)
     List<Object[]> countUnopenedForTown(@Param("townId") UUID townId);
+
+    @Query("""
+            select coalesce(sum(c.rewardMin), 0)
+            from OrderScratchCard c
+            where c.status = com.hyperlocalmart.order.entity.ScratchCardStatus.ISSUED
+              and (:townId is null or c.townId = :townId)
+            """)
+    BigDecimal sumUnopenedMin(@Param("townId") UUID townId);
+
+    @Query("""
+            select coalesce(sum(c.rewardMax), 0)
+            from OrderScratchCard c
+            where c.status = com.hyperlocalmart.order.entity.ScratchCardStatus.ISSUED
+              and (:townId is null or c.townId = :townId)
+            """)
+    BigDecimal sumUnopenedMax(@Param("townId") UUID townId);
+
+    @Query("""
+            select c from OrderScratchCard c
+            where (:townId is null or c.townId = :townId)
+              and (
+                (c.createdAt >= :fromTs and c.createdAt < :toTs)
+                or (c.revealedAt is not null and c.revealedAt >= :fromTs and c.revealedAt < :toTs)
+              )
+            order by c.createdAt desc
+            """)
+    List<OrderScratchCard> findActivityBetween(
+            @Param("townId") UUID townId,
+            @Param("fromTs") java.time.Instant fromTs,
+            @Param("toTs") java.time.Instant toTs);
 }

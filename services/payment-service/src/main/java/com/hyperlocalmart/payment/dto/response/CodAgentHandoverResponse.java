@@ -12,6 +12,8 @@ import java.util.UUID;
 public class CodAgentHandoverResponse {
     UUID handoverId;
     UUID agentId;
+    String agentName;
+    String agentPhone;
     String handoverDate;
     String custodianType;
     UUID hubId;

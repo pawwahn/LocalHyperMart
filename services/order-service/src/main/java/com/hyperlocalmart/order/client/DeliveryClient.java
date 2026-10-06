@@ -9,6 +9,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -31,6 +32,51 @@ public class DeliveryClient {
             throw new IllegalStateException("Hub admin context not found");
         }
         return response.getData();
+    }
+
+    public List<UUID> listAgentCompletedDeliveryOrderIds(UUID agentId, Instant from, Instant to) {
+        if (agentId == null || from == null || to == null) {
+            return List.of();
+        }
+        try {
+            RestClient client = restClientBuilder.baseUrl(deliveryServiceProperties.getBaseUrl()).build();
+            ApiResponse<List<UUID>> response = client.get()
+                    .uri(uriBuilder -> uriBuilder
+                            .path("/api/v1/internal/agents/{agentId}/completed-delivery-order-ids")
+                            .queryParam("from", from.toString())
+                            .queryParam("to", to.toString())
+                            .build(agentId))
+                    .retrieve()
+                    .body(new ParameterizedTypeReference<ApiResponse<List<UUID>>>() {});
+            if (response == null || response.getData() == null) {
+                return List.of();
+            }
+            return response.getData();
+        } catch (Exception ex) {
+            log.warn("Failed to list agent completed delivery orders: {}", ex.getMessage());
+            return List.of();
+        }
+    }
+
+    public List<OrderLegs> resolveDeliveryLegs(Collection<UUID> orderIds) {
+        if (orderIds == null || orderIds.isEmpty()) {
+            return List.of();
+        }
+        try {
+            RestClient client = restClientBuilder.baseUrl(deliveryServiceProperties.getBaseUrl()).build();
+            ApiResponse<List<OrderLegs>> response = client.post()
+                    .uri("/api/v1/internal/orders/delivery-legs/resolve")
+                    .body(List.copyOf(orderIds))
+                    .retrieve()
+                    .body(new ParameterizedTypeReference<ApiResponse<List<OrderLegs>>>() {});
+            if (response == null || response.getData() == null) {
+                return List.of();
+            }
+            return response.getData();
+        } catch (Exception ex) {
+            log.warn("Failed to batch-resolve delivery legs: {}", ex.getMessage());
+            return List.of();
+        }
     }
 
     public List<OrderAssignment> getAssignmentsForOrder(UUID orderId) {
@@ -137,6 +183,19 @@ public class DeliveryClient {
     }
 
     public record HubContact(UUID userId, UUID hubId, String hubName, String phone) {
+    }
+
+    public record OrderLegs(
+            UUID orderId,
+            UUID hubId,
+            UUID agentId,
+            boolean lastMileCompleted,
+            Instant lastMileCompletedAt,
+            boolean pickupCompleted,
+            Instant pickupCompletedAt,
+            boolean vendorDirectCompleted,
+            Instant vendorDirectCompletedAt
+    ) {
     }
 
     public record OrderAssignment(

@@ -25,6 +25,16 @@ public class DeliveryPayoutLegService {
     private final DeliveryAssignmentRepository deliveryAssignmentRepository;
     private final DeliveryHubRepository deliveryHubRepository;
 
+    /** Order IDs where this agent completed last-mile or vendor-direct delivery in the window. */
+    @Transactional(readOnly = true)
+    public List<UUID> completedDeliveryOrderIds(UUID agentId, Instant start, Instant end) {
+        if (agentId == null || start == null || end == null || !end.isAfter(start)) {
+            return List.of();
+        }
+        return deliveryAssignmentRepository.findDistinctCompletedDeliveryOrderIdsByAgentAndCompletedAtBetween(
+                agentId, start, end);
+    }
+
     @Transactional(readOnly = true)
     public List<OrderLegs> resolve(Collection<UUID> orderIds) {
         if (orderIds == null || orderIds.isEmpty()) {

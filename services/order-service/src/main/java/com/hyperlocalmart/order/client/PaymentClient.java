@@ -308,4 +308,46 @@ public class PaymentClient {
 
     public record ConsumeMembershipResult(boolean applied, int creditsRemaining, BigDecimal waivedAmount) {
     }
+
+    public UUID reserveBundledMembership(
+            UUID buyerId,
+            String buyerPhone,
+            UUID townId,
+            String slab,
+            UUID orderId,
+            boolean codOrder,
+            String idempotencyKey) {
+        RestClient client = restClientBuilder.baseUrl(paymentServiceProperties.getBaseUrl()).build();
+        Map<String, Object> body = new java.util.HashMap<>();
+        body.put("buyerId", buyerId);
+        body.put("buyerPhone", buyerPhone);
+        body.put("townId", townId);
+        body.put("slab", slab);
+        body.put("orderId", orderId);
+        body.put("codOrder", codOrder);
+        if (idempotencyKey != null) {
+            body.put("idempotencyKey", idempotencyKey);
+        }
+        ApiResponse<UUID> response = client.post()
+                .uri("/api/v1/internal/memberships/bundle/reserve")
+                .body(body)
+                .retrieve()
+                .body(new ParameterizedTypeReference<ApiResponse<UUID>>() {});
+        if (response == null || response.getData() == null) {
+            throw new BusinessException(ErrorCode.CONFLICT, "Could not add membership plan to order");
+        }
+        return response.getData();
+    }
+
+    public void cancelBundledMembership(UUID orderId) {
+        try {
+            RestClient client = restClientBuilder.baseUrl(paymentServiceProperties.getBaseUrl()).build();
+            client.post()
+                    .uri("/api/v1/internal/memberships/bundle/cancel/{orderId}", orderId)
+                    .retrieve()
+                    .toBodilessEntity();
+        } catch (RuntimeException ignored) {
+            // Best-effort cleanup.
+        }
+    }
 }

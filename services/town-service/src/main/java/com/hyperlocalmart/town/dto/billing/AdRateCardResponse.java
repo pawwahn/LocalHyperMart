@@ -20,4 +20,9 @@ public class AdRateCardResponse {
     private AdSlotRateDto homeHero;
     private AdSlotRateDto homeMidGrid;
     private AdSlotRateDto cartUpsell;
+
+    /** False when that placement is hidden on Creatives — rate rows are not sold. */
+    private boolean homeHeroActive;
+    private boolean homeMidGridActive;
+    private boolean cartUpsellActive;
 }

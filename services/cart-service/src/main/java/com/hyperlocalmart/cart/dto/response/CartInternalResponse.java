@@ -22,4 +22,6 @@ public class CartInternalResponse {
     private int itemCount;
     private boolean minOrderMet;
     private List<CartInternalItemResponse> items;
+    private String membershipSlab;
+    private BigDecimal membershipFee;
 }

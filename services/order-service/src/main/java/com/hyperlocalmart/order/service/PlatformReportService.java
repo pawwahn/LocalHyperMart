@@ -79,6 +79,7 @@ public class PlatformReportService {
         BigDecimal codGmv = BigDecimal.ZERO;
         BigDecimal onlineGmv = BigDecimal.ZERO;
         BigDecimal platformFees = BigDecimal.ZERO;
+        BigDecimal deliveryFeesCollected = BigDecimal.ZERO;
         BigDecimal promoDiscounts = BigDecimal.ZERO;
         long membershipDeliveriesWaived = 0;
         BigDecimal membershipFeeWaived = BigDecimal.ZERO;
@@ -115,6 +116,7 @@ public class PlatformReportService {
             if (order.getStatus() == OrderStatus.DELIVERED) {
                 delivered++;
                 deliveredGmv = deliveredGmv.add(total);
+                deliveryFeesCollected = deliveryFeesCollected.add(nz(order.getDeliveryFee()));
                 dayAcc.delivered++;
                 townAcc.delivered++;
                 townAcc.deliveredGmv = townAcc.deliveredGmv.add(total);
@@ -180,6 +182,7 @@ public class PlatformReportService {
                 .codGmv(money(codGmv))
                 .onlineGmv(money(onlineGmv))
                 .platformFees(money(platformFees))
+                .deliveryFeesCollected(money(deliveryFeesCollected))
                 .promoDiscounts(money(promoDiscounts))
                 .averageOrderValue(placed == 0 ? money(BigDecimal.ZERO) : money(placedGmv.divide(BigDecimal.valueOf(placed), 2, RoundingMode.HALF_UP)))
                 .deliveryRate(rate(delivered, placed))

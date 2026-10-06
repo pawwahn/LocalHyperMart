@@ -2,7 +2,7 @@ import { useEffect, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import { ApiError } from '@/shared/api/http';
 import { Banner, Button, TextField } from '@/shared/ui';
-import { AdminHistoryPanel, LastChangeStrip } from '@/shared/audit/AdminHistoryPanel';
+import { AdminHistoryPanel } from '@/shared/audit/AdminHistoryPanel';
 import {
   GOVT_ID_OPTIONS,
   updateHub,
@@ -13,12 +13,14 @@ import {
 type Props = {
   hub: AdminHubVm;
   townLabel: string;
+  stateName?: string | null;
+  stateCode?: string | null;
   token: string;
   onClose: () => void;
   onSaved: (hub: AdminHubVm, message: string) => void;
 };
 
-export function HubDetailDialog({ hub, townLabel, token, onClose, onSaved }: Props) {
+export function HubDetailDialog({ hub, townLabel, stateName, stateCode, token, onClose, onSaved }: Props) {
   const [panel, setPanel] = useState<'edit' | 'log'>('edit');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -121,7 +123,33 @@ export function HubDetailDialog({ hub, townLabel, token, onClose, onSaved }: Pro
         style={styles.dialog}
         onMouseDown={(e) => e.stopPropagation()}
       >
-        <style>{`@media (max-width: 640px) { .hub-edit-grid { grid-template-columns: 1fr !important; } }`}</style>
+        <style>{`
+          .hub-edit-compact label { gap: 0.18rem !important; font-size: 0.7rem !important; font-weight: 700 !important; }
+          .hub-edit-compact input, .hub-edit-compact select {
+            padding: 0.36rem 0.48rem !important;
+            font-size: 0.82rem !important;
+            border-radius: 8px !important;
+          }
+          .hub-edit-grid-3 {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 0.32rem 0.42rem;
+          }
+          .hub-edit-grid-4 {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 0.32rem 0.42rem;
+          }
+          .hub-span-2 { grid-column: span 2; }
+          .hub-span-3 { grid-column: 1 / -1; }
+          @media (max-width: 720px) {
+            .hub-edit-grid-3, .hub-edit-grid-4 { grid-template-columns: 1fr 1fr; }
+            .hub-span-2, .hub-span-3 { grid-column: 1 / -1; }
+          }
+          @media (max-width: 480px) {
+            .hub-edit-grid-3, .hub-edit-grid-4 { grid-template-columns: 1fr; }
+          }
+        `}</style>
         <div style={styles.head}>
           <div>
             <h2 id="hub-detail-title" style={styles.title}>
@@ -161,17 +189,8 @@ export function HubDetailDialog({ hub, townLabel, token, onClose, onSaved }: Pro
 
         {panel === 'edit' ? (
           <>
-            {token ? (
-              <LastChangeStrip
-                token={token}
-                screen="hubs"
-                townId={hub.townId}
-                refreshTick={historyTick}
-                onSeeAll={() => setPanel('log')}
-              />
-            ) : null}
-            <div style={styles.body}>
-              <div className="hub-edit-grid" style={styles.grid}>
+            <div className="hub-edit-compact" style={styles.body}>
+              <div className="hub-edit-grid-3">
                 <TextField label="Hub name" value={name} onChange={(e) => setName(e.target.value)} />
                 <TextField
                   label="Hub phone"
@@ -180,14 +199,6 @@ export function HubDetailDialog({ hub, townLabel, token, onClose, onSaved }: Pro
                   maxLength={10}
                   onChange={(e) => setPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
                 />
-                <div style={styles.span2}>
-                  <TextField
-                    label="Address"
-                    value={address}
-                    onChange={(e) => setAddress(e.target.value)}
-                    placeholder="Optional"
-                  />
-                </div>
                 <label style={styles.field}>
                   Hub status
                   <select
@@ -199,11 +210,21 @@ export function HubDetailDialog({ hub, townLabel, token, onClose, onSaved }: Pro
                     <option value="DISABLED">Disabled</option>
                   </select>
                 </label>
+                <TextField label="State name" value={stateName?.trim() || '—'} disabled />
+                <TextField label="State code" value={stateCode?.trim() || '—'} disabled />
                 <TextField label="Admin login" value={hub.adminPhone ?? hub.phone} disabled />
+                <div className="hub-span-3">
+                  <TextField
+                    label="Address"
+                    value={address}
+                    onChange={(e) => setAddress(e.target.value)}
+                    placeholder="Optional"
+                  />
+                </div>
               </div>
 
               <p style={styles.section}>Government proof</p>
-              <div className="hub-edit-grid" style={styles.grid}>
+              <div className="hub-edit-grid-3 hub-edit-compact">
                 <label style={styles.field}>
                   ID type
                   <select
@@ -218,31 +239,33 @@ export function HubDetailDialog({ hub, townLabel, token, onClose, onSaved }: Pro
                     ))}
                   </select>
                 </label>
-                <TextField
-                  label={govtIdType === 'AADHAAR' ? 'ID number (type new 12 digits to replace)' : 'ID number (type new to replace)'}
-                  value={govtIdNumber}
-                  onChange={(e) => setGovtIdNumber(e.target.value)}
-                  placeholder={hub.govtIdNumber || 'Stored ID'}
-                />
+                <div className="hub-span-2">
+                  <TextField
+                    label={
+                      govtIdType === 'AADHAAR'
+                        ? 'ID number (12 digits to replace stored)'
+                        : 'ID number (type new to replace stored)'
+                    }
+                    value={govtIdNumber}
+                    onChange={(e) => setGovtIdNumber(e.target.value)}
+                    placeholder={hub.govtIdNumber || 'Stored ID'}
+                  />
+                </div>
               </div>
 
-              <p style={styles.section}>Reference 1</p>
-              <div className="hub-edit-grid" style={styles.grid}>
-                <TextField label="Name" value={reference1Name} onChange={(e) => setReference1Name(e.target.value)} />
+              <p style={styles.section}>References</p>
+              <div className="hub-edit-grid-4 hub-edit-compact">
+                <TextField label="Ref 1 name" value={reference1Name} onChange={(e) => setReference1Name(e.target.value)} />
                 <TextField
-                  label="Phone"
+                  label="Ref 1 phone"
                   value={reference1Phone}
                   inputMode="numeric"
                   maxLength={10}
                   onChange={(e) => setReference1Phone(e.target.value.replace(/\D/g, '').slice(0, 10))}
                 />
-              </div>
-
-              <p style={styles.section}>Reference 2</p>
-              <div className="hub-edit-grid" style={styles.grid}>
-                <TextField label="Name" value={reference2Name} onChange={(e) => setReference2Name(e.target.value)} />
+                <TextField label="Ref 2 name" value={reference2Name} onChange={(e) => setReference2Name(e.target.value)} />
                 <TextField
-                  label="Phone"
+                  label="Ref 2 phone"
                   value={reference2Phone}
                   inputMode="numeric"
                   maxLength={10}
@@ -289,20 +312,20 @@ const styles: Record<string, CSSProperties> = {
     padding: '0.75rem',
   },
   dialog: {
-    width: 'min(720px, 100%)',
-    maxHeight: 'min(92vh, 820px)',
-    overflow: 'auto',
+    width: 'min(820px, 100%)',
+    maxHeight: 'none',
+    overflow: 'visible',
     background: 'var(--bg-elevated)',
-    borderRadius: 16,
-    padding: '0.85rem 0.9rem 0.85rem',
+    borderRadius: 14,
+    padding: '0.55rem 0.65rem 0.6rem',
     display: 'grid',
-    gap: '0.55rem',
+    gap: '0.35rem',
     boxShadow: '0 18px 48px rgba(2, 6, 12, 0.28)',
   },
-  head: { display: 'flex', justifyContent: 'space-between', gap: '0.75rem', alignItems: 'flex-start' },
+  head: { display: 'flex', justifyContent: 'space-between', gap: '0.5rem', alignItems: 'flex-start' },
   headRight: { display: 'flex', alignItems: 'center', gap: '0.45rem', flexShrink: 0 },
-  title: { margin: 0, fontFamily: 'var(--font-display)', fontSize: '1.15rem', fontWeight: 800 },
-  sub: { margin: '0.15rem 0 0', color: 'var(--text-muted)', fontSize: '0.82rem', fontWeight: 600 },
+  title: { margin: 0, fontFamily: 'var(--font-display)', fontSize: '1.02rem', fontWeight: 800, lineHeight: 1.2 },
+  sub: { margin: '0.08rem 0 0', color: 'var(--text-muted)', fontSize: '0.75rem', fontWeight: 600 },
   viewTabs: {
     display: 'flex',
     gap: 3,
@@ -342,39 +365,34 @@ const styles: Record<string, CSSProperties> = {
     height: 32,
     cursor: 'pointer',
   },
-  body: { display: 'grid', gap: '0.45rem' },
-  grid: {
-    display: 'grid',
-    gridTemplateColumns: '1fr 1fr',
-    gap: '0.4rem 0.55rem',
-  },
-  span2: { gridColumn: '1 / -1', minWidth: 0 },
+  body: { display: 'grid', gap: '0.28rem' },
   section: {
-    margin: '0.2rem 0 0',
-    fontSize: '0.72rem',
+    margin: '0.12rem 0 0',
+    fontSize: '0.65rem',
     fontWeight: 800,
-    letterSpacing: '0.04em',
+    letterSpacing: '0.05em',
     textTransform: 'uppercase',
     color: 'var(--text-muted)',
   },
   field: {
     display: 'grid',
-    gap: '0.25rem',
-    fontSize: '0.8rem',
+    gap: '0.18rem',
+    fontSize: '0.7rem',
     fontWeight: 700,
     color: 'var(--text-muted)',
     minWidth: 0,
   },
   select: {
-    padding: '0.55rem 0.65rem',
+    padding: '0.36rem 0.48rem',
     borderRadius: 8,
     border: '1px solid var(--border)',
     font: 'inherit',
+    fontSize: '0.82rem',
     background: 'var(--bg-elevated)',
     color: 'var(--text)',
     width: '100%',
     boxSizing: 'border-box',
   },
-  footer: { display: 'flex', justifyContent: 'flex-end', gap: '0.45rem' },
+  footer: { display: 'flex', justifyContent: 'flex-end', gap: '0.35rem', marginTop: '0.15rem' },
   log: { minHeight: 0 },
 };

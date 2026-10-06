@@ -35,6 +35,26 @@ public class CommercialTermsQuoteRequest {
     /** When true, marks monthly subscription as charged for the period month. */
     private boolean markSubscriptionCharged;
 
+    /**
+     * When false, skip monthly subscription even if due (KoyaKart-pays-vendor payout).
+     * Null defaults to true so older clients keep current quote behaviour.
+     */
+    private Boolean includeSubscription;
+
+    /**
+     * When true, fees may exceed this batch's GMV (vendor-pays-KoyaKart: monthly +
+     * commission on shop-held COD). Null / false keeps the payout guard.
+     */
+    private Boolean allowFeeExceedGross;
+
+    public boolean includeSubscription() {
+        return includeSubscription == null || includeSubscription;
+    }
+
+    public boolean allowFeeExceedGross() {
+        return Boolean.TRUE.equals(allowFeeExceedGross);
+    }
+
     @Data
     public static class OrderLine {
         @NotNull

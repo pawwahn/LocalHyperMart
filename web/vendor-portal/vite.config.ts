@@ -11,6 +11,9 @@ export default defineConfig({
       '@': fileURLToPath(new URL('./src', import.meta.url)),
       '@hlm-theme': fileURLToPath(new URL('../shared/theme', import.meta.url)),
       '@hlm-legal': fileURLToPath(new URL('../shared/legal', import.meta.url)),
+      '@hlm-brand': fileURLToPath(new URL('../shared/brand/index.ts', import.meta.url)),
+      '@hlm-dates': fileURLToPath(new URL('../shared/dates', import.meta.url)),
+      '@hlm-money-flow': fileURLToPath(new URL('../shared/moneyFlow', import.meta.url)),
     },
   },
   server: {

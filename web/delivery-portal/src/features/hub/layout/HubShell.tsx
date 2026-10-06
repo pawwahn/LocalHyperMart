@@ -16,7 +16,7 @@ const NAV = [
   { to: '/hub/memberships', label: 'Plans', icon: '🎫', end: false },
   { to: '/hub/claims', label: 'Claims', icon: '🧾', end: false },
   { to: '/hub/reports', label: 'Reports', icon: '📊', end: false },
-  { to: '/hub/incentives', label: 'Pay', icon: '₹', end: false },
+  { to: '/hub/accounts', label: 'Accounts', icon: '₹', end: false },
 ] as const;
 
 export function HubShell({ title, subtitle, onRefresh, children }: Props) {

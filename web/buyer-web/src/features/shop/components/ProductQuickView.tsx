@@ -364,6 +364,7 @@ const styles: Record<string, CSSProperties> = {
     fontFamily: 'var(--font-display)',
     fontWeight: 800,
     fontSize: '1.1rem',
+    color: 'var(--accent)',
   },
   mrp: {
     fontSize: '0.78rem',

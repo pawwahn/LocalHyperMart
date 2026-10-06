@@ -2,6 +2,7 @@ package com.hyperlocalmart.cart.web;
 
 import com.hyperlocalmart.cart.dto.request.AddCartItemRequest;
 import com.hyperlocalmart.cart.dto.request.ApplyPromoRequest;
+import com.hyperlocalmart.cart.dto.request.AttachCartMembershipRequest;
 import com.hyperlocalmart.cart.dto.request.ChangeTownRequest;
 import com.hyperlocalmart.cart.dto.request.UpdateCartItemRequest;
 import com.hyperlocalmart.cart.dto.response.CartResponse;
@@ -93,5 +94,23 @@ public class CartController {
             HttpServletRequest httpRequest) {
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
                 cartService.removePromo(principal.getUserId(), townId)));
+    }
+
+    @PostMapping("/membership")
+    public ResponseEntity<ApiResponse<CartResponse>> attachMembership(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @Valid @RequestBody AttachCartMembershipRequest request,
+            HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                cartService.attachMembership(principal.getUserId(), request)));
+    }
+
+    @DeleteMapping("/membership")
+    public ResponseEntity<ApiResponse<CartResponse>> removeMembership(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @RequestParam UUID townId,
+            HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                cartService.removeMembership(principal.getUserId(), townId)));
     }
 }

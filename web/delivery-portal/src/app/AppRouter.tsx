@@ -1,5 +1,6 @@
 import { routerBasename } from '../../../shared/routerBasename';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
+import { PlatformBrandProvider } from '@hlm-brand';
 import { ThemeProvider } from '@hlm-theme';
 import { AuthProvider, useAuth } from '@/shared/auth/AuthContext';
 import { resolvePortalRole } from '@/shared/auth/session';
@@ -13,6 +14,7 @@ import { HubMembershipPage } from '@/features/hub/pages/HubMembershipPage';
 import { HubClaimsPage } from '@/features/hub/pages/HubClaimsPage';
 import { HubReportsPage } from '@/features/hub/pages/HubReportsPage';
 import { HubIncentivesPage } from '@/features/hub/pages/HubIncentivesPage';
+import { HubAccountPage } from '@/features/hub/pages/HubAccountPage';
 import { AgentHomePage } from '@/features/agent/pages/AgentHomePage';
 import { AgentVendorPickupsPage } from '@/features/agent/pages/AgentVendorPickupsPage';
 import { AgentBuyerDeliveriesPage } from '@/features/agent/pages/AgentBuyerDeliveriesPage';
@@ -32,6 +34,7 @@ function HomeRedirect() {
 export function AppRouter() {
   return (
     <ThemeProvider storageKey="hlm.koyakart.delivery.theme" defaultAccent="forest">
+      <PlatformBrandProvider>
       <AuthProvider>
         <BrowserRouter basename={routerBasename()}>
           <AgentAssignmentAlertProvider>
@@ -45,6 +48,7 @@ export function AppRouter() {
                 <Route path="/hub/memberships" element={<HubMembershipPage />} />
                 <Route path="/hub/claims" element={<HubClaimsPage />} />
                 <Route path="/hub/reports" element={<HubReportsPage />} />
+                <Route path="/hub/accounts" element={<HubAccountPage />} />
                 <Route path="/hub/incentives" element={<HubIncentivesPage />} />
               </Route>
               <Route element={<RequireAuth role="DELIVERY_AGENT" />}>
@@ -60,6 +64,7 @@ export function AppRouter() {
           </AgentAssignmentAlertProvider>
         </BrowserRouter>
       </AuthProvider>
+      </PlatformBrandProvider>
     </ThemeProvider>
   );
 }

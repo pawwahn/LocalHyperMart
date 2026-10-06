@@ -150,6 +150,7 @@ public class VendorSalesReportService {
                     .status(subOrder.getStatus())
                     .paymentMethod(payMethod)
                     .paymentStatus(payStatus)
+                    .vendorAgentDelivery(subOrder.getOrder().isVendorAgentDelivery())
                     .subtotal(rejected ? rejectedDisplay : subtotal)
                     .itemCount(itemCount)
                     .items(items)

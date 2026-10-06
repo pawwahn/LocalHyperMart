@@ -129,7 +129,7 @@ export function OrderAlertProvider({ children }: { children: ReactNode }) {
     setAlertVersion((v) => v + 1);
     // Play even if tab is backgrounded/minimized (needs prior unlock via click / Test).
     playOrderReceivedVoice(vendorAlertMessage);
-    notifyBrowserOrder(`KoYaKart — ${vendorAlertMessage}`, msg);
+    notifyBrowserOrder(`KoyaKart — ${vendorAlertMessage}`, msg);
     void ensureNotificationPermission().then((ok) => setNotificationsReady(ok));
   }, [vendorAlertMessage]);
 
@@ -173,7 +173,7 @@ export function OrderAlertProvider({ children }: { children: ReactNode }) {
             setAlertVersion((v) => v + 1);
             const first = newReminders[0];
             notifyBrowserOrder(
-              `KoYaKart — ${vendorAlertMessage}`,
+              `KoyaKart — ${vendorAlertMessage}`,
               first.orderNumber
                 ? `Hub is calling you for ${first.orderNumber}`
                 : 'Hub is calling you — pack this bag',

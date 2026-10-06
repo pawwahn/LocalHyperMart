@@ -1,4 +1,4 @@
-/** Delivery / hub portal tokens — light ops UI, KoYaKart green. */
+/** Delivery / hub portal tokens — light ops UI, KoyaKart green. */
 export const tokens = {
   color: {
     bg: '#F5F7F6',

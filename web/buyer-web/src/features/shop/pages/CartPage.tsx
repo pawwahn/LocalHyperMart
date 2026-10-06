@@ -25,6 +25,22 @@ import { MembershipPlansSheet } from '../components/MembershipPlansSheet';
 import { applyReferralCode, getReferralMe, type ReferralMeVm } from '../api/referralApi';
 import { ApiError } from '@/shared/api/http';
 
+function formatDeliverAddress(a: {
+  label?: string;
+  line1?: string;
+  line2?: string;
+  landmark?: string;
+  pincode?: string;
+  recipientName?: string;
+  recipientPhone?: string;
+}): string {
+  const street = [a.line1, a.line2, a.landmark, a.pincode].filter(Boolean).join(', ');
+  const head = [a.label?.trim() || 'Home', a.recipientName?.trim()].filter(Boolean).join(' · ');
+  const tail = [street, a.recipientPhone?.trim()].filter(Boolean).join(' · ');
+  if (head && tail) return `${head} — ${tail}`;
+  return head || tail || '';
+}
+
 const STICKY_CSS = `
   .cart-sticky-mid {
     display: flex;
@@ -52,6 +68,7 @@ export function CartPage() {
     openTownPicker,
     storeCreditBalance,
     selectedAddressId,
+    selectedAddressSnapshot,
     setSelectedAddressId,
     busy,
     busyKey,
@@ -227,6 +244,13 @@ export function CartPage() {
   }, [hasCartItems, payOnDelivery, codEnabled, upiEnabled]);
   const payModeLabel = online ? 'Pay now' : 'Cash on delivery';
   const selectedAddress = addresses.find((a) => a.id === selectedAddressId);
+  const deliverSummary = useMemo(() => {
+    if (selectedAddress) return formatDeliverAddress(selectedAddress);
+    if (selectedAddressId && selectedAddressSnapshot?.id === selectedAddressId) {
+      return formatDeliverAddress(selectedAddressSnapshot);
+    }
+    return '';
+  }, [selectedAddress, selectedAddressId, selectedAddressSnapshot]);
   const cartFingerprint = useMemo(
     () => cart?.items.map((item) => `${item.listingId}:${item.quantity}`).join('|') ?? '',
     [cart?.items],
@@ -547,9 +571,7 @@ export function CartPage() {
             <span style={styles.deliverText}>
               <span style={styles.deliverLabel}>Delivering to</span>
               <span style={styles.deliverValue}>
-                {selectedAddress
-                  ? `${selectedAddress.label || 'Home'} · ${selectedAddress.line1}`
-                  : 'Add a delivery address'}
+                {deliverSummary || 'Add a delivery address'}
               </span>
             </span>
             <span style={styles.changeBtn}>Change</span>
@@ -570,10 +592,14 @@ export function CartPage() {
                     </p>
                   </div>
                   <QuantityStepper
-                    quantity={item.quantity}
+                    quantity={quantityFor(item.listingId)}
                     disabled={busyKey === item.itemId}
-                    onIncrease={() => void doSetLineQuantity(item.itemId, item.quantity + 1)}
-                    onDecrease={() => void doSetLineQuantity(item.itemId, item.quantity - 1)}
+                    onIncrease={() =>
+                      void doSetLineQuantity(item.itemId, quantityFor(item.listingId) + 1)
+                    }
+                    onDecrease={() =>
+                      void doSetLineQuantity(item.itemId, quantityFor(item.listingId) - 1)
+                    }
                   />
                 </Card>
               );
@@ -811,6 +837,7 @@ const styles: Record<string, CSSProperties> = {
     width: '100%',
     border: '1px solid var(--border)',
     background: 'var(--bg-elevated)',
+    color: 'var(--text)',
     borderRadius: 12,
     padding: '0.5rem 0.7rem',
     minHeight: 48,
@@ -823,6 +850,7 @@ const styles: Record<string, CSSProperties> = {
   deliverValue: {
     fontWeight: 700,
     fontSize: '0.86rem',
+    color: 'var(--text)',
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',

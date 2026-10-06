@@ -128,6 +128,8 @@ export async function quoteVendorCommercialTerms(
     periodStart?: string;
     periodEnd?: string;
     markSubscriptionCharged?: boolean;
+    includeSubscription?: boolean;
+    allowFeeExceedGross?: boolean;
     orderLines?: Array<{ amount: number; placedAt?: string | null; orderDate?: string }>;
   },
 ): Promise<CommercialTermsQuote> {

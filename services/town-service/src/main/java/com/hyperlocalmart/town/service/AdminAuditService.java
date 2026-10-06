@@ -253,6 +253,12 @@ public class AdminAuditService implements AdminAuditor {
                 return fromSummary;
             }
         }
+        if ("town-incentives".equals(row.getScreenKey()) && before != null && after != null) {
+            List<String> parts = DeliveryPayoutAuditFormat.changeParts(before, after);
+            if (!parts.isEmpty()) {
+                return parts;
+            }
+        }
         String text = summary == null ? "" : summary.trim();
         if (text.isEmpty()) {
             return List.of();

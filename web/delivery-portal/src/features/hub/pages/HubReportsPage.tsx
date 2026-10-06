@@ -3,433 +3,292 @@ import { useAuth } from '@/shared/auth/AuthContext';
 import { ApiError } from '@/shared/api/http';
 import { useIsMobile } from '@/shared/hooks/useIsMobile';
 import { HubShell } from '../layout/HubShell';
-import { fetchHubReport, fetchMyHub, type HubReportDto } from '../api/hubApi';
-
-function todayIso(): string {
-  return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
-}
-
-function shiftIso(days: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() + days);
-  return d.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
-}
-
-/** First and last calendar day of a month in IST (YYYY-MM-DD). */
-function monthBounds(offsetMonths: number): { from: string; to: string } {
-  const parts = todayIso().split('-').map(Number);
-  const y = parts[0];
-  const m = parts[1];
-  const base = new Date(Date.UTC(y, m - 1 + offsetMonths, 1));
-  const year = base.getUTCFullYear();
-  const month = base.getUTCMonth();
-  const from = `${year}-${String(month + 1).padStart(2, '0')}-01`;
-  const lastDay = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
-  const to = `${year}-${String(month + 1).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
-  return { from, to };
-}
-
-type Preset = 'today' | '7d' | '30d' | 'thisMonth' | 'lastMonth' | 'custom';
-type AgentRow = HubReportDto['agents'][number];
+import {
+  fetchHubAgents,
+  fetchHubAssignmentReport,
+  fetchHubDailyOrdersReport,
+  fetchHubPaymentMixReport,
+  fetchHubQualityReport,
+  fetchHubReport,
+  fetchMyHub,
+  type AgentDto,
+} from '../api/hubApi';
+import {
+  fetchCodCloses,
+  fetchCodCustodianOutstanding,
+  fetchCodCustodianPendingDetail,
+  fetchCodHubLedger,
+} from '../api/codApi';
+import { fetchHubAccountSummary } from '../api/hubAccountApi';
+import {
+  HUB_REPORT_CATALOG,
+  hubReportById,
+  type HubReportKind,
+} from '../reports/hubReportCatalog';
+import { HubReportContent, type LoadedHubReport } from '../reports/HubReportContent';
+import {
+  csvCodCloses,
+  csvCodLedger,
+  csvCodOutstanding,
+  csvCodPending,
+  csvDailyOrders,
+  csvHubAccount,
+  csvOperationsSummary,
+  csvPaymentMix,
+  csvQuality,
+  csvTrips,
+} from '../reports/hubReportCsv';
+import { DateRangePresetBar } from '@hlm-dates/DateRangePresetBar';
+import { formatIsoDateRange } from '../lib/codFormat';
+import { rangeForReportPreset, type ReportDatePreset } from '@hlm-dates/istReportPresets';
 
 export function HubReportsPage() {
   const { session } = useAuth();
   const isMobile = useIsMobile();
   const [hubId, setHubId] = useState<string | null>(null);
-  const [hubName, setHubName] = useState('');
-  const [preset, setPreset] = useState<Preset>('today');
-  const [from, setFrom] = useState(todayIso);
-  const [to, setTo] = useState(todayIso);
+  const [townId, setTownId] = useState<string | null>(null);
+  const [reportKind, setReportKind] = useState<HubReportKind>('operations');
+  const monthRange = rangeForReportPreset('month');
+  const [preset, setPreset] = useState<ReportDatePreset>('month');
+  const [from, setFrom] = useState(monthRange.from);
+  const [to, setTo] = useState(monthRange.to);
   const [agentId, setAgentId] = useState('all');
-  const [report, setReport] = useState<HubReportDto | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [agents, setAgents] = useState<AgentDto[]>([]);
+  const [loaded, setLoaded] = useState<LoadedHubReport | null>(null);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const applyPreset = useCallback((next: Preset) => {
-    setPreset(next);
-    if (next === 'today') {
-      const t = todayIso();
-      setFrom(t);
-      setTo(t);
-    } else if (next === '7d') {
-      setFrom(shiftIso(-6));
-      setTo(todayIso());
-    } else if (next === '30d') {
-      setFrom(shiftIso(-29));
-      setTo(todayIso());
-    } else if (next === 'thisMonth') {
-      const b = monthBounds(0);
-      setFrom(b.from);
-      setTo(b.to);
-    } else if (next === 'lastMonth') {
-      const b = monthBounds(-1);
-      setFrom(b.from);
-      setTo(b.to);
-    }
-  }, []);
+  const def = hubReportById(reportKind);
 
-  const loadHub = useCallback(async () => {
+  useEffect(() => {
     if (!session) return;
-    const me = await fetchMyHub(session.accessToken);
-    setHubId(me.hubId);
-    setHubName(me.hubName);
+    void (async () => {
+      try {
+        const me = await fetchMyHub(session.accessToken);
+        setHubId(me.hubId);
+        setTownId(me.townId);
+        const list = await fetchHubAgents(session.accessToken, me.hubId).catch(() => [] as AgentDto[]);
+        setAgents(list);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Could not load hub');
+      }
+    })();
   }, [session]);
 
   const loadReport = useCallback(async () => {
-    if (!session || !hubId) return;
+    if (!session || !hubId || !townId) return;
     setLoading(true);
     setError(null);
     try {
-      const next = await fetchHubReport(session.accessToken, hubId, from, to);
-      setReport(next);
-      setAgentId((prev) =>
-        prev === 'all' || next.agents.some((a) => a.agentId === prev) ? prev : 'all',
-      );
+      let next: LoadedHubReport;
+      switch (reportKind) {
+        case 'operations':
+          next = { kind: 'operations', data: await fetchHubReport(session.accessToken, hubId, from, to) };
+          break;
+        case 'daily-orders':
+          next = {
+            kind: 'daily-orders',
+            data: await fetchHubDailyOrdersReport(session.accessToken, hubId, from, to),
+          };
+          break;
+        case 'trips':
+          next = {
+            kind: 'trips',
+            data: await fetchHubAssignmentReport(
+              session.accessToken,
+              hubId,
+              from,
+              to,
+              agentId === 'all' ? undefined : agentId,
+            ),
+          };
+          break;
+        case 'payment-mix':
+          next = {
+            kind: 'payment-mix',
+            data: await fetchHubPaymentMixReport(session.accessToken, hubId, from, to),
+          };
+          break;
+        case 'order-quality':
+          next = {
+            kind: 'order-quality',
+            data: await fetchHubQualityReport(session.accessToken, hubId, from, to),
+          };
+          break;
+        case 'hub-account':
+          next = {
+            kind: 'hub-account',
+            data: await fetchHubAccountSummary(session.accessToken, from, to),
+          };
+          break;
+        case 'cod-closes': {
+          const items = await fetchCodCloses(session.accessToken, { townId, hubId, from, to });
+          const filtered =
+            agentId === 'all' ? items : items.filter((c) => c.agentId === agentId);
+          next = { kind: 'cod-closes', data: filtered };
+          break;
+        }
+        case 'cod-ledger':
+          next = {
+            kind: 'cod-ledger',
+            data: await fetchCodHubLedger(session.accessToken, { townId, hubId, from, to }),
+          };
+          break;
+        case 'cod-pending':
+          next = {
+            kind: 'cod-pending',
+            data: await fetchCodCustodianPendingDetail(session.accessToken, { townId, hubId, from, to }),
+          };
+          break;
+        case 'cod-outstanding':
+          next = {
+            kind: 'cod-outstanding',
+            data: await fetchCodCustodianOutstanding(session.accessToken, { townId, hubId }),
+          };
+          break;
+        default:
+          throw new Error('Unknown report type');
+      }
+      setLoaded(next);
     } catch (err) {
-      setReport(null);
+      setLoaded(null);
       setError(err instanceof ApiError || err instanceof Error ? err.message : 'Could not load report');
     } finally {
       setLoading(false);
     }
-  }, [session, hubId, from, to]);
-
-  useEffect(() => {
-    void loadHub().catch((err) =>
-      setError(err instanceof Error ? err.message : 'Could not load hub'),
-    );
-  }, [loadHub]);
-
-  useEffect(() => {
-    if (hubId) void loadReport();
-  }, [hubId, loadReport]);
+  }, [session, hubId, townId, reportKind, from, to, agentId]);
 
   const rangeLabel = useMemo(() => {
-    if (from === to) return from;
-    return `${from} → ${to}`;
-  }, [from, to]);
+    if (!def.usesDateRange) return 'Live snapshot';
+    return formatIsoDateRange(from, to);
+  }, [def.usesDateRange, from, to]);
 
-  const selectedAgent: AgentRow | null = useMemo(() => {
-    if (!report || agentId === 'all') return null;
-    return report.agents.find((a) => a.agentId === agentId) ?? null;
-  }, [report, agentId]);
-
-  const visibleAgents: AgentRow[] = useMemo(() => {
-    if (!report) return [];
-    if (agentId === 'all') return report.agents;
-    return report.agents.filter((a) => a.agentId === agentId);
-  }, [report, agentId]);
+  const exportCsv = useCallback(() => {
+    if (!loaded) return;
+    switch (loaded.kind) {
+      case 'operations':
+        csvOperationsSummary(loaded.data, agentId);
+        break;
+      case 'daily-orders':
+        csvDailyOrders(loaded.data);
+        break;
+      case 'trips':
+        csvTrips(loaded.data);
+        break;
+      case 'payment-mix':
+        csvPaymentMix(loaded.data);
+        break;
+      case 'order-quality':
+        csvQuality(loaded.data);
+        break;
+      case 'hub-account':
+        csvHubAccount(loaded.data);
+        break;
+      case 'cod-closes':
+        csvCodCloses(loaded.data, from, to);
+        break;
+      case 'cod-ledger':
+        csvCodLedger(loaded.data);
+        break;
+      case 'cod-pending':
+        csvCodPending(loaded.data, agentId);
+        break;
+      case 'cod-outstanding':
+        csvCodOutstanding(loaded.data, agentId);
+        break;
+    }
+  }, [loaded, agentId, from, to]);
 
   return (
-    <HubShell
-      title="Hub reports"
-      onRefresh={() => void loadReport()}
-    >
+    <HubShell title="Hub reports" onRefresh={() => void loadReport()}>
       <section style={styles.filters}>
-        <p style={styles.filtersTitle}>1. Choose dates</p>
-        <div style={styles.presets}>
-          <PresetChip active={preset === 'today'} label="Today" onClick={() => applyPreset('today')} />
-          <PresetChip active={preset === '7d'} label="Last 7 days" onClick={() => applyPreset('7d')} />
-          <PresetChip active={preset === '30d'} label="Last 30 days" onClick={() => applyPreset('30d')} />
-          <PresetChip
-            active={preset === 'thisMonth'}
-            label="This month"
-            onClick={() => applyPreset('thisMonth')}
-          />
-          <PresetChip
-            active={preset === 'lastMonth'}
-            label="Last month"
-            onClick={() => applyPreset('lastMonth')}
-          />
-          <PresetChip active={preset === 'custom'} label="Custom dates" onClick={() => setPreset('custom')} />
-        </div>
-        <div style={isMobile ? styles.dateRowMobile : styles.dateRow}>
-          <label style={isMobile ? styles.dateFieldMobile : styles.dateField}>
-            From
-            <input
-              type="date"
-              value={from}
-              onChange={(e) => {
-                setPreset('custom');
-                setFrom(e.target.value);
+        <p style={styles.filtersTitle}>1. Choose report</p>
+        <div style={styles.reportGrid}>
+          {HUB_REPORT_CATALOG.map((r) => (
+            <button
+              key={r.id}
+              type="button"
+              style={reportKind === r.id ? styles.reportCardActive : styles.reportCard}
+              onClick={() => {
+                setReportKind(r.id);
+                setLoaded(null);
               }}
-              style={styles.dateInput}
-            />
-          </label>
-          <label style={isMobile ? styles.dateFieldMobile : styles.dateField}>
-            To
-            <input
-              type="date"
-              value={to}
-              onChange={(e) => {
-                setPreset('custom');
-                setTo(e.target.value);
-              }}
-              style={styles.dateInput}
-            />
-          </label>
+            >
+              <strong style={styles.reportCardTitle}>{r.title}</strong>
+              <span style={styles.reportCardSub}>{r.subtitle}</span>
+            </button>
+          ))}
         </div>
 
-        <p style={styles.filtersTitle}>2. Choose delivery agent</p>
-        <label style={styles.selectField}>
-          Agent phone / name
-          <select
-            value={agentId}
-            onChange={(e) => setAgentId(e.target.value)}
-            style={isMobile ? styles.selectMobile : styles.select}
-            aria-label="Select delivery agent"
-          >
-            <option value="all">All delivery agents</option>
-            {(report?.agents ?? []).map((a) => (
-              <option key={a.agentId} value={a.agentId}>
-                {a.phone} · {a.name}
-              </option>
-            ))}
-          </select>
-        </label>
+        {def.usesDateRange ? (
+          <>
+            <p style={styles.filtersTitle}>2. Choose dates</p>
+            <DateRangePresetBar
+              preset={preset}
+              from={from}
+              to={to}
+              onPresetChange={setPreset}
+              onFromChange={setFrom}
+              onToChange={setTo}
+              stackDateInputs={isMobile}
+              ariaLabel="Report date range"
+            />
+          </>
+        ) : (
+          <p style={styles.muted}>This report uses current unsettled COD data (no date range).</p>
+        )}
 
-        <div style={isMobile ? styles.dateRowMobile : styles.dateRow}>
-          <button type="button" style={styles.applyBtn} onClick={() => void loadReport()} disabled={loading}>
-            Show report
+        {def.usesAgentFilter ? (
+          <>
+            <p style={styles.filtersTitle}>{def.usesDateRange ? '3' : '2'}. Filter by agent (optional)</p>
+            <label style={styles.selectField}>
+              Agent
+              <select
+                value={agentId}
+                onChange={(e) => setAgentId(e.target.value)}
+                style={isMobile ? styles.selectMobile : styles.select}
+              >
+                <option value="all">All delivery agents</option>
+                {agents.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.phone} · {a.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </>
+        ) : null}
+
+        <div style={isMobile ? styles.actionCol : styles.actionRow}>
+          <button type="button" style={styles.applyBtn} onClick={() => void loadReport()} disabled={loading || !hubId}>
+            {loading ? 'Loading…' : 'Show report'}
           </button>
-          <button
-            type="button"
-            style={styles.applyBtn}
-            disabled={!report}
-            onClick={() => {
-              if (!report) return;
-              const rows = [
-                ['Agent', 'Phone', 'Pickups', 'Deliveries', 'Total'].join(','),
-                ...report.agents.map((a) =>
-                  [a.name, a.phone, a.shopPickupsCompleted, a.homeDeliveriesCompleted, a.totalCompleted].join(','),
-                ),
-              ];
-              const blob = new Blob([rows.join('\n')], { type: 'text/csv;charset=utf-8' });
-              const url = URL.createObjectURL(blob);
-              const a = document.createElement('a');
-              a.href = url;
-              a.download = `hub-report-${report.from}-${report.to}.csv`;
-              a.click();
-              URL.revokeObjectURL(url);
-            }}
-          >
-            Export CSV
+          <button type="button" style={styles.secondaryBtn} disabled={!loaded} onClick={exportCsv}>
+            Download CSV
           </button>
           <p style={styles.rangeHint}>
-            Showing: {rangeLabel}
-            {selectedAgent ? ` · agent ${selectedAgent.phone}` : ' · all agents'}
+            {def.title}: {rangeLabel}
+            {def.usesAgentFilter && agentId !== 'all'
+              ? ` · ${agents.find((a) => a.id === agentId)?.phone ?? 'agent'}`
+              : def.usesAgentFilter
+                ? ' · all agents'
+                : ''}
           </p>
         </div>
       </section>
 
       {error ? <p style={styles.error}>{error}</p> : null}
-      {loading && !report ? <p style={styles.muted}>Loading report…</p> : null}
+      {loading && !loaded ? <p style={styles.muted}>Loading report…</p> : null}
 
-      {report ? (
-        <>
-          {selectedAgent ? (
-            <section style={styles.agentHero}>
-              <p style={styles.agentHeroEyebrow}>Selected delivery agent</p>
-              <h2 style={styles.agentHeroTitle}>
-                🛵 {selectedAgent.name}
-              </h2>
-              <p style={styles.agentHeroPhone}>Phone: {selectedAgent.phone}</p>
-              <div style={styles.stats}>
-                <Stat
-                  label="Shop → Hub pickups"
-                  value={selectedAgent.shopPickupsCompleted}
-                  help="Bags this agent brought to hub"
-                  tone="go"
-                />
-                <Stat
-                  label="Hub → Home deliveries"
-                  value={selectedAgent.homeDeliveriesCompleted}
-                  help="Orders this agent gave to customers"
-                  tone="info"
-                />
-                <Stat
-                  label="Total trips done"
-                  value={selectedAgent.totalCompleted}
-                  help={`In ${rangeLabel}`}
-                />
-              </div>
-            </section>
-          ) : (
-            <>
-              <section>
-                <h2 style={styles.h2}>Town orders & bags (whole hub)</h2>
-                <div style={styles.stats}>
-                  <Stat label="Orders placed" value={report.ordersPlaced} help="Customers placed order" />
-                  <Stat label="Orders delivered" value={report.ordersDelivered} help="Reached customer home" />
-                  <Stat label="Orders cancelled" value={report.ordersCancelled} help="Cancelled in this period" />
-                  <Stat
-                    label="Shop bags (sub-orders)"
-                    value={report.subOrdersPlaced}
-                    help="Bags from shops in orders"
-                  />
-                  <Stat
-                    label="Bags marked ready"
-                    value={report.bagsMarkedReady}
-                    help="Shops packed in this period"
-                  />
-                  <Stat
-                    label="GMV placed"
-                    value={Number(report.placedGmv ?? 0)}
-                    help="₹ order value placed"
-                    money
-                  />
-                  <Stat
-                    label="GMV delivered"
-                    value={Number(report.deliveredGmv ?? 0)}
-                    help="₹ reached buyer"
-                    money
-                  />
-                  <Stat
-                    label="COD collected"
-                    value={Number(report.codGmv ?? 0)}
-                    help="₹ cash on delivery"
-                    money
-                  />
-                </div>
-              </section>
-
-              <section>
-                <h2 style={styles.h2}>All hub trips completed</h2>
-                <div style={styles.stats}>
-                  <Stat
-                    label="Shop → Hub pickups"
-                    value={report.shopPickupsCompleted}
-                    help="Bags brought to hub"
-                    tone="go"
-                  />
-                  <Stat
-                    label="Hub → Home deliveries"
-                    value={report.homeDeliveriesCompleted}
-                    help="Orders given to customers"
-                    tone="info"
-                  />
-                </div>
-              </section>
-            </>
-          )}
-
-          <section>
-            <h2 style={styles.h2}>
-              {selectedAgent ? 'This agent — trip numbers' : 'Delivery agents comparison'}
-            </h2>
-            {visibleAgents.length === 0 ? (
-              <p style={styles.empty}>
-                {agentId === 'all'
-                  ? 'No delivery agents linked to this hub.'
-                  : 'No trips for this agent in the selected dates.'}
-              </p>
-            ) : isMobile ? (
-              <div style={styles.agentCards}>
-                {visibleAgents.map((a) => (
-                  <button
-                    key={a.agentId}
-                    type="button"
-                    style={agentId === a.agentId ? styles.agentCardActive : styles.agentCard}
-                    onClick={() => setAgentId(a.agentId)}
-                  >
-                    <strong style={styles.agentCardName}>{a.name}</strong>
-                    <span style={styles.meta}>{a.phone} · {a.status}</span>
-                    <div style={styles.agentCardNums}>
-                      <span>Shop pickups <strong>{a.shopPickupsCompleted}</strong></span>
-                      <span>Home <strong>{a.homeDeliveriesCompleted}</strong></span>
-                      <span>Total <strong>{a.totalCompleted}</strong></span>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            ) : (
-              <div style={styles.tableWrap}>
-                <table style={styles.table}>
-                  <thead>
-                    <tr>
-                      <th style={styles.th}>Agent</th>
-                      <th style={styles.th}>Phone (agent number)</th>
-                      <th style={styles.thNum}>Shop pickups</th>
-                      <th style={styles.thNum}>Home deliveries</th>
-                      <th style={styles.thNum}>Total</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {visibleAgents.map((a) => (
-                      <tr key={a.agentId}>
-                        <td style={styles.td}>
-                          <strong>{a.name}</strong>
-                          <div style={styles.meta}>{a.status}</div>
-                        </td>
-                        <td style={styles.td}>
-                          <button
-                            type="button"
-                            style={styles.phoneBtn}
-                            onClick={() => setAgentId(a.agentId)}
-                            title="Show only this agent"
-                          >
-                            {a.phone}
-                          </button>
-                        </td>
-                        <td style={styles.tdNum}>{a.shopPickupsCompleted}</td>
-                        <td style={styles.tdNum}>{a.homeDeliveriesCompleted}</td>
-                        <td style={styles.tdNum}>
-                          <strong>{a.totalCompleted}</strong>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-            {selectedAgent ? (
-              <button type="button" style={styles.clearBtn} onClick={() => setAgentId('all')}>
-                ← Show all delivery agents
-              </button>
-            ) : null}
-          </section>
-        </>
+      {loaded ? (
+        <HubReportContent
+          loaded={loaded}
+          agentId={agentId}
+          isMobile={isMobile}
+          onSelectAgent={setAgentId}
+        />
       ) : null}
     </HubShell>
-  );
-}
-
-function PresetChip({
-  active,
-  label,
-  onClick,
-}: {
-  active: boolean;
-  label: string;
-  onClick: () => void;
-}) {
-  return (
-    <button type="button" style={active ? styles.chipActive : styles.chip} onClick={onClick}>
-      {label}
-    </button>
-  );
-}
-
-function Stat({
-  label,
-  value,
-  help,
-  tone = 'neutral',
-  money = false,
-}: {
-  label: string;
-  value: number;
-  help: string;
-  tone?: 'neutral' | 'go' | 'info';
-  money?: boolean;
-}) {
-  const toneStyle =
-    tone === 'go' ? styles.statGo : tone === 'info' ? styles.statInfo : styles.stat;
-  return (
-    <div style={toneStyle}>
-      <p style={styles.statValue}>{money ? `₹${value.toFixed(0)}` : value}</p>
-      <p style={styles.statLabel}>{label}</p>
-      <p style={styles.statHelp}>{help}</p>
-    </div>
   );
 }
 
@@ -441,38 +300,36 @@ const styles: Record<string, CSSProperties> = {
     padding: '1rem',
     display: 'grid',
     gap: '0.75rem',
+    marginBottom: '1rem',
   },
   filtersTitle: { margin: 0, fontWeight: 800, fontSize: '1.05rem' },
-  presets: { display: 'flex', gap: '0.45rem', flexWrap: 'wrap' },
-  chip: {
-    border: '2px solid var(--border)',
-    borderRadius: 999,
-    padding: '0.45rem 0.85rem',
-    background: 'transparent',
-    color: 'var(--text-muted)',
-    fontWeight: 700,
-    cursor: 'pointer',
-  },
-  chipActive: {
-    border: '2px solid var(--accent)',
-    borderRadius: 999,
-    padding: '0.45rem 0.85rem',
-    background: 'var(--accent-soft)',
-    color: 'var(--accent-hover)',
-    fontWeight: 800,
-    cursor: 'pointer',
-  },
-  dateRow: { display: 'flex', gap: '0.65rem', flexWrap: 'wrap', alignItems: 'end' },
-  dateRowMobile: { display: 'grid', gap: '0.65rem', width: '100%' },
-  dateField: { display: 'grid', gap: '0.3rem', fontWeight: 700, fontSize: '0.85rem', color: 'var(--text-muted)' },
-  dateFieldMobile: {
+  reportGrid: {
     display: 'grid',
-    gap: '0.3rem',
-    fontWeight: 700,
-    fontSize: '0.85rem',
-    color: 'var(--text-muted)',
-    width: '100%',
+    gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
+    gap: '0.55rem',
   },
+  reportCard: {
+    textAlign: 'left',
+    border: '2px solid var(--border)',
+    borderRadius: 12,
+    padding: '0.65rem 0.75rem',
+    background: 'var(--bg-muted)',
+    cursor: 'pointer',
+    display: 'grid',
+    gap: '0.25rem',
+  },
+  reportCardActive: {
+    textAlign: 'left',
+    border: '2px solid var(--accent)',
+    borderRadius: 12,
+    padding: '0.65rem 0.75rem',
+    background: 'var(--accent-soft)',
+    cursor: 'pointer',
+    display: 'grid',
+    gap: '0.25rem',
+  },
+  reportCardTitle: { fontSize: '0.92rem' },
+  reportCardSub: { fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 600, lineHeight: 1.35 },
   selectField: {
     display: 'grid',
     gap: '0.35rem',
@@ -486,8 +343,6 @@ const styles: Record<string, CSSProperties> = {
     padding: '0.7rem 0.85rem',
     fontSize: '1rem',
     fontWeight: 700,
-    color: 'var(--text)',
-    background: 'var(--bg-muted)',
     maxWidth: 420,
   },
   selectMobile: {
@@ -496,23 +351,10 @@ const styles: Record<string, CSSProperties> = {
     padding: '0.7rem 0.85rem',
     fontSize: '1rem',
     fontWeight: 700,
-    color: 'var(--text)',
-    background: 'var(--bg-muted)',
     width: '100%',
-    maxWidth: '100%',
-    minHeight: 'var(--touch-min)',
   },
-  dateInput: {
-    border: '2px solid var(--border)',
-    borderRadius: 10,
-    padding: '0.55rem 0.7rem',
-    fontSize: '0.95rem',
-    color: 'var(--text)',
-    background: 'var(--bg-muted)',
-    width: '100%',
-    minHeight: 'var(--touch-min)',
-    boxSizing: 'border-box',
-  },
+  actionRow: { display: 'flex', gap: '0.65rem', flexWrap: 'wrap', alignItems: 'center' },
+  actionCol: { display: 'grid', gap: '0.55rem' },
   applyBtn: {
     border: 'none',
     borderRadius: 10,
@@ -522,144 +364,18 @@ const styles: Record<string, CSSProperties> = {
     color: '#fff',
     fontWeight: 800,
     cursor: 'pointer',
-    width: '100%',
   },
-  rangeHint: { margin: 0, color: 'var(--text-muted)', fontWeight: 600, fontSize: '0.85rem' },
-  agentHero: {
-    background: 'rgba(66, 165, 245, 0.1)',
-    border: '2px solid rgba(66, 165, 245, 0.45)',
-    borderRadius: 16,
-    padding: '1.1rem',
-    display: 'grid',
-    gap: '0.45rem',
-  },
-  agentHeroEyebrow: { margin: 0, fontWeight: 800, fontSize: '0.8rem', color: 'var(--accent)' },
-  agentHeroTitle: { margin: 0, fontSize: '1.45rem', fontWeight: 800, fontFamily: 'var(--font-display)' },
-  agentHeroPhone: { margin: 0, fontWeight: 700, fontSize: '1.05rem' },
-  h2: { margin: '0 0 0.65rem', fontSize: '1.1rem', fontWeight: 800 },
-  stats: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
-    gap: '0.75rem',
-    marginBottom: '0.5rem',
-    marginTop: '0.5rem',
-  },
-  agentCards: { display: 'grid', gap: '0.65rem' },
-  agentCard: {
-    textAlign: 'left',
-    border: '2px solid var(--border)',
-    borderRadius: 14,
-    padding: '0.9rem 1rem',
-    background: 'var(--bg-elevated)',
-    color: 'var(--text)',
-    cursor: 'pointer',
-    display: 'grid',
-    gap: '0.3rem',
-    minHeight: 'var(--touch-min)',
-  },
-  agentCardActive: {
-    textAlign: 'left',
+  secondaryBtn: {
     border: '2px solid var(--accent)',
-    borderRadius: 14,
-    padding: '0.9rem 1rem',
-    background: 'var(--accent-soft)',
-    color: 'var(--text)',
-    cursor: 'pointer',
-    display: 'grid',
-    gap: '0.3rem',
-    minHeight: 'var(--touch-min)',
-  },
-  agentCardName: { fontSize: '1.05rem', fontFamily: 'var(--font-display)' },
-  agentCardNums: {
-    display: 'grid',
-    gridTemplateColumns: '1fr 1fr 1fr',
-    gap: '0.35rem',
-    marginTop: '0.35rem',
-    fontSize: '0.78rem',
-    fontWeight: 600,
-    color: 'var(--text-muted)',
-  },
-  stat: {
-    background: 'var(--bg-elevated)',
-    border: '1px solid var(--border)',
-    borderRadius: 14,
-    padding: '0.9rem',
-  },
-  statGo: {
-    background: 'rgba(129, 199, 132, 0.1)',
-    border: '1px solid rgba(129, 199, 132, 0.45)',
-    borderRadius: 14,
-    padding: '0.9rem',
-  },
-  statInfo: {
-    background: 'rgba(66, 165, 245, 0.1)',
-    border: '1px solid rgba(66, 165, 245, 0.45)',
-    borderRadius: 14,
-    padding: '0.9rem',
-  },
-  statValue: { margin: 0, fontSize: '1.7rem', fontWeight: 800, fontFamily: 'var(--font-display)' },
-  statLabel: { margin: '0.2rem 0 0', fontWeight: 800, fontSize: '0.92rem' },
-  statHelp: { margin: '0.15rem 0 0', color: 'var(--text-muted)', fontSize: '0.78rem', fontWeight: 600 },
-  tableWrap: {
-    overflowX: 'auto',
-    border: '1px solid var(--border)',
-    borderRadius: 14,
-    background: 'var(--bg-elevated)',
-  },
-  table: { width: '100%', borderCollapse: 'collapse', minWidth: 520 },
-  th: {
-    textAlign: 'left',
-    padding: '0.75rem 0.85rem',
-    borderBottom: '1px solid var(--border)',
-    fontSize: '0.8rem',
-    color: 'var(--text-muted)',
-    fontWeight: 800,
-  },
-  thNum: {
-    textAlign: 'right',
-    padding: '0.75rem 0.85rem',
-    borderBottom: '1px solid var(--border)',
-    fontSize: '0.8rem',
-    color: 'var(--text-muted)',
-    fontWeight: 800,
-  },
-  td: { padding: '0.75rem 0.85rem', borderBottom: '1px solid var(--border)', verticalAlign: 'top' },
-  tdNum: {
-    padding: '0.75rem 0.85rem',
-    borderBottom: '1px solid var(--border)',
-    textAlign: 'right',
-    fontWeight: 700,
-  },
-  phoneBtn: {
-    border: 'none',
-    background: 'transparent',
-    color: 'var(--accent)',
-    fontWeight: 800,
-    cursor: 'pointer',
-    padding: 0,
-    fontSize: '1rem',
-  },
-  clearBtn: {
-    marginTop: '0.75rem',
-    border: '2px solid var(--border)',
     borderRadius: 10,
-    padding: '0.7rem 0.9rem',
+    padding: '0.7rem 1.1rem',
     minHeight: 'var(--touch-min)',
-    background: 'var(--bg-elevated)',
-    color: 'var(--text)',
+    background: 'transparent',
+    color: 'var(--accent-hover)',
     fontWeight: 800,
     cursor: 'pointer',
-    width: '100%',
   },
-  meta: { color: 'var(--text-muted)', fontSize: '0.75rem', fontWeight: 600 },
+  rangeHint: { margin: 0, color: 'var(--text-muted)', fontWeight: 600, fontSize: '0.85rem', flex: '1 1 100%' },
   error: { margin: 0, color: 'var(--danger)', fontWeight: 700 },
   muted: { color: 'var(--text-muted)', fontWeight: 600 },
-  empty: {
-    margin: 0,
-    padding: '1rem',
-    borderRadius: 12,
-    background: 'var(--bg-muted)',
-    color: 'var(--text-muted)',
-    fontWeight: 700,
-  },
 };

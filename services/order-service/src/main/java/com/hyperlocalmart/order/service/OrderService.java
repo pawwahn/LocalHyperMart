@@ -471,11 +471,21 @@ public class OrderService {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Online payment is not available in this town");
         }
         BigDecimal codFee = isCod ? paySettings.codCharge() : BigDecimal.ZERO;
+        BigDecimal membershipFee = cart.membershipFee() == null ? BigDecimal.ZERO : cart.membershipFee().max(BigDecimal.ZERO);
+        String membershipSlab = cart.membershipSlab();
+        if (membershipSlab != null && membershipSlab.isBlank()) {
+            membershipSlab = null;
+        }
+        if (membershipSlab != null && membershipFee.compareTo(BigDecimal.ZERO) <= 0) {
+            membershipSlab = null;
+            membershipFee = BigDecimal.ZERO;
+        }
         boolean membershipCreditUsed = false;
         UUID persistedOrderId = null;
+        UUID membershipPurchaseId = null;
         try {
         CheckoutTotals totals = totalsFor(
-                payableSubtotal, deliveryFee, platformFee, codFee, request.isUseStoreCredit(), buyerId);
+                payableSubtotal, deliveryFee, platformFee, codFee, membershipFee, request.isUseStoreCredit(), buyerId);
 
         Order order = Order.builder()
                 .orderNumber(orderNumber)
@@ -494,6 +504,8 @@ public class OrderService {
                 .storeCreditApplied(totals.storeCreditApplied())
                 .membershipCreditUsed(false)
                 .membershipDeliveryWaived(BigDecimal.ZERO)
+                .membershipFee(membershipFee)
+                .membershipSlab(membershipSlab)
                 .totalAmount(totals.totalAmount())
                 .deliveryAddressSnapshot(addressSnapshot)
                 .buyerPhoneSnapshot(buyerPhone)
@@ -505,6 +517,19 @@ public class OrderService {
         inWriteTransaction(() -> orderRepository.saveAndFlush(order));
         persistedOrderId = order.getId();
 
+        if (membershipSlab != null) {
+            membershipPurchaseId = paymentClient.reserveBundledMembership(
+                    buyerId,
+                    buyerPhone,
+                    request.getTownId(),
+                    membershipSlab,
+                    order.getId(),
+                    isCod,
+                    idempotencyKey + "-mem");
+            order.setMembershipPurchaseId(membershipPurchaseId);
+            inWriteTransaction(() -> orderRepository.saveAndFlush(order));
+        }
+
         if (deliveryFee.compareTo(BigDecimal.ZERO) > 0) {
             PaymentClient.ConsumeMembershipResult consume =
                     paymentClient.tryConsumeMembership(buyerId, order.getId(), deliveryFee);
@@ -513,7 +538,7 @@ public class OrderService {
                 BigDecimal waived = consume.waivedAmount() == null ? deliveryFee : consume.waivedAmount();
                 deliveryFee = BigDecimal.ZERO;
                 totals = totalsFor(
-                        payableSubtotal, deliveryFee, platformFee, codFee, request.isUseStoreCredit(), buyerId);
+                        payableSubtotal, deliveryFee, platformFee, codFee, membershipFee, request.isUseStoreCredit(), buyerId);
                 order.setDeliveryFee(deliveryFee);
                 order.setMembershipCreditUsed(true);
                 order.setMembershipDeliveryWaived(waived);
@@ -587,6 +612,9 @@ public class OrderService {
             if (membershipCreditUsed && persistedOrderId != null) {
                 paymentClient.restoreMembershipCredit(buyerId, persistedOrderId, "Order create failed");
             }
+            if (membershipPurchaseId != null && persistedOrderId != null) {
+                paymentClient.cancelBundledMembership(persistedOrderId);
+            }
             throw ex;
         }
     }
@@ -603,7 +631,8 @@ public class OrderService {
         BigDecimal platform = order.getPlatformFee() == null ? BigDecimal.ZERO : order.getPlatformFee();
         BigDecimal cod = order.getCodFee() == null ? BigDecimal.ZERO : order.getCodFee();
         BigDecimal credit = order.getStoreCreditApplied() == null ? BigDecimal.ZERO : order.getStoreCreditApplied();
-        return payableItems.add(delivery).add(platform).add(cod).subtract(credit).max(BigDecimal.ZERO);
+        BigDecimal membership = order.getMembershipFee() == null ? BigDecimal.ZERO : order.getMembershipFee();
+        return payableItems.add(delivery).add(platform).add(cod).add(membership).subtract(credit).max(BigDecimal.ZERO);
     }
 
     private CheckoutTotals totalsFor(
@@ -611,10 +640,12 @@ public class OrderService {
             BigDecimal deliveryFee,
             BigDecimal platformFee,
             BigDecimal codFee,
+            BigDecimal membershipFee,
             boolean useStoreCredit,
             UUID buyerId) {
         BigDecimal safeCod = codFee == null ? BigDecimal.ZERO : codFee.max(BigDecimal.ZERO);
-        BigDecimal grossTotal = payableSubtotal.add(deliveryFee).add(platformFee).add(safeCod);
+        BigDecimal safeMembership = membershipFee == null ? BigDecimal.ZERO : membershipFee.max(BigDecimal.ZERO);
+        BigDecimal grossTotal = payableSubtotal.add(deliveryFee).add(platformFee).add(safeCod).add(safeMembership);
         BigDecimal walletBalance = useStoreCredit
                 ? paymentClient.getWalletBalance(buyerId)
                 : BigDecimal.ZERO;

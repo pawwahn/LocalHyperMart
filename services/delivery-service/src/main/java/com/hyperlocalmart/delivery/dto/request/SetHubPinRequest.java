@@ -8,4 +8,7 @@ public class SetHubPinRequest {
 
     @NotBlank
     private String pin;
+
+    @NotBlank
+    private String otp;
 }

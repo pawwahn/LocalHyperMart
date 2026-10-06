@@ -75,6 +75,7 @@ export function PortalShell({
 
   return (
     <div
+      className="hlm-buyer-shell"
       style={{
         ...styles.page,
         paddingBottom: showFloatingCart || hasFooter
@@ -133,7 +134,7 @@ export function PortalShell({
 
         {showTownPicker ? (
           shopChrome ? (
-            <div style={styles.shopHeaderCard}>
+            <div className="hlm-shop-chrome-card" style={styles.shopHeaderCard}>
               <div style={styles.shopHeaderRow}>
                 <button
                   type="button"
@@ -229,7 +230,7 @@ export function PortalShell({
         <StickyCartBar itemCount={resolvedCount} totalLabel={resolvedTotal} />
       ) : null}
 
-      <nav style={styles.tabbar} aria-label="Primary">
+      <nav className="hlm-buyer-tabbar" style={styles.tabbar} aria-label="Primary">
         <Tab to="/shop" current={location.pathname} label="Home" icon={(active) => <IconHome active={active} />} />
         <Tab
           to="/categories"
@@ -289,7 +290,7 @@ const styles: Record<string, CSSProperties> = {
     maxWidth: 'var(--shell-max)',
     width: '100%',
     margin: '0 auto',
-    padding: '0.35rem 0.85rem 0',
+    padding: '0.35rem var(--shell-pad) 0',
     minHeight: '100vh',
     display: 'grid',
     gap: '0.55rem',
@@ -302,8 +303,8 @@ const styles: Record<string, CSSProperties> = {
     position: 'sticky',
     top: 0,
     zIndex: 40,
-    margin: '0 -0.85rem',
-    padding: '0.35rem 0.85rem 0.4rem',
+    margin: '0 calc(-1 * var(--shell-pad))',
+    padding: '0.35rem var(--shell-pad) 0.4rem',
     background: 'color-mix(in srgb, var(--bg) 92%, transparent)',
     backdropFilter: 'blur(12px)',
     WebkitBackdropFilter: 'blur(12px)',
@@ -315,8 +316,8 @@ const styles: Record<string, CSSProperties> = {
     position: 'sticky',
     top: 0,
     zIndex: 40,
-    margin: '0 -0.85rem',
-    padding: '0 0.85rem 0.5rem',
+    margin: '0 calc(-1 * var(--shell-pad))',
+    padding: '0 var(--shell-pad) 0.5rem',
     background: 'var(--bg)',
     minWidth: 0,
   },

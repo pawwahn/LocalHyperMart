@@ -3,9 +3,11 @@ package com.hyperlocalmart.payment.service;
 import com.hyperlocalmart.common.exception.BusinessException;
 import com.hyperlocalmart.common.exception.ErrorCode;
 import com.hyperlocalmart.payment.client.OrderClient;
+import com.hyperlocalmart.payment.dto.request.WalletCreditLookupRequest;
 import com.hyperlocalmart.payment.dto.request.WalletCreditRequest;
 import com.hyperlocalmart.payment.dto.request.WalletDebitRequest;
 import com.hyperlocalmart.payment.dto.response.WalletBalanceResponse;
+import com.hyperlocalmart.payment.dto.response.WalletCreditLookupResponse;
 import com.hyperlocalmart.payment.dto.response.WalletTransactionListResponse;
 import com.hyperlocalmart.payment.dto.response.WalletTransactionResponse;
 import com.hyperlocalmart.payment.entity.WalletAccount;
@@ -38,6 +40,26 @@ public class WalletService {
     private final WalletAccountRepository walletAccountRepository;
     private final WalletTransactionRepository walletTransactionRepository;
     private final OrderClient orderClient;
+
+    @Transactional(readOnly = true)
+    public WalletCreditLookupResponse lookupCredits(WalletCreditLookupRequest request) {
+        List<String> types = request.getReferenceTypes() == null ? List.of() : request.getReferenceTypes();
+        List<UUID> ids = request.getReferenceIds() == null ? List.of() : request.getReferenceIds();
+        if (types.isEmpty() || ids.isEmpty()) {
+            return WalletCreditLookupResponse.builder().items(List.of()).build();
+        }
+        List<WalletTransaction> rows =
+                walletTransactionRepository.findByReferenceTypeInAndTypeAndReferenceIdIn(types, "CREDIT", ids);
+        return WalletCreditLookupResponse.builder()
+                .items(rows.stream()
+                        .map(tx -> WalletCreditLookupResponse.Item.builder()
+                                .referenceId(tx.getReferenceId())
+                                .referenceType(tx.getReferenceType())
+                                .amount(tx.getAmount() == null ? BigDecimal.ZERO : tx.getAmount())
+                                .build())
+                        .toList())
+                .build();
+    }
 
     /** Ensures every buyer has a wallet row; returns current balance (often ₹0). */
     @Transactional

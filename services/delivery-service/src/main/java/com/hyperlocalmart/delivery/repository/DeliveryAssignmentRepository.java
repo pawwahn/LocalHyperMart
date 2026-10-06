@@ -128,4 +128,28 @@ public interface DeliveryAssignmentRepository extends JpaRepository<DeliveryAssi
               AND COALESCE(a.completedAt, a.updatedAt) < :end
             """)
     long countBuyerRejectedByAgentIdBetween(UUID agentId, Instant start, Instant end);
+
+    @Query("""
+            SELECT DISTINCT a.orderId FROM DeliveryAssignment a
+            WHERE a.agentId = :agentId
+              AND a.status = com.hyperlocalmart.delivery.entity.AssignmentStatus.COMPLETED
+              AND a.legType IN (
+                  com.hyperlocalmart.delivery.entity.AssignmentLegType.LAST_MILE,
+                  com.hyperlocalmart.delivery.entity.AssignmentLegType.VENDOR_DIRECT)
+              AND a.orderId IS NOT NULL
+              AND a.completedAt >= :start AND a.completedAt < :end
+            """)
+    List<UUID> findDistinctCompletedDeliveryOrderIdsByAgentAndCompletedAtBetween(
+            UUID agentId, Instant start, Instant end);
+
+    @Query("""
+            SELECT a FROM DeliveryAssignment a
+            WHERE a.hubId = :hubId
+              AND a.status = com.hyperlocalmart.delivery.entity.AssignmentStatus.COMPLETED
+              AND a.completedAt >= :start AND a.completedAt < :end
+              AND (:agentId IS NULL OR a.agentId = :agentId)
+            ORDER BY a.completedAt DESC
+            """)
+    List<DeliveryAssignment> findCompletedByHubAndCompletedAtBetween(
+            UUID hubId, UUID agentId, Instant start, Instant end);
 }

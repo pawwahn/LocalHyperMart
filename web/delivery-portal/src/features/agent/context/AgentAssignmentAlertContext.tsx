@@ -259,7 +259,7 @@ export function AgentAssignmentAlertProvider({ children }: { children: ReactNode
 
       notifyAgentAssignment(
 
-        'KoYaKart — New delivery',
+        'KoyaKart — New delivery',
 
         label ? `Assigned: ${label}` : 'You have a new delivery job',
 
@@ -451,7 +451,7 @@ export function AgentAssignmentAlertProvider({ children }: { children: ReactNode
 
             notifyAgentAssignment(
 
-              'KoYaKart — Shop calling',
+              'KoyaKart — Shop calling',
 
               `${first.shopName ?? 'Shop'} needs you for ${label}`,
 

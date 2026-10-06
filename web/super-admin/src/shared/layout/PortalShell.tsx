@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Link, useLocation } from 'react-router-dom';
+import { BrandMark } from '@hlm-brand';
 import { HeaderIconButton, ThemePicker } from '@hlm-theme';
 import { useAuth } from '@/shared/auth/AuthContext';
 
@@ -28,6 +29,7 @@ type NavIcon =
   | 'recipes'
   | 'listings'
   | 'payouts'
+  | 'ledger'
   | 'settings';
 
 type NavItem = { to: string; label: string; icon: NavIcon };
@@ -68,6 +70,7 @@ const NAV_GROUPS: Array<{ label: string; items: NavItem[] }> = [
     items: [
       { to: '/vendor-billing', label: 'Billing', icon: 'billing' },
       { to: '/settlements', label: 'Payouts', icon: 'payouts' },
+      { to: '/finance-ledger', label: 'Finance ledger', icon: 'ledger' },
     ],
   },
   {
@@ -107,13 +110,7 @@ export function PortalShell({ title, subtitle, children, onRefresh }: Props) {
 
       <aside className={`sa-sidebar${navOpen ? ' is-open' : ''}`} aria-label="Super admin">
         <div className="sa-brand">
-          <span className="sa-mark" aria-hidden>
-            H
-          </span>
-          <div className="sa-brand-text">
-            <p className="sa-brand-name">KoYaKart</p>
-            <p className="sa-brand-role">Super Admin</p>
-          </div>
+          <BrandMark variant="sidebar" subtitle="Super Admin" />
         </div>
 
         <nav className="sa-nav" aria-label="Primary">
@@ -307,6 +304,12 @@ const GLYPHS: Record<NavIcon, ReactNode> = {
       <rect x="2.5" y="6" width="19" height="12" rx="2" {...stroke} />
       <circle cx="12" cy="12" r="2.2" {...stroke} />
       <path d="M6.5 12h.01M17.5 12h.01" {...stroke} />
+    </>
+  ),
+  ledger: (
+    <>
+      <path d="M5 4h14v16H5z" {...stroke} />
+      <path d="M8 8h8M8 12h8M8 16h5" {...stroke} />
     </>
   ),
   settings: (

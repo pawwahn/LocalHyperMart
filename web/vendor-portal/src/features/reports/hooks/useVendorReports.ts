@@ -12,7 +12,13 @@ import {
 } from '../api/reportsApi';
 import { lookupOrderPayouts, listMyClaimAdjustments, listMySettlements, summarizeSettlements, type OrderPayout, type SettlementMoneySummary, type VendorClaimAdjustment } from '../api/payoutsApi';
 
-export type ReportPreset = 'today' | 'week' | 'month' | 'custom';
+import {
+  applyReportDatePreset,
+  rangeForReportPreset,
+  type ReportDatePreset,
+} from '@hlm-dates/istReportPresets';
+
+export type ReportPreset = ReportDatePreset;
 export type PayoutFilter = 'all' | 'paid' | 'unpaid';
 
 export function isRejectedSalesStatus(status: string | null | undefined): boolean {
@@ -22,32 +28,6 @@ export function isRejectedSalesStatus(status: string | null | undefined): boolea
 /** Hub pays out only delivered bags — open/in-progress sales are not yet "due". */
 export function isPayoutDueStatus(status: string | null | undefined): boolean {
   return status === 'DELIVERED';
-}
-
-function isoDate(d: Date): string {
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-}
-
-function startOfMonth(d: Date): Date {
-  return new Date(d.getFullYear(), d.getMonth(), 1);
-}
-
-function rangeForPreset(preset: ReportPreset): { from: string; to: string } {
-  const today = new Date();
-  const to = isoDate(today);
-  if (preset === 'today') return { from: to, to };
-  if (preset === 'week') {
-    const from = new Date(today);
-    from.setDate(from.getDate() - 6);
-    return { from: isoDate(from), to };
-  }
-  if (preset === 'month') {
-    return { from: isoDate(startOfMonth(today)), to };
-  }
-  const from = new Date(today);
-  from.setDate(from.getDate() - 6);
-  return { from: isoDate(from), to };
 }
 
 type ReportsCache = {
@@ -70,7 +50,7 @@ function reportsCacheFor(vendorId: string, from: string, to: string): ReportsCac
 
 export function useVendorReports() {
   const { session } = useAuth();
-  const initial = rangeForPreset('week');
+  const initial = rangeForReportPreset('week');
   const [preset, setPreset] = useState<ReportPreset>('week');
   const [from, setFrom] = useState(initial.from);
   const [to, setTo] = useState(initial.to);
@@ -91,16 +71,14 @@ export function useVendorReports() {
   const [error, setError] = useState<string | null>(null);
 
   const applyPreset = useCallback((next: ReportPreset) => {
-    setPreset(next);
-    if (next !== 'custom') {
-      const range = rangeForPreset(next);
-      setFrom(range.from);
-      setTo(range.to);
-    }
+    applyReportDatePreset(next, setPreset, setFrom, setTo);
   }, []);
 
   const reload = useCallback(async () => {
-    if (!session) return;
+    if (!session) {
+      setLoading(false);
+      return;
+    }
     const soft = Boolean(reportsCacheFor(session.vendorId, from, to));
     if (!soft) setLoading(true);
     setError(null);
@@ -112,7 +90,6 @@ export function useVendorReports() {
         includeItems: true,
       });
       setReport(data);
-      setLoading(false);
 
       let payouts: Record<string, OrderPayout> = {};
       let settlementsSummary = summarizeSettlements([]);
@@ -152,6 +129,7 @@ export function useVendorReports() {
       };
     } catch (err) {
       setError(err instanceof ApiError || err instanceof Error ? err.message : 'Failed to load report');
+    } finally {
       setLoading(false);
     }
   }, [session, from, to]);
@@ -256,6 +234,7 @@ export function useVendorReports() {
 
   return {
     preset,
+    setPreset,
     applyPreset,
     from,
     setFrom,

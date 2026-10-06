@@ -25,6 +25,7 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -335,6 +336,17 @@ public class VendorCommercialTermsService {
                 .orElse(null);
     }
 
+    /** Fee estimate for the signed-in vendor; never charges or marks a subscription. */
+    @Transactional(readOnly = true)
+    public CommercialTermsQuoteResponse quoteForVendorUser(UUID userId, CommercialTermsQuoteRequest request) {
+        UUID vendorId = vendorRepository.findByUserId(userId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Vendor not found for user"))
+                .getId();
+        request.setMarkSubscriptionCharged(false);
+        request.setAllowFeeExceedGross(true);
+        return quote(vendorId, request);
+    }
+
     @Transactional
     public CommercialTermsQuoteResponse quote(UUID vendorId, CommercialTermsQuoteRequest request) {
         requireVendor(vendorId);
@@ -343,16 +355,19 @@ public class VendorCommercialTermsService {
         Map<UUID, Bucket> buckets = new LinkedHashMap<>();
         List<String> lines = new ArrayList<>();
 
-        for (DatedLine line : datedLines) {
+        for (int i = 0; i < datedLines.size(); i++) {
+            DatedLine line = datedLines.get(i);
             VendorCommercialTerms terms = termsForDate(vendorId, line.date());
             UUID key = terms == null ? NULL_TERMS_ID : terms.getId();
             Bucket bucket = buckets.computeIfAbsent(key, k -> new Bucket(terms));
             bucket.gross = bucket.gross.add(line.amount());
             bucket.orderCount += 1;
+            bucket.lineIndexes.add(i);
         }
 
         BigDecimal commission = BigDecimal.ZERO;
         String slabLabel = null;
+        BigDecimal[] lineFees = new BigDecimal[datedLines.size()];
         for (Bucket bucket : buckets.values()) {
             FeePart part = computeOrderFees(bucket.terms, bucket.gross, bucket.orderCount);
             commission = commission.add(part.commission());
@@ -360,13 +375,15 @@ public class VendorCommercialTermsService {
             if (part.slabLabel() != null) {
                 slabLabel = part.slabLabel();
             }
+            allocateLineFees(bucket, part.commission(), datedLines, lineFees);
         }
 
         VendorCommercialTerms subTerms = termsForDate(
                 vendorId, request.getPeriodEnd() == null ? LocalDate.now(IST) : request.getPeriodEnd());
         BigDecimal subscription = BigDecimal.ZERO;
         boolean subscriptionIncluded = false;
-        if (subTerms != null
+        if (request.includeSubscription()
+                && subTerms != null
                 && (subTerms.getFeeModel() == VendorFeeModel.MONTHLY_SUBSCRIPTION
                 || subTerms.getFeeModel() == VendorFeeModel.HYBRID)) {
             subscription = subscriptionDue(subTerms, request.getPeriodEnd(), request.isMarkSubscriptionCharged());
@@ -385,7 +402,7 @@ public class VendorCommercialTermsService {
             gross = nz(request.getGrossAmount());
         }
         BigDecimal total = commission.add(subscription).setScale(2, RoundingMode.HALF_UP);
-        if (total.compareTo(gross) > 0) {
+        if (total.compareTo(gross) > 0 && !request.allowFeeExceedGross()) {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR,
                     "Computed fees (₹" + total.toPlainString() + ") exceed gross (₹" + gross.toPlainString() + ")");
         }
@@ -411,7 +428,36 @@ public class VendorCommercialTermsService {
                 .subscriptionIncluded(subscriptionIncluded)
                 .appliedSlabLabel(slabLabel)
                 .breakdownLines(lines)
+                .lineFees(Arrays.stream(lineFees)
+                        .map(f -> f == null ? BigDecimal.ZERO.setScale(2) : f)
+                        .toList())
                 .build();
+    }
+
+    /** Flat fees split evenly per order; percentage / slab fees split by order amount. */
+    private static void allocateLineFees(
+            Bucket bucket, BigDecimal bucketFee, List<DatedLine> datedLines, BigDecimal[] out) {
+        List<Integer> idx = bucket.lineIndexes;
+        if (idx.isEmpty()) {
+            return;
+        }
+        BigDecimal fee = nz(bucketFee).setScale(2, RoundingMode.HALF_UP);
+        boolean flat = bucket.terms != null && bucket.terms.getFeeModel() == VendorFeeModel.PER_ORDER_FLAT;
+        BigDecimal allocated = BigDecimal.ZERO;
+        for (int k = 0; k < idx.size(); k++) {
+            int i = idx.get(k);
+            BigDecimal share;
+            if (k == idx.size() - 1) {
+                share = fee.subtract(allocated);
+            } else if (flat || bucket.gross.signum() == 0) {
+                share = fee.divide(BigDecimal.valueOf(idx.size()), 2, RoundingMode.HALF_UP);
+            } else {
+                share = fee.multiply(datedLines.get(i).amount())
+                        .divide(bucket.gross, 2, RoundingMode.HALF_UP);
+            }
+            allocated = allocated.add(share);
+            out[i] = share;
+        }
     }
 
     private List<DatedLine> resolveLines(CommercialTermsQuoteRequest request) {
@@ -715,6 +761,7 @@ public class VendorCommercialTermsService {
         private final VendorCommercialTerms terms;
         private BigDecimal gross = BigDecimal.ZERO;
         private int orderCount;
+        private final List<Integer> lineIndexes = new ArrayList<>();
 
         private Bucket(VendorCommercialTerms terms) {
             this.terms = terms;

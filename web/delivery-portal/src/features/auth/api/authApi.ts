@@ -75,6 +75,8 @@ export async function login(phone: string, password: string): Promise<AuthSessio
     session.agentId = me.agentId;
     session.townId = me.townId;
     if (me.hubId) session.hubId = me.hubId;
+    if (me.name?.trim()) session.agentName = me.name.trim();
+    if (me.phone?.trim()) session.phone = me.phone.trim();
   }
 
   if (session.townId) {
@@ -87,4 +89,39 @@ export async function login(phone: string, password: string): Promise<AuthSessio
   }
 
   return session;
+}
+
+/** Backfill agent name for sessions saved before agentName was stored. */
+export async function hydrateAgentSession(session: AuthSession): Promise<AuthSession> {
+  if (session.portalRole !== 'DELIVERY_AGENT' || session.agentName || !session.accessToken) {
+    return session;
+  }
+  try {
+    const me = await apiRequest<AgentMeDto>('/api/v1/delivery/agents/me', {
+      token: session.accessToken,
+    });
+    const next = { ...session };
+    if (me.agentId) next.agentId = me.agentId;
+    if (me.townId) next.townId = me.townId;
+    if (me.hubId) next.hubId = me.hubId;
+    if (me.name?.trim()) next.agentName = me.name.trim();
+    if (me.phone?.trim()) next.phone = me.phone.trim();
+    return next;
+  } catch {
+    return session;
+  }
+}
+
+export async function forgotPassword(phone: string): Promise<void> {
+  await apiRequest<null>('/api/v1/auth/forgot-password', {
+    method: 'POST',
+    body: { phone },
+  });
+}
+
+export async function resetPassword(phone: string, otp: string, newPassword: string): Promise<void> {
+  await apiRequest<null>('/api/v1/auth/reset-password', {
+    method: 'POST',
+    body: { phone, otp, newPassword },
+  });
 }

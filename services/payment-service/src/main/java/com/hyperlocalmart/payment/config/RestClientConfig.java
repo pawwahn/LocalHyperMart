@@ -17,7 +17,7 @@ public class RestClientConfig {
                 .connectTimeout(Duration.ofSeconds(2))
                 .build();
         JdkClientHttpRequestFactory requestFactory = new JdkClientHttpRequestFactory(httpClient);
-        requestFactory.setReadTimeout(Duration.ofSeconds(15));
+        requestFactory.setReadTimeout(Duration.ofSeconds(30));
         return RestClient.builder().requestFactory(requestFactory);
     }
 }

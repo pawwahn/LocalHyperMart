@@ -50,7 +50,7 @@ public class InvoicePdfService {
             PdfWriter.getInstance(document, output);
             document.open();
 
-            document.add(new Paragraph("KoYaKart", TITLE_FONT));
+            document.add(new Paragraph("KoyaKart", TITLE_FONT));
             document.add(new Paragraph("Tax Invoice / Bill of Supply", HEADING_FONT));
             document.add(new Paragraph(invoice.getTownName(), BODY_FONT));
             document.add(Chunk.NEWLINE);

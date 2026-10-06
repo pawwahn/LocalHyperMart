@@ -608,6 +608,7 @@ export function AdsPage() {
   const [toast, setToast] = useState<{ message: string; tone: 'success' | 'info' } | null>(null);
   const [tab, setTab] = useState<'creatives' | 'slots' | 'rates' | 'bills' | 'history'>('creatives');
   const [historyTick, setHistoryTick] = useState(0);
+  const [adsReady, setAdsReady] = useState(false);
 
   const selectedTown = useMemo(() => towns.find((t) => t.id === townId) ?? null, [towns, townId]);
   const heroItem = AD_EDITOR_ITEMS.find((i) => i.section === 'hero')!;
@@ -624,6 +625,16 @@ export function AdsPage() {
   const liveMidCount = midItems.filter(
     (item) => draftByKey.get(adEditorKey(item.slot, item.slotIndex))?.enabled,
   ).length;
+  const slotActive = useMemo(
+    () => ({
+      homeHero: Boolean(draftByKey.get(adEditorKey('HOME_HERO', 0))?.enabled),
+      homeMidGrid: AD_EDITOR_ITEMS.some(
+        (item) => item.section === 'mid' && draftByKey.get(adEditorKey(item.slot, item.slotIndex))?.enabled,
+      ),
+      cartUpsell: Boolean(draftByKey.get(adEditorKey('CART_UPSELL', 0))?.enabled),
+    }),
+    [draftByKey],
+  );
 
   const reloadTowns = useCallback(async () => {
     if (!token) return;
@@ -647,6 +658,7 @@ export function AdsPage() {
         return ad ? toDraft(item, ad) : emptyDraft(item);
       }),
     );
+    setAdsReady(true);
   }, []);
 
   const reloadAds = useCallback(async () => {
@@ -788,10 +800,20 @@ export function AdsPage() {
         />
       ) : null}
       {tab === 'rates' && token ? (
-        <AdsRatesPanel token={token} onSaved={() => setHistoryTick((n) => n + 1)} />
+        <AdsRatesPanel
+          token={token}
+          refreshTick={historyTick}
+          slotActive={adsReady ? slotActive : undefined}
+          onSaved={() => setHistoryTick((n) => n + 1)}
+        />
       ) : null}
       {tab === 'bills' && token ? (
-        <AdsBillsPanel token={token} towns={towns} onChanged={() => setHistoryTick((n) => n + 1)} />
+        <AdsBillsPanel
+          token={token}
+          towns={towns}
+          slotActive={adsReady ? slotActive : undefined}
+          onChanged={() => setHistoryTick((n) => n + 1)}
+        />
       ) : null}
       {tab === 'history' && token ? (
         <AdminHistoryPanel

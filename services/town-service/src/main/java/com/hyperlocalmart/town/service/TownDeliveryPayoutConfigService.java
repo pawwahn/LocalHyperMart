@@ -20,6 +20,8 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -32,6 +34,7 @@ import java.util.UUID;
 public class TownDeliveryPayoutConfigService {
 
     static final String CONFIG_KEY = "deliveryPayout";
+    private static final ZoneId IST = ZoneId.of("Asia/Kolkata");
     private static final String PERIOD_DAY = "DAY";
     private static final String PERIOD_MONTH = "MONTH";
     private static final String METRIC_ORDERS = "COMPLETED_ORDERS";
@@ -70,10 +73,12 @@ public class TownDeliveryPayoutConfigService {
             throw new BusinessException(ErrorCode.NOT_FOUND, "Town not found");
         }
         ensureDefault(townId);
-        return townConfigRepository
+        TownDeliveryPayoutConfigResponse cfg = townConfigRepository
                 .findFirstByTownIdAndConfigKeyAndEffectiveToIsNullOrderByEffectiveFromDesc(townId, CONFIG_KEY)
                 .map(row -> fromMap(row.getConfigValue()))
                 .orElseGet(this::defaultConfig);
+        fillMissingHubFranchiseBillingStart(cfg);
+        return cfg;
     }
 
     @Transactional
@@ -90,6 +95,7 @@ public class TownDeliveryPayoutConfigService {
         ensureDefault(townId);
         TownDeliveryPayoutConfigResponse before = get(townId);
         TownDeliveryPayoutConfigResponse normalized = normalizeFull(request);
+        mergeFranchiseEffectiveFrom(before.getHub(), normalized.getHub());
         save(townId, normalized);
         adminAuditService.record(
                 "town-incentives",
@@ -119,6 +125,7 @@ public class TownDeliveryPayoutConfigService {
                     ErrorCode.FORBIDDEN, "Super admin has not allowed town admin to edit agent rates");
         }
         TownDeliveryPayoutConfigResponse current = get(townId);
+        TownDeliveryPayoutConfigResponse before = fromMap(toMap(current));
         ensureDefault(townId);
         PayoutPartyConfig agent = current.getAgent();
         if (request.getPerOrder() != null) {
@@ -160,7 +167,7 @@ public class TownDeliveryPayoutConfigService {
                 townId,
                 "DELIVERY_PAYOUT",
                 townId,
-                null,
+                before,
                 current);
         return get(townId);
     }
@@ -308,11 +315,64 @@ public class TownDeliveryPayoutConfigService {
         if (!List.of("MONTHLY", "QUARTERLY", "YEARLY", "LIFETIME").contains(cadence)) {
             cadence = "MONTHLY";
         }
+        String effectiveFrom = normalizeFranchiseEffectiveFrom(in.getEffectiveFrom());
         return FranchiseTerms.builder()
                 .enabled(in.isEnabled())
                 .cadence(cadence)
                 .amount(money(in.getAmount(), "Hub franchise ₹"))
+                .effectiveFrom(effectiveFrom)
                 .build();
+    }
+
+    private void mergeFranchiseEffectiveFrom(PayoutPartyConfig before, PayoutPartyConfig after) {
+        if (after == null || after.getFranchise() == null || !after.getFranchise().isEnabled()) {
+            return;
+        }
+        FranchiseTerms fr = after.getFranchise();
+        if (fr.getEffectiveFrom() != null && !fr.getEffectiveFrom().isBlank()) {
+            return;
+        }
+        FranchiseTerms prev = before != null ? before.getFranchise() : null;
+        if (prev != null && prev.isEnabled() && prev.getEffectiveFrom() != null && !prev.getEffectiveFrom().isBlank()) {
+            fr.setEffectiveFrom(prev.getEffectiveFrom());
+            return;
+        }
+        fr.setEffectiveFrom(defaultFranchiseEffectiveFrom());
+    }
+
+    /** Hub franchise can be enabled in DB without billing start; APIs still need a month for payment-service. */
+    private void fillMissingHubFranchiseBillingStart(TownDeliveryPayoutConfigResponse cfg) {
+        if (cfg == null || cfg.getHub() == null) {
+            return;
+        }
+        FranchiseTerms fr = cfg.getHub().getFranchise();
+        if (fr == null || !fr.isEnabled()) {
+            return;
+        }
+        if (fr.getEffectiveFrom() != null && !fr.getEffectiveFrom().isBlank()) {
+            return;
+        }
+        fr.setEffectiveFrom(defaultFranchiseEffectiveFrom());
+    }
+
+    private static String defaultFranchiseEffectiveFrom() {
+        LocalDate firstOfMonth = LocalDate.now(IST).withDayOfMonth(1);
+        return firstOfMonth.toString();
+    }
+
+    private static String normalizeFranchiseEffectiveFrom(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        String trimmed = raw.trim();
+        if (trimmed.length() == 7) {
+            return trimmed + "-01";
+        }
+        try {
+            return LocalDate.parse(trimmed).withDayOfMonth(1).toString();
+        } catch (Exception ex) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Franchise billing start must be YYYY-MM-DD");
+        }
     }
 
     private PeriodIncentive normalizePeriod(PeriodIncentive in, String label) {
@@ -414,10 +474,14 @@ public class TownDeliveryPayoutConfigService {
         slabs.put("tiers", tiers);
         map.put("slabs", slabs);
         FranchiseTerms f = p.getFranchise() == null ? defaultParty().getFranchise() : p.getFranchise();
-        map.put("franchise", Map.of(
-                "enabled", f.isEnabled(),
-                "cadence", f.getCadence() == null ? "MONTHLY" : f.getCadence(),
-                "amount", f.getAmount() == null ? BigDecimal.ZERO : f.getAmount()));
+        Map<String, Object> franchise = new LinkedHashMap<>();
+        franchise.put("enabled", f.isEnabled());
+        franchise.put("cadence", f.getCadence() == null ? "MONTHLY" : f.getCadence());
+        franchise.put("amount", f.getAmount() == null ? BigDecimal.ZERO : f.getAmount());
+        if (f.getEffectiveFrom() != null && !f.getEffectiveFrom().isBlank()) {
+            franchise.put("effectiveFrom", f.getEffectiveFrom());
+        }
+        map.put("franchise", franchise);
         return map;
     }
 
@@ -488,10 +552,12 @@ public class TownDeliveryPayoutConfigService {
             if (!List.of("MONTHLY", "QUARTERLY", "YEARLY", "LIFETIME").contains(cadence)) {
                 cadence = "MONTHLY";
             }
+            String effectiveFrom = fr.get("effectiveFrom") == null ? null : String.valueOf(fr.get("effectiveFrom")).trim();
             party.setFranchise(FranchiseTerms.builder()
                     .enabled(asBool(fr.get("enabled"), false))
                     .cadence(cadence)
                     .amount(asMoney(fr.get("amount")))
+                    .effectiveFrom(effectiveFrom == null || effectiveFrom.isBlank() ? null : effectiveFrom)
                     .build());
         }
         return party;

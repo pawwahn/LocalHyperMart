@@ -16,13 +16,14 @@ import {
   type VendorCommercialTerms,
   type VendorFeeModel,
 } from '../api/commercialTermsApi';
+import { isoIstDate } from '@hlm-dates/istReportPresets';
 
 const GREEN = '#16a34a';
 const GREEN_BG = '#dcfce7';
 const GREEN_TEXT = '#14532d';
 
 function isoToday(): string {
-  return new Date().toISOString().slice(0, 10);
+  return isoIstDate();
 }
 
 /** One-line date for history table (avoids wrapping YYYY-MM-DD). */
@@ -65,6 +66,10 @@ function termsDetail(row: VendorCommercialTerms): string {
     default:
       return 'No fee';
   }
+}
+
+function dayIso(value?: string | null): string {
+  return (value ?? '').slice(0, 10);
 }
 
 function applyTerms(
@@ -176,21 +181,25 @@ export function VendorBillingPage() {
   }, [history, current]);
 
   const loadTerms = useCallback(
-    async (id: string) => {
+    async (id: string, formFrom?: VendorCommercialTerms | null) => {
       setLoadingTerms(true);
       setError(null);
       try {
         const data = await listVendorCommercialTermsHistory(token, id);
         setCurrent(data.current ?? null);
         setHistory(data.history ?? []);
-        if (data.current) {
-          applyTerms(data.current, formSet);
-          const isAdvanced = ADVANCED_FEE_MODELS.some((m) => m.id === data.current?.feeModel);
+        const latest = (data.history ?? [])[0] ?? null;
+        const source = formFrom ?? latest ?? data.current;
+        if (source) {
+          applyTerms(source, formSet);
+          const isAdvanced = ADVANCED_FEE_MODELS.some((m) => m.id === source.feeModel);
           setShowAdvanced(isAdvanced);
+          setEffectiveFrom(dayIso(source.effectiveFrom) || isoToday());
+          setEffectiveTo(dayIso(source.effectiveTo));
+        } else {
+          setEffectiveFrom(isoToday());
+          setEffectiveTo('');
         }
-        // New save starts today and stays open-ended unless admin sets Ends on.
-        setEffectiveFrom(isoToday());
-        setEffectiveTo('');
       } catch (err) {
         setError(err instanceof ApiError || err instanceof Error ? err.message : 'Failed to load terms');
         setCurrent(null);
@@ -261,7 +270,7 @@ export function VendorBillingPage() {
         effectiveFrom: effectiveFrom || isoToday(),
         effectiveTo: effectiveTo || null,
       });
-      await loadTerms(vendorId);
+      await loadTerms(vendorId, saved);
       setNotice(`Saved ${feeLabel(saved.feeModel)} · ${periodLabel(saved)}`);
     } catch (err) {
       setError(err instanceof ApiError || err instanceof Error ? err.message : 'Save failed');

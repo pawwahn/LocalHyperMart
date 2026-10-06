@@ -10,6 +10,8 @@ import {
   type AgentAssignmentVm,
   type AgentRatingListVm,
 } from '../api/agentsApi';
+import { DateRangePresetBar } from '@hlm-dates/DateRangePresetBar';
+import { rangeForReportPreset, type ReportDatePreset } from '@hlm-dates/istReportPresets';
 
 type Props = {
   agent: AdminAgentVm;
@@ -22,7 +24,6 @@ type Props = {
 };
 
 type Panel = 'deliveries' | 'ratings' | 'log';
-type RangeKey = 'today' | 'week' | 'month' | 'custom';
 type JobType = 'all' | 'PICKUP' | 'LAST_MILE';
 
 const PAGE_SIZE = 25;
@@ -44,24 +45,6 @@ function endOfDay(d: Date): Date {
   const x = new Date(d);
   x.setHours(23, 59, 59, 999);
   return x;
-}
-
-function startOfWeek(d: Date): Date {
-  const x = startOfDay(d);
-  const day = x.getDay();
-  x.setDate(x.getDate() + (day === 0 ? -6 : 1 - day));
-  return x;
-}
-
-function startOfMonth(d: Date): Date {
-  return new Date(d.getFullYear(), d.getMonth(), 1);
-}
-
-function ymd(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
 }
 
 function parseYmd(value: string, end = false): Date {
@@ -119,10 +102,11 @@ export function AgentDetailDialog({
   onRestore,
 }: Props) {
   const [panel, setPanel] = useState<Panel>('deliveries');
-  const [range, setRange] = useState<RangeKey>('today');
+  const initialDeliveryRange = rangeForReportPreset('today');
+  const [preset, setPreset] = useState<ReportDatePreset>('today');
+  const [fromYmd, setFromYmd] = useState(initialDeliveryRange.from);
+  const [toYmd, setToYmd] = useState(initialDeliveryRange.to);
   const [jobType, setJobType] = useState<JobType>('all');
-  const [customFrom, setCustomFrom] = useState(ymd(startOfMonth(new Date())));
-  const [customTo, setCustomTo] = useState(ymd(new Date()));
   const [page, setPage] = useState(0);
   const [rows, setRows] = useState<AgentAssignmentVm[]>([]);
   const [completedPickups, setCompletedPickups] = useState(0);
@@ -134,23 +118,13 @@ export function AgentDetailDialog({
   const [ratingsError, setRatingsError] = useState<string | null>(null);
   const [ratingsPage, setRatingsPage] = useState(0);
 
-  const fromIso = useMemo(() => {
-    const now = new Date();
-    if (range === 'today') return startOfDay(now).toISOString();
-    if (range === 'week') return startOfWeek(now).toISOString();
-    if (range === 'month') return startOfMonth(now).toISOString();
-    return parseYmd(customFrom).toISOString();
-  }, [range, customFrom]);
+  const fromIso = useMemo(() => parseYmd(fromYmd).toISOString(), [fromYmd]);
 
-  const toIso = useMemo(() => {
-    const now = new Date();
-    if (range === 'custom') return parseYmd(customTo, true).toISOString();
-    return endOfDay(now).toISOString();
-  }, [range, customTo]);
+  const toIso = useMemo(() => parseYmd(toYmd, true).toISOString(), [toYmd]);
 
   useEffect(() => {
     setPage(0);
-  }, [range, customFrom, customTo, jobType, agent.agentId]);
+  }, [fromYmd, toYmd, jobType, agent.agentId]);
 
   useEffect(() => {
     if (panel !== 'deliveries') return;
@@ -339,25 +313,15 @@ export function AgentDetailDialog({
           <>
             <div style={styles.filters}>
               <div style={styles.filterRow}>
-              <div style={styles.chips} role="group" aria-label="Date range">
-                {(
-                  [
-                    ['today', 'Today'],
-                    ['week', 'This week'],
-                    ['month', 'This month'],
-                    ['custom', 'Custom'],
-                  ] as const
-                ).map(([id, label]) => (
-                  <button
-                    key={id}
-                    type="button"
-                    style={range === id ? styles.chipActive : styles.chip}
-                    onClick={() => setRange(id)}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
+              <DateRangePresetBar
+                preset={preset}
+                from={fromYmd}
+                to={toYmd}
+                onPresetChange={setPreset}
+                onFromChange={setFromYmd}
+                onToChange={setToYmd}
+                ariaLabel="Delivery date range"
+              />
               <label style={styles.jobField}>
                 <select
                   style={styles.jobSelect}
@@ -371,30 +335,6 @@ export function AgentDetailDialog({
                 </select>
               </label>
               </div>
-              {range === 'custom' ? (
-                <div style={styles.customRow}>
-                  <label style={styles.dateField}>
-                    From
-                    <input
-                      type="date"
-                      style={styles.dateInput}
-                      value={customFrom}
-                      max={customTo}
-                      onChange={(e) => setCustomFrom(e.target.value)}
-                    />
-                  </label>
-                  <label style={styles.dateField}>
-                    To
-                    <input
-                      type="date"
-                      style={styles.dateInput}
-                      value={customTo}
-                      min={customFrom}
-                      onChange={(e) => setCustomTo(e.target.value)}
-                    />
-                  </label>
-                </div>
-              ) : null}
               <div style={styles.statsRow}>
                 <span style={styles.stat}>
                   <strong style={styles.statNum}>{loading ? '—' : completedPickups.toLocaleString('en-IN')}</strong>

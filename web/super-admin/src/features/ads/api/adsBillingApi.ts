@@ -25,6 +25,9 @@ export type AdRateCard = {
   homeHero: AdSlotRate;
   homeMidGrid: AdSlotRate;
   cartUpsell: AdSlotRate;
+  homeHeroActive?: boolean;
+  homeMidGridActive?: boolean;
+  cartUpsellActive?: boolean;
 };
 
 export type AdInvoiceTown = {
@@ -339,7 +342,7 @@ export function adInvoiceHtml(inv: AdInvoice): string {
 </style></head><body>
   <div class="row">
     <div>
-      <h1>KoYaKart</h1>
+      <h1>KoyaKart</h1>
       <div class="muted">Advertisement invoice</div>
     </div>
     <div class="right">

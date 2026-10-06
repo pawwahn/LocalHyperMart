@@ -38,6 +38,7 @@ public class SettlementResponse {
     String transactionNotes;
     Instant paidAt;
     UUID paidBy;
+    Instant vendorAcknowledgedAt;
     /** Vendor service-fee invoice, e.g. HLM/SF/26-27/0001. */
     String serviceInvoiceNumber;
     Instant createdAt;

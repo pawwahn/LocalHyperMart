@@ -42,7 +42,8 @@ public class CatalogBrowseService {
     @Transactional(readOnly = true)
     @Cacheable(
             cacheNames = "catalogBrowse",
-            condition = "@catalogCacheProperties.enabled",
+            condition =
+                    "@environment.getProperty('hyperlocalmart.cache.catalog-browse.enabled', 'false') == 'true'",
             key = "T(java.lang.String).format('%s|%s|%s|%d|%d|%s|%s', #townId, #categoryId, #query, #page, #size, #sort, #dir)")
     public PageResponse<CatalogItemResponse> browse(
             UUID townId, UUID categoryId, String query, int page, int size, String sort, String dir) {

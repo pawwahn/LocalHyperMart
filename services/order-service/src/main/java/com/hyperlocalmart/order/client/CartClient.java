@@ -105,7 +105,9 @@ public class CartClient {
             BigDecimal payableSubtotal,
             int itemCount,
             boolean minOrderMet,
-            List<CartItemSnapshot> items
+            List<CartItemSnapshot> items,
+            String membershipSlab,
+            BigDecimal membershipFee
     ) {
     }
 

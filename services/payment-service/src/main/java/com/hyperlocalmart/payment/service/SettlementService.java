@@ -13,6 +13,7 @@ import com.hyperlocalmart.payment.dto.request.CreateSettlementRequest;
 import com.hyperlocalmart.payment.dto.request.MarkSettlementPaidRequest;
 import com.hyperlocalmart.payment.dto.response.SettlementCandidateView;
 import com.hyperlocalmart.payment.dto.response.SettlementResponse;
+import com.hyperlocalmart.payment.dto.response.VendorCodCashHolderResponse;
 import com.hyperlocalmart.payment.dto.response.VendorOrderPayoutResponse;
 import com.hyperlocalmart.payment.entity.SettlementDirection;
 import com.hyperlocalmart.payment.entity.*;
@@ -53,6 +54,7 @@ public class SettlementService {
     private final VendorClient vendorClient;
     private final TownClient townClient;
     private final ServiceInvoiceNumberService serviceInvoiceNumberService;
+    private final PayeeDisplayNameService payeeDisplayNameService;
 
     /** Order lookup stays outside a DB transaction so a slow call cannot pin the pool. */
     public SettlementCandidateView listCandidates(UUID townId, UUID vendorId, LocalDate from, LocalDate to) {
@@ -108,6 +110,7 @@ public class SettlementService {
                             .codCashLocation(codLocation)
                             .codDeliveringAgentId(agent != null ? agent.agentId() : null)
                             .codDeliveringAgentName(agent != null ? agent.name() : null)
+                            .codDeliveringAgentPhone(agent != null ? agent.phone() : null)
                             .subtotal(item.subtotal())
                             .alreadySettled(settled.contains(item.subOrderId()))
                             .build();
@@ -147,19 +150,51 @@ public class SettlementService {
         if (request.getPeriodEnd().isBefore(request.getPeriodStart())) {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, "periodEnd must be on or after periodStart");
         }
-        List<UUID> requestedIds = request.getSubOrderIds().stream().distinct().toList();
-        List<SettlementCandidateItem> resolved =
-                orderClient.resolveSettlementSubOrders(request.getVendorId(), requestedIds);
-        if (resolved.size() != requestedIds.size()) {
+        SettlementDirection direction = request.getDirection() == null
+                ? SettlementDirection.PAYOUT
+                : request.getDirection();
+        boolean collection = direction == SettlementDirection.COLLECTION;
+        List<UUID> requestedIds = request.getSubOrderIds() == null
+                ? List.of()
+                : request.getSubOrderIds().stream().filter(Objects::nonNull).distinct().toList();
+        if (!collection && requestedIds.isEmpty()) {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR,
-                    "One or more orders are not eligible for payout — only delivered bags can be paid");
+                    "Select at least one bag to pay the vendor");
         }
 
-        Set<UUID> already = new HashSet<>(
-                settlementLineItemRepository.findSettledSubOrderIds(requestedIds, BLOCKING_STATUSES));
-        if (!already.isEmpty()) {
-            throw new BusinessException(ErrorCode.CONFLICT,
-                    "Some orders are already included in a settlement: " + already.size());
+        List<SettlementCandidateItem> resolved = requestedIds.isEmpty()
+                ? List.of()
+                : orderClient.resolveSettlementSubOrders(request.getVendorId(), requestedIds);
+        if (resolved.size() != requestedIds.size()) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR,
+                    "One or more orders are not eligible — only delivered bags can be settled");
+        }
+
+        if (!requestedIds.isEmpty()) {
+            Set<UUID> already = new HashSet<>(
+                    settlementLineItemRepository.findSettledSubOrderIds(requestedIds, BLOCKING_STATUSES));
+            if (!already.isEmpty()) {
+                throw new BusinessException(ErrorCode.CONFLICT,
+                        "Some orders are already included in a settlement: " + already.size());
+            }
+        }
+
+        Map<UUID, String> cashByOrder = cashLocationsFor(resolved);
+        for (SettlementCandidateItem item : resolved) {
+            boolean shopHolds = vendorHoldsBuyerCash(
+                    item.vendorAgentDelivery(),
+                    item.paymentMethod(),
+                    cashByOrder.get(item.orderId()));
+            if (!collection && shopHolds) {
+                throw new BusinessException(ErrorCode.VALIDATION_ERROR,
+                        "Bag " + item.orderNumber()
+                                + " already holds COD at the shop. Collect fees on Vendor pays KoyaKart — do not pay GMV.");
+            }
+            if (collection && !shopHolds) {
+                throw new BusinessException(ErrorCode.VALIDATION_ERROR,
+                        "Bag " + item.orderNumber()
+                                + " is online or cash is at hub. Pay the vendor on KoyaKart pays vendor.");
+            }
         }
 
         BigDecimal gross = resolved.stream()
@@ -167,7 +202,6 @@ public class SettlementService {
                 .filter(Objects::nonNull)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-        // Billing is authoritative: quote from vendor commercial terms (order-date aware).
         List<VendorClient.OrderLine> orderLines = resolved.stream()
                 .map(item -> new VendorClient.OrderLine(
                         item.subtotal() == null ? BigDecimal.ZERO : item.subtotal(),
@@ -177,18 +211,24 @@ public class SettlementService {
                 request.getVendorId(),
                 request.getPeriodStart(),
                 request.getPeriodEnd(),
-                orderLines);
+                orderLines,
+                collection,
+                collection);
         BigDecimal commission = feeQuote.totalFeeAmount() == null
                 ? BigDecimal.ZERO
                 : feeQuote.totalFeeAmount().setScale(2, RoundingMode.HALF_UP);
-        if (commission.compareTo(BigDecimal.ZERO) < 0 || commission.compareTo(gross) > 0) {
+        if (commission.compareTo(BigDecimal.ZERO) < 0) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Billing fees cannot be negative");
+        }
+        if (!collection && commission.compareTo(gross) > 0) {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR,
                     "Billing fees (₹" + commission.toPlainString()
                             + ") are invalid for gross ₹" + gross.toPlainString());
         }
 
-        List<VendorSettlementAdjustment> pendingAdjustments =
-                vendorSettlementAdjustmentRepository.findByVendorIdAndTownIdAndStatusOrderByCreatedAtAsc(
+        List<VendorSettlementAdjustment> pendingAdjustments = collection
+                ? List.of()
+                : vendorSettlementAdjustmentRepository.findByVendorIdAndTownIdAndStatusOrderByCreatedAtAsc(
                         request.getVendorId(), request.getTownId(), VendorSettlementAdjustmentStatus.PENDING);
         BigDecimal claimChargebacks = pendingAdjustments.stream()
                 .map(VendorSettlementAdjustment::getAmount)
@@ -205,19 +245,30 @@ public class SettlementService {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR,
                     "Reason is required when adding a penalty or other charge");
         }
-        BigDecimal net = gross.subtract(commission).subtract(claimChargebacks).subtract(otherCharges);
-        if (net.compareTo(BigDecimal.ZERO) < 0) {
-            throw new BusinessException(ErrorCode.VALIDATION_ERROR,
-                    "Deductions (claims ₹" + claimChargebacks.toPlainString()
-                            + " + other ₹" + otherCharges.toPlainString()
-                            + " + fees ₹" + commission.toPlainString()
-                            + ") exceed gross ₹" + gross.toPlainString()
-                            + ". Lower charges or include more orders.");
+
+        BigDecimal net;
+        if (collection) {
+            net = commission.add(otherCharges);
+            if (net.compareTo(BigDecimal.ZERO) <= 0) {
+                throw new BusinessException(ErrorCode.VALIDATION_ERROR,
+                        "Nothing to collect — no monthly fee, commission, or extra charge on this batch.");
+            }
+        } else {
+            net = gross.subtract(commission).subtract(claimChargebacks).subtract(otherCharges);
+            if (net.compareTo(BigDecimal.ZERO) < 0) {
+                throw new BusinessException(ErrorCode.VALIDATION_ERROR,
+                        "Deductions (claims ₹" + claimChargebacks.toPlainString()
+                                + " + other ₹" + otherCharges.toPlainString()
+                                + " + fees ₹" + commission.toPlainString()
+                                + ") exceed gross ₹" + gross.toPlainString()
+                                + ". Lower charges or include more orders.");
+            }
         }
 
         Settlement settlement = Settlement.builder()
                 .townId(request.getTownId())
                 .payeeType(SettlementPayeeType.VENDOR)
+                .direction(direction)
                 .payeeId(request.getVendorId())
                 .payeeName(request.getVendorName())
                 .periodStart(request.getPeriodStart())
@@ -241,11 +292,31 @@ public class SettlementService {
                     .subOrderNumber(item.subOrderNumber())
                     .lineType("ORDER")
                     .amount(item.subtotal())
-                    .description("Vendor sub-order payout")
+                    .description(collection
+                            ? "Shop-held COD — bag closed, cash stayed at vendor"
+                            : "Vendor sub-order payout")
                     .build();
             line.setCreatedBy(actorId);
             line.setUpdatedBy(actorId);
             settlement.getLineItems().add(line);
+        }
+
+        if (collection && commission.compareTo(BigDecimal.ZERO) > 0) {
+            SettlementLineItem feeLine = SettlementLineItem.builder()
+                    .settlement(settlement)
+                    .orderId(null)
+                    .subOrderId(null)
+                    .orderNumber(null)
+                    .subOrderNumber(null)
+                    .lineType("COMMISSION")
+                    .amount(commission)
+                    .description(feeQuote.subscriptionIncluded()
+                            ? "Commission / monthly fee collected from vendor"
+                            : "Commission collected from vendor")
+                    .build();
+            feeLine.setCreatedBy(actorId);
+            feeLine.setUpdatedBy(actorId);
+            settlement.getLineItems().add(feeLine);
         }
 
         for (VendorSettlementAdjustment adj : pendingAdjustments) {
@@ -275,7 +346,7 @@ public class SettlementService {
                     .orderNumber(null)
                     .subOrderNumber(null)
                     .lineType("OTHER_CHARGE")
-                    .amount(otherCharges.negate())
+                    .amount(collection ? otherCharges : otherCharges.negate())
                     .description(reason)
                     .build();
             line.setCreatedBy(actorId);
@@ -297,14 +368,16 @@ public class SettlementService {
         if (!pendingAdjustments.isEmpty()) {
             vendorSettlementAdjustmentRepository.saveAll(pendingAdjustments);
         }
-        if (request.isMarkPaid() && feeQuote.subscriptionIncluded()) {
+        if (request.isMarkPaid() && collection && feeQuote.subscriptionIncluded()) {
             vendorClient.markSubscriptionCharged(request.getVendorId(), request.getPeriodEnd());
         }
+        String payeeLabel = saved.getPayeeName() == null ? "" : saved.getPayeeName();
         townClient.appendAdminAudit(
                 "settlements",
-                "VENDOR_PAYOUT",
-                "Paid vendor " + (saved.getPayeeName() == null ? "" : saved.getPayeeName())
-                        + " ₹" + saved.getNetAmount(),
+                collection ? "VENDOR_COLLECTION" : "VENDOR_PAYOUT",
+                collection
+                        ? "Collected from vendor " + payeeLabel + " ₹" + saved.getNetAmount()
+                        : "Paid vendor " + payeeLabel + " ₹" + saved.getNetAmount(),
                 actorId,
                 saved.getTownId(),
                 saved.getId());
@@ -352,6 +425,26 @@ public class SettlementService {
         return response;
     }
 
+    @Transactional
+    public SettlementResponse acknowledgeByVendor(UUID actorId, UUID vendorId, UUID settlementId) {
+        Settlement settlement = settlementRepository.findDetailedById(settlementId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Settlement not found"));
+        if (settlement.getPayeeType() != SettlementPayeeType.VENDOR
+                || !settlement.getPayeeId().equals(vendorId)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "Settlement does not belong to vendor");
+        }
+        if (settlement.getStatus() != SettlementStatus.PAID) {
+            throw new BusinessException(ErrorCode.CONFLICT, "Only paid settlements can be acknowledged");
+        }
+        if (settlement.getVendorAcknowledgedAt() == null) {
+            settlement.setVendorAcknowledgedAt(Instant.now());
+            settlement.setVendorAcknowledgedBy(actorId);
+            settlement.setUpdatedBy(actorId);
+            settlement = settlementRepository.save(settlement);
+        }
+        return toResponse(settlement);
+    }
+
     @Transactional(readOnly = true)
     public VendorOrderPayoutResponse lookupVendorPayouts(UUID vendorId, List<UUID> subOrderIds) {
         List<UUID> ids = subOrderIds.stream().filter(Objects::nonNull).distinct().toList();
@@ -392,6 +485,222 @@ public class SettlementService {
         }).toList();
 
         return VendorOrderPayoutResponse.builder().items(items).build();
+    }
+
+    /**
+     * Per-bag COD custodian for the vendor portal unpaid list.
+     * Only returns bags owned by {@code vendorId}.
+     */
+    public VendorCodCashHolderResponse lookupVendorCashHolders(UUID vendorId, List<UUID> subOrderIds) {
+        List<UUID> ids = subOrderIds == null
+                ? List.of()
+                : subOrderIds.stream().filter(Objects::nonNull).distinct().toList();
+        if (ids.isEmpty()) {
+            return VendorCodCashHolderResponse.builder().items(List.of()).build();
+        }
+        List<SettlementCandidateItem> items;
+        try {
+            items = orderClient.resolveSettlementSubOrders(vendorId, ids);
+        } catch (RuntimeException ex) {
+            items = List.of();
+        }
+        Map<UUID, SettlementCandidateItem> bySubOrder = items.stream()
+                .collect(Collectors.toMap(SettlementCandidateItem::subOrderId, Function.identity(), (a, b) -> a));
+
+        List<UUID> codOrderIds = items.stream()
+                .filter(item -> isCod(item.paymentMethod()))
+                .map(SettlementCandidateItem::orderId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        Set<UUID> remitted = codOrderIds.isEmpty()
+                ? Set.of()
+                : new HashSet<>(codCloseDayLineItemRepository.findClosedOrderIds(codOrderIds));
+        Map<UUID, CodAgentHandover> handoverByOrder = loadLatestHandovers(codOrderIds);
+        Map<UUID, AgentRef> deliveringAgentByOrder = safeDeliveringAgents(
+                items, remitted, handoverByOrder, vendorId);
+
+        Map<UUID, UUID> orderHubIds = new HashMap<>();
+        for (Map.Entry<UUID, CodAgentHandover> entry : handoverByOrder.entrySet()) {
+            if (entry.getValue() != null && entry.getValue().getHubId() != null) {
+                orderHubIds.put(entry.getKey(), entry.getValue().getHubId());
+            }
+        }
+        for (OrderLegs leg : safeDeliveryLegs(codOrderIds)) {
+            if (leg.orderId() != null && leg.hubId() != null) {
+                orderHubIds.putIfAbsent(leg.orderId(), leg.hubId());
+            }
+        }
+        Map<UUID, String> hubNames = new HashMap<>();
+        for (UUID hubId : new HashSet<>(orderHubIds.values())) {
+            String name = safeHubDisplayName(hubId);
+            if (name != null && !name.isBlank()) {
+                hubNames.put(hubId, name.trim());
+            }
+        }
+
+        List<VendorCodCashHolderResponse.Item> out = ids.stream()
+                .map(subOrderId -> {
+                    SettlementCandidateItem item = bySubOrder.get(subOrderId);
+                    if (item == null) {
+                        return VendorCodCashHolderResponse.Item.builder()
+                                .subOrderId(subOrderId)
+                                .holderRole("UNKNOWN")
+                                .holderLabel("—")
+                                .build();
+                    }
+                    boolean cod = isCod(item.paymentMethod());
+                    String location = cod
+                            ? resolveCodCashLocation(item.orderId(), remitted, handoverByOrder)
+                            : "ONLINE";
+                    AgentRef agent = "WITH_AGENT".equals(location)
+                            ? deliveringAgentByOrder.get(item.orderId())
+                            : null;
+                    UUID hubId = orderHubIds.get(item.orderId());
+                    String hubName = hubId == null ? null : hubNames.get(hubId);
+                    VendorCodCashHolderLabels.View view = VendorCodCashHolderLabels.describe(
+                            item.paymentMethod(),
+                            item.vendorAgentDelivery(),
+                            location,
+                            agent != null ? agent.name() : null,
+                            hubName);
+                    return VendorCodCashHolderResponse.Item.builder()
+                            .subOrderId(item.subOrderId())
+                            .orderId(item.orderId())
+                            .paymentMethod(item.paymentMethod())
+                            .vendorAgentDelivery(item.vendorAgentDelivery())
+                            .codCashLocation(location)
+                            .holderRole(view.holderRole())
+                            .holderLabel(view.holderLabel())
+                            .holderDetail(view.holderDetail())
+                            .agentId(agent != null ? agent.agentId() : null)
+                            .agentName(agent != null ? agent.name() : null)
+                            .agentPhone(agent != null ? agent.phone() : null)
+                            .hubId(hubId)
+                            .hubName(hubName)
+                            .build();
+                })
+                .toList();
+        return VendorCodCashHolderResponse.builder().items(out).build();
+    }
+
+    /** Super-admin orders list: who holds buyer COD cash per order. */
+    public VendorCodCashHolderResponse lookupAdminCashHolders(List<UUID> orderIds) {
+        List<UUID> ids = orderIds == null
+                ? List.of()
+                : orderIds.stream().filter(Objects::nonNull).distinct().toList();
+        if (ids.isEmpty()) {
+            return VendorCodCashHolderResponse.builder().items(List.of()).build();
+        }
+        List<OrderClient.CashHolderContext> contexts;
+        try {
+            contexts = orderClient.resolveCashHolderContext(ids);
+        } catch (RuntimeException ex) {
+            contexts = List.of();
+        }
+        List<SettlementCandidateItem> pseudo = contexts.stream()
+                .map(ctx -> new SettlementCandidateItem(
+                        null,
+                        ctx.orderId(),
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        ctx.paymentMethod(),
+                        ctx.vendorAgentDelivery(),
+                        BigDecimal.ZERO))
+                .toList();
+
+        List<UUID> codOrderIds = pseudo.stream()
+                .filter(item -> isCod(item.paymentMethod()))
+                .map(SettlementCandidateItem::orderId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        Set<UUID> remitted = codOrderIds.isEmpty()
+                ? Set.of()
+                : new HashSet<>(codCloseDayLineItemRepository.findClosedOrderIds(codOrderIds));
+        Map<UUID, CodAgentHandover> handoverByOrder = loadLatestHandovers(codOrderIds);
+
+        Map<UUID, UUID> orderVendorIds = new HashMap<>();
+        for (OrderClient.CashHolderContext ctx : contexts) {
+            if (ctx.orderId() != null && ctx.vendorId() != null) {
+                orderVendorIds.put(ctx.orderId(), ctx.vendorId());
+            }
+        }
+        Map<UUID, AgentRef> deliveringAgentByOrder = new HashMap<>();
+        for (UUID orderId : codOrderIds) {
+            UUID vendorId = orderVendorIds.get(orderId);
+            Map<UUID, AgentRef> one = safeDeliveringAgents(
+                    pseudo.stream().filter(p -> orderId.equals(p.orderId())).toList(),
+                    remitted,
+                    handoverByOrder,
+                    vendorId);
+            AgentRef agent = one.get(orderId);
+            if (agent != null) {
+                deliveringAgentByOrder.put(orderId, agent);
+            }
+        }
+
+        Map<UUID, UUID> orderHubIds = new HashMap<>();
+        for (Map.Entry<UUID, CodAgentHandover> entry : handoverByOrder.entrySet()) {
+            if (entry.getValue() != null && entry.getValue().getHubId() != null) {
+                orderHubIds.put(entry.getKey(), entry.getValue().getHubId());
+            }
+        }
+        for (OrderLegs leg : safeDeliveryLegs(codOrderIds)) {
+            if (leg.orderId() != null && leg.hubId() != null) {
+                orderHubIds.putIfAbsent(leg.orderId(), leg.hubId());
+            }
+        }
+        Map<UUID, String> hubNames = new HashMap<>();
+        for (UUID hubId : new HashSet<>(orderHubIds.values())) {
+            String name = safeHubDisplayName(hubId);
+            if (name != null && !name.isBlank()) {
+                hubNames.put(hubId, name.trim());
+            }
+        }
+
+        List<VendorCodCashHolderResponse.Item> out = contexts.stream()
+                .map(ctx -> {
+                    if (ctx.orderId() == null) {
+                        return null;
+                    }
+                    boolean cod = isCod(ctx.paymentMethod());
+                    String location = cod
+                            ? resolveCodCashLocation(ctx.orderId(), remitted, handoverByOrder)
+                            : "ONLINE";
+                    AgentRef agent = "WITH_AGENT".equals(location)
+                            ? deliveringAgentByOrder.get(ctx.orderId())
+                            : null;
+                    UUID hubId = orderHubIds.get(ctx.orderId());
+                    String hubName = hubId == null ? null : hubNames.get(hubId);
+                    VendorCodCashHolderLabels.View view = VendorCodCashHolderLabels.describe(
+                            ctx.paymentMethod(),
+                            ctx.vendorAgentDelivery(),
+                            location,
+                            agent != null ? agent.name() : null,
+                            hubName);
+                    return VendorCodCashHolderResponse.Item.builder()
+                            .subOrderId(null)
+                            .orderId(ctx.orderId())
+                            .paymentMethod(ctx.paymentMethod())
+                            .vendorAgentDelivery(ctx.vendorAgentDelivery())
+                            .codCashLocation(location)
+                            .holderRole(view.holderRole())
+                            .holderLabel(view.holderLabel())
+                            .holderDetail(view.holderDetail())
+                            .agentId(agent != null ? agent.agentId() : null)
+                            .agentName(agent != null ? agent.name() : null)
+                            .agentPhone(agent != null ? agent.phone() : null)
+                            .hubId(hubId)
+                            .hubName(hubName)
+                            .build();
+                })
+                .filter(Objects::nonNull)
+                .toList();
+        return VendorCodCashHolderResponse.builder().items(out).build();
     }
 
     private void applyPaid(
@@ -460,7 +769,7 @@ public class SettlementService {
                 .direction(settlement.getDirection() == null
                         ? SettlementDirection.PAYOUT : settlement.getDirection())
                 .payeeId(settlement.getPayeeId())
-                .payeeName(settlement.getPayeeName())
+                .payeeName(payeeDisplayNameService.forSettlement(settlement))
                 .periodStart(settlement.getPeriodStart())
                 .periodEnd(settlement.getPeriodEnd())
                 .periodType(settlement.getPeriodType())
@@ -476,6 +785,7 @@ public class SettlementService {
                 .paidAt(settlement.getPaidAt())
                 .paidBy(settlement.getPaidBy())
                 .serviceInvoiceNumber(settlement.getServiceInvoiceNumber())
+                .vendorAcknowledgedAt(settlement.getVendorAcknowledgedAt())
                 .createdAt(settlement.getCreatedAt())
                 .lines(lines)
                 .build();
@@ -532,6 +842,34 @@ public class SettlementService {
         return "WITH_AGENT";
     }
 
+    private Map<UUID, AgentRef> safeDeliveringAgents(
+            List<SettlementCandidateItem> rawItems,
+            Set<UUID> codRemittedOrderIds,
+            Map<UUID, CodAgentHandover> handoverByOrder,
+            UUID vendorId) {
+        try {
+            return resolveDeliveringAgents(rawItems, codRemittedOrderIds, handoverByOrder, vendorId);
+        } catch (RuntimeException ex) {
+            return Map.of();
+        }
+    }
+
+    private List<OrderLegs> safeDeliveryLegs(Collection<UUID> orderIds) {
+        try {
+            return deliveryClient.resolveDeliveryLegs(orderIds);
+        } catch (RuntimeException ex) {
+            return List.of();
+        }
+    }
+
+    private String safeHubDisplayName(UUID hubId) {
+        try {
+            return deliveryClient.getHubDisplayName(hubId);
+        } catch (RuntimeException ex) {
+            return null;
+        }
+    }
+
     private Map<UUID, AgentRef> resolveDeliveringAgents(
             List<SettlementCandidateItem> rawItems,
             Set<UUID> codRemittedOrderIds,
@@ -558,10 +896,10 @@ public class SettlementService {
             orderToAgentId.putIfAbsent(leg.orderId(), leg.agentId());
         }
 
-        Map<UUID, String> agentNames = new HashMap<>();
+        Map<UUID, AgentSummary> agentById = new HashMap<>();
         for (AgentSummary summary : deliveryClient.listVendorAgents(vendorId)) {
             if (summary.agentId() != null) {
-                agentNames.put(summary.agentId(), summary.name());
+                agentById.put(summary.agentId(), summary);
             }
         }
         legs.stream()
@@ -571,7 +909,7 @@ public class SettlementService {
                 .forEach(hubId -> {
                     for (AgentSummary summary : deliveryClient.listHubAgents(hubId)) {
                         if (summary.agentId() != null) {
-                            agentNames.putIfAbsent(summary.agentId(), summary.name());
+                            agentById.putIfAbsent(summary.agentId(), summary);
                         }
                     }
                 });
@@ -582,13 +920,58 @@ public class SettlementService {
             if (agentId == null) {
                 continue;
             }
-            String name = agentNames.get(agentId);
-            out.put(orderId, new AgentRef(agentId, name != null && !name.isBlank() ? name : "Delivery agent"));
+            AgentSummary summary = agentById.get(agentId);
+            String name = summary != null ? summary.name() : null;
+            String phone = summary != null ? summary.phone() : null;
+            out.put(
+                    orderId,
+                    new AgentRef(
+                            agentId,
+                            name != null && !name.isBlank() ? name : "Delivery agent",
+                            phone != null && !phone.isBlank() ? phone.trim() : null));
         }
         return out;
     }
 
-    private record AgentRef(UUID agentId, String name) {
+    private record AgentRef(UUID agentId, String name, String phone) {
+    }
+
+    private Map<UUID, String> cashLocationsFor(List<SettlementCandidateItem> items) {
+        List<UUID> codOrderIds = items.stream()
+                .filter(item -> isCod(item.paymentMethod()))
+                .map(SettlementCandidateItem::orderId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        if (codOrderIds.isEmpty()) {
+            return Map.of();
+        }
+        Set<UUID> remitted = new HashSet<>(codCloseDayLineItemRepository.findClosedOrderIds(codOrderIds));
+        Map<UUID, CodAgentHandover> handoverByOrder = loadLatestHandovers(codOrderIds);
+        Map<UUID, String> out = new HashMap<>();
+        for (UUID orderId : codOrderIds) {
+            out.put(orderId, resolveCodCashLocation(orderId, remitted, handoverByOrder));
+        }
+        return out;
+    }
+
+    /**
+     * Shop (or shop staff) already holds buyer COD — do not pay GMV; collect fees instead.
+     * Online, hub-held, and hub-agent COD stay on KoyaKart-pays-vendor.
+     */
+    static boolean vendorHoldsBuyerCash(
+            boolean vendorAgentDelivery, String paymentMethod, String cashLocation) {
+        if (!isCod(paymentMethod)) {
+            return false;
+        }
+        String loc = cashLocation == null || cashLocation.isBlank() ? "WITH_AGENT" : cashLocation;
+        if ("WITH_VENDOR".equals(loc) || "DECLARED_TO_VENDOR".equals(loc)) {
+            return true;
+        }
+        if (vendorAgentDelivery) {
+            return !"AT_HUB".equals(loc) && !"DECLARED_TO_HUB".equals(loc);
+        }
+        return false;
     }
 
     private static boolean isCod(String paymentMethod) {

@@ -55,7 +55,7 @@ public class PlatformSettingsService {
         pub.put("legalUpdatedAt", all.getOrDefault("legalUpdatedAt", ""));
         pub.put("grievanceOfficer", all.getOrDefault("grievanceOfficer", ""));
         pub.put("supportPhone", all.getOrDefault("supportPhone", ""));
-        pub.put("supplierLegalName", all.getOrDefault("supplierLegalName", "KoYaKart"));
+        pub.put("supplierLegalName", all.getOrDefault("supplierLegalName", "KoyaKart"));
         pub.put("supplierGstin", all.getOrDefault("supplierGstin", ""));
         pub.put("supplierAddress", all.getOrDefault("supplierAddress", ""));
         pub.put("supplierState", all.getOrDefault("supplierState", ""));
@@ -72,6 +72,8 @@ public class PlatformSettingsService {
         pub.put("membershipAnnualCredits", asInt(all.get("membershipAnnualCredits"), 0));
         pub.put("referralsEnabled", asBool(all.get("referralsEnabled"), false));
         pub.put("mealPlannerEnabled", asBool(all.get("mealPlannerEnabled"), false));
+        pub.put("brandLogoUrl", all.getOrDefault("brandLogoUrl", ""));
+        pub.put("brandLogoMediaId", all.getOrDefault("brandLogoMediaId", ""));
         return pub;
     }
 
@@ -283,6 +285,7 @@ public class PlatformSettingsService {
         auditBool(parts, "Meal planner", left.get("mealPlannerEnabled"), right.get("mealPlannerEnabled"));
         auditBool(parts, "Hub admin agent ratings", left.get("hubAdminCanSeeAgentRatings"), right.get("hubAdminCanSeeAgentRatings"));
         auditPlain(parts, "Support phone", left.get("supportPhone"), right.get("supportPhone"));
+        auditPlain(parts, "Brand logo", left.get("brandLogoUrl"), right.get("brandLogoUrl"));
         auditPlain(parts, "Bill legal name", left.get("supplierLegalName"), right.get("supplierLegalName"));
         auditPlain(parts, "Bill GSTIN", left.get("supplierGstin"), right.get("supplierGstin"));
         auditPlain(parts, "Bill address", left.get("supplierAddress"), right.get("supplierAddress"));
@@ -504,7 +507,9 @@ public class PlatformSettingsService {
         map.put("legalUpdatedAt", "");
         map.put("grievanceOfficer", "");
         map.put("supportPhone", "9876500100");
-        map.put("supplierLegalName", "KoYaKart");
+        map.put("brandLogoUrl", "");
+        map.put("brandLogoMediaId", "");
+        map.put("supplierLegalName", "KoyaKart");
         map.put("supplierGstin", "");
         map.put("supplierAddress", "");
         map.put("supplierState", "");
@@ -525,7 +530,7 @@ public class PlatformSettingsService {
         map.put("referralRefereeRewardAmount", 0);
         map.put("referralShareBaseUrl", "");
         map.put("referralShareMessageTemplate",
-                "Order groceries from local shops on KoYaKart. Use my code {code}: {link}");
+                "Order groceries from local shops on KoyaKart. Use my code {code}: {link}");
         map.put("mealPlannerEnabled", false);
         map.put("hubAdminCanSeeAgentRatings", true);
         return map;

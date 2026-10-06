@@ -1,7 +1,6 @@
 package com.hyperlocalmart.catalog.config;
 
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.cache.CacheManager;
 import org.springframework.cache.annotation.EnableCaching;
 import org.springframework.cache.support.NoOpCacheManager;
@@ -15,7 +14,6 @@ import java.time.Duration;
 
 @Configuration
 @EnableCaching
-@EnableConfigurationProperties(CatalogCacheProperties.class)
 public class CatalogCacheConfig {
 
     @Bean

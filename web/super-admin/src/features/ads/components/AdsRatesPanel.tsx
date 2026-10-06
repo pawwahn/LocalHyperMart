@@ -10,14 +10,17 @@ import {
   type AdSlotRate,
 } from '../api/adsBillingApi';
 
-type Props = {
-  token: string;
-  onSaved?: () => void;
-};
-
 type PeriodKey = 'day' | 'week' | 'month' | 'year';
 type SlotKey = 'homeHero' | 'homeMidGrid' | 'cartUpsell';
 type ChargeKey = 'oneTown' | 'extraTown' | 'allTowns';
+
+type Props = {
+  token: string;
+  refreshTick?: number;
+  /** From Creatives: hidden placements cannot be priced. */
+  slotActive?: Partial<Record<SlotKey, boolean>>;
+  onSaved?: () => void;
+};
 
 type PeriodDraft = { oneTown: string; extraTown: string; allTowns: string };
 type SlotDraft = Record<PeriodKey, PeriodDraft>;
@@ -96,9 +99,19 @@ function draftSnapshot(d: Draft): string {
   return JSON.stringify(d);
 }
 
-export function AdsRatesPanel({ token, onSaved }: Props) {
+export function AdsRatesPanel({ token, refreshTick = 0, slotActive: slotActiveProp, onSaved }: Props) {
   const [draft, setDraft] = useState<Draft | null>(null);
   const [savedSnapshot, setSavedSnapshot] = useState<string | null>(null);
+  const [slotActiveApi, setSlotActiveApi] = useState<Record<SlotKey, boolean>>({
+    homeHero: true,
+    homeMidGrid: true,
+    cartUpsell: true,
+  });
+  const slotActive: Record<SlotKey, boolean> = {
+    homeHero: slotActiveProp?.homeHero ?? slotActiveApi.homeHero,
+    homeMidGrid: slotActiveProp?.homeMidGrid ?? slotActiveApi.homeMidGrid,
+    cartUpsell: slotActiveProp?.cartUpsell ?? slotActiveApi.cartUpsell,
+  };
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -113,6 +126,11 @@ export function AdsRatesPanel({ token, onSaved }: Props) {
           const next = fromCard(card);
           setDraft(next);
           setSavedSnapshot(draftSnapshot(next));
+          setSlotActiveApi({
+            homeHero: card.homeHeroActive !== false,
+            homeMidGrid: card.homeMidGridActive !== false,
+            cartUpsell: card.cartUpsellActive !== false,
+          });
           setError(null);
         }
       })
@@ -125,7 +143,7 @@ export function AdsRatesPanel({ token, onSaved }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [token]);
+  }, [token, refreshTick]);
 
   const isDirty = useMemo(() => {
     if (!draft || savedSnapshot == null) return false;
@@ -185,6 +203,7 @@ export function AdsRatesPanel({ token, onSaved }: Props) {
             <h2 style={styles.h2}>Rate card</h2>
             <p style={styles.hint}>
               1 town is the base. Extra town adds for each additional town. All towns is a flat network price.
+              Hidden placements stay locked until you turn them on in Creatives.
             </p>
           </div>
           <Button disabled={saving || !isDirty} onClick={() => void onSave()}>
@@ -231,14 +250,15 @@ export function AdsRatesPanel({ token, onSaved }: Props) {
             </div>
             {SLOTS.map((slot) => {
               const rates = draft[slot.key][period.key] ?? emptyPeriod();
+              const active = slotActive[slot.key];
               return (
-                <div key={slot.key} style={styles.slotRow}>
+                <div key={slot.key} style={active ? styles.slotRow : { ...styles.slotRow, ...styles.slotRowOff }}>
                   <div style={styles.slotName}>
                     <strong>{slot.label}</strong>
-                    <span style={styles.slotHint}>{slot.hint}</span>
+                    <span style={styles.slotHint}>{active ? slot.hint : 'Hidden on buyer app — turn on in Creatives'}</span>
                   </div>
                   {CHARGES.map((c) => (
-                    <label key={c.key} style={styles.moneyWrap}>
+                    <label key={c.key} style={active ? styles.moneyWrap : { ...styles.moneyWrap, ...styles.moneyWrapOff }}>
                       <span style={styles.srOnly}>
                         {slot.label} {period.label} {c.label}
                       </span>
@@ -247,7 +267,13 @@ export function AdsRatesPanel({ token, onSaved }: Props) {
                         style={styles.money}
                         inputMode="decimal"
                         value={rates[c.key]}
-                        onChange={(e) => patch(slot.key, period.key, c.key, e.target.value)}
+                        disabled={!active}
+                        readOnly={!active}
+                        tabIndex={active ? 0 : -1}
+                        onChange={(e) => {
+                          if (!active) return;
+                          patch(slot.key, period.key, c.key, e.target.value);
+                        }}
                       />
                     </label>
                   ))}
@@ -258,10 +284,15 @@ export function AdsRatesPanel({ token, onSaved }: Props) {
         </Card>
       ))}
 
-      <p style={styles.example}>
-        Example · per day · 3 towns · 10 days: ({money(num(draft.homeHero.day.oneTown))} +{' '}
-        {money(num(draft.homeHero.day.extraTown))} × 2) × 10 for the main ad.
-      </p>
+      {slotActive.homeHero || slotActive.homeMidGrid || slotActive.cartUpsell ? (
+        <p style={styles.example}>
+          Example · per day · 3 towns · 10 days: ({money(num((slotActive.homeHero ? draft.homeHero : slotActive.homeMidGrid ? draft.homeMidGrid : draft.cartUpsell).day.oneTown))} +{' '}
+          {money(num((slotActive.homeHero ? draft.homeHero : slotActive.homeMidGrid ? draft.homeMidGrid : draft.cartUpsell).day.extraTown))} × 2) × 10
+          {slotActive.homeHero ? ' for the main ad.' : slotActive.homeMidGrid ? ' for a mid-grid slide.' : ' for the cart ad.'}
+        </p>
+      ) : (
+        <p style={styles.example}>All placements are hidden. Turn one on in Creatives to set prices.</p>
+      )}
     </div>
   );
 }
@@ -302,6 +333,15 @@ const styles: Record<string, CSSProperties> = {
     gridTemplateColumns: 'minmax(7.5rem, 0.9fr) repeat(3, minmax(7rem, 1fr))',
     gap: '0.35rem',
     alignItems: 'center',
+  },
+  slotRowOff: {
+    opacity: 0.5,
+    pointerEvents: 'none',
+    filter: 'grayscale(0.15)',
+  },
+  moneyWrapOff: {
+    background: 'var(--bg-muted)',
+    cursor: 'not-allowed',
   },
   slotName: { display: 'grid', gap: '0.05rem', minWidth: 0 },
   slotHint: { fontSize: '0.68rem', fontWeight: 600, color: 'var(--text-muted)' },

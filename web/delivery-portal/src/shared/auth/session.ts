@@ -16,6 +16,8 @@ export type AuthSession = {
   /** Display name from towns API, e.g. "Narsaraopet (Andhra Pradesh)". */
   townName?: string;
   agentId?: string;
+  /** Delivery agent display name from delivery-service. */
+  agentName?: string;
 };
 
 /** Infer portal role from stored session (handles older saves missing portalRole). */

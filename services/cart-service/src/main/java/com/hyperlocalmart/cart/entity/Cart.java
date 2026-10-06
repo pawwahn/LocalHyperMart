@@ -42,4 +42,10 @@ public class Cart extends BaseAuditEntity {
     @Column(name = "promo_discount", nullable = false, precision = 12, scale = 2)
     @Builder.Default
     private BigDecimal promoDiscount = BigDecimal.ZERO;
+
+    @Column(name = "membership_slab", length = 30)
+    private String membershipSlab;
+
+    @Column(name = "membership_price_snapshot", precision = 12, scale = 2)
+    private BigDecimal membershipPriceSnapshot;
 }

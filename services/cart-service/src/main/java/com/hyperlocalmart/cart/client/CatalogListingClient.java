@@ -13,7 +13,11 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
 
 import java.math.BigDecimal;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Component
 @RequiredArgsConstructor
@@ -23,6 +27,28 @@ public class CatalogListingClient {
 
     private final RestClient.Builder restClientBuilder;
     private final CatalogServiceProperties catalogServiceProperties;
+
+    public Map<UUID, String> primaryImages(List<UUID> listingIds) {
+        if (listingIds == null || listingIds.isEmpty()) {
+            return Map.of();
+        }
+        try {
+            RestClient client = restClientBuilder.baseUrl(catalogServiceProperties.getBaseUrl()).build();
+            ApiResponse<List<PrimaryImageRow>> response = client.post()
+                    .uri("/api/v1/internal/catalog/listing-primary-images")
+                    .body(Map.of("listingIds", listingIds))
+                    .retrieve()
+                    .body(new ParameterizedTypeReference<ApiResponse<List<PrimaryImageRow>>>() {});
+            if (response == null || response.getData() == null) {
+                return Map.of();
+            }
+            return response.getData().stream()
+                    .filter(row -> row.listingId() != null && row.imageUrl() != null && !row.imageUrl().isBlank())
+                    .collect(Collectors.toMap(PrimaryImageRow::listingId, PrimaryImageRow::imageUrl, (a, b) -> a));
+        } catch (RestClientResponseException ex) {
+            return Collections.emptyMap();
+        }
+    }
 
     public ListingSnapshot getListing(UUID listingId, UUID townId) {
         try {
@@ -58,6 +84,9 @@ public class CatalogListingClient {
         } catch (Exception ignored) {
             return null;
         }
+    }
+
+    private record PrimaryImageRow(UUID listingId, String imageUrl) {
     }
 
     public record ListingSnapshot(

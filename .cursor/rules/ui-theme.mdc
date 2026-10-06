@@ -18,6 +18,7 @@ When building or changing any portal screen (buyer-web, vendor-portal, delivery-
 
 - **Never** use `window.alert`, `window.confirm`, or `window.prompt` for product UX. They ignore theme and show “localhost says…”.
 - Use themed modals (`ConfirmDialog`, `ReasonDialog`, or equivalent styled with theme tokens).
+- Quick success/info feedback: `Toast` (super-admin) or inline `Banner` — same tokens, never native alert.
 - Destructive actions need a clear keep/go-back action and an explicit confirm label (e.g. “Keep item” / “Yes, cancel item”).
 
 ## Checklist before finishing a new screen

@@ -31,6 +31,8 @@ export type VendorSettlementLine = {
 export type VendorSettlement = {
   id: string;
   townId?: string | null;
+  /** PAYOUT = KoyaKart pays vendor; COLLECTION = vendor pays fees on shop-held cash. */
+  direction?: string | null;
   payeeName?: string | null;
   periodStart?: string | null;
   periodEnd?: string | null;
@@ -48,8 +50,21 @@ export type VendorSettlement = {
   paidAt?: string | null;
   /** Stored series, e.g. HLM/SF/26-27/0001. */
   serviceInvoiceNumber?: string | null;
+  /** Set when the vendor confirmed the money reached them. */
+  vendorAcknowledgedAt?: string | null;
   lines?: VendorSettlementLine[] | null;
 };
+
+export async function acknowledgeSettlement(
+  token: string,
+  vendorId: string,
+  settlementId: string,
+): Promise<VendorSettlement> {
+  return apiRequest<VendorSettlement>(
+    `/api/v1/payments/settlements/${settlementId}/acknowledge`,
+    { method: 'POST', token, vendorId },
+  );
+}
 
 /** Claim deductions applied on a settlement row. */
 export function settlementClaimAmount(s: VendorSettlement): number {
@@ -92,6 +107,125 @@ export async function lookupOrderPayouts(
     map[item.subOrderId] = item;
   }
   return map;
+}
+
+export type CashHolderRole = 'PLATFORM' | 'VENDOR' | 'VENDOR_AGENT' | 'HUB_ADMIN' | 'HUB_AGENT' | 'UNKNOWN' | string;
+
+export type OrderCashHolder = {
+  subOrderId: string;
+  orderId?: string | null;
+  paymentMethod?: string | null;
+  vendorAgentDelivery?: boolean;
+  codCashLocation?: string | null;
+  holderRole: CashHolderRole;
+  holderLabel: string;
+  holderDetail?: string | null;
+  agentName?: string | null;
+  hubName?: string | null;
+};
+
+export async function lookupOrderCashHolders(
+  token: string,
+  vendorId: string,
+  subOrderIds: string[],
+): Promise<Record<string, OrderCashHolder>> {
+  if (subOrderIds.length === 0) return {};
+  const data = await apiRequest<{ items: OrderCashHolder[] }>(
+    '/api/v1/payments/settlements/vendor/me/cash-holders',
+    {
+      method: 'POST',
+      token,
+      vendorId,
+      body: { subOrderIds },
+    },
+  );
+  const map: Record<string, OrderCashHolder> = {};
+  for (const item of data.items ?? []) {
+    map[item.subOrderId] = item;
+  }
+  return map;
+}
+
+export function inferredCashHolder(row: {
+  subOrderId: string;
+  paymentMethod?: string | null;
+  vendorAgentDelivery?: boolean;
+}): OrderCashHolder {
+  const pay = (row.paymentMethod ?? '').toUpperCase();
+  if (pay !== 'COD') {
+    return {
+      subOrderId: row.subOrderId,
+      paymentMethod: row.paymentMethod,
+      vendorAgentDelivery: Boolean(row.vendorAgentDelivery),
+      codCashLocation: 'ONLINE',
+      holderRole: 'PLATFORM',
+      holderLabel: 'App',
+      holderDetail: 'UPI / online',
+    };
+  }
+  if (row.vendorAgentDelivery) {
+    return {
+      subOrderId: row.subOrderId,
+      paymentMethod: row.paymentMethod,
+      vendorAgentDelivery: true,
+      codCashLocation: 'WITH_AGENT',
+      holderRole: 'VENDOR_AGENT',
+      holderLabel: 'Shop agent',
+      holderDetail: 'Still with your rider',
+    };
+  }
+  return {
+    subOrderId: row.subOrderId,
+    paymentMethod: row.paymentMethod,
+    vendorAgentDelivery: false,
+    codCashLocation: 'WITH_AGENT',
+    holderRole: 'HUB_AGENT',
+    holderLabel: 'Hub agent',
+    holderDetail: 'Still with hub rider',
+  };
+}
+
+export function resolveCashHolder(
+  row: {
+    subOrderId: string;
+    paymentMethod?: string | null;
+    vendorAgentDelivery?: boolean;
+  },
+  api?: OrderCashHolder | null,
+): OrderCashHolder {
+  if (api && api.holderRole && api.holderRole !== 'UNKNOWN') {
+    return api;
+  }
+  return inferredCashHolder(row);
+}
+
+export type VendorFeeQuote = {
+  feeModel?: string | null;
+  grossAmount: number;
+  commissionAmount: number;
+  subscriptionAmount: number;
+  totalFeeAmount: number;
+  suggestedNet: number;
+  appliedSlabLabel?: string | null;
+  breakdownLines?: string[] | null;
+  lineFees?: number[] | null;
+};
+
+/** Estimated KoyaKart fee on unpaid bags, using the fee terms active on each order day. */
+export async function quoteMyFees(
+  token: string,
+  vendorId: string,
+  lines: Array<{ amount: number; placedAt?: string | null }>,
+): Promise<VendorFeeQuote> {
+  return apiRequest<VendorFeeQuote>('/api/v1/vendors/me/commercial-terms/quote', {
+    method: 'POST',
+    token,
+    vendorId,
+    body: {
+      includeSubscription: false,
+      orderLines: lines.map((l) => ({ amount: Math.max(0, Number(l.amount || 0)), placedAt: l.placedAt || undefined })),
+    },
+  });
 }
 
 export async function listMySettlements(

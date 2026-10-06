@@ -27,9 +27,20 @@ function asNumber(v: unknown, fallback: number): number {
   return fallback;
 }
 
+let settingsCache: { expiresAt: number; value: PublicPlatformSettingsVm } | null = null;
+const SETTINGS_TTL_MS = 5 * 60 * 1000;
+
+export function clearPublicPlatformSettingsCache() {
+  settingsCache = null;
+}
+
 export async function getPublicPlatformSettings(): Promise<PublicPlatformSettingsVm> {
-  const data = await apiRequest<SettingsDto>('/api/v1/platform/settings/public');
-  return {
+  const now = Date.now();
+  if (settingsCache && now < settingsCache.expiresAt) {
+    return settingsCache.value;
+  }
+  const data = await apiRequest<SettingsDto>('/api/v1/platform/settings/public', { timeoutMs: 5_000 });
+  const value = {
     termsUrl: asString(data?.termsUrl),
     privacyUrl: asString(data?.privacyUrl),
     refundUrl: asString(data?.refundUrl),
@@ -40,4 +51,6 @@ export async function getPublicPlatformSettings(): Promise<PublicPlatformSetting
     referralsEnabled: data?.referralsEnabled === true,
     mealPlannerEnabled: data?.mealPlannerEnabled === true,
   };
+  settingsCache = { expiresAt: now + SETTINGS_TTL_MS, value };
+  return value;
 }

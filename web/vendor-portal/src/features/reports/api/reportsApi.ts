@@ -26,6 +26,7 @@ export type SalesReportRow = {
   status: string;
   paymentMethod?: string | null;
   paymentStatus?: string | null;
+  vendorAgentDelivery?: boolean;
   subtotal: number;
   itemCount: number;
   items?: SalesReportItem[] | null;
@@ -76,6 +77,7 @@ export async function fetchSalesReport(
   return apiRequest<SalesReport>(`/api/v1/orders/vendor/sales-report?${params.toString()}`, {
     token,
     vendorId,
+    timeoutMs: 60_000,
   });
 }
 

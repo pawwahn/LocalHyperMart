@@ -1,3 +1,5 @@
+export { formatIsoDateRange } from '@hlm-dates/formatDateRange';
+
 export function codMoney(v: number | null | undefined, compact = false): string {
   const n = Number(v ?? 0);
   if (compact && Number.isInteger(n)) {
@@ -32,4 +34,38 @@ export function formatDeliveredIst(at?: string | null): string {
   } catch {
     return '—';
   }
+}
+
+const DAYS_IN_MONTH = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+
+function isLeapYear(year: number): boolean {
+  return (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
+}
+
+export function daysInMonth(year: number, monthIndex: number): number {
+  if (monthIndex === 1 && isLeapYear(year)) return 29;
+  return DAYS_IN_MONTH[monthIndex] ?? 30;
+}
+
+/** IST calendar month bounds as YYYY-MM-DD (monthIndex 0 = January). */
+export function monthBoundsIst(year: number, monthIndex: number): { from: string; to: string } {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const from = `${year}-${pad(monthIndex + 1)}-01`;
+  const to = `${year}-${pad(monthIndex + 1)}-${pad(daysInMonth(year, monthIndex))}`;
+  return { from, to };
+}
+
+/** Weekday 0=Sun … 6=Sat for YYYY-MM-DD (IST calendar date). */
+export function weekdayIst(iso: string): number {
+  const [y, m, d] = iso.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+}
+
+export function todayIstIso(): string {
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+}
+
+export function parseMonthFromIso(iso: string): { year: number; monthIndex: number } {
+  const [y, m] = iso.split('-').map(Number);
+  return { year: y, monthIndex: (m ?? 1) - 1 };
 }

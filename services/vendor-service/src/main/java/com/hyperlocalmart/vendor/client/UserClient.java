@@ -93,6 +93,20 @@ public class UserClient {
         return new BusinessException(ErrorCode.INTERNAL_ERROR, fallback);
     }
 
+    public void consumeCodPinOtp(UUID userId, String otp) {
+        RestClient client = restClientBuilder.baseUrl(userServiceProperties.getBaseUrl()).build();
+        try {
+            client.post()
+                    .uri("/api/v1/internal/users/{userId}/cod-pin-otp/consume", userId)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(Map.of("otp", otp))
+                    .retrieve()
+                    .toBodilessEntity();
+        } catch (RestClientResponseException ex) {
+            throw mapClientError(ex, "Invalid or expired OTP");
+        }
+    }
+
     public record StaffUserDto(UUID userId, String phone, String role, String status) {
     }
 }

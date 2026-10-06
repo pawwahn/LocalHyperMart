@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { ApiError } from '@/shared/api/http';
 import { Banner, Button, Card } from '@/shared/ui';
 import type { TownVm } from '@/features/towns/api/townsApi';
+import { formatIsoDateRange } from '@/shared/dates/formatDateRange';
 import type { TownAdSlot } from '../api/adsApi';
 import {
   AD_PAY_METHODS,
@@ -31,6 +32,7 @@ import { AdsSlotCalendar } from './AdsSlotCalendar';
 type Props = {
   token: string;
   towns: TownVm[];
+  slotActive?: { homeHero?: boolean; homeMidGrid?: boolean; cartUpsell?: boolean };
   onChanged?: () => void;
 };
 
@@ -56,7 +58,7 @@ function fmtDate(iso?: string | null): string {
   return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
-export function AdsBillsPanel({ token, towns, onChanged }: Props) {
+export function AdsBillsPanel({ token, towns, slotActive, onChanged }: Props) {
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [gstin, setGstin] = useState('');
@@ -117,6 +119,18 @@ export function AdsBillsPanel({ token, towns, onChanged }: Props) {
   useEffect(() => {
     if (towns.length && townIds.length === 0) setTownIds([towns[0].id]);
   }, [towns, townIds.length]);
+
+  useEffect(() => {
+    if (!slotActive) return;
+    const currentOn =
+      (slot === 'HOME_HERO' && slotActive.homeHero !== false) ||
+      (slot === 'HOME_MID_GRID' && slotActive.homeMidGrid !== false) ||
+      (slot === 'CART_UPSELL' && slotActive.cartUpsell !== false);
+    if (currentOn) return;
+    if (slotActive.homeHero !== false) setSlot('HOME_HERO');
+    else if (slotActive.homeMidGrid !== false) setSlot('HOME_MID_GRID');
+    else if (slotActive.cartUpsell !== false) setSlot('CART_UPSELL');
+  }, [slot, slotActive]);
 
   useEffect(() => {
     const t = window.setTimeout(() => setQ(qDraft.trim()), 280);
@@ -343,9 +357,15 @@ export function AdsBillsPanel({ token, towns, onChanged }: Props) {
               value={slot}
               onChange={(e) => setSlot(e.target.value as TownAdSlot)}
             >
-              <option value="HOME_HERO">Main ad (home strip)</option>
-              <option value="HOME_MID_GRID">Mid-grid ad</option>
-              <option value="CART_UPSELL">Cart ad</option>
+              <option value="HOME_HERO" disabled={slotActive?.homeHero === false}>
+                Main ad (home strip){slotActive?.homeHero === false ? ' · hidden' : ''}
+              </option>
+              <option value="HOME_MID_GRID" disabled={slotActive?.homeMidGrid === false}>
+                Mid-grid ad{slotActive?.homeMidGrid === false ? ' · hidden' : ''}
+              </option>
+              <option value="CART_UPSELL" disabled={slotActive?.cartUpsell === false}>
+                Cart ad{slotActive?.cartUpsell === false ? ' · hidden' : ''}
+              </option>
             </select>
           </label>
           {slot === 'HOME_MID_GRID' ? (
@@ -467,7 +487,8 @@ export function AdsBillsPanel({ token, towns, onChanged }: Props) {
           />
           {pickedBooking ? (
             <Banner tone="warning" style={{ padding: '0.4rem 0.55rem' }}>
-              {pickedBooking.fromDate}–{pickedBooking.toDate} already held by {pickedBooking.advertiserName} (
+              {formatIsoDateRange(pickedBooking.fromDate, pickedBooking.toDate)} already held by{' '}
+              {pickedBooking.advertiserName} (
               {pickedBooking.invoiceNumber}, {bookingPhaseLabel(pickedBooking.bookingPhase)}). Choose a green day or
               use the next free window.
             </Banner>
@@ -546,7 +567,7 @@ export function AdsBillsPanel({ token, towns, onChanged }: Props) {
                   {quote.conflicts.map((c) => (
                     <span key={c.invoiceId}>
                       {' '}
-                      · {c.invoiceNumber} {c.advertiserName} {fmtDate(c.fromDate)}–{fmtDate(c.toDate)} (
+                      · {c.invoiceNumber} {c.advertiserName} {fmtDate(c.fromDate)} → {fmtDate(c.toDate)} (
                       {bookingPhaseLabel(c.bookingPhase)})
                     </span>
                   ))}
@@ -668,7 +689,7 @@ export function AdsBillsPanel({ token, towns, onChanged }: Props) {
                     {row.allTowns ? 'All towns' : row.towns?.map((t) => t.name).join(', ') || '—'}
                   </td>
                   <td style={styles.td}>
-                    {fmtDate(row.fromDate)} – {fmtDate(row.toDate)}
+                    {fmtDate(row.fromDate)} → {fmtDate(row.toDate)}
                   </td>
                   <td style={{ ...styles.td, textAlign: 'right', fontWeight: 800 }}>{money(row.total)}</td>
                   <td style={styles.td}>

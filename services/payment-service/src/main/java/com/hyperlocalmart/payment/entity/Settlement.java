@@ -82,6 +82,13 @@ public class Settlement extends BaseAuditEntity {
     @Column(name = "paid_by")
     private UUID paidBy;
 
+    /** Vendor confirmed the money reached their account. */
+    @Column(name = "vendor_acknowledged_at")
+    private Instant vendorAcknowledgedAt;
+
+    @Column(name = "vendor_acknowledged_by")
+    private UUID vendorAcknowledgedBy;
+
     /** Vendor service-fee tax invoice, e.g. HLM/SF/26-27/0001. Blank for hub and agent payouts. */
     @Column(name = "service_invoice_number", length = 32)
     private String serviceInvoiceNumber;

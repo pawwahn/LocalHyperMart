@@ -1,4 +1,4 @@
-# HyperLocalMart - fast local startup (Windows PowerShell)
+# KoyaKart (LocalHyperMart repo) - fast local startup (Windows PowerShell)
 # Starts Docker infra + Java services (java -jar) + web apps.
 # Repeat runs skip Maven if fat JARs already exist.
 #

@@ -94,6 +94,16 @@ public class Order extends BaseAuditEntity {
     @Builder.Default
     private BigDecimal membershipDeliveryWaived = BigDecimal.ZERO;
 
+    @Column(name = "membership_fee", nullable = false, precision = 12, scale = 2)
+    @Builder.Default
+    private BigDecimal membershipFee = BigDecimal.ZERO;
+
+    @Column(name = "membership_purchase_id")
+    private UUID membershipPurchaseId;
+
+    @Column(name = "membership_slab", length = 30)
+    private String membershipSlab;
+
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "delivery_address_snapshot", nullable = false, columnDefinition = "jsonb")
     private Map<String, Object> deliveryAddressSnapshot;

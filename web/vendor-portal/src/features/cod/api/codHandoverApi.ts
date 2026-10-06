@@ -37,7 +37,10 @@ export async function fetchCodCustodianReceivables(
     vendorId: params.vendorId,
     date: params.date,
   });
-  return apiRequest<CodCustodianReceivables>(`/api/v1/payments/cod/custodian/receivables?${q}`, { token });
+  return apiRequest<CodCustodianReceivables>(`/api/v1/payments/cod/custodian/receivables?${q}`, {
+    token,
+    timeoutMs: 45_000,
+  });
 }
 
 export type CodCustodianOutstanding = {
@@ -57,6 +60,40 @@ export type CodCustodianOutstanding = {
   }>;
 };
 
+export type CodCustodianPendingDetail = {
+  lookbackFrom: string;
+  lookbackTo: string;
+  townId: string;
+  vendorId?: string | null;
+  totalStillWithAgents: number;
+  ordersStillWithAgents: number;
+  totalDeclaredAwaitingConfirm: number;
+  handoversAwaitingConfirm: number;
+  days: Array<{
+    date: string;
+    stillWithAgentsAmount: number;
+    stillWithAgentsOrderCount: number;
+    declaredAwaitingAmount: number;
+    declaredAwaitingOrderCount: number;
+  }>;
+};
+
+export async function fetchCodCustodianPendingDetail(
+  token: string,
+  params: { townId: string; vendorId: string; from: string; to: string },
+): Promise<CodCustodianPendingDetail> {
+  const q = new URLSearchParams({
+    townId: params.townId,
+    vendorId: params.vendorId,
+    from: params.from,
+    to: params.to,
+  });
+  return apiRequest<CodCustodianPendingDetail>(
+    `/api/v1/payments/cod/custodian/receivables/pending-detail?${q}`,
+    { token, timeoutMs: 45_000 },
+  );
+}
+
 export async function fetchCodCustodianOutstanding(
   token: string,
   params: { townId: string; vendorId: string },
@@ -67,13 +104,15 @@ export async function fetchCodCustodianOutstanding(
   });
   return apiRequest<CodCustodianOutstanding>(
     `/api/v1/payments/cod/custodian/receivables/outstanding?${q}`,
-    { token },
+    { token, timeoutMs: 45_000 },
   );
 }
 
 export type CodHandoverPending = {
   handoverId: string;
   agentId: string;
+  agentName?: string | null;
+  agentPhone?: string | null;
   handoverDate: string;
   custodianType: string;
   declaredAmount: number;
@@ -110,6 +149,7 @@ export async function confirmCodHandover(
     handoverId: string;
     receivedAmount: number;
     vendorId: string;
+    pin?: string;
     notes?: string;
   },
 ): Promise<unknown> {

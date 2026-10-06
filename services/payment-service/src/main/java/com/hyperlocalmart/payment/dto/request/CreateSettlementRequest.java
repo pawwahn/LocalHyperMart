@@ -1,8 +1,8 @@
 package com.hyperlocalmart.payment.dto.request;
 
+import com.hyperlocalmart.payment.entity.SettlementDirection;
 import com.hyperlocalmart.payment.entity.SettlementPeriodType;
 import jakarta.validation.constraints.DecimalMin;
-import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
@@ -32,7 +32,16 @@ public class CreateSettlementRequest {
 
     private SettlementPeriodType periodType = SettlementPeriodType.CUSTOM;
 
-    @NotEmpty
+    /**
+     * PAYOUT = KoyaKart pays vendor (platform/hub holds cash).
+     * COLLECTION = vendor pays KoyaKart (shop holds COD and/or monthly fee due).
+     * Null defaults to PAYOUT.
+     */
+    private SettlementDirection direction;
+
+    /**
+     * Required for PAYOUT. May be empty for COLLECTION (monthly-only collect).
+     */
     private List<UUID> subOrderIds;
 
     /**

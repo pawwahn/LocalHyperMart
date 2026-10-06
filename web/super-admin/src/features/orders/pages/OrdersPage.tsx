@@ -7,10 +7,13 @@ import { Banner, Button, SearchSelect } from '@/shared/ui';
 import { listTowns, type TownVm } from '@/features/towns/api/townsApi';
 import {
   formatAdminPaymentLabel,
+  formatCashWithHolder,
   formatWhen,
   listAdminOrders,
+  lookupAdminCodCashHolders,
   money,
   shortOrderNo,
+  type AdminOrderCashHolder,
   type AdminOrderSummary,
 } from '../api/ordersApi';
 
@@ -45,6 +48,7 @@ export function OrdersPage() {
 
   const [queryDraft, setQueryDraft] = useState(qParam);
   const [orders, setOrders] = useState<AdminOrderSummary[]>([]);
+  const [cashHolders, setCashHolders] = useState<Record<string, AdminOrderCashHolder>>({});
   const [totalPages, setTotalPages] = useState(0);
   const [totalElements, setTotalElements] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -118,11 +122,25 @@ export function OrdersPage() {
         page,
         size: PAGE_SIZE,
       });
-      setOrders(data.items ?? []);
+      const items = data.items ?? [];
+      setOrders(items);
       setTotalPages(data.totalPages ?? 0);
       setTotalElements(data.totalElements ?? 0);
+      const codIds = items
+        .filter((o) => (o.paymentMethod ?? '').toUpperCase() === 'COD')
+        .map((o) => o.orderId);
+      if (codIds.length > 0) {
+        try {
+          setCashHolders(await lookupAdminCodCashHolders(token, codIds));
+        } catch {
+          setCashHolders({});
+        }
+      } else {
+        setCashHolders({});
+      }
     } catch (err) {
       setOrders([]);
+      setCashHolders({});
       setError(err instanceof ApiError || err instanceof Error ? err.message : 'Failed to load orders');
     } finally {
       setLoading(false);
@@ -210,6 +228,7 @@ export function OrdersPage() {
                 <th style={styles.th}>Buyer</th>
                 <th style={styles.th}>Status</th>
                 <th style={styles.th}>Payment</th>
+                <th style={styles.th}>Cash with</th>
                 <th style={{ ...styles.th, textAlign: 'right' }}>Amount</th>
                 <th style={styles.th}>Bags</th>
                 <th style={styles.th}>Placed</th>
@@ -250,6 +269,9 @@ export function OrdersPage() {
                       paymentStatus: o.paymentStatus,
                       orderStatus: o.status,
                     })}
+                  </td>
+                  <td style={styles.tdCash} title={formatCashWithHolder(o, cashHolders[o.orderId])}>
+                    {formatCashWithHolder(o, cashHolders[o.orderId])}
                   </td>
                   <td style={{ ...styles.td, textAlign: 'right', fontWeight: 700 }}>
                     {money(o.totalAmount)}
@@ -369,6 +391,16 @@ const styles: Record<string, CSSProperties> = {
     fontSize: '0.82rem',
     color: 'var(--text-muted)',
     verticalAlign: 'middle',
+  },
+  tdCash: {
+    padding: '0.55rem 0.7rem',
+    borderBottom: '1px solid var(--border)',
+    fontSize: '0.78rem',
+    fontWeight: 650,
+    color: 'var(--text)',
+    verticalAlign: 'middle',
+    maxWidth: '11rem',
+    lineHeight: 1.35,
   },
   link: { color: 'var(--accent)', fontWeight: 800, textDecoration: 'none' },
   pill: {

@@ -136,12 +136,16 @@ export async function fetchMembershipPackHistory(token: string): Promise<Members
 export async function fetchMembershipReport(
   token: string,
   opts: { from?: string; to?: string },
+  request?: { timeoutMs?: number },
 ): Promise<MembershipReport> {
   const params = new URLSearchParams();
   if (opts.from) params.set('from', opts.from);
   if (opts.to) params.set('to', opts.to);
   const q = params.toString();
-  return apiRequest<MembershipReport>(`/api/v1/payments/admin/memberships/report${q ? `?${q}` : ''}`, { token });
+  return apiRequest<MembershipReport>(`/api/v1/payments/admin/memberships/report${q ? `?${q}` : ''}`, {
+    token,
+    timeoutMs: request?.timeoutMs,
+  });
 }
 
 export async function fetchMembershipMembers(token: string): Promise<MembershipMember[]> {

@@ -3,7 +3,12 @@ package com.hyperlocalmart.delivery.service;
 import com.hyperlocalmart.common.exception.BusinessException;
 import com.hyperlocalmart.common.exception.ErrorCode;
 import com.hyperlocalmart.delivery.client.OrderClient;
+import com.hyperlocalmart.delivery.dto.response.HubAssignmentReportResponse;
+import com.hyperlocalmart.delivery.dto.response.HubDailyOrdersReportResponse;
+import com.hyperlocalmart.delivery.dto.response.HubPaymentMixReportResponse;
+import com.hyperlocalmart.delivery.dto.response.HubQualityReportResponse;
 import com.hyperlocalmart.delivery.dto.response.HubReportResponse;
+import com.hyperlocalmart.delivery.entity.DeliveryAssignment;
 import com.hyperlocalmart.delivery.entity.AssignmentLegType;
 import com.hyperlocalmart.delivery.entity.DeliveryAgent;
 import com.hyperlocalmart.delivery.entity.DeliveryHub;
@@ -110,6 +115,142 @@ public class HubReportService {
                 .deliveredGmv(orderStats.deliveredGmv())
                 .codGmv(orderStats.codGmv())
                 .agents(agents)
+                .build();
+    }
+
+    @Transactional(readOnly = true)
+    public HubDailyOrdersReportResponse getDailyOrdersReport(
+            UUID hubAdminUserId, UUID hubId, LocalDate from, LocalDate to) {
+        validateDateRange(from, to);
+        HubAdmin hubAdmin = resolveActiveHubAdmin(hubAdminUserId);
+        if (!hubAdmin.getHubId().equals(hubId)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "Hub does not belong to admin");
+        }
+        DeliveryHub hub = deliveryHubRepository.findById(hubId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Hub not found"));
+
+        OrderClient.HubTownDailyReportStats daily =
+                orderClient.getHubTownDailyReportStats(hub.getTownId(), from, to);
+
+        List<HubDailyOrdersReportResponse.DailyRow> days = new ArrayList<>();
+        for (OrderClient.HubTownDailyReportStats.DailyRow row : daily.days()) {
+            days.add(HubDailyOrdersReportResponse.DailyRow.builder()
+                    .date(row.date())
+                    .ordersPlaced(row.ordersPlaced())
+                    .ordersDelivered(row.ordersDelivered())
+                    .ordersCancelled(row.ordersCancelled())
+                    .deliveredGmv(row.deliveredGmv())
+                    .codDeliveredGmv(row.codDeliveredGmv())
+                    .build());
+        }
+
+        return HubDailyOrdersReportResponse.builder()
+                .hubId(hub.getId())
+                .townId(hub.getTownId())
+                .from(from)
+                .to(to)
+                .days(days)
+                .build();
+    }
+
+    @Transactional(readOnly = true)
+    public HubAssignmentReportResponse getAssignmentReport(
+            UUID hubAdminUserId, UUID hubId, LocalDate from, LocalDate to, UUID agentIdFilter) {
+        validateDateRange(from, to);
+        HubAdmin hubAdmin = resolveActiveHubAdmin(hubAdminUserId);
+        if (!hubAdmin.getHubId().equals(hubId)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "Hub does not belong to admin");
+        }
+        deliveryHubRepository.findById(hubId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Hub not found"));
+
+        var start = from.atStartOfDay(IST).toInstant();
+        var end = to.plusDays(1).atStartOfDay(IST).toInstant();
+        UUID agentParam = agentIdFilter;
+        List<DeliveryAssignment> assignments =
+                deliveryAssignmentRepository.findCompletedByHubAndCompletedAtBetween(
+                        hubId, agentParam, start, end);
+
+        Map<UUID, DeliveryAgent> agentCache = new HashMap<>();
+        List<HubAssignmentReportResponse.TripRow> trips = new ArrayList<>();
+        for (DeliveryAssignment a : assignments) {
+            DeliveryAgent agent = agentCache.computeIfAbsent(
+                    a.getAgentId(), id -> deliveryAgentRepository.findById(id).orElse(null));
+            trips.add(HubAssignmentReportResponse.TripRow.builder()
+                    .assignmentId(a.getId())
+                    .assignmentNumber(a.getAssignmentNumber())
+                    .orderNumber(a.getOrderNumber())
+                    .subOrderNumber(a.getSubOrderNumber())
+                    .agentId(a.getAgentId())
+                    .agentName(agent != null ? agent.getName() : null)
+                    .agentPhone(agent != null ? agent.getPhone() : null)
+                    .legType(a.getLegType().name())
+                    .completedAt(a.getCompletedAt())
+                    .build());
+        }
+
+        return HubAssignmentReportResponse.builder()
+                .hubId(hubId)
+                .from(from)
+                .to(to)
+                .trips(trips)
+                .build();
+    }
+
+    @Transactional(readOnly = true)
+    public HubPaymentMixReportResponse getPaymentMixReport(
+            UUID hubAdminUserId, UUID hubId, LocalDate from, LocalDate to) {
+        validateDateRange(from, to);
+        HubAdmin hubAdmin = resolveActiveHubAdmin(hubAdminUserId);
+        if (!hubAdmin.getHubId().equals(hubId)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "Hub does not belong to admin");
+        }
+        DeliveryHub hub = deliveryHubRepository.findById(hubId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Hub not found"));
+        OrderClient.HubTownPaymentMix mix = orderClient.getHubTownPaymentMix(hub.getTownId(), from, to);
+        return HubPaymentMixReportResponse.builder()
+                .hubId(hubId)
+                .townId(hub.getTownId())
+                .from(from)
+                .to(to)
+                .deliveredOrders(mix.deliveredOrders())
+                .codDeliveredOrders(mix.codDeliveredOrders())
+                .onlineDeliveredOrders(mix.onlineDeliveredOrders())
+                .deliveredGmv(mix.deliveredGmv())
+                .codDeliveredGmv(mix.codDeliveredGmv())
+                .onlineDeliveredGmv(mix.onlineDeliveredGmv())
+                .build();
+    }
+
+    @Transactional(readOnly = true)
+    public HubQualityReportResponse getQualityReport(
+            UUID hubAdminUserId, UUID hubId, LocalDate from, LocalDate to) {
+        validateDateRange(from, to);
+        HubAdmin hubAdmin = resolveActiveHubAdmin(hubAdminUserId);
+        if (!hubAdmin.getHubId().equals(hubId)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "Hub does not belong to admin");
+        }
+        DeliveryHub hub = deliveryHubRepository.findById(hubId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Hub not found"));
+        OrderClient.HubTownQualityReport quality =
+                orderClient.getHubTownQualityReport(hub.getTownId(), from, to);
+        List<HubQualityReportResponse.ReasonCount> reasons = new ArrayList<>();
+        for (OrderClient.HubTownQualityReport.QualityReason r : quality.cancelReasons()) {
+            reasons.add(HubQualityReportResponse.ReasonCount.builder()
+                    .reason(r.reason())
+                    .count(r.count())
+                    .build());
+        }
+        return HubQualityReportResponse.builder()
+                .hubId(hubId)
+                .townId(hub.getTownId())
+                .from(from)
+                .to(to)
+                .ordersCancelled(quality.ordersCancelled())
+                .shopBagsPlaced(quality.shopBagsPlaced())
+                .shopBagsRejected(quality.shopBagsRejected())
+                .rejectRatePercent(quality.rejectRatePercent())
+                .cancelReasons(reasons)
                 .build();
     }
 

@@ -32,7 +32,7 @@ type RequestOptions = {
 };
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
-const REQUEST_TIMEOUT_MS = 8_000;
+const REQUEST_TIMEOUT_MS = 45_000;
 
 export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const headers: Record<string, string> = {
@@ -59,7 +59,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   } catch (err) {
     if (err instanceof DOMException && err.name === 'AbortError') {
       throw new ApiError(
-        options.signal?.aborted ? 'Cancelled' : 'Request timed out. Try again.',
+        options.signal?.aborted ? 'Cancelled' : 'Request timed out. Check services are running, then refresh.',
         408,
       );
     }

@@ -130,6 +130,14 @@ public class OrderClient {
     }
 
     public CodDeliveredOrders getCodDeliveredRange(UUID townId, UUID agentId, LocalDate from, LocalDate to) {
+        return getCodDeliveredRange(townId, agentId, from, to, null);
+    }
+
+    /**
+     * @param vendorAgentDelivery false = hub-route COD only, true = shop-agent COD only, null = all town COD
+     */
+    public CodDeliveredOrders getCodDeliveredRange(
+            UUID townId, UUID agentId, LocalDate from, LocalDate to, Boolean vendorAgentDelivery) {
         RestClient client = restClientBuilder.baseUrl(orderServiceProperties.getBaseUrl()).build();
         ApiResponse<CodDeliveredOrders> response = client.get()
                 .uri(uriBuilder -> {
@@ -140,6 +148,9 @@ public class OrderClient {
                             .queryParam("to", to);
                     if (agentId != null) {
                         b.queryParam("agentId", agentId);
+                    }
+                    if (vendorAgentDelivery != null) {
+                        b.queryParam("vendorAgentDelivery", vendorAgentDelivery);
                     }
                     return b.build();
                 })
@@ -180,6 +191,22 @@ public class OrderClient {
         return response.getData();
     }
 
+    public List<CashHolderContext> resolveCashHolderContext(Collection<UUID> orderIds) {
+        if (orderIds == null || orderIds.isEmpty()) {
+            return List.of();
+        }
+        RestClient client = restClientBuilder.baseUrl(orderServiceProperties.getBaseUrl()).build();
+        ApiResponse<List<CashHolderContext>> response = client.post()
+                .uri("/api/v1/internal/orders/cash-holder-context")
+                .body(List.copyOf(orderIds))
+                .retrieve()
+                .body(new ParameterizedTypeReference<ApiResponse<List<CashHolderContext>>>() {});
+        if (response == null || response.getData() == null) {
+            return List.of();
+        }
+        return response.getData();
+    }
+
     public record OrderSnapshot(
             UUID orderId,
             UUID buyerId,
@@ -214,6 +241,14 @@ public class OrderClient {
             boolean vendorAgentDelivery,
             BigDecimal subtotal
     ) {
+    }
+
+    public record CashHolderContext(
+            UUID orderId,
+            String paymentMethod,
+            boolean vendorAgentDelivery,
+            UUID townId,
+            UUID vendorId) {
     }
 
     public List<DeliveryCompleteOrder> listDeliveryComplete(UUID townId, LocalDate from, LocalDate to) {
@@ -274,7 +309,8 @@ public class OrderClient {
             UUID orderId,
             String orderNumber,
             BigDecimal totalAmount,
-            Instant deliveredAt
+            Instant deliveredAt,
+            String custodianType
     ) {
     }
 
@@ -297,5 +333,54 @@ public class OrderClient {
             BigDecimal goodsSubtotal,
             BigDecimal allocatedCash
     ) {
+    }
+
+    public FinanceAccrual getFinanceAccrual(UUID townId, LocalDate from, LocalDate to) {
+        RestClient client = restClientBuilder.baseUrl(orderServiceProperties.getBaseUrl()).build();
+        ApiResponse<FinanceAccrual> response = client.get()
+                .uri(uriBuilder -> {
+                    var b = uriBuilder.path("/api/v1/internal/finance/accrual")
+                            .queryParam("from", from.toString())
+                            .queryParam("to", to.toString());
+                    if (townId != null) {
+                        b.queryParam("townId", townId.toString());
+                    }
+                    return b.build();
+                })
+                .retrieve()
+                .body(new ParameterizedTypeReference<ApiResponse<FinanceAccrual>>() {});
+        if (response == null || response.getData() == null) {
+            return new FinanceAccrual(from, to, townId, 0, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO,
+                    BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO,
+                    BigDecimal.ZERO, List.of());
+        }
+        return response.getData();
+    }
+
+    public record FinanceAccrual(
+            LocalDate from,
+            LocalDate to,
+            UUID townId,
+            long ordersDelivered,
+            BigDecimal deliveredOrderValue,
+            BigDecimal platformFeesOnDelivered,
+            BigDecimal deliveryFeesOnDelivered,
+            BigDecimal codFeesOnDelivered,
+            BigDecimal orderLevelTaxAmount,
+            BigDecimal itemCgst,
+            BigDecimal itemSgst,
+            BigDecimal itemIgst,
+            BigDecimal itemGstTotal,
+            BigDecimal estimatedPlatformRevenueFromOrders,
+            List<DailyAccrualRow> daily
+    ) {
+        public record DailyAccrualRow(
+                LocalDate date,
+                long ordersDelivered,
+                BigDecimal platformFees,
+                BigDecimal deliveredGmv,
+                BigDecimal gstTotal
+        ) {
+        }
     }
 }

@@ -421,7 +421,7 @@ const styles: Record<string, CSSProperties> = {
   price: {
     fontSize: '0.78rem',
     fontWeight: 800,
-    color: 'var(--text)',
+    color: 'var(--accent)',
     lineHeight: 1.1,
     whiteSpace: 'nowrap',
   },

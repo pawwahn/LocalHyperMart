@@ -4,7 +4,7 @@ import { Button } from '@/shared/ui';
 
 import type { CodCustodianOutstanding } from '../api/codHandoverApi';
 
-import { codMoney } from '../lib/codFormat';
+import { codMoney, formatIsoDateRange } from '../lib/codFormat';
 
 
 
@@ -82,7 +82,7 @@ export function CodOutstandingSummary({ data, loading, error, onRetry }: Props) 
 
       style={{ ...styles.chip, ...(anyPending ? styles.chipActive : null) }}
 
-      title={`${data.lookbackFrom} → ${data.lookbackTo} (IST)`}
+      title={`${formatIsoDateRange(data.lookbackFrom, data.lookbackTo)} (IST)`}
 
     >
 

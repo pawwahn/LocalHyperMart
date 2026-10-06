@@ -7,6 +7,10 @@ import com.hyperlocalmart.delivery.dto.request.SetHubPinRequest;
 import com.hyperlocalmart.delivery.dto.response.HubDashboardResponse;
 import com.hyperlocalmart.delivery.dto.response.HubMeResponse;
 import com.hyperlocalmart.delivery.dto.response.HubPinStatusResponse;
+import com.hyperlocalmart.delivery.dto.response.HubAssignmentReportResponse;
+import com.hyperlocalmart.delivery.dto.response.HubDailyOrdersReportResponse;
+import com.hyperlocalmart.delivery.dto.response.HubPaymentMixReportResponse;
+import com.hyperlocalmart.delivery.dto.response.HubQualityReportResponse;
 import com.hyperlocalmart.delivery.dto.response.HubReportResponse;
 import com.hyperlocalmart.delivery.security.AuthUserPrincipal;
 import com.hyperlocalmart.delivery.service.HubDashboardService;
@@ -59,7 +63,7 @@ public class HubController {
             @Valid @RequestBody SetHubPinRequest request,
             HttpServletRequest httpRequest) {
         requireHubAdmin(principal);
-        hubPinService.setPin(principal.getUserId(), request.getPin());
+        hubPinService.setPin(principal.getUserId(), request.getPin(), request.getOtp());
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, null));
     }
 
@@ -83,6 +87,56 @@ public class HubController {
         requireHubAdmin(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
                 hubReportService.getReport(principal.getUserId(), hubId, from, to)));
+    }
+
+    @GetMapping("/{hubId}/reports/daily-orders")
+    public ResponseEntity<ApiResponse<HubDailyOrdersReportResponse>> getDailyOrdersReport(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @PathVariable UUID hubId,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            HttpServletRequest httpRequest) {
+        requireHubAdmin(principal);
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                hubReportService.getDailyOrdersReport(principal.getUserId(), hubId, from, to)));
+    }
+
+    @GetMapping("/{hubId}/reports/assignments")
+    public ResponseEntity<ApiResponse<HubAssignmentReportResponse>> getAssignmentReport(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @PathVariable UUID hubId,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam(required = false) UUID agentId,
+            HttpServletRequest httpRequest) {
+        requireHubAdmin(principal);
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                hubReportService.getAssignmentReport(
+                        principal.getUserId(), hubId, from, to, agentId)));
+    }
+
+    @GetMapping("/{hubId}/reports/payment-mix")
+    public ResponseEntity<ApiResponse<HubPaymentMixReportResponse>> getPaymentMixReport(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @PathVariable UUID hubId,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            HttpServletRequest httpRequest) {
+        requireHubAdmin(principal);
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                hubReportService.getPaymentMixReport(principal.getUserId(), hubId, from, to)));
+    }
+
+    @GetMapping("/{hubId}/reports/quality")
+    public ResponseEntity<ApiResponse<HubQualityReportResponse>> getQualityReport(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @PathVariable UUID hubId,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            HttpServletRequest httpRequest) {
+        requireHubAdmin(principal);
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                hubReportService.getQualityReport(principal.getUserId(), hubId, from, to)));
     }
 
     private void requireHubAdmin(AuthUserPrincipal principal) {

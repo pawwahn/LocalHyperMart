@@ -17,16 +17,9 @@ import {
   isPayoutDueStatus,
   isRejectedSalesStatus,
   type PayoutFilter,
-  type ReportPreset,
 } from '../hooks/useVendorReports';
 import type { OrderPayout } from '../api/payoutsApi';
-
-const PRESETS: Array<{ id: ReportPreset; label: string }> = [
-  { id: 'today', label: 'Today' },
-  { id: 'week', label: 'Week' },
-  { id: 'month', label: 'Month' },
-  { id: 'custom', label: 'Custom' },
-];
+import { DateRangePresetBar } from '@hlm-dates/DateRangePresetBar';
 
 const PAYOUT_FILTERS: Array<{ id: PayoutFilter; label: string }> = [
   { id: 'all', label: 'All orders' },
@@ -47,7 +40,7 @@ const STATUS_FILTERS = [
 export function ReportsPage({ active = true }: { active?: boolean }) {
   const {
     preset,
-    applyPreset,
+    setPreset,
     from,
     setFrom,
     to,
@@ -68,7 +61,6 @@ export function ReportsPage({ active = true }: { active?: boolean }) {
     downloadCsv,
     downloadExcel,
     downloadPdf,
-    setPresetCustom,
   } = useVendorReports();
   usePortalChrome({ title: 'Reports', onRefresh: () => void reload() }, active);
   const [expandedIds, setExpandedIds] = useState<Record<string, boolean>>({});
@@ -169,51 +161,15 @@ export function ReportsPage({ active = true }: { active?: boolean }) {
       {error ? <Banner tone="danger">{error}</Banner> : null}
 
       <Card elevated padding="sm" style={styles.filterCard}>
-        <div style={styles.presets}>
-          {PRESETS.map((p) => (
-            <button
-              key={p.id}
-              type="button"
-              style={preset === p.id ? styles.presetActive : styles.preset}
-              onClick={() => applyPreset(p.id)}
-            >
-              {p.label}
-            </button>
-          ))}
-        </div>
-
-        {preset === 'custom' ? (
-          <div style={styles.dateRow}>
-            <label style={styles.label}>
-              From
-              <input
-                style={styles.input}
-                type="date"
-                value={from}
-                onChange={(e) => {
-                  setPresetCustom();
-                  setFrom(e.target.value);
-                }}
-              />
-            </label>
-            <label style={styles.label}>
-              To
-              <input
-                style={styles.input}
-                type="date"
-                value={to}
-                onChange={(e) => {
-                  setPresetCustom();
-                  setTo(e.target.value);
-                }}
-              />
-            </label>
-          </div>
-        ) : (
-          <p style={styles.rangeHint}>
-            {from} → {to}
-          </p>
-        )}
+        <DateRangePresetBar
+          preset={preset}
+          from={from}
+          to={to}
+          onPresetChange={setPreset}
+          onFromChange={setFrom}
+          onToChange={setTo}
+          ariaLabel="Sales report period"
+        />
 
         <div style={styles.filterRow}>
           <select

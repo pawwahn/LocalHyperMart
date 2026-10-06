@@ -30,7 +30,7 @@ export function applyTheme(preference: ThemePreference): void {
       --accent-rgb: ${accent.rgb};
       --highlight: #F7CE46;
       --highlight-soft: ${preference.mode === 'dark' ? 'rgba(247, 206, 70, 0.22)' : '#FFF6CC'};
-      /* KoYaKart brand green — independent of accent picker */
+      /* KoyaKart brand green — independent of accent picker */
       --brand: ${preference.mode === 'dark' ? '#22A34A' : '#0C831F'};
       --brand-hover: ${preference.mode === 'dark' ? '#2BB854' : '#085516'};
       /* Keep semantic greens independent of accent picker (hub "Bag reached hub" CTA, etc.) */

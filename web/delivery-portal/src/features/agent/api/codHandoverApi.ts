@@ -41,6 +41,26 @@ export type CodHandover = {
   }>;
 };
 
+const SUMMARY_CACHE_PREFIX = 'hlm.agent.cod-handover.summary.v1';
+
+export function readCachedAgentCodHandoverSummary(agentId: string): CodHandoverSummary | null {
+  try {
+    const raw = sessionStorage.getItem(`${SUMMARY_CACHE_PREFIX}:${agentId}`);
+    if (!raw) return null;
+    return JSON.parse(raw) as CodHandoverSummary;
+  } catch {
+    return null;
+  }
+}
+
+export function writeCachedAgentCodHandoverSummary(agentId: string, summary: CodHandoverSummary): void {
+  try {
+    sessionStorage.setItem(`${SUMMARY_CACHE_PREFIX}:${agentId}`, JSON.stringify(summary));
+  } catch {
+    /* quota / private mode */
+  }
+}
+
 export async function fetchAgentCodHandoverSummary(token: string): Promise<CodHandoverSummary> {
   return apiRequest<CodHandoverSummary>('/api/v1/payments/agents/me/cod-handover/summary', { token });
 }

@@ -23,6 +23,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
@@ -43,11 +44,30 @@ public class DeliveryInternalController {
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, agentService.getMyAgent(userId)));
     }
 
+    @GetMapping("/api/v1/internal/hubs/{hubId}")
+    public ResponseEntity<ApiResponse<HubContactResponse>> getHubSnapshot(
+            @PathVariable UUID hubId,
+            HttpServletRequest httpRequest) {
+        HubContactResponse hub = agentService.getHubSnapshot(hubId);
+        if (hub == null) {
+            return ResponseEntity.notFound().build();
+        }
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest, hub));
+    }
+
     @GetMapping("/api/v1/internal/hubs/{hubId}/agents")
     public ResponseEntity<ApiResponse<List<com.hyperlocalmart.delivery.dto.response.AgentResponse>>> listHubAgents(
             @PathVariable UUID hubId,
             HttpServletRequest httpRequest) {
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, agentService.listAgentsForHub(hubId)));
+    }
+
+    @GetMapping("/api/v1/internal/agents/{agentId}/display-name")
+    public ResponseEntity<ApiResponse<java.util.Map<String, String>>> getAgentDisplayName(
+            @PathVariable UUID agentId,
+            HttpServletRequest httpRequest) {
+        String name = agentService.getAgentDisplayName(agentId);
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest, java.util.Map.of("name", name == null ? "" : name)));
     }
 
     @GetMapping("/api/v1/internal/vendors/{vendorId}/agents")
@@ -86,6 +106,16 @@ public class DeliveryInternalController {
             @RequestBody List<UUID> orderIds,
             HttpServletRequest httpRequest) {
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, deliveryPayoutLegService.resolve(orderIds)));
+    }
+
+    @GetMapping("/api/v1/internal/agents/{agentId}/completed-delivery-order-ids")
+    public ResponseEntity<ApiResponse<List<UUID>>> listCompletedDeliveryOrderIds(
+            @PathVariable UUID agentId,
+            @RequestParam Instant from,
+            @RequestParam Instant to,
+            HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(
+                ApiResponses.ok(httpRequest, deliveryPayoutLegService.completedDeliveryOrderIds(agentId, from, to)));
     }
 
     @GetMapping("/api/v1/internal/orders/{orderId}/assignments")

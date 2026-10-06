@@ -30,13 +30,17 @@ public class VendorClient {
             UUID vendorId,
             LocalDate periodStart,
             LocalDate periodEnd,
-            List<OrderLine> orderLines
+            List<OrderLine> orderLines,
+            boolean includeSubscription,
+            boolean allowFeeExceedGross
     ) {
         RestClient client = restClientBuilder.baseUrl(vendorServiceProperties.getBaseUrl()).build();
         Map<String, Object> body = new HashMap<>();
         body.put("periodStart", periodStart.toString());
         body.put("periodEnd", periodEnd.toString());
         body.put("markSubscriptionCharged", false);
+        body.put("includeSubscription", includeSubscription);
+        body.put("allowFeeExceedGross", allowFeeExceedGross);
         body.put("orderLines", orderLines == null ? List.of() : orderLines);
         try {
             ApiResponse<CommercialTermsQuote> response = client.post()
@@ -99,6 +103,45 @@ public class VendorClient {
         }
         String msg = body.substring(q1 + 1, q2).trim();
         return msg.isBlank() ? fallback : msg;
+    }
+
+    public String getVendorShopDisplayName(UUID vendorId) {
+        if (vendorId == null) {
+            return null;
+        }
+        RestClient client = restClientBuilder.baseUrl(vendorServiceProperties.getBaseUrl()).build();
+        try {
+            ApiResponse<VendorShopContext> response = client.get()
+                    .uri("/api/v1/internal/vendors/{vendorId}/shop-context", vendorId)
+                    .retrieve()
+                    .body(new ParameterizedTypeReference<ApiResponse<VendorShopContext>>() {});
+            if (response == null || response.getData() == null) {
+                return null;
+            }
+            return response.getData().shopName();
+        } catch (RestClientResponseException ex) {
+            if (ex.getStatusCode().value() == 404) {
+                return null;
+            }
+            throw new BusinessException(ErrorCode.INTERNAL_ERROR, "Could not load vendor shop name");
+        }
+    }
+
+    public void verifyVendorCodPin(UUID vendorId, String pin) {
+        RestClient client = restClientBuilder.baseUrl(vendorServiceProperties.getBaseUrl()).build();
+        try {
+            client.post()
+                    .uri("/api/v1/internal/vendors/{vendorId}/verify-cod-pin", vendorId)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(Map.of("pin", pin))
+                    .retrieve()
+                    .toBodilessEntity();
+        } catch (RestClientResponseException ex) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "Invalid shop COD PIN");
+        }
+    }
+
+    public record VendorShopContext(UUID vendorId, UUID townId, UUID shopId, String shopName) {
     }
 
     public record OrderLine(BigDecimal amount, Instant placedAt) {

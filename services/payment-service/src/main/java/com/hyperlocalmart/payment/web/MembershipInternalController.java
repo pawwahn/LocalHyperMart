@@ -2,6 +2,7 @@ package com.hyperlocalmart.payment.web;
 
 import com.hyperlocalmart.common.api.ApiResponse;
 import com.hyperlocalmart.payment.dto.request.ConsumeMembershipRequest;
+import com.hyperlocalmart.payment.dto.request.ReserveBundledMembershipRequest;
 import com.hyperlocalmart.payment.dto.request.RestoreMembershipRequest;
 import com.hyperlocalmart.payment.dto.response.ConsumeMembershipResponse;
 import com.hyperlocalmart.payment.dto.response.MembershipMeResponse;
@@ -45,6 +46,30 @@ public class MembershipInternalController {
             @Valid @RequestBody RestoreMembershipRequest request,
             HttpServletRequest httpRequest) {
         membershipService.restore(request);
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest, null));
+    }
+
+    @PostMapping("/bundle/reserve")
+    public ResponseEntity<ApiResponse<java.util.UUID>> reserveBundled(
+            @Valid @RequestBody ReserveBundledMembershipRequest request,
+            HttpServletRequest httpRequest) {
+        UUID id = membershipService.reserveBundledWithOrder(request);
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest, id));
+    }
+
+    @PostMapping("/bundle/complete/{orderId}")
+    public ResponseEntity<ApiResponse<Void>> completeBundled(
+            @PathVariable UUID orderId,
+            HttpServletRequest httpRequest) {
+        membershipService.completeBundledForOrder(orderId, null);
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest, null));
+    }
+
+    @PostMapping("/bundle/cancel/{orderId}")
+    public ResponseEntity<ApiResponse<Void>> cancelBundled(
+            @PathVariable UUID orderId,
+            HttpServletRequest httpRequest) {
+        membershipService.cancelBundledForOrder(orderId);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, null));
     }
 }

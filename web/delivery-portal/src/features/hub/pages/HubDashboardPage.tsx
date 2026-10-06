@@ -10,7 +10,8 @@ import { useHubWorkspace, type HubOrderTab } from '../hooks/useHubWorkspace';
 import { AgentPickDialog } from '../components/AgentPickDialog';
 import { ConfirmAtHubDialog } from '../components/ConfirmAtHubDialog';
 import { ConfirmVendorAlertDialog } from '../components/ConfirmVendorAlertDialog';
-import type { OrderRowView } from '../api/hubApi';
+import { orderRowFromDetail, type OrderRowView } from '../api/hubApi';
+import { HubDeskCodPanel } from '../components/HubDeskCodPanel';
 
 type AgentPrompt =
   | { kind: 'pickup'; subOrderId: string; shopName: string }
@@ -350,6 +351,9 @@ function lastMileAssignment(
 
 export function HubDashboardPage() {
   const {
+    codOutstanding,
+    codOutstandingError,
+    codLedger,
     dashboard,
     orders,
     agents,
@@ -363,6 +367,7 @@ export function HubDashboardPage() {
     totalElements,
     tabCounts,
     selectedOrderId,
+    selectedOrderRow,
     detail,
     subOrders,
     showHistory,
@@ -498,6 +503,13 @@ export function HubDashboardPage() {
         </section>
       ) : null}
 
+      <HubDeskCodPanel
+        data={codOutstanding}
+        ledger={codLedger}
+        loading={loading}
+        error={codOutstandingError}
+      />
+
       {error ? <p style={styles.error}>{error}</p> : null}
       {notice ? <p style={styles.notice}>{notice}</p> : null}
 
@@ -593,12 +605,14 @@ export function HubDashboardPage() {
                 </p>
               </div>
               {(() => {
-                const selectedRow = orders.find((o) => o.id === detail.orderId);
-                const phase = selectedRow
-                  ? hubPhase(selectedRow)
+                const phaseOrder =
+                  selectedOrderRow ??
+                  (detail.orderId === selectedOrderId ? orderRowFromDetail(detail) : null);
+                const phase = phaseOrder
+                  ? hubPhase(phaseOrder)
                   : {
                       listStatus: '',
-                      detailNow: 'Loading…',
+                      detailNow: 'Updating order status…',
                       doButton: null as string | null,
                       tone: 'wait' as const,
                     };
@@ -625,9 +639,7 @@ export function HubDashboardPage() {
               ) : null}
 
               {(() => {
-                const vendorDirectOrder = Boolean(
-                  orders.find((o) => o.id === detail.orderId)?.vendorAgentDelivery,
-                );
+                const vendorDirectOrder = Boolean(selectedOrderRow?.vendorAgentDelivery);
                 return (
               <div style={styles.legSection}>
                 <p style={styles.legTitle}>
@@ -843,9 +855,7 @@ export function HubDashboardPage() {
               })()}
 
               {(() => {
-                const vendorDirectOrder = Boolean(
-                  orders.find((o) => o.id === detail.orderId)?.vendorAgentDelivery,
-                );
+                const vendorDirectOrder = Boolean(selectedOrderRow?.vendorAgentDelivery);
                 if (vendorDirectOrder) {
                   return null;
                 }
@@ -1049,8 +1059,8 @@ export function HubDashboardPage() {
               const ok = await doMarkAtHub(subOrderId);
               if (!ok) return;
               setAtHubPrompt(null);
-              if (orderId) void openOrder(orderId);
-              void reload();
+              await reload();
+              if (orderId) await openOrder(orderId);
             } finally {
               setAtHubSaving(false);
             }

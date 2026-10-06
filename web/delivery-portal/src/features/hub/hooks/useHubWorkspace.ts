@@ -12,6 +12,7 @@ import {
   fetchMyHub,
   markSubOrderAtHub,
   reassignAssignment,
+  orderRowFromDetail,
   toOrderRow,
   type AdminOrderDetailDto,
   type AgentDto,
@@ -19,6 +20,12 @@ import {
   type OrderRowView,
   type SubOrderRowView,
 } from '../api/hubApi';
+import {
+  fetchCodCustodianOutstanding,
+  fetchCodHubLedger,
+  type CodCustodianOutstanding,
+  type CodHubLedger,
+} from '../api/codApi';
 
 export type HubOrderTab = 'action' | 'vendor-wait' | 'all';
 
@@ -75,7 +82,7 @@ function writeLastAgentId(agentId: string) {
 export function useHubWorkspace() {
   const { session } = useAuth();
   const [dashboard, setDashboard] = useState<HubDashboardView | null>(null);
-  const [orders, setOrders] = useState<OrderRowView[]>([]);
+  const [pageOrders, setPageOrders] = useState<OrderRowView[]>([]);
   const [agents, setAgents] = useState<AgentDto[]>([]);
   const [orderTab, setOrderTab] = useState<HubOrderTab>('action');
   const [search, setSearch] = useState('');
@@ -90,6 +97,9 @@ export function useHubWorkspace() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [codOutstanding, setCodOutstanding] = useState<CodCustodianOutstanding | null>(null);
+  const [codOutstandingError, setCodOutstandingError] = useState<string | null>(null);
+  const [codLedger, setCodLedger] = useState<CodHubLedger | null>(null);
   const [lastAgentId, setLastAgentId] = useState<string | null>(() => readLastAgentId());
   const atHubAbortRef = useRef<AbortController | null>(null);
 
@@ -110,20 +120,88 @@ export function useHubWorkspace() {
       const me = await fetchMyHub(session.accessToken);
       const resolvedHubId = me.hubId || hubId;
       const resolvedTownId = me.townId || townId;
-      const [dash, list, agentList] = await Promise.all([
-        fetchHubDashboard(session.accessToken, resolvedHubId),
-        fetchAdminOrders(session.accessToken, resolvedTownId, {
-          page,
-          size: PAGE_SIZE,
-          status: 'PLACED',
-        }),
-        fetchHubAgents(session.accessToken, resolvedHubId).catch(() => [] as AgentDto[]),
+
+      const dashPromise = fetchHubDashboard(session.accessToken, resolvedHubId);
+      const listPromise = fetchAdminOrders(session.accessToken, resolvedTownId, {
+        page,
+        size: PAGE_SIZE,
+        status: 'PLACED',
+      });
+      const agentPromise = fetchHubAgents(session.accessToken, resolvedHubId).catch(() => [] as AgentDto[]);
+      const codPromise =
+        resolvedTownId && resolvedHubId
+          ? fetchCodCustodianOutstanding(session.accessToken, {
+              townId: resolvedTownId,
+              hubId: resolvedHubId,
+            }).catch((err) => {
+              const message =
+                err instanceof ApiError
+                  ? err.message
+                  : err instanceof Error
+                    ? err.message
+                    : 'Could not load COD';
+              setCodOutstandingError(message);
+              return null;
+            })
+          : Promise.resolve(null);
+      const ledgerPromise =
+        resolvedTownId && resolvedHubId
+          ? fetchCodHubLedger(session.accessToken, { townId: resolvedTownId, hubId: resolvedHubId }).catch(
+              () => null,
+            )
+          : Promise.resolve(null);
+
+      const [dashResult, listResult, agentList, cod, ledger] = await Promise.allSettled([
+        dashPromise,
+        listPromise,
+        agentPromise,
+        codPromise,
+        ledgerPromise,
       ]);
-      setDashboard(dash);
-      setOrders((list.items ?? []).map(toOrderRow));
-      setTotalPages(list.totalPages ?? 0);
-      setTotalElements(list.totalElements ?? 0);
-      setAgents(agentList);
+
+      const failures: string[] = [];
+      if (dashResult.status === 'fulfilled') {
+        setDashboard(dashResult.value);
+      } else {
+        failures.push(
+          dashResult.reason instanceof ApiError || dashResult.reason instanceof Error
+            ? dashResult.reason.message
+            : 'Dashboard stats failed',
+        );
+        setDashboard(null);
+      }
+
+      if (listResult.status === 'fulfilled') {
+        const list = listResult.value;
+        setPageOrders((list.items ?? []).map(toOrderRow));
+        setTotalPages(list.totalPages ?? 0);
+        setTotalElements(list.totalElements ?? 0);
+      } else {
+        failures.push(
+          listResult.reason instanceof ApiError || listResult.reason instanceof Error
+            ? listResult.reason.message
+            : 'Order list failed',
+        );
+        setPageOrders([]);
+        setTotalPages(0);
+        setTotalElements(0);
+      }
+
+      setAgents(agentList.status === 'fulfilled' ? agentList.value : []);
+
+      if (cod.status === 'fulfilled' && cod.value) {
+        setCodOutstanding(cod.value);
+        setCodOutstandingError(null);
+      } else if (!resolvedTownId || !resolvedHubId) {
+        setCodOutstanding(null);
+        setCodOutstandingError(null);
+      }
+
+      setCodLedger(ledger.status === 'fulfilled' ? (ledger.value ?? null) : null);
+
+      if (failures.length) {
+        setError(failures.join(' · '));
+      }
     } catch (err) {
       setError(err instanceof ApiError || err instanceof Error ? err.message : 'Failed to load hub');
     } finally {
@@ -142,17 +220,27 @@ export function useHubWorkspace() {
   }, [notice]);
 
   const visibleOrders = useMemo(
-    () => filterHubOrders(orders, orderTab, search),
-    [orders, orderTab, search],
+    () => filterHubOrders(pageOrders, orderTab, search),
+    [pageOrders, orderTab, search],
   );
+
+  const selectedOrderRow = useMemo((): OrderRowView | null => {
+    if (!selectedOrderId) return null;
+    const fromPage = pageOrders.find((o) => o.id === selectedOrderId);
+    if (fromPage) return fromPage;
+    if (detail?.orderId === selectedOrderId) {
+      return orderRowFromDetail(detail);
+    }
+    return null;
+  }, [pageOrders, selectedOrderId, detail]);
 
   const tabCounts = useMemo(
     () => ({
-      action: filterHubOrders(orders, 'action', '').length,
-      vendorWait: filterHubOrders(orders, 'vendor-wait', '').length,
+      action: filterHubOrders(pageOrders, 'action', '').length,
+      vendorWait: filterHubOrders(pageOrders, 'vendor-wait', '').length,
       all: totalElements,
     }),
-    [orders, totalElements],
+    [pageOrders, totalElements],
   );
 
   function changeTab(tab: HubOrderTab) {
@@ -192,48 +280,21 @@ export function useHubWorkspace() {
     try {
       const d = await fetchAdminOrderDetail(session.accessToken, townId, orderId);
       setDetail(d);
-      const assignments = (d.assignments ?? []).map((a) => ({
-        legType: a.legType,
-        status: a.status,
-        subOrderNumber: a.subOrderNumber,
-      }));
-      const allSubs = d.subOrders ?? [];
-      const activeSubs = allSubs.filter((s) => s.status !== 'VENDOR_REJECTED');
-      const rejected = allSubs.length - activeSubs.length;
-      const atHub = activeSubs.filter(
-        (s) =>
-          s.status === 'DELIVERED' ||
-          assignments.some(
-            (a) =>
-              a.legType === 'PICKUP' &&
-              a.status === 'COMPLETED' &&
-              a.subOrderNumber === s.subOrderNumber,
-          ),
-      ).length;
-      setOrders((prev) =>
-        prev.map((o) => {
-          if (o.id !== orderId) return o;
-          const total = activeSubs.length || o.subOrderCount;
-          const readyRaw = activeSubs.filter((s) => s.status === 'READY_FOR_PICKUP').length;
-          const readyForShop = Math.max(0, readyRaw - Math.min(readyRaw, atHub));
-          return {
-            ...o,
-            subOrderCount: total,
-            rejectedSubOrderCount: rejected,
-            atHubSubOrderCount: atHub,
-            readySubOrderCount: readyForShop,
-            assignments,
-            pickupReadiness:
-              atHub >= total && total > 0
-                ? 'none'
-                : readyForShop <= 0
-                  ? 'none'
-                  : readyForShop >= Math.max(0, total - atHub)
-                    ? 'all'
-                    : 'partial',
-          };
-        }),
-      );
+      const refreshed = orderRowFromDetail(d);
+      setPageOrders((prev) => {
+        const idx = prev.findIndex((o) => o.id === orderId);
+        if (idx < 0) return [...prev, refreshed];
+        const existing = prev[idx];
+        return prev.map((o) =>
+          o.id === orderId
+            ? {
+                ...refreshed,
+                paymentStatus: existing.paymentStatus,
+                vendorAgentDelivery: existing.vendorAgentDelivery,
+              }
+            : o,
+        );
+      });
       setSubOrders(
         (d.subOrders ?? []).map((s) => ({
           id: s.subOrderId,
@@ -276,8 +337,8 @@ export function useHubWorkspace() {
       await assignPickup(session.accessToken, subOrderId, agentId);
       rememberAgent(agentId);
       setNotice(`Shop pickup assigned to ${agentLabel(agentId)}.`);
-      if (selectedOrderId) await openOrder(selectedOrderId);
       await reload();
+      if (selectedOrderId) await openOrder(selectedOrderId);
       return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Pickup assign failed');
@@ -329,8 +390,8 @@ export function useHubWorkspace() {
       await assignLastMile(session.accessToken, orderId, agentId);
       rememberAgent(agentId);
       setNotice(`Home delivery assigned to ${agentLabel(agentId)}.`);
-      if (selectedOrderId) await openOrder(selectedOrderId);
       await reload();
+      if (selectedOrderId) await openOrder(selectedOrderId);
       return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Last-mile assign failed');
@@ -349,8 +410,8 @@ export function useHubWorkspace() {
       await reassignAssignment(session.accessToken, assignmentId, newAgentId);
       rememberAgent(newAgentId);
       setNotice(`Trip moved to ${agentLabel(newAgentId)}.`);
-      if (selectedOrderId) await openOrder(selectedOrderId);
       await reload();
+      if (selectedOrderId) await openOrder(selectedOrderId);
       return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not change delivery agent');
@@ -389,8 +450,12 @@ export function useHubWorkspace() {
   return {
     hubId,
     townId,
+    codOutstanding,
+    codOutstandingError,
+    codLedger,
     dashboard,
     orders: visibleOrders,
+    selectedOrderRow,
     agents,
     lastAgentId,
     agentLabel,

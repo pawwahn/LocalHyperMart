@@ -4,6 +4,7 @@ import com.hyperlocalmart.common.api.ApiResponse;
 import com.hyperlocalmart.user.dto.request.UpdateProfileRequest;
 import com.hyperlocalmart.user.dto.response.UserProfileResponse;
 import com.hyperlocalmart.user.security.AuthUserPrincipal;
+import com.hyperlocalmart.user.service.CodPinOtpService;
 import com.hyperlocalmart.user.service.UserService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -18,6 +19,7 @@ import org.springframework.web.bind.annotation.*;
 public class UserController {
 
     private final UserService userService;
+    private final CodPinOtpService codPinOtpService;
 
     @GetMapping("/me")
     public ResponseEntity<ApiResponse<UserProfileResponse>> getProfile(
@@ -32,5 +34,14 @@ public class UserController {
             @Valid @RequestBody UpdateProfileRequest request,
             HttpServletRequest httpRequest) {
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, userService.updateProfile(principal.getUserId(), request)));
+    }
+
+    /** OTP to registered phone — required before setting hub/shop COD PIN. */
+    @PostMapping("/me/cod-pin-otp/request")
+    public ResponseEntity<ApiResponse<Void>> requestCodPinOtp(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            HttpServletRequest httpRequest) {
+        codPinOtpService.requestOtp(principal.getUserId());
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest, null));
     }
 }

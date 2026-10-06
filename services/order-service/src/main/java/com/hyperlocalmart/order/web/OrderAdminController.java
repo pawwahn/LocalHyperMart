@@ -11,6 +11,7 @@ import com.hyperlocalmart.order.dto.response.AdminOrderResponses.AdminOrderDetai
 import com.hyperlocalmart.order.dto.response.AdminOrderResponses.AdminOrderSummaryResponse;
 import com.hyperlocalmart.order.dto.response.ClaimResponse;
 import com.hyperlocalmart.order.dto.response.DeliveryAgentRatingListResponse;
+import com.hyperlocalmart.order.dto.response.OpsAssuranceReportResponse;
 import com.hyperlocalmart.order.dto.response.PlatformReportResponse;
 import com.hyperlocalmart.order.dto.response.ScratchCardGiftReportResponse;
 import com.hyperlocalmart.order.dto.response.VendorOrderAlertResponse;
@@ -19,6 +20,7 @@ import com.hyperlocalmart.order.entity.OrderStatus;
 import com.hyperlocalmart.order.security.AuthUserPrincipal;
 import com.hyperlocalmart.order.service.OrderAdminService;
 import com.hyperlocalmart.order.service.OrderClaimService;
+import com.hyperlocalmart.order.service.OpsAssuranceReportService;
 import com.hyperlocalmart.order.service.PlatformReportService;
 import com.hyperlocalmart.order.service.ScratchCardAdminService;
 import com.hyperlocalmart.order.service.VendorOrderAlertService;
@@ -44,6 +46,7 @@ public class OrderAdminController {
     private final VendorOrderAlertService vendorOrderAlertService;
     private final ScratchCardAdminService scratchCardAdminService;
     private final PlatformReportService platformReportService;
+    private final OpsAssuranceReportService opsAssuranceReportService;
     private final DeliveryAgentRatingService deliveryAgentRatingService;
     private final DeliveryClient deliveryClient;
 
@@ -124,6 +127,17 @@ public class OrderAdminController {
             HttpServletRequest httpRequest) {
         requireSuperAdmin(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, platformReportService.getReport(townId, from, to)));
+    }
+
+    @GetMapping("/reports/assurance")
+    public ResponseEntity<ApiResponse<OpsAssuranceReportResponse>> assuranceReport(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @RequestParam(required = false) UUID townId,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            HttpServletRequest httpRequest) {
+        requireSuperAdmin(principal);
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest, opsAssuranceReportService.getReport(townId, from, to)));
     }
 
     @GetMapping("/scratch-cards/report")

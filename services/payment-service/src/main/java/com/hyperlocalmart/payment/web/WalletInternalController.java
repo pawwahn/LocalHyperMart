@@ -1,9 +1,11 @@
 package com.hyperlocalmart.payment.web;
 
 import com.hyperlocalmart.common.api.ApiResponse;
+import com.hyperlocalmart.payment.dto.request.WalletCreditLookupRequest;
 import com.hyperlocalmart.payment.dto.request.WalletCreditRequest;
 import com.hyperlocalmart.payment.dto.request.WalletDebitRequest;
 import com.hyperlocalmart.payment.dto.response.WalletBalanceResponse;
+import com.hyperlocalmart.payment.dto.response.WalletCreditLookupResponse;
 import com.hyperlocalmart.payment.service.WalletService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -26,6 +28,13 @@ public class WalletInternalController {
             @PathVariable UUID userId,
             HttpServletRequest httpRequest) {
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, walletService.getBalance(userId)));
+    }
+
+    @PostMapping("/credits/lookup")
+    public ResponseEntity<ApiResponse<WalletCreditLookupResponse>> lookupCredits(
+            @RequestBody WalletCreditLookupRequest request,
+            HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest, walletService.lookupCredits(request)));
     }
 
     @PostMapping("/credit")

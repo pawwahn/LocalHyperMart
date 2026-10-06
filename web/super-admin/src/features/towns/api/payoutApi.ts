@@ -31,6 +31,8 @@ export type FranchiseTerms = {
   enabled: boolean;
   cadence: 'MONTHLY' | 'QUARTERLY' | 'YEARLY' | 'LIFETIME';
   amount: number;
+  /** First billable month (YYYY-MM-DD, usually 1st of month). */
+  effectiveFrom?: string | null;
 };
 
 export type PayoutPartyConfig = {
@@ -90,7 +92,18 @@ function emptySlabs(): VolumeSlabIncentive {
 }
 
 function emptyFranchise(): FranchiseTerms {
-  return { enabled: false, cadence: 'MONTHLY', amount: 0 };
+  return { enabled: false, cadence: 'MONTHLY', amount: 0, effectiveFrom: null };
+}
+
+export function istMonthStartIso(): string {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Kolkata',
+    year: 'numeric',
+    month: '2-digit',
+  }).formatToParts(new Date());
+  const y = parts.find((p) => p.type === 'year')?.value ?? '2026';
+  const m = parts.find((p) => p.type === 'month')?.value ?? '01';
+  return `${y}-${m}-01`;
 }
 
 export function emptyParty(): PayoutPartyConfig {
@@ -155,10 +168,14 @@ function parseFranchise(raw: unknown): FranchiseTerms {
     cadenceRaw === 'QUARTERLY' || cadenceRaw === 'YEARLY' || cadenceRaw === 'LIFETIME'
       ? cadenceRaw
       : 'MONTHLY';
+  const effectiveRaw = row.effectiveFrom;
+  const effectiveFrom =
+    typeof effectiveRaw === 'string' && effectiveRaw.trim() ? effectiveRaw.trim().slice(0, 10) : null;
   return {
     enabled: asBool(row.enabled, false),
     cadence,
     amount: Math.max(0, asNum(row.amount, 0)),
+    effectiveFrom,
   };
 }
 

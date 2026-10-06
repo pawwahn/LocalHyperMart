@@ -10,6 +10,7 @@ import com.hyperlocalmart.payment.dto.request.ConfirmMembershipCashRequest;
 import com.hyperlocalmart.payment.dto.request.ConsumeMembershipRequest;
 import com.hyperlocalmart.payment.dto.request.GiftMembershipRequest;
 import com.hyperlocalmart.payment.dto.request.PurchaseMembershipRequest;
+import com.hyperlocalmart.payment.dto.request.ReserveBundledMembershipRequest;
 import com.hyperlocalmart.payment.dto.request.RestoreMembershipRequest;
 import com.hyperlocalmart.payment.dto.response.ConsumeMembershipResponse;
 import com.hyperlocalmart.payment.dto.response.GatewayCheckoutResponse;
@@ -249,6 +250,87 @@ public class MembershipService {
                     .orElseThrow(() -> new BusinessException(ErrorCode.INTERNAL_ERROR, "Membership purchase missing"));
         }
         return toPurchase(purchase);
+    }
+
+    /**
+     * Membership sold together with a grocery order (no separate Razorpay checkout).
+     * Online orders stay PENDING until {@link #completeBundledForOrder}; COD grants on reserve.
+     */
+    @Transactional
+    public UUID reserveBundledWithOrder(ReserveBundledMembershipRequest request) {
+        if (StringUtils.hasText(request.getIdempotencyKey())) {
+            var existing = purchaseRepository.findByIdempotencyKey(request.getIdempotencyKey().trim());
+            if (existing.isPresent()) {
+                BuyerMembershipPurchase row = existing.get();
+                if (!row.getBuyerId().equals(request.getBuyerId())) {
+                    throw new BusinessException(ErrorCode.CONFLICT, "Idempotency-Key already used");
+                }
+                return row.getId();
+            }
+        }
+        var byOrder = purchaseRepository.findByBundledOrderId(request.getOrderId());
+        if (byOrder.isPresent()) {
+            return byOrder.get().getId();
+        }
+        MembershipSlab slab = parseSlab(request.getSlab());
+        TownClient.MembershipConfig config = townClient.membershipConfig();
+        if (!config.enabled()) {
+            throw new BusinessException(ErrorCode.CONFLICT, "Membership is not on sale right now");
+        }
+        if (!townClient.townConfig(request.getTownId()).sellsMembership()) {
+            throw new BusinessException(ErrorCode.CONFLICT, "Membership is not sold in this town");
+        }
+        TownClient.Slab offer = requireSellableSlab(config, slab);
+        MembershipPaymentChannel channel = request.isCodOrder()
+                ? MembershipPaymentChannel.CASH
+                : MembershipPaymentChannel.ONLINE;
+        BuyerMembershipPurchase purchase = BuyerMembershipPurchase.builder()
+                .buyerId(request.getBuyerId())
+                .buyerPhoneSnapshot(request.getBuyerPhone())
+                .townId(request.getTownId())
+                .slab(slab)
+                .durationMonths(slab.months())
+                .creditsGranted(offer.credits())
+                .priceSnapshot(money(offer.price()))
+                .paymentChannel(channel)
+                .status(MembershipPurchaseStatus.PENDING_PAYMENT)
+                .note("Bundled with order " + request.getOrderId())
+                .bundledOrderId(request.getOrderId())
+                .idempotencyKey(StringUtils.hasText(request.getIdempotencyKey())
+                        ? request.getIdempotencyKey().trim()
+                        : null)
+                .build();
+        purchaseRepository.save(purchase);
+        if (request.isCodOrder()) {
+            grantPaid(purchase, null, "Paid with COD order");
+        }
+        return purchase.getId();
+    }
+
+    @Transactional
+    public void completeBundledForOrder(UUID orderId, String gatewayPaymentId) {
+        purchaseRepository.findByBundledOrderId(orderId).ifPresent(purchase -> {
+            if (purchase.getStatus() == MembershipPurchaseStatus.PAID) {
+                return;
+            }
+            if (purchase.getStatus() == MembershipPurchaseStatus.CANCELLED) {
+                return;
+            }
+            if (gatewayPaymentId != null && !gatewayPaymentId.isBlank()) {
+                purchase.setGatewayPaymentId(gatewayPaymentId);
+            }
+            grantPaid(purchase, null, "Paid with order checkout");
+        });
+    }
+
+    @Transactional
+    public void cancelBundledForOrder(UUID orderId) {
+        purchaseRepository.findByBundledOrderId(orderId).ifPresent(purchase -> {
+            if (purchase.getStatus() == MembershipPurchaseStatus.PENDING_PAYMENT) {
+                purchase.setStatus(MembershipPurchaseStatus.CANCELLED);
+                purchase.setNote("Order checkout cancelled or failed");
+            }
+        });
     }
 
     @Transactional

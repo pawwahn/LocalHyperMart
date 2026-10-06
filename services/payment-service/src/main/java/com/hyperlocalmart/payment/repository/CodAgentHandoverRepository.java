@@ -22,6 +22,18 @@ public interface CodAgentHandoverRepository extends JpaRepository<CodAgentHandov
     @Query("""
             SELECT DISTINCT h FROM CodAgentHandover h
             LEFT JOIN FETCH h.lines
+            WHERE h.agentId = :agentId
+              AND h.handoverDate >= :from AND h.handoverDate <= :to
+            ORDER BY h.createdAt DESC
+            """)
+    List<CodAgentHandover> findRecentWithLinesForAgent(
+            @Param("agentId") UUID agentId,
+            @Param("from") LocalDate from,
+            @Param("to") LocalDate to);
+
+    @Query("""
+            SELECT DISTINCT h FROM CodAgentHandover h
+            LEFT JOIN FETCH h.lines
             WHERE h.status = :status AND h.handoverDate = :date
             ORDER BY h.createdAt DESC
             """)

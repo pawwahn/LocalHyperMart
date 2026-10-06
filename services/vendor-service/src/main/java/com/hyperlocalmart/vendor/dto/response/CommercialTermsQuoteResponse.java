@@ -22,4 +22,6 @@ public class CommercialTermsQuoteResponse {
     private boolean subscriptionIncluded;
     private String appliedSlabLabel;
     private List<String> breakdownLines;
+    /** Commission per order line, same order as the request's orderLines. */
+    private List<BigDecimal> lineFees;
 }

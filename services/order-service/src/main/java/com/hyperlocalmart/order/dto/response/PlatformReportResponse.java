@@ -27,6 +27,8 @@ public class PlatformReportResponse {
     BigDecimal codGmv;
     BigDecimal onlineGmv;
     BigDecimal platformFees;
+    /** Sum of delivery fee line on delivered orders (₹0 when membership waived delivery). */
+    BigDecimal deliveryFeesCollected;
     BigDecimal promoDiscounts;
     BigDecimal averageOrderValue;
 

@@ -1,0 +1,4 @@
+ALTER TABLE orders
+    ADD COLUMN IF NOT EXISTS membership_fee NUMERIC(12, 2) NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS membership_purchase_id UUID,
+    ADD COLUMN IF NOT EXISTS membership_slab VARCHAR(30);

@@ -124,7 +124,7 @@ export function AddressPickerSheet({
                       >
                         <span style={styles.addrName}>{a.label || 'Address'}</span>
                         <span style={styles.addrMeta}>
-                          {a.recipientName} · {lineFor(a)}
+                          {[a.recipientName, a.recipientPhone].filter(Boolean).join(' · ')} · {lineFor(a)}
                         </span>
                       </button>
                     </li>

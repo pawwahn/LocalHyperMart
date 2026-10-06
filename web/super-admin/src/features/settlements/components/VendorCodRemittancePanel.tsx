@@ -4,22 +4,48 @@ import { Card } from '@/shared/ui';
 import { listAllAgents, type AdminAgentVm } from '@/features/agents/api/agentsApi';
 import { listHubs, type AdminHubVm } from '@/features/hubs/api/hubsApi';
 import { formatMoney } from '../api/settlementsApi';
-import { fetchCodCloses, type CodCloseDayResponse } from '../api/codApi';
+import {
+  fetchCodCloses,
+  fetchCodHubLedger,
+  recordCodHubRemittance,
+  type CodCloseDayResponse,
+  type CodHubLedger,
+} from '../api/codApi';
+import { Button, TextField } from '@/shared/ui';
 
 type Props = {
   token: string;
   townId: string;
   from: string;
   to: string;
+  /** Hub tab: same hub as payout filters — hides hub dropdown. */
+  fixedHubId?: string;
+  variant?: 'default' | 'hub-payout';
+  refreshTick?: number;
 };
 
-export function VendorCodRemittancePanel({ token, townId, from, to }: Props) {
+export function VendorCodRemittancePanel({
+  token,
+  townId,
+  from,
+  to,
+  fixedHubId,
+  variant = 'default',
+  refreshTick = 0,
+}: Props) {
   const [hubs, setHubs] = useState<AdminHubVm[]>([]);
   const [hubId, setHubId] = useState('');
   const [closes, setCloses] = useState<CodCloseDayResponse[]>([]);
   const [agents, setAgents] = useState<AdminAgentVm[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [ledger, setLedger] = useState<CodHubLedger | null>(null);
+  const [remitAmount, setRemitAmount] = useState('');
+  const [remitDate, setRemitDate] = useState('');
+  const [remitRef, setRemitRef] = useState('');
+  const [remitNotes, setRemitNotes] = useState('');
+  const [remitBusy, setRemitBusy] = useState(false);
+  const [remitNotice, setRemitNotice] = useState<string | null>(null);
 
   const agentName = useMemo(() => {
     const map = new Map(agents.map((a) => [a.agentId, a.name]));
@@ -40,7 +66,11 @@ export function VendorCodRemittancePanel({ token, townId, from, to }: Props) {
         const inTown = all.filter((h) => h.townId === townId);
         setAgents(agentList.filter((a) => a.townId === townId || inTown.some((h) => h.hubId === a.hubId)));
         setHubs(inTown);
-        setHubId((prev) => (prev && inTown.some((h) => h.hubId === prev) ? prev : inTown[0]?.hubId ?? ''));
+        if (fixedHubId && inTown.some((h) => h.hubId === fixedHubId)) {
+          setHubId(fixedHubId);
+        } else {
+          setHubId((prev) => (prev && inTown.some((h) => h.hubId === prev) ? prev : inTown[0]?.hubId ?? ''));
+        }
       } catch {
         if (!cancelled) {
           setHubs([]);
@@ -51,29 +81,37 @@ export function VendorCodRemittancePanel({ token, townId, from, to }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [token, townId]);
+  }, [token, townId, fixedHubId]);
+
+  const activeHubId = fixedHubId || hubId;
 
   const loadCloses = useCallback(async () => {
-    if (!token || !townId || !hubId) {
+    if (!token || !townId || !activeHubId) {
       setCloses([]);
+      setLedger(null);
       return;
     }
     setLoading(true);
     setError(null);
     try {
-      const rows = await fetchCodCloses(token, { townId, hubId, from, to });
+      const [rows, ledgerData] = await Promise.all([
+        fetchCodCloses(token, { townId, hubId: activeHubId, from, to }),
+        fetchCodHubLedger(token, { townId, hubId: activeHubId, from, to }),
+      ]);
       setCloses(rows);
+      setLedger(ledgerData);
     } catch (err) {
       setCloses([]);
+      setLedger(null);
       setError(err instanceof ApiError || err instanceof Error ? err.message : 'Could not load COD close-days');
     } finally {
       setLoading(false);
     }
-  }, [token, townId, hubId, from, to]);
+  }, [token, townId, activeHubId, from, to]);
 
   useEffect(() => {
     void loadCloses();
-  }, [loadCloses]);
+  }, [loadCloses, refreshTick]);
 
   const totals = useMemo(() => {
     let received = 0;
@@ -85,23 +123,35 @@ export function VendorCodRemittancePanel({ token, townId, from, to }: Props) {
     return { received, orders, closeCount: closes.length };
   }, [closes]);
 
-  const hubName = hubs.find((h) => h.hubId === hubId)?.name ?? 'Hub';
+  const hubName = hubs.find((h) => h.hubId === activeHubId)?.name ?? 'Hub';
+  const isHubPayout = variant === 'hub-payout';
+  const balanceOwed = Number(ledger?.balanceOwedToCompany ?? 0);
+  const codSettled = ledger != null && balanceOwed <= 0.005;
+  const remittances = ledger?.remittances ?? [];
 
   if (!townId) return null;
 
+  if (isHubPayout && fixedHubId && !activeHubId) {
+    return (
+      <Card padding="sm" style={styles.card}>
+        <p style={styles.title}>COD from agents</p>
+        <p style={styles.muted}>Select a hub above to see cash the hub confirmed from delivery agents.</p>
+      </Card>
+    );
+  }
+
   return (
-    <Card padding="sm" style={styles.card}>
+    <Card padding="sm" style={{ ...styles.card, ...(isHubPayout ? styles.cardHighlight : null) }}>
       <div style={styles.head}>
         <div>
-          <h2 style={styles.title}>COD cash trail</h2>
+          <h2 style={styles.title}>{isHubPayout ? 'COD ledger · agents → hub → KoyaKart' : 'COD cash trail'}</h2>
           <p style={styles.muted}>
-            Buyer pays cash to the delivery agent → hub records handover in{' '}
-            <strong style={styles.strong}>Delivery portal → Hub → COD close day</strong>. Vendor payout here is
-            platform → vendor; reconcile COD still with agents before large payouts. Hub → Super Admin collection is
-            not auto-tracked yet — use franchise / manual collection.
+            {isHubPayout
+              ? 'Step 1: agents pay COD to the hub (table below). Step 2: hub pays KoyaKart online — you confirm under Hub online payments above. This block is the audit trail, not a second payment.'
+              : 'Hub confirms agent COD in the delivery portal. Record hub → company deposits below so hub admins see their balance owed.'}
           </p>
         </div>
-        {hubs.length > 1 ? (
+        {!fixedHubId && hubs.length > 1 ? (
           <label style={styles.hubPick}>
             Hub
             <select style={styles.select} value={hubId} onChange={(e) => setHubId(e.target.value)}>
@@ -112,7 +162,9 @@ export function VendorCodRemittancePanel({ token, townId, from, to }: Props) {
               ))}
             </select>
           </label>
-        ) : hubs.length === 1 ? (
+        ) : !fixedHubId && hubs.length === 1 ? (
+          <span style={styles.hubPill}>{hubName}</span>
+        ) : fixedHubId ? (
           <span style={styles.hubPill}>{hubName}</span>
         ) : (
           <span style={styles.hubPillMuted}>No hub in town</span>
@@ -120,9 +172,103 @@ export function VendorCodRemittancePanel({ token, townId, from, to }: Props) {
       </div>
 
       {error ? <p style={styles.error}>{error}</p> : null}
+      {remitNotice ? <p style={styles.notice}>{remitNotice}</p> : null}
+      {isHubPayout && ledger && codSettled ? (
+        <p style={styles.settledBanner}>
+          COD cleared — received at hub matches remitted to KoyaKart (including verified hub online payments).
+        </p>
+      ) : null}
+      {ledger ? (
+        <div style={styles.kpiRow}>
+          <div style={styles.kpi}>
+            <span style={styles.kpiLabel}>{isHubPayout ? 'COD still to collect' : 'Hub owes company'}</span>
+            <strong style={isHubPayout ? styles.kpiStrong : undefined}>
+              {formatMoney(ledger.balanceOwedToCompany)}
+            </strong>
+          </div>
+          <div style={styles.kpi}>
+            <span style={styles.kpiLabel}>Received at hub (all time)</span>
+            <strong>{formatMoney(ledger.totalReceivedAllTime)}</strong>
+          </div>
+          <div style={styles.kpi}>
+            <span style={styles.kpiLabel}>Remitted (all time)</span>
+            <strong>{formatMoney(ledger.totalRemittedAllTime)}</strong>
+          </div>
+        </div>
+      ) : null}
+      {isHubPayout && remittances.length > 0 ? (
+        <div style={styles.remitHistory}>
+          <p style={styles.remitTitle}>Remitted to KoyaKart</p>
+          <ul style={styles.remitList}>
+            {remittances.slice(0, 8).map((r) => (
+              <li key={r.remittanceId}>
+                {formatMoney(r.amount)} · {r.remittanceDate}
+                {r.reference ? ` · ${r.reference}` : ''}
+                {r.notes ? ` · ${r.notes}` : ''}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      {activeHubId && (!isHubPayout || !codSettled) ? (
+        <form
+          style={styles.remitForm}
+          onSubmit={(e) => {
+            e.preventDefault();
+            void (async () => {
+              const amount = Number(remitAmount);
+              if (!token || !townId || !activeHubId || !Number.isFinite(amount) || amount <= 0) return;
+              setRemitBusy(true);
+              setRemitNotice(null);
+              try {
+                await recordCodHubRemittance(token, {
+                  townId,
+                  hubId: activeHubId,
+                  remittanceDate: remitDate || undefined,
+                  amount,
+                  reference: remitRef.trim() || undefined,
+                  notes: remitNotes.trim() || undefined,
+                });
+                setRemitAmount('');
+                setRemitRef('');
+                setRemitNotes('');
+                setRemitNotice('Recorded hub remittance to company.');
+                await loadCloses();
+              } catch (err) {
+                setRemitNotice(
+                  err instanceof ApiError || err instanceof Error ? err.message : 'Could not record remittance',
+                );
+              } finally {
+                setRemitBusy(false);
+              }
+            })();
+          }}
+        >
+          <p style={styles.remitTitle}>
+            {isHubPayout
+              ? 'Manual COD record (offline only — if hub did not use Pay online)'
+              : 'Record collection from hub'}
+          </p>
+          {isHubPayout ? (
+            <p style={styles.muted}>
+              Prefer confirming hub UPI/NEFT in <strong>Hub online payments · verify</strong> above. Use this only for
+              cash/cheque not submitted by the hub.
+            </p>
+          ) : null}
+          <div style={styles.remitRow}>
+            <TextField label="Amount (₹)" type="number" step="0.01" min="0" value={remitAmount} onChange={(e) => setRemitAmount(e.target.value)} required />
+            <TextField label="Date" type="date" value={remitDate} onChange={(e) => setRemitDate(e.target.value)} />
+            <TextField label="Reference" value={remitRef} onChange={(e) => setRemitRef(e.target.value)} />
+          </div>
+          <TextField label="Notes" value={remitNotes} onChange={(e) => setRemitNotes(e.target.value)} />
+          <Button type="submit" disabled={remitBusy}>
+            {remitBusy ? 'Saving…' : 'Record remittance'}
+          </Button>
+        </form>
+      ) : null}
       {loading ? (
         <p style={styles.muted}>Loading close-days…</p>
-      ) : !hubId ? (
+      ) : !activeHubId ? (
         <p style={styles.muted}>Select a town with a hub to see COD remittance history.</p>
       ) : closes.length === 0 ? (
         <p style={styles.muted}>
@@ -185,6 +331,11 @@ export function VendorCodRemittancePanel({ token, townId, from, to }: Props) {
 
 const styles: Record<string, CSSProperties> = {
   card: { display: 'grid', gap: '0.5rem' },
+  cardHighlight: {
+    border: '1px solid color-mix(in srgb, var(--accent, #16a34a) 35%, var(--border))',
+    background: 'color-mix(in srgb, var(--accent-soft, #dcfce7) 35%, var(--bg-elevated))',
+  },
+  kpiStrong: { fontSize: '1.15rem', color: 'var(--accent-strong, #15803d)' },
   head: {
     display: 'flex',
     flexWrap: 'wrap',
@@ -266,6 +417,36 @@ const styles: Record<string, CSSProperties> = {
     fontSize: '0.7rem',
   },
   tdRight: { padding: '0.28rem 0.45rem', borderBottom: '1px solid var(--border)', textAlign: 'right' },
+  notice: { margin: 0, fontSize: '0.75rem', fontWeight: 650, color: '#15803d' },
+  settledBanner: {
+    margin: 0,
+    padding: '0.45rem 0.55rem',
+    borderRadius: 8,
+    fontSize: '0.75rem',
+    fontWeight: 650,
+    color: '#15803d',
+    background: '#ecfdf5',
+    border: '1px solid #bbf7d0',
+  },
+  remitHistory: {
+    padding: '0.45rem 0.55rem',
+    borderRadius: 8,
+    border: '1px solid var(--border)',
+    background: 'var(--bg-muted)',
+    display: 'grid',
+    gap: '0.25rem',
+  },
+  remitList: {
+    margin: 0,
+    paddingLeft: '1.1rem',
+    fontSize: '0.72rem',
+    color: 'var(--text-muted)',
+    display: 'grid',
+    gap: '0.2rem',
+  },
+  remitForm: { display: 'grid', gap: '0.35rem', padding: '0.45rem', border: '1px dashed var(--border)', borderRadius: 8 },
+  remitTitle: { margin: 0, fontSize: '0.78rem', fontWeight: 800 },
+  remitRow: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(7rem, 1fr))', gap: '0.35rem' },
   ok: {
     fontSize: '0.68rem',
     fontWeight: 800,

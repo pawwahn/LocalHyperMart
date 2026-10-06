@@ -17,6 +17,8 @@ public class CodCloseDayResponse {
     UUID townId;
     UUID hubId;
     UUID agentId;
+    String agentName;
+    String agentPhone;
     LocalDate closeDate;
     BigDecimal expectedAmount;
     BigDecimal receivedAmount;

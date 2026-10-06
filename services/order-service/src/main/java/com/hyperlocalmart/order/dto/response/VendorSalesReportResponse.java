@@ -58,6 +58,8 @@ public class VendorSalesReportResponse {
         private VendorSubOrderStatus status;
         private PaymentMethod paymentMethod;
         private PaymentStatus paymentStatus;
+        /** Shop rider delivered — COD sits with shop / shop agent, not hub close-day. */
+        private boolean vendorAgentDelivery;
         private BigDecimal subtotal;
         private int itemCount;
         private List<VendorSalesReportItem> items;

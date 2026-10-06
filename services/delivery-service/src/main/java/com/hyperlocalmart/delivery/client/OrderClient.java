@@ -221,6 +221,22 @@ public class OrderClient {
         return response.getData();
     }
 
+    public HubTownDailyReportStats getHubTownDailyReportStats(UUID townId, LocalDate from, LocalDate to) {
+        RestClient client = restClientBuilder.baseUrl(orderServiceProperties.getBaseUrl()).build();
+        ApiResponse<HubTownDailyReportStats> response = client.get()
+                .uri(uriBuilder -> uriBuilder
+                        .path("/api/v1/internal/towns/{townId}/hub-report-daily")
+                        .queryParam("from", from.toString())
+                        .queryParam("to", to.toString())
+                        .build(townId))
+                .retrieve()
+                .body(new ParameterizedTypeReference<ApiResponse<HubTownDailyReportStats>>() {});
+        if (response == null || response.getData() == null) {
+            return new HubTownDailyReportStats(from, to, List.of());
+        }
+        return response.getData();
+    }
+
     public HubTownReportStats getHubTownReportStats(UUID townId, LocalDate from, LocalDate to) {
         RestClient client = restClientBuilder.baseUrl(orderServiceProperties.getBaseUrl()).build();
         ApiResponse<HubTownReportStats> response = client.get()
@@ -237,7 +253,62 @@ public class OrderClient {
         return response.getData();
     }
 
+    public HubTownPaymentMix getHubTownPaymentMix(UUID townId, LocalDate from, LocalDate to) {
+        RestClient client = restClientBuilder.baseUrl(orderServiceProperties.getBaseUrl()).build();
+        ApiResponse<HubTownPaymentMix> response = client.get()
+                .uri(uriBuilder -> uriBuilder
+                        .path("/api/v1/internal/towns/{townId}/hub-report-payment-mix")
+                        .queryParam("from", from.toString())
+                        .queryParam("to", to.toString())
+                        .build(townId))
+                .retrieve()
+                .body(new ParameterizedTypeReference<ApiResponse<HubTownPaymentMix>>() {});
+        if (response == null || response.getData() == null) {
+            return new HubTownPaymentMix(from, to, 0, 0, 0, java.math.BigDecimal.ZERO, java.math.BigDecimal.ZERO, java.math.BigDecimal.ZERO);
+        }
+        return response.getData();
+    }
+
+    public HubTownQualityReport getHubTownQualityReport(UUID townId, LocalDate from, LocalDate to) {
+        RestClient client = restClientBuilder.baseUrl(orderServiceProperties.getBaseUrl()).build();
+        ApiResponse<HubTownQualityReport> response = client.get()
+                .uri(uriBuilder -> uriBuilder
+                        .path("/api/v1/internal/towns/{townId}/hub-report-quality")
+                        .queryParam("from", from.toString())
+                        .queryParam("to", to.toString())
+                        .build(townId))
+                .retrieve()
+                .body(new ParameterizedTypeReference<ApiResponse<HubTownQualityReport>>() {});
+        if (response == null || response.getData() == null) {
+            return new HubTownQualityReport(from, to, 0, 0, 0, 0.0, List.of());
+        }
+        return response.getData();
+    }
+
     public record HubOrderStats(long readyForPickupCount, long placedOrdersCount) {
+    }
+
+    public record HubTownPaymentMix(
+            LocalDate from,
+            LocalDate to,
+            long deliveredOrders,
+            long codDeliveredOrders,
+            long onlineDeliveredOrders,
+            java.math.BigDecimal deliveredGmv,
+            java.math.BigDecimal codDeliveredGmv,
+            java.math.BigDecimal onlineDeliveredGmv) {
+    }
+
+    public record HubTownQualityReport(
+            LocalDate from,
+            LocalDate to,
+            long ordersCancelled,
+            long shopBagsPlaced,
+            long shopBagsRejected,
+            double rejectRatePercent,
+            List<QualityReason> cancelReasons) {
+        public record QualityReason(String reason, long count) {
+        }
     }
 
     public record HubTownReportStats(
@@ -252,6 +323,22 @@ public class OrderClient {
             java.math.BigDecimal deliveredGmv,
             java.math.BigDecimal codGmv
     ) {
+    }
+
+    public record HubTownDailyReportStats(
+            LocalDate from,
+            LocalDate to,
+            List<DailyRow> days
+    ) {
+        public record DailyRow(
+                LocalDate date,
+                long ordersPlaced,
+                long ordersDelivered,
+                long ordersCancelled,
+                java.math.BigDecimal deliveredGmv,
+                java.math.BigDecimal codDeliveredGmv
+        ) {
+        }
     }
 
     public record PickupManifestLine(

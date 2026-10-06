@@ -4,6 +4,7 @@ import {
   AD_SLOT_ROWS,
   type AdOccupancyBooking,
 } from '../api/adsBillingApi';
+import { formatIsoDateRange } from '@/shared/dates/formatDateRange';
 
 type Props = {
   year: number;
@@ -134,7 +135,7 @@ function Row({
             type="button"
             title={
               hit
-                ? `${hit.advertiserName} · ${hit.invoiceNumber} · ${hit.fromDate}–${hit.toDate}`
+                ? `${hit.advertiserName} · ${hit.invoiceNumber} · ${formatIsoDateRange(hit.fromDate, hit.toDate)}`
                 : `${iso} free`
             }
             style={{

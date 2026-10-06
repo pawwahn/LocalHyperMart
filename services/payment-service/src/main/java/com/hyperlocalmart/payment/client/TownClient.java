@@ -106,7 +106,7 @@ public class TownClient {
         ) {
         }
 
-        public record Franchise(boolean enabled, String cadence, BigDecimal amount) {
+        public record Franchise(boolean enabled, String cadence, BigDecimal amount, String effectiveFrom) {
         }
     }
 
@@ -152,5 +152,20 @@ public class TownClient {
         public boolean sellsMembership() {
             return buyerMembershipEnabled == null || buyerMembershipEnabled;
         }
+    }
+
+    public TownSummary getTownSummary(UUID townId) {
+        RestClient client = restClientBuilder.baseUrl(townServiceProperties.getBaseUrl()).build();
+        ApiResponse<TownSummary> response = client.get()
+                .uri("/api/v1/internal/towns/{townId}/summary", townId)
+                .retrieve()
+                .body(new ParameterizedTypeReference<ApiResponse<TownSummary>>() {});
+        if (response == null || response.getData() == null) {
+            throw new IllegalStateException("Town summary unavailable");
+        }
+        return response.getData();
+    }
+
+    public record TownSummary(String townCode, String stateCode, String displayName) {
     }
 }

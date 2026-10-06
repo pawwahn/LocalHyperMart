@@ -351,7 +351,7 @@ public class PaymentService {
 
     private PaymentResponse toInitiateResponse(Payment payment, String prefillContact, String orderNumber) {
         boolean live = paymentProperties.isRazorpayConfigured();
-        String upiIntent = live ? null : "upi://pay?pa=hyperlocalmart@razorpay&pn=KoYaKart&am="
+        String upiIntent = live ? null : "upi://pay?pa=hyperlocalmart@razorpay&pn=KoyaKart&am="
                 + payment.getAmount().toPlainString()
                 + "&tn=Order-" + payment.getOrderId();
         String qrPayload = live ? null : "upi://pay?order=" + payment.getOrderId();
@@ -408,6 +408,7 @@ public class PaymentService {
         payment.setPaidAt(Instant.now());
         paymentRepository.save(payment);
         orderClient.markPaymentSuccess(payment.getOrderId(), payment.getBuyerId(), payment.getId(), payment.getGateway());
+        membershipService.completeBundledForOrder(payment.getOrderId(), gatewayPaymentId);
     }
 
     private void markFailed(Payment payment, String reason) {
