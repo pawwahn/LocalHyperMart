@@ -9,9 +9,11 @@ import com.hyperlocalmart.payment.dto.response.CodHubLedgerResponse;
 import com.hyperlocalmart.payment.dto.response.DeliverySettlementCandidateView;
 import com.hyperlocalmart.payment.dto.response.HubAccountSummaryResponse;
 import com.hyperlocalmart.payment.dto.response.SettlementResponse;
+import com.hyperlocalmart.payment.entity.HubPaymentRequestStatus;
 import com.hyperlocalmart.payment.entity.SettlementDirection;
 import com.hyperlocalmart.payment.entity.SettlementPayeeType;
 import com.hyperlocalmart.payment.entity.SettlementStatus;
+import com.hyperlocalmart.payment.repository.HubPaymentRequestRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -44,10 +46,12 @@ public class HubAccountSummaryService {
     private final CodCustodianReceivableService codCustodianReceivableService;
     private final CodHubLedgerService codHubLedgerService;
     private final HubPlatformPaymentSubmissionService hubPlatformPaymentSubmissionService;
+    private final HubPaymentRequestRepository hubPaymentRequestRepository;
 
     @Transactional(readOnly = true)
     public HubAccountSummaryResponse summary(UUID hubAdminUserId, LocalDate from, LocalDate to) {
         DeliveryClient.HubAdminContext hub = deliveryClient.getHubAdminContext(hubAdminUserId);
+        settlementService.ensureHubPayoutInvoices(null, hub.hubId());
         LocalDate today = LocalDate.now(IST);
         LocalDate start = from != null ? from : today.withDayOfMonth(1);
         LocalDate end = to != null ? to : today;
@@ -110,8 +114,8 @@ public class HubAccountSummaryService {
         List<SettlementResponse> paidPayouts = settlements.stream()
                 .filter(row -> row.getDirection() == SettlementDirection.PAYOUT)
                 .filter(row -> row.getStatus() == SettlementStatus.PAID)
-                .filter(row -> overlaps(row, start, end))
-                .sorted(Comparator.comparing(SettlementResponse::getCreatedAt, Comparator.nullsLast(Comparator.reverseOrder())))
+                .filter(row -> paidDuring(row, start, end))
+                .sorted(Comparator.comparing(SettlementResponse::getPaidAt, Comparator.nullsLast(Comparator.reverseOrder())))
                 .toList();
 
         List<HubAccountSummaryResponse.MoneyMovement> payoutsFromPlatform = paidPayouts.stream()
@@ -220,9 +224,24 @@ public class HubAccountSummaryService {
                 .hasPendingPaymentSubmission(pending != null)
                 .pendingPaymentStatusLabel(pending != null ? pending.getStatusLabel() : platformPayable.getPendingStatusLabel())
                 .pendingPaymentTotal(pending != null ? pending.getTotalAmount() : null)
-                .payableToPlatformNow(platformPayable.getSuggestedTotal())
+                .payableToPlatformNow(openBillsToPay(hub.hubId()))
                 .recentPaymentSubmissions(submissions.size() > 8 ? submissions.subList(0, 8) : submissions)
                 .build();
+    }
+
+    public SettlementResponse payout(UUID hubAdminUserId, UUID settlementId) {
+        DeliveryClient.HubAdminContext hub = deliveryClient.getHubAdminContext(hubAdminUserId);
+        return settlementService.hubPayout(hub.hubId(), settlementId);
+    }
+
+    public SettlementResponse acknowledgePayout(UUID hubAdminUserId, UUID settlementId) {
+        DeliveryClient.HubAdminContext hub = deliveryClient.getHubAdminContext(hubAdminUserId);
+        return settlementService.acknowledgeByHub(hubAdminUserId, hub.hubId(), settlementId);
+    }
+
+    public SettlementResponse reportPayoutNotReceived(UUID hubAdminUserId, UUID settlementId, String note) {
+        DeliveryClient.HubAdminContext hub = deliveryClient.getHubAdminContext(hubAdminUserId);
+        return settlementService.reportHubNotReceived(hubAdminUserId, hub.hubId(), settlementId, note);
     }
 
     private HubAccountSummaryResponse.MoneyMovement toPayoutMovement(SettlementResponse row) {
@@ -236,6 +255,10 @@ public class HubAccountSummaryService {
                 .reference(row.getTransactionReference())
                 .recordedAt(row.getPaidAt() != null ? row.getPaidAt() : row.getCreatedAt())
                 .orderCount(countOrderLines(row))
+                .payoutMethod(row.getPayoutMethod())
+                .invoiceNumber(row.getServiceInvoiceNumber())
+                .acknowledgedAt(row.getVendorAcknowledgedAt())
+                .notReceivedAt(row.getVendorNotReceivedAt())
                 .build();
     }
 
@@ -349,6 +372,16 @@ public class HubAccountSummaryService {
         return (int) row.getLines().stream().filter(l -> l.getOrderId() != null).count();
     }
 
+    /** History follows the day KoyaKart paid, not a settlement window that merely overlaps the range. */
+    private static boolean paidDuring(SettlementResponse row, LocalDate from, LocalDate to) {
+        Instant paidAt = row.getPaidAt() != null ? row.getPaidAt() : row.getCreatedAt();
+        if (paidAt == null) {
+            return false;
+        }
+        LocalDate day = paidAt.atZone(IST).toLocalDate();
+        return !day.isBefore(from) && !day.isAfter(to);
+    }
+
     private static boolean overlaps(SettlementResponse row, LocalDate from, LocalDate to) {
         LocalDate start = row.getPeriodStart();
         LocalDate end = row.getPeriodEnd();
@@ -370,6 +403,13 @@ public class HubAccountSummaryService {
             return BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
         }
         return money(party.perOrder().completedOrderAmount());
+    }
+
+    /** Cash the hub can pay now: issued bills only. Unbilled COD and this month's franchise stay on their own tabs. */
+    private BigDecimal openBillsToPay(UUID hubId) {
+        return money(hubPaymentRequestRepository.sumTotalByHubAndStatusIn(hubId, List.of(
+                HubPaymentRequestStatus.ISSUED,
+                HubPaymentRequestStatus.PAYMENT_PENDING)));
     }
 
     private static BigDecimal money(BigDecimal value) {

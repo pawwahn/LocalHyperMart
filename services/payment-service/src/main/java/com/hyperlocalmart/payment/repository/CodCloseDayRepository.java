@@ -55,6 +55,15 @@ public interface CodCloseDayRepository extends JpaRepository<CodCloseDay, UUID> 
             @Param("hubId") UUID hubId,
             @Param("custodianType") CodCustodianType custodianType);
 
+    /** All-time hub close-day cash, same basis as the COD ledger balance. */
+    @Query("""
+            SELECT c.townId, c.hubId, COALESCE(SUM(c.receivedAmount), 0)
+            FROM CodCloseDay c
+            WHERE c.custodianType = com.hyperlocalmart.payment.entity.CodCustodianType.HUB
+            GROUP BY c.townId, c.hubId
+            """)
+    List<Object[]> sumReceivedGroupedByHub();
+
     @Query("""
             SELECT COALESCE(SUM(c.receivedAmount), 0) FROM CodCloseDay c
             WHERE c.townId = :townId AND c.hubId = :hubId

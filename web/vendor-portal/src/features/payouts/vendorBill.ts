@@ -1,5 +1,10 @@
-import type { VendorSettlement } from '@/features/reports/api/payoutsApi';
-import { settlementClaimAmount, settlementOtherChargesAmount } from '@/features/reports/api/payoutsApi';
+import type { SubscriptionBill, VendorSettlement } from '@/features/reports/api/payoutsApi';
+import {
+  isCollectionSettlement,
+  isSubscriptionSettlement,
+  settlementClaimAmount,
+  settlementOtherChargesAmount,
+} from '@/features/reports/api/payoutsApi';
 
 /** Marketplace facilitation is a support service. Residual GST rate is 18%. */
 export const SERVICE_SAC = '998599';
@@ -251,7 +256,7 @@ export function serviceInvoiceNumber(settlement: VendorSettlement): string {
   const stored = settlement.serviceInvoiceNumber?.trim();
   if (stored) return stored;
   const tail = settlement.id.replace(/-/g, '').slice(0, 8).toUpperCase();
-  return `HLM/SF/${financialYear(settlement.paidAt)}/${tail}`;
+  return `Pending · KK/${financialYear(settlement.paidAt)}/${tail}`;
 }
 
 function partyBlock(title: string, party: BillParty): string {
@@ -290,7 +295,47 @@ export function vendorServiceBillHtml(
     const t = (l.lineType ?? '').toUpperCase();
     return t === 'ORDER' || t === '';
   });
+  const subscription = isSubscriptionSettlement(settlement);
+  const collection = isCollectionSettlement(settlement);
   const title = hasFee ? 'Tax invoice' : 'Payout statement';
+  const subtitle = subscription
+    ? 'Monthly subscription, billed separately from order payouts'
+    : collection
+      ? 'Commission on orders where the shop kept the cash, paid by you to KoyaKart'
+      : hasFee
+        ? 'Marketplace service fee, deducted from your shop payout'
+        : 'No service fee on this payout';
+  const serviceLine = subscription
+    ? `Monthly marketplace subscription for ${formatDay(settlement.periodStart)} – ${formatDay(settlement.periodEnd)}.`
+    : 'Marketplace facilitation for customer orders in this window. Listing, order handling, and payout.';
+  const noteText = subscription
+    ? 'This is your monthly subscription bill. It is separate from order commission and payouts. The amount above is GST-inclusive at 18%.'
+    : collection
+      ? 'You paid this commission to KoyaKart for orders where the shop collected the cash. The amount above is GST-inclusive at 18%.'
+      : hasFee
+        ? 'This bill is the service fee already subtracted from your payout. Do not pay it again. The amount above is GST-inclusive at 18%.'
+        : 'This payout had no marketplace fee, so there is no GST on this statement.';
+  const isPaid = settlement.status === 'PAID';
+  const paidLine = isPaid
+    ? `Paid ${esc(formatWhen(settlement.paidAt))} · ${esc(settlement.payoutMethod || '—')} · Ref ${esc(settlement.transactionReference || '—')}`
+    : settlement.vendorPaidAt
+      ? `You reported payment ${esc(formatWhen(settlement.vendorPaidAt))} · ${esc(settlement.vendorPaymentMethod || '—')} · Ref ${esc(settlement.vendorPaymentReference || '—')} · awaiting KoyaKart confirmation`
+      : `Amount due ${rupees(tax.totalPaise)}. Pay KoyaKart by UPI / bank transfer, then tap Pay on the Payouts page and enter the UTR / UPI reference.`;
+  const reconBlock = collection
+    ? `<div class="recon"><div class="note">${isPaid ? (subscription ? 'Received by KoyaKart · ' : 'You paid KoyaKart · ') : ''}${paidLine}</div></div>`
+    : `<div class="recon">
+    <div class="kicker">How this sits on the payout</div>
+    <table>
+      <tbody>
+        <tr><td>Shop sales in the window</td><td class="num">${rupees(Math.round(gross * 100))}</td></tr>
+        <tr><td>Service fee (this invoice)</td><td class="num">${rupees(tax.totalPaise)}</td></tr>
+        <tr><td>Claim deductions</td><td class="num">${rupees(Math.round(claims * 100))}</td></tr>
+        <tr><td>Other charges</td><td class="num">${rupees(Math.round(other * 100))}</td></tr>
+        <tr class="grand"><td>Net transferred to you</td><td class="num">${rupees(Math.round(net * 100))}</td></tr>
+      </tbody>
+    </table>
+    <div class="note">${paidLine}</div>
+  </div>`;
   const taxRows = hasFee
     ? `<tr><td>Taxable value</td><td class="num">${rupees(tax.taxablePaise)}</td></tr>
        ${
@@ -356,14 +401,14 @@ export function vendorServiceBillHtml(
     <div>
       <div class="brand">KOYAKART</div>
       <h1>${esc(title)}</h1>
-      <div class="sub">${hasFee ? 'Marketplace service fee, deducted from your shop payout' : 'No service fee on this payout'}</div>
+      <div class="sub">${esc(subtitle)}</div>
     </div>
-    <div class="stamp">PAID</div>
+    <div class="stamp"${isPaid ? '' : ' style="border-color:#c2410c;color:#c2410c"'}>${isPaid ? 'PAID' : 'DUE'}</div>
   </div>
   <div class="meta">
     <div><b>Invoice no.</b> ${esc(number)}</div>
-    <div><b>Issued</b> ${esc(formatWhen(settlement.paidAt))}</div>
-    <div><b>Orders window</b> ${esc(period)}</div>
+    <div><b>Issued</b> ${esc(formatWhen(settlement.billSentAt || settlement.paidAt))}</div>
+    <div><b>${subscription ? 'Billing month' : 'Delivery window'}</b> ${esc(period)}</div>
     <div><b>Place of supply</b> ${esc(place.placeName || '—')}${place.placeCode ? ` (${esc(place.placeCode)})` : ''}</div>
   </div>
   <div class="parties">
@@ -383,7 +428,7 @@ export function vendorServiceBillHtml(
     </thead>
     <tbody>
       <tr>
-        <td>Marketplace facilitation for customer orders in this window. Listing, order handling, and payout.</td>
+        <td>${esc(serviceLine)}</td>
         <td>${SERVICE_SAC}</td>
         <td class="num">1</td>
         <td class="num">${rupees(tax.taxablePaise)}</td>
@@ -396,36 +441,48 @@ export function vendorServiceBillHtml(
     <tbody>${taxRows}</tbody>
   </table>
   <p class="words"><b>Amount in words.</b> ${esc(rupeesInWords(tax.totalPaise))}</p>
-  <p class="note">${
-    hasFee
-      ? 'This bill is the service fee already subtracted from your payout. Do not pay it again. The amount above is GST-inclusive at 18%.'
-      : 'This payout had no marketplace fee, so there is no GST on this statement.'
-  }${
+  <p class="note">${noteText}${
     place.assumed
       ? ' Tax is shown as CGST and SGST because the two GST state codes were not both on file.'
       : ''
   } Reverse charge does not apply.</p>
-  <div class="recon">
-    <div class="kicker">How this sits on the payout</div>
-    <table>
-      <tbody>
-        <tr><td>Shop sales in the window</td><td class="num">${rupees(Math.round(gross * 100))}</td></tr>
-        <tr><td>Service fee (this invoice)</td><td class="num">${rupees(tax.totalPaise)}</td></tr>
-        <tr><td>Claim deductions</td><td class="num">${rupees(Math.round(claims * 100))}</td></tr>
-        <tr><td>Other charges</td><td class="num">${rupees(Math.round(other * 100))}</td></tr>
-        <tr class="grand"><td>Net transferred to you</td><td class="num">${rupees(Math.round(net * 100))}</td></tr>
-      </tbody>
-    </table>
-    <div class="note">Paid ${esc(formatWhen(settlement.paidAt))} · ${esc(settlement.payoutMethod || '—')} · Ref ${esc(settlement.transactionReference || '—')}</div>
-  </div>
-  <table>
+  ${reconBlock}
+  ${
+    subscription
+      ? ''
+      : `<table>
     <thead><tr><th>Orders included</th><th class="num">Sale</th></tr></thead>
     <tbody>${orderRows}</tbody>
-  </table>
+  </table>`
+  }
   <p class="foot">SAC ${SERVICE_SAC} — other support services. GST ${SERVICE_GST_PERCENT}%. Goods sold to customers are on the buyer invoice, not on this bill. Computer-generated. No signature required.</p>
 </article>
 </body>
 </html>`;
+}
+
+export function subscriptionBillAsSettlement(bill: SubscriptionBill): VendorSettlement {
+  const amount = Number(bill.amount ?? 0);
+  return {
+    id: bill.settlementId ?? bill.month,
+    direction: 'COLLECTION',
+    periodStart: bill.periodStart,
+    periodEnd: bill.periodEnd,
+    periodType: 'MONTH',
+    grossAmount: 0,
+    commissionAmount: amount,
+    netAmount: amount,
+    status: bill.status === 'PAID' ? 'PAID' : 'FINALIZED',
+    paidAt: bill.paidAt,
+    payoutMethod: bill.payoutMethod,
+    transactionReference: bill.transactionReference,
+    serviceInvoiceNumber: bill.invoiceNumber,
+    billSentAt: bill.billSentAt,
+    vendorPaidAt: bill.vendorPaidAt,
+    vendorPaymentMethod: bill.vendorPaymentMethod,
+    vendorPaymentReference: bill.vendorPaymentReference,
+    lines: [{ id: `${bill.month}-sub`, lineType: 'SUBSCRIPTION', amount, description: 'Monthly subscription' }],
+  };
 }
 
 export function downloadVendorServiceBill(

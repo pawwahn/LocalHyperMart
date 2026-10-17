@@ -6,6 +6,7 @@ import com.hyperlocalmart.order.dto.request.PaymentCallbackRequest;
 import com.hyperlocalmart.order.dto.response.CashHolderContextResponse;
 import com.hyperlocalmart.order.dto.response.CodCashBreakdownResponse;
 import com.hyperlocalmart.order.dto.response.CodDeliveredResponse;
+import com.hyperlocalmart.order.dto.response.DeliveredVendorTown;
 import com.hyperlocalmart.order.dto.response.HubOrderStatsResponse;
 import com.hyperlocalmart.order.dto.response.HubTownDailyReportStatsResponse;
 import com.hyperlocalmart.order.dto.response.HubTownPaymentMixResponse;
@@ -184,6 +185,15 @@ public class OrderInternalController {
             HttpServletRequest httpRequest) {
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
                 hubOrderStatsService.getTownQualityReport(townId, from, to)));
+    }
+
+    @GetMapping("/api/v1/internal/orders/settlement-candidates/vendor-towns")
+    public ResponseEntity<ApiResponse<List<DeliveredVendorTown>>> deliveredVendorTowns(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                settlementCandidateService.listDeliveredVendorTowns(from, to)));
     }
 
     @GetMapping("/api/v1/internal/orders/settlement-candidates")

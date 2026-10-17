@@ -2,7 +2,8 @@ import { useCallback, useEffect, useState, type CSSProperties, type FormEvent } 
 import { useAuth } from '@/shared/auth/AuthContext';
 import { useVendorShop } from '@/features/shop/hooks/useVendorShop';
 import { ApiError } from '@/shared/api/http';
-import { Banner, Button, Card, TextField } from '@/shared/ui';
+import { APP_NAME } from '@hlm-brand';
+import { Banner, Button, Card, TextField, Toast } from '@/shared/ui';
 import { usePortalChrome } from '@/shared/layout/PortalChromeContext';
 import {
   confirmCodHandover,
@@ -22,7 +23,7 @@ import { requestCodPinResetOtp } from '@/shared/api/codPinOtpApi';
 
 const PIN_PATTERN = /^\d{4,6}$/;
 
-type CodView = 'day' | 'calendar';
+type CodView = 'day' | 'calendar' | 'pin';
 
 export function VendorCodHandoverPage() {
   const { session } = useAuth();
@@ -49,6 +50,7 @@ export function VendorCodHandoverPage() {
   const [savingPin, setSavingPin] = useState(false);
   const [requestingPinOtp, setRequestingPinOtp] = useState(false);
   const [pinOtpNotice, setPinOtpNotice] = useState<string | null>(null);
+  const [pinSavedOpen, setPinSavedOpen] = useState(false);
 
   const loadReceivables = useCallback(async () => {
     if (!session?.vendorId || !shop?.townId) return;
@@ -185,7 +187,9 @@ export function VendorCodHandoverPage() {
       setPinStatus({ configured: true, defaultPinActive: false });
       setNewShopPin('');
       setPinResetOtp('');
+      setPinOtpNotice(null);
       setNotice('Shop COD PIN saved. Share with staff who confirm agent cash.');
+      setPinSavedOpen(true);
     } catch (err) {
       setError(err instanceof ApiError || err instanceof Error ? err.message : 'Could not save PIN');
     } finally {
@@ -218,6 +222,7 @@ export function VendorCodHandoverPage() {
         notes: notes.trim() || undefined,
       });
       setNotice(`Recorded ${codMoney(amount, true)} received from shop agent.`);
+      window.dispatchEvent(new Event('hlm:cod-confirm-pending'));
       setConfirmId(null);
       setReceived('');
       setNotes('');
@@ -234,6 +239,14 @@ export function VendorCodHandoverPage() {
     <div style={styles.page}>
       {error ? <Banner tone="danger">{error}</Banner> : null}
       {notice ? <Banner tone="success">{notice}</Banner> : null}
+      <Toast
+        open={pinSavedOpen}
+        message="Saved successfully"
+        brandName={APP_NAME}
+        tone="success"
+        placement="center"
+        onClose={() => setPinSavedOpen(false)}
+      />
 
       <p style={styles.intro}>
         Confirm cash when agents declare handover. Totals match buyer COD (after wallet credit).
@@ -257,6 +270,15 @@ export function VendorCodHandoverPage() {
           onClick={() => setView('day')}
         >
           Day detail
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={view === 'pin'}
+          style={view === 'pin' ? styles.viewTabActive : styles.viewTab}
+          onClick={() => setView('pin')}
+        >
+          Shop PIN
         </button>
       </div>
 
@@ -298,34 +320,6 @@ export function VendorCodHandoverPage() {
         loading={receivablesLoading || shopLoading}
         custodianLabel={shop?.shopName ?? session?.shopName ?? 'your shop'}
       />
-
-      <Card elevated padding="sm" style={styles.pinCard}>
-        <p style={styles.confirmHeading}>Shop COD PIN</p>
-        <p style={styles.confirmLead}>
-          {pinStatus?.defaultPinActive
-            ? 'Pilot default 1234 until you set your own. Reset requires OTP on owner phone.'
-            : 'Staff use this PIN to confirm agent cash. Reset requires OTP on owner phone.'}
-        </p>
-        {pinOtpNotice ? <p style={styles.confirmLead}>{pinOtpNotice}</p> : null}
-        <form onSubmit={onSaveShopPin} style={styles.form}>
-          <Button type="button" variant="ghost" disabled={requestingPinOtp} onClick={() => void onRequestPinOtp()}>
-            {requestingPinOtp ? 'Sending…' : 'Send OTP to my phone'}
-          </Button>
-          <div style={styles.formRow}>
-            <TextField label="OTP" inputMode="numeric" value={pinResetOtp} onChange={(e) => setPinResetOtp(e.target.value)} />
-            <TextField
-              label="New PIN (4–6 digits)"
-              type="password"
-              inputMode="numeric"
-              value={newShopPin}
-              onChange={(e) => setNewShopPin(e.target.value)}
-            />
-          </div>
-          <Button type="submit" variant="ghost" disabled={savingPin || !newShopPin.trim() || !pinResetOtp.trim()}>
-            {savingPin ? 'Saving…' : 'Save shop PIN'}
-          </Button>
-        </form>
-      </Card>
 
       <section style={styles.confirmSection} aria-labelledby="cod-confirm-heading">
         <h2 id="cod-confirm-heading" style={styles.confirmHeading}>
@@ -424,6 +418,36 @@ export function VendorCodHandoverPage() {
         )}
       </section>
         </>
+      ) : null}
+
+      {view === 'pin' ? (
+        <Card elevated padding="sm" style={styles.pinCard}>
+          <p style={styles.confirmHeading}>Shop COD PIN</p>
+          <p style={styles.confirmLead}>
+            {pinStatus?.defaultPinActive
+              ? 'Pilot default 1234 until you set your own. Reset requires OTP on owner phone.'
+              : 'Staff use this PIN to confirm agent cash. Reset requires OTP on owner phone.'}
+          </p>
+          {pinOtpNotice ? <p style={styles.confirmLead}>{pinOtpNotice}</p> : null}
+          <form onSubmit={onSaveShopPin} style={styles.form}>
+            <Button type="button" variant="ghost" disabled={requestingPinOtp} onClick={() => void onRequestPinOtp()}>
+              {requestingPinOtp ? 'Sending…' : 'Send OTP to my phone'}
+            </Button>
+            <div style={styles.formRow}>
+              <TextField label="OTP" inputMode="numeric" value={pinResetOtp} onChange={(e) => setPinResetOtp(e.target.value)} />
+              <TextField
+                label="New PIN (4–6 digits)"
+                type="password"
+                inputMode="numeric"
+                value={newShopPin}
+                onChange={(e) => setNewShopPin(e.target.value)}
+              />
+            </div>
+            <Button type="submit" variant="ghost" disabled={savingPin || !newShopPin.trim() || !pinResetOtp.trim()}>
+              {savingPin ? 'Saving…' : 'Save shop PIN'}
+            </Button>
+          </form>
+        </Card>
       ) : null}
     </div>
   );

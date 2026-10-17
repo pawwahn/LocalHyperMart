@@ -131,6 +131,12 @@ export type CodHandoverPending = {
   }>;
 };
 
+export async function fetchPendingCodHandoverCount(token: string, vendorId: string): Promise<number> {
+  const q = new URLSearchParams({ vendorId });
+  const count = await apiRequest<number>(`/api/v1/payments/cod/handovers/pending-count?${q}`, { token });
+  return Number(count ?? 0);
+}
+
 export async function fetchPendingCodHandovers(
   token: string,
   params: { townId: string; vendorId: string; date: string },

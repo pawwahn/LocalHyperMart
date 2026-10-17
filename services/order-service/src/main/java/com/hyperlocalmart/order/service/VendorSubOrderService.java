@@ -699,6 +699,14 @@ public class VendorSubOrderService {
         return order != null;
     }
 
+    /** Packing clock: payment time when the order is placed, otherwise when checkout was saved. */
+    private static Instant orderClock(Order order) {
+        if (order == null) {
+            return null;
+        }
+        return order.getPlacedAt() != null ? order.getPlacedAt() : order.getCreatedAt();
+    }
+
     private VendorSubOrder loadForVendorAction(UUID vendorId, UUID subOrderId) {
         return vendorSubOrderRepository.findDetailedByIdAndVendorId(subOrderId, vendorId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Sub-order not found"));
@@ -734,7 +742,7 @@ public class VendorSubOrderService {
                 .shopId(subOrder.getShopId())
                 .status(subOrder.getStatus())
                 .subtotal(subOrder.getSubtotal())
-                .placedAt(order.getPlacedAt())
+                .placedAt(orderClock(order))
                 .readyForPickupAt(subOrder.getReadyForPickupAt())
                 .vendorAgentDeliveryAt(subOrder.getVendorAgentDeliveryAt())
                 .wholeOrderForShop(isWholeOrderForShop(order))

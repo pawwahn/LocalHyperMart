@@ -37,8 +37,10 @@ type Props = {
   hubId: string;
   refreshTick?: number;
   onChanged?: () => void;
-  /** When set, only one issue block is shown (for sub-tabs under Hub pays KoyaKart). */
-  section?: 'cod' | 'franchise' | 'both';
+  /** When set, COD statements use these dates and the page shows the filter. */
+  periodPreset?: ReportDatePreset;
+  periodFrom?: string;
+  periodTo?: string;
 };
 
 function todayIso(): string {
@@ -82,6 +84,9 @@ export function HubPaymentRequestsAdminPanel({
   refreshTick = 0,
   onChanged,
   section = 'both',
+  periodPreset,
+  periodFrom,
+  periodTo,
 }: Props) {
   const [codRows, setCodRows] = useState<HubPaymentRequest[]>([]);
   const [frRows, setFrRows] = useState<HubPaymentRequest[]>([]);
@@ -97,6 +102,10 @@ export function HubPaymentRequestsAdminPanel({
   const [codPreset, setCodPreset] = useState<ReportDatePreset>('financialYear');
   const [codStart, setCodStart] = useState(initialCodRange.from);
   const [codEnd, setCodEnd] = useState(initialCodRange.to);
+  const datesControlled = periodFrom != null && periodTo != null && periodPreset != null;
+  const activePreset = datesControlled ? periodPreset : codPreset;
+  const activeStart = datesControlled ? periodFrom : codStart;
+  const activeEnd = datesControlled ? periodTo : codEnd;
   const [preview, setPreview] = useState<HubCodPreview | null>(null);
   const [previewLinesOpen, setPreviewLinesOpen] = useState(true);
 
@@ -174,6 +183,11 @@ export function HubPaymentRequestsAdminPanel({
     setCodEnd(range.to);
   }
 
+  useEffect(() => {
+    if (!datesControlled) return;
+    setPreview(null);
+  }, [datesControlled, activeStart, activeEnd, activePreset]);
+
   async function runPreview(page = 0, size = previewPageSize) {
     setBusy(true);
     setError(null);
@@ -183,7 +197,7 @@ export function HubPaymentRequestsAdminPanel({
         {
           townId,
           hubId,
-          ...codPeriodParams(codPreset, codStart, codEnd),
+          ...codPeriodParams(activePreset, activeStart, activeEnd),
         },
         page,
         size,
@@ -204,7 +218,7 @@ export function HubPaymentRequestsAdminPanel({
     try {
       const full = await previewHubCodPaymentRequest(
         token,
-        { townId, hubId, ...codPeriodParams(codPreset, codStart, codEnd) },
+        { townId, hubId, ...codPeriodParams(activePreset, activeStart, activeEnd) },
         0,
         10_000,
       );
@@ -231,7 +245,7 @@ export function HubPaymentRequestsAdminPanel({
       const created = await createHubCodPaymentRequest(token, {
         townId,
         hubId,
-        ...codPeriodParams(codPreset, codStart, codEnd),
+        ...codPeriodParams(activePreset, activeStart, activeEnd),
       });
       setPreview(null);
       setIssuedToast(`Issued bill ${created.documentRef}`);
@@ -316,30 +330,31 @@ export function HubPaymentRequestsAdminPanel({
       {error ? <p style={styles.error}>{error}</p> : null}
 
       {showCod ? (
+      <>
       <Card padding="sm" style={styles.card}>
-        {section === 'both' ? <h3 style={styles.h3}>Issue COD statement</h3> : null}
-        <p style={styles.muted}>
-          IST delivery month — hub-route COD orders delivered in this range that are already on a hub close-day (same
-          presets as settlements reports).
-        </p>
+        {section === 'both' ? <h3 style={styles.h3}>Issue COD statement</h3> : <p style={styles.blockTitle}>This range</p>}
+        {datesControlled ? null : <p style={styles.muted}>Orders on a hub close-day in this range.</p>}
+        {datesControlled ? null : (
         <div style={styles.presets}>
           {REPORT_DATE_PRESET_OPTIONS.map(({ id, label }) => (
             <button
               key={id}
               type="button"
-              style={codPreset === id ? styles.presetActive : styles.preset}
+              style={activePreset === id ? styles.presetActive : styles.preset}
               onClick={() => applyCodPreset(id)}
             >
               {label}
             </button>
           ))}
         </div>
+        )}
+        {datesControlled ? null : (
         <div style={styles.row2}>
           <label style={styles.label}>
             From (IST)
             <input
               type="date"
-              value={codStart}
+              value={activeStart}
               onChange={(e) => {
                 setCodStart(e.target.value);
                 setCodPreset('custom');
@@ -352,9 +367,9 @@ export function HubPaymentRequestsAdminPanel({
             To (IST)
             <input
               type="date"
-              value={codEnd}
-              min={codStart}
-              disabled={hubCodPaymentPeriodKind(codPreset) === 'DAILY'}
+              value={activeEnd}
+              min={activeStart}
+              disabled={hubCodPaymentPeriodKind(activePreset) === 'DAILY'}
               onChange={(e) => {
                 setCodEnd(e.target.value);
                 setCodPreset('custom');
@@ -364,20 +379,29 @@ export function HubPaymentRequestsAdminPanel({
             />
           </label>
         </div>
+        )}
         <div style={styles.actions}>
           <Button size="sm" variant="secondary" disabled={busy} onClick={() => void runPreview()}>
             Preview
           </Button>
-          <Button size="sm" disabled={busy || !canIssueCod} onClick={() => void issueCod()}>
-            Issue to hub · {preview ? money(preview.totalAmount) : '—'}
+          <Button
+            size="sm"
+            variant={canIssueCod ? 'primary' : 'secondary'}
+            disabled={busy || !canIssueCod}
+            onClick={() => void issueCod()}
+          >
+            {canIssueCod
+              ? `Issue to hub · ${money(preview!.totalAmount)}`
+              : preview && preview.orderCount === 0
+                ? 'Nothing to issue'
+                : 'Issue to hub'}
           </Button>
         </div>
         {preview && previewReconcile ? (
           <>
             <p style={styles.preview}>
               {formatIsoDateRange(preview.periodStart, preview.periodEnd)} · {preview.orderCount} orders ·{' '}
-              {money(preview.totalAmount)} · hub balance {money(preview.hubBalanceOwedToCompany)}
-              {preview.warning ? ` · ${preview.warning}` : ''}
+              {money(preview.totalAmount)}
             </p>
             {!previewReconcile.allLoaded ? null : !previewReconcile.linesMatchTotal || !previewReconcile.countMatch ? (
               <p style={styles.error}>
@@ -390,13 +414,15 @@ export function HubPaymentRequestsAdminPanel({
                 Statement total exceeds hub balance owed by{' '}
                 {money(previewReconcile.total - previewReconcile.balance)} — narrow the date range.
               </p>
-            ) : previewReconcile.total === previewReconcile.balance ? (
+            ) : previewReconcile.total > 0 && previewReconcile.total === previewReconcile.balance ? (
               <p style={styles.ok}>Totals match hub ledger balance to the paisa — safe to issue.</p>
-            ) : (
+            ) : previewReconcile.total > 0 ? (
               <p style={styles.preview}>
-                Partial period: {money(previewReconcile.balance - previewReconcile.total)} will remain on hub balance
-                after this bill is paid in full.
+                {money(previewReconcile.balance - previewReconcile.total)} is outside{' '}
+                {formatIsoDateRange(preview.periodStart, preview.periodEnd)} and is not on this bill.
               </p>
+            ) : (
+              <p style={styles.preview}>Nothing to bill in this range.</p>
             )}
             <CodStatementLinesBlock
               hubId={hubId}
@@ -419,6 +445,8 @@ export function HubPaymentRequestsAdminPanel({
             />
           </>
         ) : null}
+      </Card>
+      <Card padding="sm" style={styles.card}>
         <CodRequestList
           token={token}
           rows={codRows}
@@ -435,12 +463,15 @@ export function HubPaymentRequestsAdminPanel({
           }}
         />
       </Card>
+      </>
       ) : null}
 
       {showFranchise ? (
       <Card padding="sm" style={styles.card}>
         {section === 'both' ? <h3 style={styles.h3}>Issue franchise bill</h3> : null}
-        <p style={styles.muted}>Calendar month — hubs can pay current or overdue months.</p>
+        <p style={styles.muted}>
+          Only the franchise month that is still open. Paid months are under Franchise payment history.
+        </p>
         <p style={styles.monthHeading}>{formatBillingMonth(frYear, frMonth)}</p>
         <p style={styles.muted}>
           {formatIsoDateRange(
@@ -497,7 +528,12 @@ export function HubPaymentRequestsAdminPanel({
             ? ` · ${money(franchiseDue!.amount)}`
             : ''}
         </Button>
-        <RequestList rows={frRows} onCancel={(id) => void cancel(id)} busy={busy} />
+        <RequestList
+          rows={frRows.filter((r) => r.status === 'ISSUED' || r.status === 'PAYMENT_PENDING')}
+          onCancel={(id) => void cancel(id)}
+          busy={busy}
+          emptyLabel="No open franchise bill."
+        />
       </Card>
       ) : null}
 
@@ -720,7 +756,7 @@ function CodRequestList({
   return (
     <div>
       <div style={styles.linesToolbar}>
-        <p style={{ ...styles.muted, margin: 0 }}>Issued bills</p>
+        <p style={styles.blockTitle}>Issued bills</p>
         <ListPager
           page={safePage}
           pageCount={pageCount}
@@ -803,14 +839,16 @@ function RequestList({
   rows,
   onCancel,
   busy,
+  emptyLabel = 'No bills yet.',
 }: {
   rows: HubPaymentRequest[];
   onCancel: (id: string) => void;
   busy: boolean;
+  emptyLabel?: string;
 }) {
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(25);
-  if (rows.length === 0) return <p style={styles.muted}>No bills yet.</p>;
+  if (rows.length === 0) return <p style={styles.muted}>{emptyLabel}</p>;
   const pageCount = Math.max(1, Math.ceil(rows.length / pageSize));
   const safePage = Math.min(page, pageCount - 1);
   const paged = rows.slice(safePage * pageSize, safePage * pageSize + pageSize);
@@ -848,7 +886,8 @@ function RequestList({
 
 const styles: Record<string, CSSProperties> = {
   root: { display: 'grid', gap: '0.5rem' },
-  rootSingle: { display: 'grid', gap: '0.5rem', minWidth: 0 },
+  rootSingle: { display: 'grid', gap: '0.65rem', minWidth: 0 },
+  blockTitle: { margin: 0, fontSize: '0.82rem', fontWeight: 800 },
   card: { display: 'grid', gap: '0.4rem' },
   h3: { margin: 0, fontSize: '0.92rem', fontWeight: 800 },
   muted: { margin: 0, fontSize: '0.78rem', color: 'var(--text-muted)' },

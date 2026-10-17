@@ -8,6 +8,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -57,6 +58,23 @@ public interface SettlementRepository extends JpaRepository<Settlement, UUID> {
             @Param("payeeId") UUID payeeId,
             @Param("statuses") List<SettlementStatus> statuses);
 
+    /** Hub franchise months already drafted, finalized, or paid — not only issued hub bills. */
+    @Query("""
+            SELECT DISTINCT s.payeeId, s.periodStart
+            FROM Settlement s
+            JOIN s.lineItems l
+            WHERE s.payeeType = com.hyperlocalmart.payment.entity.SettlementPayeeType.HUB
+              AND s.direction = com.hyperlocalmart.payment.entity.SettlementDirection.COLLECTION
+              AND s.status IN :statuses
+              AND l.lineType = 'FRANCHISE'
+              AND s.periodStart >= :from
+              AND s.periodStart <= :to
+            """)
+    List<Object[]> findHubFranchisePeriodStarts(
+            @Param("from") LocalDate from,
+            @Param("to") LocalDate to,
+            @Param("statuses") List<SettlementStatus> statuses);
+
     @Query("SELECT DISTINCT s FROM Settlement s LEFT JOIN FETCH s.lineItems WHERE s.id = :id")
     Optional<Settlement> findDetailedById(@Param("id") UUID id);
 
@@ -64,29 +82,55 @@ public interface SettlementRepository extends JpaRepository<Settlement, UUID> {
             SELECT DISTINCT s FROM Settlement s
             LEFT JOIN FETCH s.lineItems
             WHERE s.status = com.hyperlocalmart.payment.entity.SettlementStatus.PAID
-              AND s.paidAt IS NOT NULL
-              AND s.paidAt >= :start AND s.paidAt < :endExclusive
+              AND (
+                (s.direction = com.hyperlocalmart.payment.entity.SettlementDirection.COLLECTION
+                  AND (
+                    (s.bankPaidOn IS NOT NULL AND s.bankPaidOn >= :bankFrom AND s.bankPaidOn < :bankTo)
+                    OR (s.bankPaidOn IS NULL AND s.vendorPaidAt IS NOT NULL
+                        AND s.vendorPaidAt >= :start AND s.vendorPaidAt < :endExclusive)
+                  ))
+                OR (
+                  (s.vendorPaidAt IS NULL
+                    OR s.direction <> com.hyperlocalmart.payment.entity.SettlementDirection.COLLECTION)
+                  AND s.paidAt IS NOT NULL
+                  AND s.paidAt >= :start AND s.paidAt < :endExclusive)
+              )
               AND (:townId IS NULL OR s.townId = :townId)
             ORDER BY s.paidAt ASC
             """)
     List<Settlement> findPaidWithLinesBetween(
             @Param("townId") UUID townId,
             @Param("start") Instant start,
-            @Param("endExclusive") Instant endExclusive);
+            @Param("endExclusive") Instant endExclusive,
+            @Param("bankFrom") LocalDate bankFrom,
+            @Param("bankTo") LocalDate bankTo);
 
     @Query("""
             SELECT s FROM Settlement s
             WHERE s.payeeType = com.hyperlocalmart.payment.entity.SettlementPayeeType.VENDOR
               AND s.status = com.hyperlocalmart.payment.entity.SettlementStatus.PAID
-              AND s.paidAt IS NOT NULL
-              AND s.paidAt >= :start AND s.paidAt < :endExclusive
+              AND (
+                (s.direction = com.hyperlocalmart.payment.entity.SettlementDirection.COLLECTION
+                  AND (
+                    (s.bankPaidOn IS NOT NULL AND s.bankPaidOn >= :bankFrom AND s.bankPaidOn < :bankTo)
+                    OR (s.bankPaidOn IS NULL AND s.vendorPaidAt IS NOT NULL
+                        AND s.vendorPaidAt >= :start AND s.vendorPaidAt < :endExclusive)
+                  ))
+                OR (
+                  (s.vendorPaidAt IS NULL
+                    OR s.direction <> com.hyperlocalmart.payment.entity.SettlementDirection.COLLECTION)
+                  AND s.paidAt IS NOT NULL
+                  AND s.paidAt >= :start AND s.paidAt < :endExclusive)
+              )
               AND (:townId IS NULL OR s.townId = :townId)
             ORDER BY s.paidAt ASC
             """)
     List<Settlement> findPaidVendorSettlementsBetween(
             @Param("townId") UUID townId,
             @Param("start") Instant start,
-            @Param("endExclusive") Instant endExclusive);
+            @Param("endExclusive") Instant endExclusive,
+            @Param("bankFrom") LocalDate bankFrom,
+            @Param("bankTo") LocalDate bankTo);
 
     @Query("""
             SELECT s FROM Settlement s
@@ -96,4 +140,51 @@ public interface SettlementRepository extends JpaRepository<Settlement, UUID> {
             ORDER BY s.createdAt ASC
             """)
     List<Settlement> findUnpaidPayouts(@Param("townId") UUID townId);
+
+    @Query("""
+            SELECT s FROM Settlement s
+            WHERE s.payeeType = com.hyperlocalmart.payment.entity.SettlementPayeeType.VENDOR
+              AND s.payeeId = :vendorId
+              AND s.status = com.hyperlocalmart.payment.entity.SettlementStatus.PAID
+              AND s.ackRemindedAt IS NOT NULL
+              AND s.vendorAcknowledgedAt IS NULL
+            ORDER BY s.ackRemindedAt DESC
+            """)
+    List<Settlement> findAckRemindersPending(@Param("vendorId") UUID vendorId);
+
+    /** Shop-fee bills the admin has reminded the vendor to pay, still unpaid. */
+    @Query("""
+            SELECT DISTINCT s FROM Settlement s
+            LEFT JOIN FETCH s.lineItems
+            WHERE s.payeeType = com.hyperlocalmart.payment.entity.SettlementPayeeType.VENDOR
+              AND s.payeeId = :vendorId
+              AND s.direction = com.hyperlocalmart.payment.entity.SettlementDirection.COLLECTION
+              AND s.status <> com.hyperlocalmart.payment.entity.SettlementStatus.PAID
+              AND s.billSentAt IS NOT NULL
+              AND s.vendorPaidAt IS NULL
+              AND s.ackRemindedAt IS NOT NULL
+            ORDER BY s.ackRemindedAt DESC
+            """)
+    List<Settlement> findBillRemindersPending(@Param("vendorId") UUID vendorId);
+
+    @Query("""
+            SELECT DISTINCT s FROM Settlement s
+            JOIN s.lineItems l
+            WHERE s.payeeType = com.hyperlocalmart.payment.entity.SettlementPayeeType.VENDOR
+              AND s.payeeId = :vendorId
+              AND s.direction = com.hyperlocalmart.payment.entity.SettlementDirection.COLLECTION
+              AND l.lineType = 'SUBSCRIPTION'
+            """)
+    List<Settlement> findSubscriptionBills(@Param("vendorId") UUID vendorId);
+
+    List<Settlement> findByStatusNotOrderByPeriodStartAsc(SettlementStatus status);
+
+    @Query("""
+            SELECT s FROM Settlement s
+            WHERE s.status <> com.hyperlocalmart.payment.entity.SettlementStatus.PAID
+              AND s.periodEnd >= :from
+              AND s.periodStart <= :to
+            ORDER BY s.periodStart
+            """)
+    List<Settlement> findOpenForDuesBetween(@Param("from") LocalDate from, @Param("to") LocalDate to);
 }

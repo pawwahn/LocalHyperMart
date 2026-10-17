@@ -48,6 +48,17 @@ public interface CodAgentHandoverRepository extends JpaRepository<CodAgentHandov
             """)
     Optional<CodAgentHandover> findDetailedById(@Param("id") UUID id);
 
+    @Query("""
+            SELECT COUNT(h) FROM CodAgentHandover h
+            WHERE h.status = :status
+              AND h.custodianType = :custodianType
+              AND h.vendorId = :vendorId
+            """)
+    long countByVendorStatus(
+            @Param("status") CodAgentHandoverStatus status,
+            @Param("custodianType") CodCustodianType custodianType,
+            @Param("vendorId") UUID vendorId);
+
     List<CodAgentHandover> findByTownIdAndHandoverDateBetweenOrderByHandoverDateDesc(
             UUID townId, LocalDate from, LocalDate to);
 

@@ -255,6 +255,15 @@ public class CodAgentHandoverService {
     }
 
     @Transactional(readOnly = true)
+    public int countDeclaredForVendor(UUID vendorId) {
+        if (vendorId == null) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "vendorId is required");
+        }
+        return (int) handoverRepository.countByVendorStatus(
+                CodAgentHandoverStatus.DECLARED, CodCustodianType.VENDOR, vendorId);
+    }
+
+    @Transactional(readOnly = true)
     public List<CodAgentHandoverResponse> listPendingForCustodian(
             UUID actorUserId, UUID townId, UUID hubId, UUID vendorId, LocalDate date, boolean superAdmin) {
         List<CodAgentHandover> handovers = handoverRepository.findByStatusAndHandoverDate(CodAgentHandoverStatus.DECLARED, date).stream()

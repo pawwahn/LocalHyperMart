@@ -44,6 +44,8 @@ public class PlatformFinanceLedgerResponse {
     /** Wallet spent on orders / reversed — liability released. */
     private BigDecimal walletRedeemed;
     private BigDecimal walletScratch;
+    /** Of walletScratch, how much buyers have spent. Spend uses oldest wallet credit first. */
+    private BigDecimal walletScratchUsed;
     private BigDecimal walletReferral;
     private BigDecimal walletStoreCredit;
 
@@ -113,6 +115,8 @@ public class PlatformFinanceLedgerResponse {
         private String sourceType;
         private LocalDate bookDate;
         private Instant occurredAt;
+        /** Admin confirmation day, when the bank date is the vendor's payment day. */
+        private LocalDate verifiedDate;
         /** IN = received by platform bank/gateway; OUT = paid from platform */
         private String direction;
         private String category;
@@ -128,7 +132,8 @@ public class PlatformFinanceLedgerResponse {
         private String paymentRail;
         private String transactionReference;
         private String narrative;
-        private String orderNumbers;
+        /** How many orders this movement covers. The statement does not list the order ids. */
+        private int orderCount;
         private String periodLabel;
         private UUID settlementId;
         private UUID orderId;

@@ -23,6 +23,8 @@ export type SalesReportRow = {
   orderId: string;
   orderNumber: string;
   placedAt?: string | null;
+  /** Payout windows use this day (IST); commission rate still follows placedAt. */
+  deliveredAt?: string | null;
   status: string;
   paymentMethod?: string | null;
   paymentStatus?: string | null;

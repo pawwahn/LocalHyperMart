@@ -1,11 +1,11 @@
-import { useEffect, useId, type CSSProperties } from 'react';
+import { useEffect, useId, type CSSProperties, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { Button } from './Button';
 
 type Props = {
   open: boolean;
   title: string;
-  description: string;
+  description: ReactNode;
   confirmLabel?: string;
   cancelLabel?: string;
   danger?: boolean;
@@ -53,13 +53,17 @@ export function ConfirmDialog({
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        style={styles.dialog}
+        style={{ ...styles.dialog, borderTop: `4px solid ${danger && !alertOnly ? 'var(--danger, #dc2626)' : 'var(--brand, #0C831F)'}` }}
         onMouseDown={(e) => e.stopPropagation()}
       >
         <h2 id={titleId} style={styles.title}>
           {title}
         </h2>
-        <p style={styles.description}>{description}</p>
+        {typeof description === 'string' ? (
+          <p style={styles.description}>{description}</p>
+        ) : (
+          <div style={styles.descriptionBox}>{description}</div>
+        )}
         <div style={styles.actions}>
           {alertOnly ? null : (
             <Button type="button" variant="ghost" disabled={busy} onClick={onClose}>
@@ -85,7 +89,7 @@ const styles: Record<string, CSSProperties> = {
   overlay: {
     position: 'fixed',
     inset: 0,
-    zIndex: 200,
+    zIndex: 1300,
     display: 'grid',
     placeItems: 'center',
     padding: '1rem',
@@ -110,6 +114,12 @@ const styles: Record<string, CSSProperties> = {
   },
   description: {
     margin: 0,
+    color: 'var(--text-muted)',
+    fontSize: '0.88rem',
+    lineHeight: 1.4,
+    whiteSpace: 'pre-line',
+  },
+  descriptionBox: {
     color: 'var(--text-muted)',
     fontSize: '0.88rem',
     lineHeight: 1.4,

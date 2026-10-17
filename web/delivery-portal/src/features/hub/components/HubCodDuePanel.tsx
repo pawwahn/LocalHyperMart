@@ -10,7 +10,12 @@ import {
 import { previewHubCodDue, type HubCodPreview } from '../api/hubPaymentRequestApi';
 import { formatIsoDateRange } from '../lib/codFormat';
 
-type Props = { token: string };
+type Props = {
+  token: string;
+  preset?: ReportDatePreset;
+  from?: string;
+  to?: string;
+};
 
 function money(n: number): string {
   return `₹${Number(n || 0).toFixed(2).replace(/\.00$/, '')}`;
@@ -20,11 +25,15 @@ function sumLines(lines: HubCodPreview['codLines']): number {
   return (lines ?? []).reduce((s, l) => s + Number(l.amount || 0), 0);
 }
 
-export function HubCodDuePanel({ token }: Props) {
+export function HubCodDuePanel({ token, preset: presetProp, from: fromProp, to: toProp }: Props) {
+  const controlled = presetProp != null && fromProp != null && toProp != null;
   const initial = rangeForReportPreset('month');
-  const [preset, setPreset] = useState<ReportDatePreset>('month');
-  const [from, setFrom] = useState(initial.from);
-  const [to, setTo] = useState(initial.to);
+  const [localPreset, setLocalPreset] = useState<ReportDatePreset>('month');
+  const [localFrom, setLocalFrom] = useState(initial.from);
+  const [localTo, setLocalTo] = useState(initial.to);
+  const preset = controlled ? presetProp : localPreset;
+  const from = controlled ? fromProp : localFrom;
+  const to = controlled ? toProp : localTo;
   const [preview, setPreview] = useState<HubCodPreview | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -75,73 +84,80 @@ export function HubCodDuePanel({ token }: Props) {
 
   return (
     <div style={styles.root}>
-      <h2 style={styles.title}>COD due this term</h2>
-      <p style={styles.muted}>Same IST period as KoyaKart Accounts — what you would owe if a statement is issued for these dates.</p>
-      <DateRangePresetBar
-        preset={preset}
-        from={from}
-        to={to}
-        onPresetChange={setPreset}
-        onFromChange={setFrom}
-        onToChange={setTo}
-        maxDate={isoIstDate()}
-        alwaysShowDateInputs
-        stackDateInputs
-        toDisabled={hubCodPaymentPeriodKind(preset) === 'DAILY'}
-        ariaLabel="COD period"
-      />
-      {loading ? <p style={styles.muted}>Loading period…</p> : null}
+      <div style={styles.headRow}>
+        <h2 style={styles.title}>COD due</h2>
+        {preview ? <span style={styles.rangeChip}>{formatIsoDateRange(preview.periodStart, preview.periodEnd)}</span> : null}
+      </div>
+      {controlled ? null : (
+        <DateRangePresetBar
+          preset={preset}
+          from={from}
+          to={to}
+          onPresetChange={setLocalPreset}
+          onFromChange={setLocalFrom}
+          onToChange={setLocalTo}
+          maxDate={isoIstDate()}
+          alwaysShowDateInputs
+          dense
+          toDisabled={hubCodPaymentPeriodKind(preset) === 'DAILY'}
+          ariaLabel="COD period"
+        />
+      )}
+      {loading ? <p style={styles.muted}>Loading…</p> : null}
       {error ? <p style={styles.error}>{error}</p> : null}
       {preview && reconcile && !loading ? (
         <>
-          <p style={styles.hero}>{money(preview.totalAmount)}</p>
-          <p style={styles.meta}>
-            {formatIsoDateRange(preview.periodStart, preview.periodEnd)} · {preview.orderCount} order
-            {preview.orderCount === 1 ? '' : 's'} · hub balance {money(preview.hubBalanceOwedToCompany)}
-          </p>
-          {preview.warning ? <p style={styles.warn}>{preview.warning}</p> : null}
+          <div style={styles.statGrid}>
+            <div style={reconcile.total > 0 ? styles.statOut : styles.statQuiet}>
+              <span style={styles.statLabel}>You pay KoyaKart</span>
+              <strong style={reconcile.total > 0 ? styles.statAmtOut : styles.statAmt}>{money(reconcile.total)}</strong>
+              <span style={styles.statMeta}>
+                {formatIsoDateRange(preview.periodStart, preview.periodEnd)} · {preview.orderCount} order
+                {preview.orderCount === 1 ? '' : 's'} · not billed yet
+              </span>
+            </div>
+          </div>
           {!reconcile.linesMatch ? (
             <p style={styles.error}>
-              Line amounts ({money(reconcile.lineSum)}) must match period total ({money(reconcile.total)}).
+              Lines {money(reconcile.lineSum)} · bill {money(reconcile.total)}
             </p>
           ) : null}
           {!reconcile.withinBalance ? (
-            <p style={styles.error}>
-              Period total exceeds hub COD balance by {money(reconcile.total - reconcile.balance)} — narrow the dates.
-            </p>
-          ) : reconcile.total === reconcile.balance && reconcile.total > 0 ? (
-            <p style={styles.ok}>Totals match hub ledger balance to the paisa.</p>
-          ) : reconcile.total > 0 ? (
-            <p style={styles.muted}>
-              Partial period: {money(reconcile.balance - reconcile.total)} stays on hub balance if only this term is billed.
-            </p>
-          ) : (
-            <p style={styles.muted}>No remittable COD in this period.</p>
-          )}
+            <p style={styles.error}>Over hub balance by {money(reconcile.total - reconcile.balance)}</p>
+          ) : null}
           {reconcile.lines.length > 0 ? (
             <div style={styles.linesShell}>
               <button type="button" style={styles.toggle} onClick={() => setLinesOpen((v) => !v)} aria-expanded={linesOpen}>
-                {linesOpen ? '▾' : '▸'} Orders ({reconcile.lines.length})
+                <span>{linesOpen ? '▾' : '▸'} Orders</span>
+                <span>{reconcile.lines.length}</span>
               </button>
               {linesOpen ? (
-                <ul style={styles.list}>
+                <div style={styles.table}>
+                  <div style={styles.tableHead}>
+                    <span>Order</span>
+                    <span>Close</span>
+                    <span style={styles.amtCol}>Amount</span>
+                  </div>
                   {reconcile.lines.map((l) => (
-                    <li key={l.orderId} style={styles.item}>
-                      <span>
-                        {l.orderNumber?.trim() || l.orderId.slice(0, 8)}
-                        {l.closeDate ? ` · ${l.closeDate}` : ''}
-                      </span>
-                      <strong>{money(l.amount)}</strong>
-                    </li>
+                    <div key={l.orderId} style={styles.tableRow}>
+                      <span style={styles.orderCell}>{l.orderNumber?.trim() || l.orderId.slice(0, 8)}</span>
+                      <span style={styles.dateCell}>{l.closeDate || '—'}</span>
+                      <strong style={styles.amtCol}>{money(l.amount)}</strong>
+                    </div>
                   ))}
-                  <li style={styles.totalRow}>
+                  <div style={styles.totalRow}>
                     <span>Line total</span>
-                    <strong>{money(reconcile.lineSum)}</strong>
-                  </li>
-                </ul>
+                    <span />
+                    <strong style={styles.amtCol}>{money(reconcile.lineSum)}</strong>
+                  </div>
+                </div>
               ) : null}
             </div>
-          ) : null}
+          ) : (
+            <p style={styles.muted}>
+              No COD is waiting in this range. Cash the hub already sent, or cash already on a bill, is not listed here.
+            </p>
+          )}
         </>
       ) : null}
     </div>
@@ -150,50 +166,114 @@ export function HubCodDuePanel({ token }: Props) {
 
 const styles: Record<string, CSSProperties> = {
   root: { display: 'grid', gap: '0.4rem' },
-  title: { margin: 0, fontSize: '1rem', fontWeight: 800 },
-  muted: { margin: 0, fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 600, lineHeight: 1.35 },
-  error: { margin: 0, color: 'var(--danger)', fontSize: '0.78rem', fontWeight: 650 },
-  warn: { margin: 0, fontSize: '0.75rem', fontWeight: 650, color: '#b45309' },
-  ok: { margin: 0, fontSize: '0.75rem', fontWeight: 700, color: '#15803d' },
-  hero: { margin: 0, fontSize: '1.35rem', fontWeight: 900, fontVariantNumeric: 'tabular-nums', color: '#c2410c' },
-  meta: { margin: 0, fontSize: '0.75rem', fontWeight: 650, color: 'var(--text-muted)' },
+  headRow: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.4rem', flexWrap: 'wrap' },
+  title: { margin: 0, fontSize: '0.92rem', fontWeight: 800 },
+  rangeChip: {
+    fontSize: '0.68rem',
+    fontWeight: 750,
+    color: '#9a3412',
+    background: '#fff7ed',
+    border: '1px solid #fed7aa',
+    borderRadius: 999,
+    padding: '0.15rem 0.45rem',
+  },
+  statGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(7.2rem, 1fr))',
+    gap: '0.35rem',
+  },
+  statBill: {
+    display: 'grid',
+    gap: '0.05rem',
+    padding: '0.4rem 0.5rem',
+    borderRadius: 10,
+    border: '1px solid #86efac',
+    background: '#f0fdf4',
+  },
+  statOut: {
+    display: 'grid',
+    gap: '0.05rem',
+    padding: '0.4rem 0.5rem',
+    borderRadius: 10,
+    border: '1px solid #fdba74',
+    background: '#fff7ed',
+  },
+  statQuiet: {
+    display: 'grid',
+    gap: '0.05rem',
+    padding: '0.4rem 0.5rem',
+    borderRadius: 10,
+    border: '1px solid var(--border)',
+    background: 'var(--bg)',
+  },
+  statLabel: {
+    fontSize: '0.65rem',
+    fontWeight: 800,
+    letterSpacing: '0.02em',
+    textTransform: 'uppercase',
+    color: 'var(--text-muted)',
+  },
+  statAmt: { fontSize: '1.05rem', fontWeight: 900, fontVariantNumeric: 'tabular-nums', color: 'var(--text)' },
+  statAmtBill: { fontSize: '1.05rem', fontWeight: 900, fontVariantNumeric: 'tabular-nums', color: '#15803d' },
+  statAmtOut: { fontSize: '1.05rem', fontWeight: 900, fontVariantNumeric: 'tabular-nums', color: '#c2410c' },
+  statMeta: { fontSize: '0.68rem', fontWeight: 650, color: 'var(--text-muted)' },
+  muted: { margin: 0, fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 650 },
+  error: { margin: 0, color: 'var(--danger)', fontSize: '0.75rem', fontWeight: 700 },
   linesShell: {
     border: '1px solid var(--border)',
     borderRadius: 10,
     overflow: 'hidden',
-    background: 'var(--bg-elevated)',
+    background: 'var(--bg)',
   },
   toggle: {
     border: 'none',
-    background: 'transparent',
+    borderBottom: '1px solid var(--border)',
+    background: 'var(--bg-elevated)',
     fontFamily: 'inherit',
-    fontSize: '0.75rem',
+    fontSize: '0.72rem',
     fontWeight: 800,
     cursor: 'pointer',
-    textAlign: 'left',
-    padding: '0.4rem 0.5rem',
-    color: 'var(--text)',
-    width: '100%',
-    minHeight: 44,
-  },
-  list: {
-    margin: 0,
-    padding: '0 0.5rem 0.4rem',
-    listStyle: 'none',
-    display: 'grid',
-    gap: '0.22rem',
-    maxHeight: 'min(16rem, 42vh)',
-    overflowY: 'auto',
-    fontSize: '0.75rem',
-  },
-  item: { display: 'flex', justifyContent: 'space-between', gap: '0.5rem', color: 'var(--text-muted)' },
-  totalRow: {
     display: 'flex',
     justifyContent: 'space-between',
-    gap: '0.5rem',
-    paddingTop: '0.3rem',
-    borderTop: '1px solid var(--border)',
-    fontWeight: 800,
+    alignItems: 'center',
+    padding: '0.35rem 0.5rem',
     color: 'var(--text)',
+    width: '100%',
+    minHeight: 36,
+  },
+  table: { display: 'grid' },
+  tableHead: {
+    display: 'grid',
+    gridTemplateColumns: 'minmax(0, 1.6fr) 6.2rem auto',
+    gap: '0.4rem',
+    padding: '0.28rem 0.5rem',
+    fontSize: '0.62rem',
+    fontWeight: 800,
+    letterSpacing: '0.03em',
+    textTransform: 'uppercase',
+    color: 'var(--text-muted)',
+  },
+  tableRow: {
+    display: 'grid',
+    gridTemplateColumns: 'minmax(0, 1.6fr) 6.2rem auto',
+    gap: '0.4rem',
+    alignItems: 'center',
+    padding: '0.32rem 0.5rem',
+    borderTop: '1px solid var(--border)',
+    fontSize: '0.75rem',
+  },
+  orderCell: { fontWeight: 750, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+  dateCell: { fontSize: '0.7rem', fontWeight: 650, color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' },
+  amtCol: { textAlign: 'right', fontVariantNumeric: 'tabular-nums' },
+  totalRow: {
+    display: 'grid',
+    gridTemplateColumns: 'minmax(0, 1.6fr) 6.2rem auto',
+    gap: '0.4rem',
+    alignItems: 'center',
+    padding: '0.35rem 0.5rem',
+    borderTop: '1px solid var(--border)',
+    fontSize: '0.75rem',
+    fontWeight: 800,
+    background: 'var(--bg-elevated)',
   },
 };

@@ -69,6 +69,35 @@ public class VendorClient {
         }
     }
 
+    /** Monthly subscription amount under the terms active on {@code refDate}; 0 when none or not yet due. */
+    public BigDecimal subscriptionForMonth(UUID vendorId, LocalDate monthStart, LocalDate refDate) {
+        RestClient client = restClientBuilder.baseUrl(vendorServiceProperties.getBaseUrl()).build();
+        Map<String, Object> body = new HashMap<>();
+        body.put("periodStart", monthStart.toString());
+        body.put("periodEnd", refDate.toString());
+        body.put("markSubscriptionCharged", false);
+        body.put("includeSubscription", true);
+        body.put("ignoreSubscriptionChargedFlag", true);
+        body.put("allowFeeExceedGross", true);
+        body.put("orderLines", List.of());
+        try {
+            ApiResponse<CommercialTermsQuote> response = client.post()
+                    .uri("/api/v1/internal/vendors/{vendorId}/commercial-terms/quote", vendorId)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(body)
+                    .retrieve()
+                    .body(new ParameterizedTypeReference<ApiResponse<CommercialTermsQuote>>() {});
+            BigDecimal amount = response == null || response.getData() == null
+                    ? null : response.getData().subscriptionAmount();
+            return amount == null ? BigDecimal.ZERO : amount;
+        } catch (RestClientResponseException ex) {
+            if (ex.getStatusCode().value() == 404) {
+                return BigDecimal.ZERO;
+            }
+            throw new BusinessException(ErrorCode.INTERNAL_ERROR, "Could not load subscription terms from vendor service");
+        }
+    }
+
     public void markSubscriptionCharged(UUID vendorId, LocalDate periodEnd) {
         RestClient client = restClientBuilder.baseUrl(vendorServiceProperties.getBaseUrl()).build();
         try {

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
 import { PortalShell } from '@/shared/layout/PortalShell';
 import { useAuth } from '@/shared/auth/AuthContext';
 import { ApiError } from '@/shared/api/http';
@@ -6,6 +6,7 @@ import { Banner, Button, Card } from '@/shared/ui';
 import { listTowns, type TownVm } from '@/features/towns/api/townsApi';
 import {
   fetchCompliancePack,
+  orderCountLabel,
   recordGatewaySettlement,
   type CompliancePack,
   type FinanceLedgerEntry,
@@ -35,6 +36,20 @@ import {
   REPORT_DATE_PRESET_OPTIONS,
   type ReportDatePreset,
 } from '@/shared/dates/istReportPresets';
+
+/** ISO day from the ledger, shown as one line (08 Oct 2026). */
+function ledgerDay(iso?: string | null): string {
+  if (!iso) return '—';
+  const [y, m, d] = iso.slice(0, 10).split('-').map(Number);
+  if (!y || !m || !d) return iso;
+  return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    timeZone: 'UTC',
+  });
+}
+
 type ViewTab = 'transactions' | 'daily';
 type MainTab =
   | 'cash'
@@ -52,6 +67,59 @@ type MainTab =
 
 function money(n?: number | null): string {
   return `₹${Number(n ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+const GENERIC_PARTY = new Set([
+  'delivery hub',
+  'vendor',
+  'delivery agent',
+  'buyer',
+  'buyer wallet',
+  'payee',
+  'counterparty',
+]);
+
+function isSpecificPartyName(name?: string | null): boolean {
+  const n = name?.trim();
+  if (!n || looksLikeUuid(n)) return false;
+  return !GENERIC_PARTY.has(n.toLowerCase());
+}
+
+function entrySortKey(e: FinanceLedgerEntry): string {
+  return `${e.bookDate ?? ''}|${e.occurredAt ?? ''}|${e.entryId}`;
+}
+
+function chronological(entries: FinanceLedgerEntry[]): FinanceLedgerEntry[] {
+  return [...entries].sort((a, b) => entrySortKey(a).localeCompare(entrySortKey(b)));
+}
+
+function runningBalances(entries: FinanceLedgerEntry[]): Map<string, number> {
+  const map = new Map<string, number>();
+  let balance = 0;
+  for (const e of entries) {
+    const amount = Number(e.amount ?? 0);
+    balance += e.direction === 'IN' ? amount : -amount;
+    map.set(`${e.sourceType}-${e.entryId}`, Math.round(balance * 100) / 100);
+  }
+  return map;
+}
+
+function partyNameIndex(entries: FinanceLedgerEntry[], parties: FinancePartyRow[]): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const row of parties) {
+    if (row.partyId && isSpecificPartyName(row.partyName)) map.set(row.partyId, row.partyName!.trim());
+  }
+  for (const e of entries) {
+    if (!e.counterpartyId || map.has(e.counterpartyId)) continue;
+    if (isSpecificPartyName(e.counterpartyName)) map.set(e.counterpartyId, e.counterpartyName!.trim());
+  }
+  return map;
+}
+
+function partyWho(e: FinanceLedgerEntry, names: Map<string, string>): string {
+  const named = e.counterpartyId ? names.get(e.counterpartyId) : undefined;
+  if (named) return named;
+  return displayCounterparty(e.counterpartyName, e.counterpartyRole, e.counterpartyId);
 }
 
 function csvEscape(value: string | number | null | undefined): string {
@@ -137,17 +205,24 @@ export function FinanceLedgerPage() {
 
   const filteredEntries = useMemo(() => {
     if (!report) return [];
-    return report.entries.filter((e) => {
+    const rows = report.entries.filter((e) => {
       if (directionFilter !== 'all' && e.direction !== directionFilter) return false;
       if (natureFilter === 'WALLET' && e.paymentRail !== 'WALLET') return false;
       if (natureFilter === 'OPERATING' && (e.cashNature !== 'OPERATING' || e.paymentRail === 'WALLET')) return false;
       if (natureFilter === 'PASS_THROUGH' && e.cashNature !== 'PASS_THROUGH') return false;
       return true;
     });
+    return chronological(rows);
   }, [report, directionFilter, natureFilter]);
+
+  const entryBalances = useMemo(() => runningBalances(filteredEntries), [filteredEntries]);
 
   const hubRows = useMemo(() => resolveHubRows(report), [report]);
   const vendorRows = useMemo(() => resolveVendorRows(report, compliance?.tds.lines), [report, compliance]);
+  const partyNames = useMemo(
+    () => partyNameIndex(report?.entries ?? [], [...hubRows, ...vendorRows]),
+    [report, hubRows, vendorRows],
+  );
   const visibleHubRows = useMemo(() => filterPartyRows(hubRows, partyQuery), [hubRows, partyQuery]);
   const visibleVendorRows = useMemo(() => filterPartyRows(vendorRows, partyQuery), [vendorRows, partyQuery]);
 
@@ -156,34 +231,40 @@ export function FinanceLedgerPage() {
     const rows: Array<Array<string | number | null | undefined>> = [
       [
         'Book date',
-        'Direction',
+        'Received from / Paid to',
+        'Party',
+        'Cash in INR',
+        'Cash out INR',
+        'Balance INR',
         'Nature',
         'Category',
-        'Amount INR',
-        'Counterparty role',
-        'Counterparty',
         'Payment rail',
         'Txn reference',
-        'Orders',
+        'Order count',
         'Period',
         'Narrative',
         'Source id',
       ],
-      ...filteredEntries.map((e) => [
-        e.bookDate,
-        e.direction,
-        e.cashNature,
-        e.categoryLabel,
-        e.amount,
-        e.counterpartyRole,
-        e.counterpartyName ?? '',
-        e.paymentRail ?? '',
-        e.transactionReference ?? '',
-        e.orderNumbers ?? '',
-        e.periodLabel ?? '',
-        e.narrative ?? '',
-        e.entryId,
-      ]),
+      ...filteredEntries.map((e) => {
+        const inflow = e.direction === 'IN';
+        const who = partyWho(e, partyNames);
+        return [
+          e.bookDate,
+          inflow ? 'Received from' : 'Paid to',
+          who,
+          inflow ? e.amount : '',
+          inflow ? '' : e.amount,
+          entryBalances.get(`${e.sourceType}-${e.entryId}`) ?? '',
+          e.cashNature,
+          e.categoryLabel,
+          e.paymentRail ?? '',
+          e.transactionReference ?? '',
+          e.orderCount && e.orderCount > 0 ? e.orderCount : '',
+          e.periodLabel ?? '',
+          e.narrative ?? '',
+          e.entryId,
+        ];
+      }),
       [],
       ['HUBS'],
       ['Hub', 'Received', 'Paid out', 'COD remitted', 'Franchise', 'Other IN', 'Delivery payouts', 'Txns'],
@@ -319,18 +400,30 @@ export function FinanceLedgerPage() {
 
           {mainTab === 'cash' ? (
             <>
-          <div style={styles.summaryGrid}>
-            <SummaryCard label="Total received (IN)" value={money(report?.totalInflows)} help="All inflows in period" tone="in" />
-            <SummaryCard label="Total paid out (OUT)" value={money(report?.totalOutflows)} help="Bank/gateway: settlements, refunds" tone="out" />
-            <SummaryCard label="Net cash movement" value={money(report?.netCashMovement)} help="Bank IN minus bank OUT" />
-            <SummaryCard label="Wallet gifted" value={money(report?.walletGranted)} help="Scratch + referral + store credit" tone="out" />
-            <SummaryCard label="Scratch gifts" value={money(report?.walletScratch)} help="Wallet CREDIT · not bank" tone="out" />
-            <SummaryCard label="Referral gifts" value={money(report?.walletReferral)} help="Both sides · not bank" tone="out" />
-            <SummaryCard label="Store credit" value={money(report?.walletStoreCredit)} help="Item cancel · not bank" tone="out" />
-            <SummaryCard label="Wallet used" value={money(report?.walletRedeemed)} help="Spent at checkout" />
-            <SummaryCard label="Platform revenue (IN)" value={money(report?.platformReceipts)} help="Membership, franchise — not vendor GMV" tone="in" />
-            <SummaryCard label="Pass-through IN" value={money(report?.passThroughInflows)} help="Buyer online + hub COD remittance" />
-            <SummaryCard label="Pass-through OUT" value={money(report?.passThroughOutflows)} help="Vendor & delivery payouts" tone="out" />
+          <div style={styles.metricBoard}>
+            <MetricBand title="Bank" note="In and out of the account">
+              <SummaryCard compact label="Received" value={money(report?.totalInflows)} help="All inflows" tone="in" />
+              <SummaryCard compact label="Paid out" value={money(report?.totalOutflows)} help="Settlements and refunds" tone="out" />
+              <SummaryCard compact label="Net" value={money(report?.netCashMovement)} help="Received minus paid out" />
+            </MetricBand>
+            <MetricBand title="Of that cash" note="What you keep, and what you pass on">
+              <SummaryCard compact label="Platform revenue" value={money(report?.platformReceipts)} help="Membership and franchise" tone="in" />
+              <SummaryCard compact label="Pass-through in" value={money(report?.passThroughInflows)} help="Buyer online and hub COD" />
+              <SummaryCard compact label="Pass-through out" value={money(report?.passThroughOutflows)} help="Vendor and delivery payouts" tone="out" />
+            </MetricBand>
+            <MetricBand title="Buyer wallet" note="Not bank money until the buyer spends it">
+              <SummaryCard
+                compact
+                label="Scratch"
+                value={`${money(report?.walletScratchUsed)} / ${money(report?.walletScratch)}`}
+                help="Used / given"
+                tone="out"
+              />
+              <SummaryCard compact label="Referral" value={money(report?.walletReferral)} help="Both sides, still in wallets" tone="out" />
+              <SummaryCard compact label="Store credit" value={money(report?.walletStoreCredit)} help="Item cancelled, still in wallets" tone="out" />
+              <SummaryCard compact label="Gifted" value={money(report?.walletGranted)} help="Scratch + referral + store credit" tone="out" />
+              <SummaryCard compact label="Spent" value={money(report?.walletRedeemed)} help="Used at checkout" />
+            </MetricBand>
           </div>
           <p style={styles.compliance}>{report?.complianceNote}</p>
           {townId ? (
@@ -370,15 +463,17 @@ export function FinanceLedgerPage() {
                   </select>
                 </label>
               </div>
+              <p style={styles.hint}>Oldest payment first. Balance is the outstanding after that line.</p>
               <div style={styles.tableWrap}>
-                <table style={styles.table}>
+                <table style={{ ...styles.table, minWidth: 1080 }}>
                   <thead>
                     <tr>
-                      <th style={styles.th}>Date</th>
-                      <th style={styles.th}>In / Out</th>
-                      <th style={styles.th}>Category</th>
-                      <th style={styles.thNum}>Amount</th>
-                      <th style={styles.th}>From / To</th>
+                      <th style={styles.thDate}>Date</th>
+                      <th style={styles.thDate} title="Day you confirmed this payment">Verified</th>
+                      <th style={styles.th}>Received from / Paid to</th>
+                      <th style={styles.thNum}>Cash in</th>
+                      <th style={styles.thNum}>Cash out</th>
+                      <th style={styles.thNum}>Balance</th>
                       <th style={styles.th}>Reference</th>
                       <th style={styles.th}>Detail</th>
                     </tr>
@@ -386,10 +481,20 @@ export function FinanceLedgerPage() {
                   <tbody>
                     {filteredEntries.length === 0 ? (
                       <tr>
-                        <td colSpan={7} style={styles.empty}>No transactions in this filter.</td>
+                        <td colSpan={8} style={styles.empty}>No transactions in this filter.</td>
                       </tr>
                     ) : (
-                      filteredEntries.map((e) => <LedgerRow key={`${e.sourceType}-${e.entryId}`} entry={e} />)
+                      <>
+                        {filteredEntries.map((e) => (
+                          <LedgerRow
+                            key={`${e.sourceType}-${e.entryId}`}
+                            entry={e}
+                            who={partyWho(e, partyNames)}
+                            balance={entryBalances.get(`${e.sourceType}-${e.entryId}`) ?? 0}
+                          />
+                        ))}
+                        <CashBookTotal entries={filteredEntries} />
+                      </>
                     )}
                   </tbody>
                 </table>
@@ -410,7 +515,7 @@ export function FinanceLedgerPage() {
                 <tbody>
                   {report.daily.map((d) => (
                     <tr key={d.date}>
-                      <td style={styles.td}>{d.date}</td>
+                      <td style={styles.tdDate}>{ledgerDay(d.date)}</td>
                       <td style={styles.tdNum}>{money(d.inflows)}</td>
                       <td style={styles.tdNum}>{money(d.outflows)}</td>
                       <td style={styles.tdNum}>{money(d.net)}</td>
@@ -493,8 +598,8 @@ export function FinanceLedgerPage() {
                 />
                 <SummaryCard
                   label="Scratch gifts"
-                  value={money(managementSummary.walletScratch)}
-                  help="In this range"
+                  value={`${money(report?.walletScratchUsed)} / ${money(managementSummary.walletScratch)}`}
+                  help="Used / given"
                   tip={PNL_SUMMARY_TIPS.scratchGifts}
                   tone="out"
                 />
@@ -750,7 +855,7 @@ export function FinanceLedgerPage() {
                   <tbody>
                     {compliance.accrual.daily.map((d) => (
                       <tr key={d.date}>
-                        <td style={styles.td}>{d.date}</td>
+                        <td style={styles.tdDate}>{ledgerDay(d.date)}</td>
                         <td style={styles.tdNum}>{d.ordersDelivered}</td>
                         <td style={styles.tdNum}>{money(d.platformFees)}</td>
                         <td style={styles.tdNum}>{money(d.deliveredGmv)}</td>
@@ -779,9 +884,10 @@ export function FinanceLedgerPage() {
           {mainTab === 'tds' ? (
             <>
               <div style={styles.summaryGrid}>
-                <SummaryCard label="TDS rate" value={`${compliance.tds.ratePercent}%`} help="Configurable — confirm with CA" />
+                <SummaryCard label="TDS rate" value={`${compliance.tds.ratePercent}%`} help="Platform settings" />
+                <SummaryCard label="Exempt up to" value={money(compliance.tds.exemptUpto)} help="Per vendor, financial year" />
                 <SummaryCard label="Gross sales facilitated" value={money(compliance.tds.totalGrossSalesFacilitated)} help="Paid vendor settlements" />
-                <SummaryCard label="Est. TDS" value={money(compliance.tds.totalTdsEstimated)} help="On gross per settlement" tone="out" />
+                <SummaryCard label="Est. TDS" value={money(compliance.tds.totalTdsEstimated)} help="Gross above the exempt amount" tone="out" />
                 <SummaryCard label="Net paid to vendors" value={money(compliance.tds.totalNetPaidToVendors)} help="After commission" />
                 <SummaryCard label="Platform commission" value={money(compliance.tds.totalPlatformCommission)} help="Retained fees" tone="in" />
               </div>
@@ -903,30 +1009,58 @@ export function FinanceLedgerPage() {
   );
 }
 
-function LedgerRow({ entry: e }: { entry: FinanceLedgerEntry }) {
-  const inflow = e.direction === 'IN';
+function CashBookTotal({ entries }: { entries: FinanceLedgerEntry[] }) {
+  let cashIn = 0;
+  let cashOut = 0;
+  for (const e of entries) {
+    const amount = Number(e.amount ?? 0);
+    if (e.direction === 'IN') cashIn += amount;
+    else cashOut += amount;
+  }
   return (
     <tr>
-      <td style={styles.td}>{e.bookDate}</td>
+      <td colSpan={3} style={styles.totalLabel}>Outstanding</td>
+      <td style={styles.tdIn}>{money(cashIn)}</td>
+      <td style={styles.tdOut}>{money(cashOut)}</td>
+      <td style={styles.tdBal}>{money(Math.round((cashIn - cashOut) * 100) / 100)}</td>
+      <td colSpan={2} style={styles.td} />
+    </tr>
+  );
+}
+
+function LedgerRow({
+  entry: e,
+  who,
+  balance,
+}: {
+  entry: FinanceLedgerEntry;
+  who: string;
+  balance: number;
+}) {
+  const inflow = e.direction === 'IN';
+  const orders = orderCountLabel(e.orderCount);
+  const nature = e.paymentRail === 'WALLET' ? 'Wallet' : e.cashNature === 'OPERATING' ? 'Operating' : 'Pass-through';
+  return (
+    <tr>
+      <td style={styles.tdDate}>{ledgerDay(e.bookDate)}</td>
+      <td style={styles.tdDateMuted}>{ledgerDay(e.verifiedDate)}</td>
       <td style={styles.td}>
-        <span style={inflow ? styles.badgeIn : styles.badgeOut}>{inflow ? 'IN' : 'OUT'}</span>
+        <div style={inflow ? styles.partyIn : styles.partyOut}>{inflow ? 'Received from' : 'Paid to'}</div>
+        <strong style={styles.partyName}>{who}</strong>
         <div style={styles.meta}>
-          {e.paymentRail === 'WALLET' ? 'Wallet' : e.cashNature === 'OPERATING' ? 'Operating' : 'Pass-through'}
+          {e.categoryLabel}
+          {' · '}
+          {nature}
+          {e.paymentRail && e.paymentRail !== 'WALLET' ? ` · ${e.paymentRail}` : ''}
         </div>
       </td>
-      <td style={styles.td}>
-        <strong>{e.categoryLabel}</strong>
-        <div style={styles.meta}>{e.paymentRail ?? '—'}</div>
-      </td>
-      <td style={styles.tdNum}>{money(e.amount)}</td>
-      <td style={styles.td}>
-        <strong>{displayCounterparty(e.counterpartyName, e.counterpartyRole, e.counterpartyId)}</strong>
-        <div style={styles.meta}>{e.counterpartyRole}</div>
-      </td>
+      <td style={inflow ? styles.tdIn : styles.tdDash}>{inflow ? money(e.amount) : '—'}</td>
+      <td style={inflow ? styles.tdDash : styles.tdOut}>{inflow ? '—' : money(e.amount)}</td>
+      <td style={styles.tdBal}>{money(balance)}</td>
       <td style={styles.tdMono}>{e.transactionReference ?? '—'}</td>
       <td style={styles.td}>
         <div style={styles.narrative}>{e.narrative}</div>
-        {e.orderNumbers ? <div style={styles.meta}>Orders: {e.orderNumbers}</div> : null}
+        {orders ? <div style={styles.meta}>{orders}</div> : null}
         {e.periodLabel ? <div style={styles.meta}>Period: {e.periodLabel}</div> : null}
       </td>
     </tr>
@@ -955,7 +1089,11 @@ function PartyCashPanel({
   const role = kind === 'hub' ? 'HUB' : 'VENDOR';
   const totals = sumPartyRows(rows);
   const selected = selectedId ? rows.find((r) => r.partyId === selectedId) : null;
-  const lines = selectedId ? partyEntries(entries, selectedId, role) : [];
+  const lines = useMemo(() => {
+    const matched = selectedId ? partyEntries(entries, selectedId, role) : [];
+    return chronological(matched);
+  }, [entries, selectedId, role]);
+  const lineBalances = useMemo(() => runningBalances(lines), [lines]);
   const isHub = kind === 'hub';
 
   return (
@@ -994,7 +1132,7 @@ function PartyCashPanel({
             <SummaryCard label="Paid to vendors" value={money(totals.outflows)} help="Goods payouts (net)" tone="out" />
             <SummaryCard label="Gross facilitated" value={money(totals.grossSales)} help="From paid vendor settlements" />
             <SummaryCard label="Commission" value={money(totals.commission)} help="Retained fees" tone="in" />
-            <SummaryCard label="Est. TDS" value={money(totals.tdsEstimated)} help="On gross · confirm with CA" tone="out" />
+            <SummaryCard label="Est. TDS" value={money(totals.tdsEstimated)} help="Gross above the exempt amount" tone="out" />
           </>
         )}
       </div>
@@ -1105,32 +1243,45 @@ function PartyCashPanel({
             <table style={{ ...styles.table, minWidth: 720 }}>
               <thead>
                 <tr>
-                  <th style={styles.th}>Date</th>
-                  <th style={styles.th}>In / Out</th>
-                  <th style={styles.th}>Category</th>
-                  <th style={styles.thNum}>Amount</th>
+                  <th style={styles.thDate}>Date</th>
+                  <th style={styles.thDate} title="Day you confirmed this payment">Verified</th>
+                  <th style={styles.th}>Received from / Paid to</th>
+                  <th style={styles.thNum}>Cash in</th>
+                  <th style={styles.thNum}>Cash out</th>
+                  <th style={styles.thNum}>Balance</th>
                   <th style={styles.th}>Ref</th>
                 </tr>
               </thead>
               <tbody>
                 {lines.length === 0 ? (
                   <tr>
-                    <td colSpan={5} style={styles.empty}>
+                    <td colSpan={7} style={styles.empty}>
                       No cash-book lines for this {isHub ? 'hub' : 'vendor'} in the loaded transactions.
                     </td>
                   </tr>
                 ) : (
-                  lines.map((e) => (
-                    <tr key={e.entryId}>
-                      <td style={styles.td}>{e.bookDate}</td>
-                      <td style={styles.td}>
-                        <span style={e.direction === 'IN' ? styles.badgeIn : styles.badgeOut}>{e.direction}</span>
-                      </td>
-                      <td style={styles.td}>{e.categoryLabel}</td>
-                      <td style={styles.tdNum}>{money(e.amount)}</td>
-                      <td style={styles.tdMono}>{e.transactionReference ?? '—'}</td>
-                    </tr>
-                  ))
+                  lines.map((e) => {
+                    const inflow = e.direction === 'IN';
+                    return (
+                      <tr key={e.entryId}>
+                        <td style={styles.tdDate}>{ledgerDay(e.bookDate)}</td>
+                        <td style={styles.tdDateMuted}>{ledgerDay(e.verifiedDate)}</td>
+                        <td style={styles.td}>
+                          <div style={inflow ? styles.partyIn : styles.partyOut}>
+                            {inflow ? 'Received from' : 'Paid to'}
+                          </div>
+                          <strong style={styles.partyName}>
+                            {displayEntityLabel(selected.partyName, isHub ? 'Delivery hub' : 'Vendor', selected.partyId)}
+                          </strong>
+                          <div style={styles.meta}>{e.categoryLabel}</div>
+                        </td>
+                        <td style={inflow ? styles.tdIn : styles.tdDash}>{inflow ? money(e.amount) : '—'}</td>
+                        <td style={inflow ? styles.tdDash : styles.tdOut}>{inflow ? '—' : money(e.amount)}</td>
+                        <td style={styles.tdBal}>{money(lineBalances.get(`${e.sourceType}-${e.entryId}`) ?? 0)}</td>
+                        <td style={styles.tdMono}>{e.transactionReference ?? '—'}</td>
+                      </tr>
+                    );
+                  })
                 )}
               </tbody>
             </table>
@@ -1141,22 +1292,45 @@ function PartyCashPanel({
   );
 }
 
+function MetricBand({
+  title,
+  note,
+  children,
+}: {
+  title: string;
+  note: string;
+  children: ReactNode;
+}) {
+  return (
+    <section style={styles.band}>
+      <div style={styles.bandHead}>
+        <p style={styles.bandTitle}>{title}</p>
+        <p style={styles.bandNote}>{note}</p>
+      </div>
+      <div style={styles.bandCards}>{children}</div>
+    </section>
+  );
+}
+
 function SummaryCard({
   label,
   value,
   help,
   tip,
   tone,
+  compact,
 }: {
   label: string;
   value: string;
   help: string;
   tip?: string;
   tone?: 'in' | 'out';
+  compact?: boolean;
 }) {
+  const shell = tone === 'in' ? styles.sumIn : tone === 'out' ? styles.sumOut : styles.sum;
   return (
-    <div style={tone === 'in' ? styles.sumIn : tone === 'out' ? styles.sumOut : styles.sum}>
-      <p style={styles.sumValue}>{value}</p>
+    <div style={compact ? { ...shell, ...styles.sumCompact } : shell}>
+      <p style={compact ? { ...styles.sumValue, ...styles.sumValueCompact } : styles.sumValue}>{value}</p>
       <div style={styles.sumLabelRow}>
         <p style={styles.sumLabel}>{label}</p>
         {tip ? (
@@ -1193,6 +1367,23 @@ const styles: Record<string, CSSProperties> = {
     lineHeight: 1.4,
   },
   summaryGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '0.55rem', marginBottom: '0.5rem' },
+  metricBoard: { display: 'grid', gap: '0.4rem', marginBottom: '0.45rem' },
+  band: {
+    display: 'grid',
+    gridTemplateColumns: 'minmax(7.2rem, 9.2rem) minmax(0, 1fr)',
+    gap: '0.4rem',
+    alignItems: 'stretch',
+    padding: '0.35rem',
+    border: '1px solid var(--border)',
+    borderRadius: 10,
+    background: 'var(--bg-muted, rgba(15, 23, 42, 0.03))',
+  },
+  bandHead: { display: 'grid', alignContent: 'center', gap: '0.12rem', padding: '0.15rem 0.35rem' },
+  bandTitle: { margin: 0, fontSize: '0.82rem', fontWeight: 800 },
+  bandNote: { margin: 0, fontSize: '0.7rem', fontWeight: 600, color: 'var(--text-muted)', lineHeight: 1.3 },
+  bandCards: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(7.6rem, 1fr))', gap: '0.35rem' },
+  sumCompact: { padding: '0.4rem 0.5rem', borderRadius: 8 },
+  sumValueCompact: { fontSize: '0.98rem', fontVariantNumeric: 'tabular-nums' },
   sum: { border: '1px solid var(--border)', borderRadius: 12, padding: '0.65rem', background: 'var(--bg-elevated)' },
   sumIn: { border: '1px solid rgba(129,199,132,0.5)', borderRadius: 12, padding: '0.65rem', background: 'rgba(129,199,132,0.08)' },
   sumOut: { border: '1px solid rgba(239,83,80,0.45)', borderRadius: 12, padding: '0.65rem', background: 'rgba(239,83,80,0.06)' },
@@ -1228,9 +1419,78 @@ const styles: Record<string, CSSProperties> = {
   tableWrap: { overflowX: 'auto', border: '1px solid var(--border)', borderRadius: 12 },
   table: { width: '100%', borderCollapse: 'collapse', minWidth: 880, fontSize: '0.82rem' },
   th: { textAlign: 'left', padding: '0.5rem 0.6rem', borderBottom: '1px solid var(--border)', color: 'var(--text-muted)', fontWeight: 800 },
+  thDate: {
+    textAlign: 'left',
+    padding: '0.5rem 0.55rem',
+    borderBottom: '1px solid var(--border)',
+    color: 'var(--text-muted)',
+    fontWeight: 800,
+    whiteSpace: 'nowrap',
+  },
+  tdDate: {
+    padding: '0.5rem 0.55rem',
+    borderBottom: '1px solid var(--border)',
+    verticalAlign: 'top',
+    whiteSpace: 'nowrap',
+    fontVariantNumeric: 'tabular-nums',
+  },
+  tdDateMuted: {
+    padding: '0.5rem 0.55rem',
+    borderBottom: '1px solid var(--border)',
+    verticalAlign: 'top',
+    whiteSpace: 'nowrap',
+    fontVariantNumeric: 'tabular-nums',
+    color: 'var(--text-muted)',
+  },
   thNum: { textAlign: 'right', padding: '0.5rem 0.6rem', borderBottom: '1px solid var(--border)', color: 'var(--text-muted)', fontWeight: 800 },
   td: { padding: '0.5rem 0.6rem', borderBottom: '1px solid var(--border)', verticalAlign: 'top' },
   tdNum: { padding: '0.5rem 0.6rem', borderBottom: '1px solid var(--border)', textAlign: 'right', fontWeight: 700, verticalAlign: 'top' },
+  tdIn: {
+    padding: '0.5rem 0.6rem',
+    borderBottom: '1px solid var(--border)',
+    textAlign: 'right',
+    fontWeight: 800,
+    verticalAlign: 'top',
+    color: '#15803d',
+    fontVariantNumeric: 'tabular-nums',
+    whiteSpace: 'nowrap',
+  },
+  tdOut: {
+    padding: '0.5rem 0.6rem',
+    borderBottom: '1px solid var(--border)',
+    textAlign: 'right',
+    fontWeight: 800,
+    verticalAlign: 'top',
+    color: '#b91c1c',
+    fontVariantNumeric: 'tabular-nums',
+    whiteSpace: 'nowrap',
+  },
+  tdDash: {
+    padding: '0.5rem 0.6rem',
+    borderBottom: '1px solid var(--border)',
+    textAlign: 'right',
+    verticalAlign: 'top',
+    color: 'var(--text-muted)',
+    fontWeight: 600,
+  },
+  tdBal: {
+    padding: '0.5rem 0.6rem',
+    borderBottom: '1px solid var(--border)',
+    textAlign: 'right',
+    fontWeight: 800,
+    verticalAlign: 'top',
+    fontVariantNumeric: 'tabular-nums',
+    whiteSpace: 'nowrap',
+  },
+  totalLabel: {
+    padding: '0.5rem 0.6rem',
+    borderBottom: '1px solid var(--border)',
+    verticalAlign: 'top',
+    fontWeight: 800,
+  },
+  partyIn: { fontSize: '0.68rem', fontWeight: 800, letterSpacing: '0.03em', textTransform: 'uppercase', color: '#15803d' },
+  partyOut: { fontSize: '0.68rem', fontWeight: 800, letterSpacing: '0.03em', textTransform: 'uppercase', color: '#b91c1c' },
+  partyName: { display: 'block', fontSize: '0.86rem', lineHeight: 1.25 },
   tdMono: { padding: '0.5rem 0.6rem', borderBottom: '1px solid var(--border)', fontFamily: 'ui-monospace, monospace', fontSize: '0.75rem', wordBreak: 'break-all' },
   badgeIn: { display: 'inline-block', padding: '0.1rem 0.45rem', borderRadius: 6, background: 'rgba(129,199,132,0.25)', fontWeight: 800, fontSize: '0.75rem' },
   badgeOut: { display: 'inline-block', padding: '0.1rem 0.45rem', borderRadius: 6, background: 'rgba(239,83,80,0.2)', fontWeight: 800, fontSize: '0.75rem' },

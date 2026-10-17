@@ -5,6 +5,8 @@ export type FinanceLedgerEntry = {
   sourceType: string;
   bookDate: string;
   occurredAt?: string | null;
+  /** Day admin confirmed a vendor payment. The Date column stays the vendor's bank date. */
+  verifiedDate?: string | null;
   direction: 'IN' | 'OUT';
   category: string;
   categoryLabel: string;
@@ -18,11 +20,19 @@ export type FinanceLedgerEntry = {
   paymentRail?: string | null;
   transactionReference?: string | null;
   narrative?: string | null;
-  orderNumbers?: string | null;
+  /** Orders covered by this movement. The statement shows the count, not the ids. */
+  orderCount?: number | null;
   periodLabel?: string | null;
   settlementId?: string | null;
   orderId?: string | null;
 };
+
+/** Short label for a cash movement. The statement never lists the order ids. */
+export function orderCountLabel(count: number | null | undefined): string {
+  const n = Number(count ?? 0);
+  if (!Number.isFinite(n) || n <= 0) return '';
+  return n === 1 ? '1 order' : `${Math.round(n)} orders`;
+}
 
 export type FinanceLedgerDaily = {
   date: string;
@@ -77,6 +87,8 @@ export type FinanceLedgerReport = {
   walletGranted?: number;
   walletRedeemed?: number;
   walletScratch?: number;
+  /** Scratch from this period that buyers have spent. */
+  walletScratchUsed?: number;
   walletReferral?: number;
   walletStoreCredit?: number;
   entryCount: number;
@@ -131,6 +143,7 @@ export type CompliancePack = {
   };
   tds: {
     ratePercent: number;
+    exemptUpto?: number;
     legalNote: string;
     totalGrossSalesFacilitated: number;
     totalTdsEstimated: number;

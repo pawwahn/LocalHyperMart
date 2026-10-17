@@ -9,7 +9,14 @@ import com.hyperlocalmart.payment.client.TownClient;
 import com.hyperlocalmart.payment.client.OrderClient;
 import com.hyperlocalmart.payment.client.OrderClient.SettlementCandidateItem;
 import com.hyperlocalmart.payment.client.VendorClient;
+import com.hyperlocalmart.payment.dto.request.CollectSubscriptionBillRequest;
+import com.hyperlocalmart.payment.dto.request.CorrectSubscriptionPaymentRequest;
+import com.hyperlocalmart.payment.dto.request.CorrectVendorPayoutRequest;
+import com.hyperlocalmart.payment.dto.request.RejectSubscriptionPaymentRequest;
+import com.hyperlocalmart.payment.dto.request.SendSubscriptionBillRequest;
+import com.hyperlocalmart.payment.dto.request.SubscriptionPaymentRequest;
 import com.hyperlocalmart.payment.dto.request.CreateSettlementRequest;
+import com.hyperlocalmart.payment.dto.response.SubscriptionBillView;
 import com.hyperlocalmart.payment.dto.request.MarkSettlementPaidRequest;
 import com.hyperlocalmart.payment.dto.response.SettlementCandidateView;
 import com.hyperlocalmart.payment.dto.response.SettlementResponse;
@@ -27,12 +34,14 @@ import com.hyperlocalmart.payment.repository.SettlementRepository;
 import com.hyperlocalmart.payment.repository.VendorSettlementAdjustmentRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.*;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -54,6 +63,7 @@ public class SettlementService {
     private final VendorClient vendorClient;
     private final TownClient townClient;
     private final ServiceInvoiceNumberService serviceInvoiceNumberService;
+    private final HubCodCustodyService hubCodCustodyService;
     private final PayeeDisplayNameService payeeDisplayNameService;
 
     /** Order lookup stays outside a DB transaction so a slow call cannot pin the pool. */
@@ -75,10 +85,11 @@ public class SettlementService {
         Set<UUID> codRemittedOrderIds = codOrderIds.isEmpty()
                 ? Set.of()
                 : new HashSet<>(codCloseDayLineItemRepository.findClosedOrderIds(codOrderIds));
+        Set<UUID> withCompany = hubCodCustodyService.ordersAlreadyWithCompany(codOrderIds);
         Map<UUID, CodAgentHandover> handoverByOrder = loadLatestHandovers(codOrderIds);
 
         Map<UUID, AgentRef> deliveringAgentByOrder = resolveDeliveringAgents(
-                rawItems, codRemittedOrderIds, handoverByOrder, vendorId);
+                rawItems, codRemittedOrderIds, withCompany, handoverByOrder, vendorId);
 
         List<SettlementCandidateView.Item> items = rawItems.stream()
                 .map(item -> {
@@ -87,7 +98,7 @@ public class SettlementService {
                     Boolean remittedHub = null;
                     if (cod) {
                         codLocation = resolveCodCashLocation(
-                                item.orderId(), codRemittedOrderIds, handoverByOrder);
+                                item.orderId(), codRemittedOrderIds, withCompany, handoverByOrder);
                         remittedHub = "AT_HUB".equals(codLocation);
                         if (item.vendorAgentDelivery() && !"AT_HUB".equals(codLocation)) {
                             remittedHub = false;
@@ -102,6 +113,7 @@ public class SettlementService {
                             .orderNumber(item.orderNumber())
                             .subOrderNumber(item.subOrderNumber())
                             .placedAt(item.placedAt())
+                            .deliveredAt(item.deliveredAt())
                             .status(item.status())
                             .paymentStatus(item.paymentStatus())
                             .paymentMethod(item.paymentMethod())
@@ -212,7 +224,7 @@ public class SettlementService {
                 request.getPeriodStart(),
                 request.getPeriodEnd(),
                 orderLines,
-                collection,
+                false,
                 collection);
         BigDecimal commission = feeQuote.totalFeeAmount() == null
                 ? BigDecimal.ZERO
@@ -251,7 +263,7 @@ public class SettlementService {
             net = commission.add(otherCharges);
             if (net.compareTo(BigDecimal.ZERO) <= 0) {
                 throw new BusinessException(ErrorCode.VALIDATION_ERROR,
-                        "Nothing to collect — no monthly fee, commission, or extra charge on this batch.");
+                        "Nothing to collect — no commission or extra charge on this batch. Monthly subscription is billed on the Subscription tab.");
             }
         } else {
             net = gross.subtract(commission).subtract(claimChargebacks).subtract(otherCharges);
@@ -354,9 +366,16 @@ public class SettlementService {
             settlement.getLineItems().add(line);
         }
 
+        boolean billSent = false;
         if (request.isMarkPaid()) {
             applyPaid(settlement, actorId, request.getPayoutMethod(), request.getTransactionReference(),
                     request.getTransactionNotes(), request.getPaidAt());
+        } else if (collection && request.isSendBill()) {
+            Instant now = Instant.now();
+            settlement.setStatus(SettlementStatus.FINALIZED);
+            settlement.setBillSentAt(now);
+            settlement.setServiceInvoiceNumber(serviceInvoiceNumberService.allocate(now));
+            billSent = true;
         }
 
         Settlement saved = settlementRepository.save(settlement);
@@ -368,14 +387,13 @@ public class SettlementService {
         if (!pendingAdjustments.isEmpty()) {
             vendorSettlementAdjustmentRepository.saveAll(pendingAdjustments);
         }
-        if (request.isMarkPaid() && collection && feeQuote.subscriptionIncluded()) {
-            vendorClient.markSubscriptionCharged(request.getVendorId(), request.getPeriodEnd());
-        }
         String payeeLabel = saved.getPayeeName() == null ? "" : saved.getPayeeName();
         townClient.appendAdminAudit(
                 "settlements",
-                collection ? "VENDOR_COLLECTION" : "VENDOR_PAYOUT",
-                collection
+                billSent ? "VENDOR_BILL_SENT" : collection ? "VENDOR_COLLECTION" : "VENDOR_PAYOUT",
+                billSent
+                        ? "Bill sent to vendor " + payeeLabel + " ₹" + saved.getNetAmount()
+                        : collection
                         ? "Collected from vendor " + payeeLabel + " ₹" + saved.getNetAmount()
                         : "Paid vendor " + payeeLabel + " ₹" + saved.getNetAmount(),
                 actorId,
@@ -439,10 +457,612 @@ public class SettlementService {
         if (settlement.getVendorAcknowledgedAt() == null) {
             settlement.setVendorAcknowledgedAt(Instant.now());
             settlement.setVendorAcknowledgedBy(actorId);
+            settlement.setVendorNotReceivedAt(null);
+            settlement.setVendorNotReceivedNote(null);
             settlement.setUpdatedBy(actorId);
             settlement = settlementRepository.save(settlement);
         }
         return toResponse(settlement);
+    }
+
+    @Transactional
+    public SettlementResponse reportNotReceived(UUID actorId, UUID vendorId, UUID settlementId, String note) {
+        Settlement settlement = loadVendorPayout(vendorId, settlementId);
+        if (settlement.getStatus() != SettlementStatus.PAID) {
+            throw new BusinessException(ErrorCode.CONFLICT, "Only a paid payout can be marked not received");
+        }
+        if (settlement.getVendorAcknowledgedAt() != null) {
+            throw new BusinessException(ErrorCode.CONFLICT, "You already confirmed this payout");
+        }
+        String trimmed = note == null ? "" : note.trim();
+        settlement.setVendorNotReceivedAt(Instant.now());
+        settlement.setVendorNotReceivedNote(trimmed.isEmpty() ? null : trimmed);
+        settlement.setUpdatedBy(actorId);
+        Settlement saved = settlementRepository.save(settlement);
+        String shop = saved.getPayeeName() == null ? "" : saved.getPayeeName();
+        townClient.appendAdminAudit(
+                "settlements",
+                "VENDOR_NOT_RECEIVED",
+                "Vendor not received payout " + shop + " ₹" + saved.getNetAmount()
+                        + (trimmed.isEmpty() ? "" : " — " + trimmed),
+                actorId,
+                saved.getTownId(),
+                saved.getId());
+        return toResponse(saved);
+    }
+
+    /** Admin fixes mode / UTR / note after the vendor says the money did not arrive, then asks them to check again. */
+    @Transactional
+    public SettlementResponse correctVendorPayout(UUID actorId, UUID settlementId, CorrectVendorPayoutRequest request) {
+        Settlement settlement = settlementRepository.findDetailedById(settlementId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Settlement not found"));
+        if ((settlement.getPayeeType() != SettlementPayeeType.VENDOR
+                && settlement.getPayeeType() != SettlementPayeeType.HUB
+                && settlement.getPayeeType() != SettlementPayeeType.AGENT)
+                || settlement.getDirection() == SettlementDirection.COLLECTION) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Only a shop, hub, or agent payout can be corrected");
+        }
+        if (settlement.getStatus() != SettlementStatus.PAID) {
+            throw new BusinessException(ErrorCode.CONFLICT, "Mark the payout paid before correcting it");
+        }
+        if (settlement.getVendorAcknowledgedAt() != null) {
+            throw new BusinessException(ErrorCode.CONFLICT, "Vendor already confirmed this payout");
+        }
+        if (settlement.getVendorNotReceivedAt() == null) {
+            throw new BusinessException(ErrorCode.CONFLICT, "Vendor has not reported this payout as missing");
+        }
+        settlement.setPayoutMethod(request.getPayoutMethod().trim());
+        settlement.setTransactionReference(request.getTransactionReference().trim());
+        String notes = request.getTransactionNotes() == null ? "" : request.getTransactionNotes().trim();
+        settlement.setTransactionNotes(notes.isEmpty() ? null : notes);
+        if (request.getPaidAt() != null) {
+            settlement.setPaidAt(request.getPaidAt());
+        }
+        if (settlement.getPayeeType() == SettlementPayeeType.HUB
+                || settlement.getPayeeType() == SettlementPayeeType.AGENT) {
+            settlement.setVendorNotReceivedAt(null);
+            settlement.setVendorNotReceivedNote(null);
+        }
+        settlement.setAckReminderCount(settlement.getAckReminderCount() + 1);
+        settlement.setAckRemindedAt(Instant.now());
+        settlement.setUpdatedBy(actorId);
+        Settlement saved = settlementRepository.save(settlement);
+        String shop = saved.getPayeeName() == null ? "" : saved.getPayeeName();
+        townClient.appendAdminAudit(
+                "settlements",
+                "VENDOR_PAYOUT_CORRECTED",
+                "Corrected vendor payout " + shop + " ₹" + saved.getNetAmount()
+                        + " · " + saved.getPayoutMethod() + " · ref " + saved.getTransactionReference(),
+                actorId,
+                saved.getTownId(),
+                saved.getId());
+        return toResponse(saved);
+    }
+
+    /** Paid hub payouts get a bill number before hub or KoyaKart opens the statement. */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void ensureHubPayoutInvoices(UUID townId, UUID hubId) {
+        List<Settlement> rows = settlementRepository.findFiltered(
+                townId, SettlementPayeeType.HUB, hubId, SettlementStatus.PAID);
+        for (Settlement row : rows) {
+            if (row.getDirection() != SettlementDirection.PAYOUT) {
+                continue;
+            }
+            if (row.getServiceInvoiceNumber() != null && !row.getServiceInvoiceNumber().isBlank()) {
+                continue;
+            }
+            row.setServiceInvoiceNumber(serviceInvoiceNumberService.allocate(
+                    row.getPaidAt() != null ? row.getPaidAt() : Instant.now()));
+        }
+    }
+
+    @Transactional
+    public SettlementResponse hubPayout(UUID hubId, UUID settlementId) {
+        Settlement settlement = loadHubPayout(hubId, settlementId);
+        if (settlement.getStatus() == SettlementStatus.PAID
+                && (settlement.getServiceInvoiceNumber() == null
+                || settlement.getServiceInvoiceNumber().isBlank())) {
+            settlement.setServiceInvoiceNumber(serviceInvoiceNumberService.allocate(
+                    settlement.getPaidAt() != null ? settlement.getPaidAt() : Instant.now()));
+            settlement = settlementRepository.save(settlement);
+        }
+        return toResponse(settlement);
+    }
+
+    @Transactional
+    public SettlementResponse acknowledgeByHub(UUID actorId, UUID hubId, UUID settlementId) {
+        Settlement settlement = loadHubPayout(hubId, settlementId);
+        if (settlement.getStatus() != SettlementStatus.PAID) {
+            throw new BusinessException(ErrorCode.CONFLICT, "Only a paid payout can be confirmed");
+        }
+        if (settlement.getVendorNotReceivedAt() != null) {
+            throw new BusinessException(ErrorCode.CONFLICT, "You already told KoyaKart this payout did not arrive");
+        }
+        if (settlement.getVendorAcknowledgedAt() == null) {
+            settlement.setVendorAcknowledgedAt(Instant.now());
+            settlement.setVendorAcknowledgedBy(actorId);
+            settlement.setVendorNotReceivedAt(null);
+            settlement.setVendorNotReceivedNote(null);
+            settlement.setUpdatedBy(actorId);
+            settlement = settlementRepository.save(settlement);
+        }
+        return toResponse(settlement);
+    }
+
+    @Transactional
+    public SettlementResponse reportHubNotReceived(UUID actorId, UUID hubId, UUID settlementId, String note) {
+        Settlement settlement = loadHubPayout(hubId, settlementId);
+        if (settlement.getStatus() != SettlementStatus.PAID) {
+            throw new BusinessException(ErrorCode.CONFLICT, "Only a paid payout can be marked not received");
+        }
+        if (settlement.getVendorAcknowledgedAt() != null) {
+            throw new BusinessException(ErrorCode.CONFLICT, "You already confirmed this payout");
+        }
+        String trimmed = note == null ? "" : note.trim();
+        settlement.setVendorNotReceivedAt(Instant.now());
+        settlement.setVendorNotReceivedNote(trimmed.isEmpty() ? null : trimmed);
+        settlement.setUpdatedBy(actorId);
+        Settlement saved = settlementRepository.save(settlement);
+        String hub = saved.getPayeeName() == null ? "" : saved.getPayeeName();
+        townClient.appendAdminAudit(
+                "settlements",
+                "HUB_NOT_RECEIVED",
+                "Hub not received payout " + hub + " ₹" + saved.getNetAmount()
+                        + (trimmed.isEmpty() ? "" : " — " + trimmed),
+                actorId,
+                saved.getTownId(),
+                saved.getId());
+        return toResponse(saved);
+    }
+
+    @Transactional
+    public SettlementResponse acknowledgeByAgent(UUID actorId, UUID agentId, UUID settlementId) {
+        Settlement settlement = loadAgentPayout(agentId, settlementId);
+        if (settlement.getStatus() != SettlementStatus.PAID) {
+            throw new BusinessException(ErrorCode.CONFLICT, "Only a paid payout can be confirmed");
+        }
+        if (settlement.getVendorAcknowledgedAt() == null) {
+            settlement.setVendorAcknowledgedAt(Instant.now());
+            settlement.setVendorAcknowledgedBy(actorId);
+            settlement.setVendorNotReceivedAt(null);
+            settlement.setVendorNotReceivedNote(null);
+            settlement.setUpdatedBy(actorId);
+            settlement = settlementRepository.save(settlement);
+        }
+        return toResponse(settlement);
+    }
+
+    @Transactional
+    public SettlementResponse reportAgentNotReceived(UUID actorId, UUID agentId, UUID settlementId, String note) {
+        Settlement settlement = loadAgentPayout(agentId, settlementId);
+        if (settlement.getStatus() != SettlementStatus.PAID) {
+            throw new BusinessException(ErrorCode.CONFLICT, "Only a paid payout can be marked not received");
+        }
+        if (settlement.getVendorAcknowledgedAt() != null) {
+            throw new BusinessException(ErrorCode.CONFLICT, "You already confirmed this payout");
+        }
+        String trimmed = note == null ? "" : note.trim();
+        settlement.setVendorNotReceivedAt(Instant.now());
+        settlement.setVendorNotReceivedNote(trimmed.isEmpty() ? null : trimmed);
+        settlement.setUpdatedBy(actorId);
+        Settlement saved = settlementRepository.save(settlement);
+        String agent = saved.getPayeeName() == null ? "" : saved.getPayeeName();
+        townClient.appendAdminAudit(
+                "settlements",
+                "AGENT_NOT_RECEIVED",
+                "Agent not received payout " + agent + " ₹" + saved.getNetAmount()
+                        + (trimmed.isEmpty() ? "" : " — " + trimmed),
+                actorId,
+                saved.getTownId(),
+                saved.getId());
+        return toResponse(saved);
+    }
+
+    private Settlement loadAgentPayout(UUID agentId, UUID settlementId) {
+        Settlement settlement = settlementRepository.findDetailedById(settlementId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Settlement not found"));
+        if (settlement.getPayeeType() != SettlementPayeeType.AGENT
+                || !settlement.getPayeeId().equals(agentId)
+                || settlement.getDirection() != SettlementDirection.PAYOUT) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "Settlement does not belong to this agent");
+        }
+        return settlement;
+    }
+
+    private Settlement loadHubPayout(UUID hubId, UUID settlementId) {
+        Settlement settlement = settlementRepository.findDetailedById(settlementId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Settlement not found"));
+        if (settlement.getPayeeType() != SettlementPayeeType.HUB
+                || !settlement.getPayeeId().equals(hubId)
+                || settlement.getDirection() != SettlementDirection.PAYOUT) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "Settlement does not belong to this hub");
+        }
+        return settlement;
+    }
+
+    private Settlement loadVendorPayout(UUID vendorId, UUID settlementId) {
+        Settlement settlement = settlementRepository.findDetailedById(settlementId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Settlement not found"));
+        if (settlement.getPayeeType() != SettlementPayeeType.VENDOR
+                || !settlement.getPayeeId().equals(vendorId)
+                || settlement.getDirection() == SettlementDirection.COLLECTION) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "Settlement does not belong to vendor");
+        }
+        return settlement;
+    }
+
+    @Transactional
+    public SettlementResponse remindVendorAck(UUID actorId, UUID settlementId) {
+        Settlement settlement = settlementRepository.findDetailedById(settlementId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Settlement not found"));
+        if ((settlement.getPayeeType() != SettlementPayeeType.VENDOR
+                && settlement.getPayeeType() != SettlementPayeeType.HUB)
+                || settlement.getDirection() == SettlementDirection.COLLECTION) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Only shop or hub payouts need a receipt ack");
+        }
+        if (settlement.getStatus() != SettlementStatus.PAID) {
+            throw new BusinessException(ErrorCode.CONFLICT, "Mark the payout paid before reminding");
+        }
+        if (settlement.getVendorAcknowledgedAt() != null) {
+            throw new BusinessException(ErrorCode.CONFLICT, "Vendor already acknowledged this payout");
+        }
+        settlement.setAckReminderCount(settlement.getAckReminderCount() + 1);
+        settlement.setAckRemindedAt(Instant.now());
+        settlement.setUpdatedBy(actorId);
+        return toResponse(settlementRepository.save(settlement));
+    }
+
+    /** Ask the vendor again to pay a shop-fee bill that was sent and is still unpaid. */
+    @Transactional
+    public SettlementResponse remindVendorBill(UUID actorId, UUID settlementId) {
+        Settlement settlement = loadVendorBill(settlementId);
+        if (settlement.getLineItems().stream().anyMatch(l -> "SUBSCRIPTION".equals(l.getLineType()))) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Subscription bills are reminded from the Subscription bill tab");
+        }
+        if (settlement.getBillSentAt() == null) {
+            throw new BusinessException(ErrorCode.CONFLICT, "Send the bill before reminding the vendor");
+        }
+        if (settlement.getStatus() == SettlementStatus.PAID) {
+            throw new BusinessException(ErrorCode.CONFLICT, "This bill is already received");
+        }
+        if (settlement.getVendorPaidAt() != null) {
+            throw new BusinessException(ErrorCode.CONFLICT, "Vendor already sent payment details — confirm or reject them");
+        }
+        settlement.setAckReminderCount(settlement.getAckReminderCount() + 1);
+        settlement.setAckRemindedAt(Instant.now());
+        settlement.setUpdatedBy(actorId);
+        Settlement saved = settlementRepository.save(settlement);
+        String shop = saved.getPayeeName() == null ? "" : saved.getPayeeName();
+        townClient.appendAdminAudit(
+                "settlements",
+                "VENDOR_BILL_REMINDED",
+                "Vendor bill reminder " + shop + " ₹" + saved.getNetAmount(),
+                actorId,
+                saved.getTownId(),
+                saved.getId());
+        return toResponse(saved);
+    }
+
+    @Transactional(readOnly = true)
+    public List<SettlementResponse> pendingBillReminders(UUID vendorId) {
+        return settlementRepository.findBillRemindersPending(vendorId).stream()
+                .filter(s -> s.getLineItems().stream().noneMatch(l -> "SUBSCRIPTION".equals(l.getLineType())))
+                .map(this::toResponse)
+                .toList();
+    }
+
+    private static final java.time.format.DateTimeFormatter YM = java.time.format.DateTimeFormatter.ofPattern("yyyy-MM");
+
+    /**
+     * Monthly subscription bills for the last 12 months: one row per month that is due under the vendor's terms
+     * or already billed. Order-fee collections never include the subscription.
+     * Not transactional: up to 12 vendor-service calls must not pin a DB connection.
+     */
+    public List<SubscriptionBillView> listSubscriptionBills(UUID vendorId) {
+        return listSubscriptionBills(vendorId, true);
+    }
+
+    /** Vendors only see bills that were sent, so skip the per-month terms lookup for them. */
+    public List<SubscriptionBillView> listSentSubscriptionBills(UUID vendorId) {
+        return listSubscriptionBills(vendorId, false);
+    }
+
+    private List<SubscriptionBillView> listSubscriptionBills(UUID vendorId, boolean includeUnsent) {
+        Map<String, Settlement> billed = new HashMap<>();
+        for (Settlement s : settlementRepository.findSubscriptionBills(vendorId)) {
+            billed.putIfAbsent(s.getPeriodStart().format(YM), s);
+        }
+        LocalDate today = LocalDate.now(java.time.ZoneId.of("Asia/Kolkata"));
+        List<SubscriptionBillView> out = new ArrayList<>();
+        for (int back = 11; back >= 0; back--) {
+            LocalDate monthStart = today.withDayOfMonth(1).minusMonths(back);
+            String ym = monthStart.format(YM);
+            Settlement bill = billed.get(ym);
+            if (bill != null) {
+                out.add(toSubscriptionView(bill));
+                continue;
+            }
+            if (!includeUnsent) {
+                continue;
+            }
+            LocalDate monthEnd = monthStart.withDayOfMonth(monthStart.lengthOfMonth());
+            LocalDate ref = monthEnd.isAfter(today) ? today : monthEnd;
+            BigDecimal amount = vendorClient.subscriptionForMonth(vendorId, monthStart, ref);
+            if (amount.compareTo(BigDecimal.ZERO) <= 0) {
+                continue;
+            }
+            out.add(SubscriptionBillView.builder()
+                    .month(ym)
+                    .periodStart(monthStart)
+                    .periodEnd(monthEnd)
+                    .amount(amount.setScale(2, RoundingMode.HALF_UP))
+                    .status("NOT_SENT")
+                    .build());
+        }
+        return out;
+    }
+
+    private static SubscriptionBillView toSubscriptionView(Settlement bill) {
+        String status = bill.getStatus() == SettlementStatus.PAID ? "PAID"
+                : bill.getVendorPaidAt() != null ? "PAYMENT_SUBMITTED"
+                : bill.getVendorPaymentRejectedAt() != null ? "REJECTED"
+                : "SENT";
+        return SubscriptionBillView.builder()
+                .month(bill.getPeriodStart().format(YM))
+                .periodStart(bill.getPeriodStart())
+                .periodEnd(bill.getPeriodEnd())
+                .amount(bill.getNetAmount())
+                .status(status)
+                .settlementId(bill.getId())
+                .billSentAt(bill.getBillSentAt() != null ? bill.getBillSentAt() : bill.getCreatedAt())
+                .vendorPaidAt(bill.getVendorPaidAt())
+                .bankPaidOn(bill.getBankPaidOn())
+                .vendorPaymentMethod(bill.getVendorPaymentMethod())
+                .vendorPaymentReference(bill.getVendorPaymentReference())
+                .vendorPaymentNotes(bill.getVendorPaymentNotes())
+                .rejectedAt(bill.getVendorPaymentRejectedAt())
+                .rejectReason(bill.getVendorPaymentRejectReason())
+                .paidAt(bill.getPaidAt())
+                .payoutMethod(bill.getPayoutMethod())
+                .transactionReference(bill.getTransactionReference())
+                .invoiceNumber(bill.getServiceInvoiceNumber())
+                .build();
+    }
+
+    /** Existing bill for the month, or a new FINALIZED one (not yet saved) when none exists. */
+    private Settlement subscriptionBillFor(UUID actorId, UUID townId, UUID vendorId, String vendorName, String month) {
+        Settlement existing = settlementRepository.findSubscriptionBills(vendorId).stream()
+                .filter(s -> s.getPeriodStart().format(YM).equals(month))
+                .findFirst()
+                .orElse(null);
+        if (existing != null) {
+            return existing;
+        }
+        LocalDate monthStart = LocalDate.parse(month + "-01");
+        LocalDate monthEnd = monthStart.withDayOfMonth(monthStart.lengthOfMonth());
+        LocalDate today = LocalDate.now(java.time.ZoneId.of("Asia/Kolkata"));
+        if (monthStart.isAfter(today)) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Cannot bill a future month");
+        }
+        LocalDate ref = monthEnd.isAfter(today) ? today : monthEnd;
+        BigDecimal amount = vendorClient.subscriptionForMonth(vendorId, monthStart, ref)
+                .setScale(2, RoundingMode.HALF_UP);
+        if (amount.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR,
+                    "No monthly subscription due for " + month + " under this vendor's terms");
+        }
+        String monthLabel = monthStart.getMonth().getDisplayName(java.time.format.TextStyle.SHORT, Locale.ENGLISH)
+                + " " + monthStart.getYear();
+        Settlement settlement = Settlement.builder()
+                .townId(townId)
+                .payeeType(SettlementPayeeType.VENDOR)
+                .direction(SettlementDirection.COLLECTION)
+                .payeeId(vendorId)
+                .payeeName(vendorName)
+                .periodStart(monthStart)
+                .periodEnd(monthEnd)
+                .periodType(SettlementPeriodType.MONTH)
+                .grossAmount(BigDecimal.ZERO)
+                .commissionAmount(amount)
+                .netAmount(amount)
+                .status(SettlementStatus.FINALIZED)
+                .build();
+        settlement.setCreatedBy(actorId);
+        settlement.setUpdatedBy(actorId);
+        settlement.getLineItems().add(SettlementLineItem.builder()
+                .settlement(settlement)
+                .lineType("SUBSCRIPTION")
+                .amount(amount)
+                .description("Monthly subscription · " + monthLabel)
+                .build());
+        return settlement;
+    }
+
+    /** Admin issues the month's bill to the vendor. The KK invoice number is fixed at issue. */
+    @Transactional
+    public SubscriptionBillView sendSubscriptionBill(UUID actorId, SendSubscriptionBillRequest request) {
+        Settlement bill = subscriptionBillFor(actorId, request.getTownId(), request.getVendorId(),
+                request.getVendorName(), request.getMonth());
+        if (bill.getId() != null) {
+            throw new BusinessException(ErrorCode.CONFLICT, "Bill for " + request.getMonth() + " was already sent");
+        }
+        Instant now = Instant.now();
+        bill.setBillSentAt(now);
+        bill.setServiceInvoiceNumber(serviceInvoiceNumberService.allocate(now));
+        return toSubscriptionView(settlementRepository.save(bill));
+    }
+
+    /** Vendor reports they paid a sent bill. Admin confirms it separately. */
+    @Transactional
+    public SubscriptionBillView submitSubscriptionPayment(
+            UUID actorId, UUID vendorId, UUID settlementId, SubscriptionPaymentRequest request) {
+        return toSubscriptionView(submitPayment(loadSubscriptionBill(settlementId), actorId, vendorId, request));
+    }
+
+    /** Admin could not find the money: send it back to the vendor with a reason. They can pay / resubmit. */
+    @Transactional
+    public SubscriptionBillView rejectSubscriptionPayment(
+            UUID actorId, UUID settlementId, RejectSubscriptionPaymentRequest request) {
+        return toSubscriptionView(rejectPayment(loadSubscriptionBill(settlementId), actorId, request));
+    }
+
+    /** Admin confirms the money arrived; blank fields use what the vendor submitted. */
+    @Transactional
+    public SubscriptionBillView confirmSubscriptionPayment(
+            UUID actorId, UUID settlementId, SubscriptionPaymentRequest request) {
+        return toSubscriptionView(confirmPayment(loadSubscriptionBill(settlementId), actorId, request));
+    }
+
+    /** Correct mode, UTR, and the bank-statement date. The vendor ack time stays as they submitted it. */
+    @Transactional
+    public SubscriptionBillView correctSubscriptionPayment(
+            UUID actorId, UUID settlementId, CorrectSubscriptionPaymentRequest request) {
+        Settlement bill = loadSubscriptionBill(settlementId);
+        if (bill.getStatus() != SettlementStatus.PAID && bill.getVendorPaidAt() == null) {
+            throw new BusinessException(ErrorCode.CONFLICT, "Record the vendor payment before correcting the bank date");
+        }
+        LocalDate bankDay = request.getBankPaidOn();
+        if (bankDay.isAfter(LocalDate.now(ZoneId.of("Asia/Kolkata")))) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Bank date cannot be in the future");
+        }
+        String method = request.getPayoutMethod().trim().toUpperCase(java.util.Locale.ROOT);
+        String ref = request.getTransactionReference().trim();
+        String notes = request.getTransactionNotes() == null ? null : request.getTransactionNotes().trim();
+        bill.setBankPaidOn(bankDay);
+        bill.setVendorPaymentMethod(method);
+        bill.setVendorPaymentReference(ref);
+        bill.setVendorPaymentNotes(notes == null || notes.isEmpty() ? bill.getVendorPaymentNotes() : notes);
+        if (bill.getStatus() == SettlementStatus.PAID) {
+            bill.setPayoutMethod(method);
+            bill.setTransactionReference(ref);
+            if (notes != null && !notes.isEmpty()) {
+                bill.setTransactionNotes(notes);
+            }
+        }
+        bill.setUpdatedBy(actorId);
+        return toSubscriptionView(settlementRepository.save(bill));
+    }
+
+    /** Vendor reports payment for any bill they owe KoyaKart (commission on shop cash, extra charges). */
+    @Transactional
+    public SettlementResponse submitVendorBillPayment(
+            UUID actorId, UUID vendorId, UUID settlementId, SubscriptionPaymentRequest request) {
+        return toResponse(submitPayment(loadVendorBill(settlementId), actorId, vendorId, request));
+    }
+
+    @Transactional
+    public SettlementResponse rejectVendorBillPayment(
+            UUID actorId, UUID settlementId, RejectSubscriptionPaymentRequest request) {
+        return toResponse(rejectPayment(loadVendorBill(settlementId), actorId, request));
+    }
+
+    @Transactional
+    public SettlementResponse confirmVendorBillPayment(
+            UUID actorId, UUID settlementId, SubscriptionPaymentRequest request) {
+        return toResponse(confirmPayment(loadVendorBill(settlementId), actorId, request));
+    }
+
+    private Settlement submitPayment(Settlement bill, UUID actorId, UUID vendorId, SubscriptionPaymentRequest request) {
+        if (!bill.getPayeeId().equals(vendorId)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "Bill does not belong to vendor");
+        }
+        if (bill.getStatus() == SettlementStatus.PAID) {
+            throw new BusinessException(ErrorCode.CONFLICT, "This bill is already confirmed as paid");
+        }
+        if (bill.getBillSentAt() == null) {
+            throw new BusinessException(ErrorCode.CONFLICT, "KoyaKart has not sent this bill yet");
+        }
+        String method = request.getPayoutMethod() == null ? "" : request.getPayoutMethod().trim();
+        String ref = request.getTransactionReference() == null ? "" : request.getTransactionReference().trim();
+        if (method.isBlank() || ref.isBlank()) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Payment mode and UTR / UPI reference are required");
+        }
+        bill.setVendorPaidAt(Instant.now());
+        bill.setVendorPaymentMethod(method.toUpperCase(Locale.ROOT));
+        bill.setVendorPaymentReference(ref);
+        bill.setVendorPaymentNotes(request.getTransactionNotes() == null ? null : request.getTransactionNotes().trim());
+        bill.setVendorPaymentRejectedAt(null);
+        bill.setVendorPaymentRejectedBy(null);
+        bill.setVendorPaymentRejectReason(null);
+        bill.setUpdatedBy(actorId);
+        return settlementRepository.save(bill);
+    }
+
+    private Settlement rejectPayment(Settlement bill, UUID actorId, RejectSubscriptionPaymentRequest request) {
+        if (bill.getStatus() == SettlementStatus.PAID) {
+            throw new BusinessException(ErrorCode.CONFLICT, "This bill is already confirmed as paid");
+        }
+        if (bill.getVendorPaidAt() == null) {
+            throw new BusinessException(ErrorCode.CONFLICT, "No vendor payment is waiting for confirmation");
+        }
+        bill.setVendorPaidAt(null);
+        bill.setVendorPaymentRejectedAt(Instant.now());
+        bill.setVendorPaymentRejectedBy(actorId);
+        bill.setVendorPaymentRejectReason(request.getReason().trim());
+        bill.setUpdatedBy(actorId);
+        return settlementRepository.save(bill);
+    }
+
+    private Settlement confirmPayment(Settlement bill, UUID actorId, SubscriptionPaymentRequest request) {
+        if (bill.getStatus() == SettlementStatus.PAID) {
+            throw new BusinessException(ErrorCode.CONFLICT, "This bill is already confirmed as paid");
+        }
+        String method = firstNonBlank(request == null ? null : request.getPayoutMethod(), bill.getVendorPaymentMethod());
+        String ref = firstNonBlank(request == null ? null : request.getTransactionReference(),
+                bill.getVendorPaymentReference());
+        String notes = firstNonBlank(request == null ? null : request.getTransactionNotes(), bill.getVendorPaymentNotes());
+        applyPaid(bill, actorId, method, ref, notes, null);
+        bill.setUpdatedBy(actorId);
+        return settlementRepository.save(bill);
+    }
+
+    /** Admin records payment directly (vendor paid offline) — sends the bill first if it was never sent. */
+    @Transactional
+    public SettlementResponse collectSubscriptionBill(UUID actorId, CollectSubscriptionBillRequest request) {
+        Settlement bill = subscriptionBillFor(actorId, request.getTownId(), request.getVendorId(),
+                request.getVendorName(), request.getMonth());
+        if (bill.getStatus() == SettlementStatus.PAID) {
+            throw new BusinessException(ErrorCode.CONFLICT, "Subscription for " + request.getMonth() + " is already paid");
+        }
+        if (bill.getBillSentAt() == null) {
+            bill.setBillSentAt(Instant.now());
+        }
+        applyPaid(bill, actorId, request.getPayoutMethod(), request.getTransactionReference(),
+                request.getTransactionNotes(), null);
+        bill.setUpdatedBy(actorId);
+        return toResponse(settlementRepository.save(bill));
+    }
+
+    private Settlement loadSubscriptionBill(UUID settlementId) {
+        Settlement bill = settlementRepository.findDetailedById(settlementId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Bill not found"));
+        boolean subscription = bill.getDirection() == SettlementDirection.COLLECTION
+                && bill.getLineItems().stream().anyMatch(l -> "SUBSCRIPTION".equals(l.getLineType()));
+        if (bill.getPayeeType() != SettlementPayeeType.VENDOR || !subscription) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Not a subscription bill");
+        }
+        return bill;
+    }
+
+    private Settlement loadVendorBill(UUID settlementId) {
+        Settlement bill = settlementRepository.findDetailedById(settlementId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Bill not found"));
+        if (bill.getPayeeType() != SettlementPayeeType.VENDOR || bill.getDirection() != SettlementDirection.COLLECTION) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Not a vendor bill");
+        }
+        return bill;
+    }
+
+    private static String firstNonBlank(String a, String b) {
+        return a != null && !a.isBlank() ? a.trim() : b;
+    }
+
+    /** Paid payouts admin has reminded about that the vendor has not acknowledged yet. */
+    @Transactional(readOnly = true)
+    public List<SettlementResponse> pendingAckReminders(UUID vendorId) {
+        return settlementRepository.findAckRemindersPending(vendorId).stream()
+                .map(this::toResponse)
+                .toList();
     }
 
     @Transactional(readOnly = true)
@@ -516,9 +1136,10 @@ public class SettlementService {
         Set<UUID> remitted = codOrderIds.isEmpty()
                 ? Set.of()
                 : new HashSet<>(codCloseDayLineItemRepository.findClosedOrderIds(codOrderIds));
+        Set<UUID> withCompany = hubCodCustodyService.ordersAlreadyWithCompany(codOrderIds);
         Map<UUID, CodAgentHandover> handoverByOrder = loadLatestHandovers(codOrderIds);
         Map<UUID, AgentRef> deliveringAgentByOrder = safeDeliveringAgents(
-                items, remitted, handoverByOrder, vendorId);
+                items, remitted, withCompany, handoverByOrder, vendorId);
 
         Map<UUID, UUID> orderHubIds = new HashMap<>();
         for (Map.Entry<UUID, CodAgentHandover> entry : handoverByOrder.entrySet()) {
@@ -551,7 +1172,7 @@ public class SettlementService {
                     }
                     boolean cod = isCod(item.paymentMethod());
                     String location = cod
-                            ? resolveCodCashLocation(item.orderId(), remitted, handoverByOrder)
+                            ? resolveCodCashLocation(item.orderId(), remitted, withCompany, handoverByOrder)
                             : "ONLINE";
                     AgentRef agent = "WITH_AGENT".equals(location)
                             ? deliveringAgentByOrder.get(item.orderId())
@@ -609,7 +1230,8 @@ public class SettlementService {
                         null,
                         ctx.paymentMethod(),
                         ctx.vendorAgentDelivery(),
-                        BigDecimal.ZERO))
+                        BigDecimal.ZERO,
+                        null))
                 .toList();
 
         List<UUID> codOrderIds = pseudo.stream()
@@ -621,6 +1243,7 @@ public class SettlementService {
         Set<UUID> remitted = codOrderIds.isEmpty()
                 ? Set.of()
                 : new HashSet<>(codCloseDayLineItemRepository.findClosedOrderIds(codOrderIds));
+        Set<UUID> withCompany = hubCodCustodyService.ordersAlreadyWithCompany(codOrderIds);
         Map<UUID, CodAgentHandover> handoverByOrder = loadLatestHandovers(codOrderIds);
 
         Map<UUID, UUID> orderVendorIds = new HashMap<>();
@@ -635,6 +1258,7 @@ public class SettlementService {
             Map<UUID, AgentRef> one = safeDeliveringAgents(
                     pseudo.stream().filter(p -> orderId.equals(p.orderId())).toList(),
                     remitted,
+                    withCompany,
                     handoverByOrder,
                     vendorId);
             AgentRef agent = one.get(orderId);
@@ -669,7 +1293,7 @@ public class SettlementService {
                     }
                     boolean cod = isCod(ctx.paymentMethod());
                     String location = cod
-                            ? resolveCodCashLocation(ctx.orderId(), remitted, handoverByOrder)
+                            ? resolveCodCashLocation(ctx.orderId(), remitted, withCompany, handoverByOrder)
                             : "ONLINE";
                     AgentRef agent = "WITH_AGENT".equals(location)
                             ? deliveringAgentByOrder.get(ctx.orderId())
@@ -723,7 +1347,8 @@ public class SettlementService {
         settlement.setTransactionNotes(transactionNotes);
         settlement.setPaidAt(paidAt == null ? Instant.now() : paidAt);
         settlement.setPaidBy(actorId);
-        if (settlement.getPayeeType() == SettlementPayeeType.VENDOR
+        if ((settlement.getPayeeType() == SettlementPayeeType.VENDOR
+                || settlement.getPayeeType() == SettlementPayeeType.HUB)
                 && (settlement.getServiceInvoiceNumber() == null
                 || settlement.getServiceInvoiceNumber().isBlank())) {
             settlement.setServiceInvoiceNumber(serviceInvoiceNumberService.allocate(settlement.getPaidAt()));
@@ -757,8 +1382,12 @@ public class SettlementService {
         BigDecimal otherFromLines = sumAbsByLineType(lines, "OTHER_CHARGE")
                 .add(sumAbsByLineType(lines, "PENALTY"));
         BigDecimal claimChargebacks = claimFromLines;
-        if (claimFromLines.compareTo(BigDecimal.ZERO) == 0 && otherFromLines.compareTo(BigDecimal.ZERO) == 0) {
-            // Legacy settlements: residual before typed OTHER_CHARGE lines existed.
+        boolean collection = settlement.getDirection() == SettlementDirection.COLLECTION;
+        if (!collection
+                && claimFromLines.compareTo(BigDecimal.ZERO) == 0
+                && otherFromLines.compareTo(BigDecimal.ZERO) == 0) {
+            // Payouts only. A collection's net is the fee the shop pays, so bag − fee − net
+            // is cash the shop already kept, not a buyer-credit clawback.
             claimChargebacks = gross.subtract(commission).subtract(net).max(BigDecimal.ZERO);
         }
 
@@ -786,6 +1415,17 @@ public class SettlementService {
                 .paidBy(settlement.getPaidBy())
                 .serviceInvoiceNumber(settlement.getServiceInvoiceNumber())
                 .vendorAcknowledgedAt(settlement.getVendorAcknowledgedAt())
+                .ackReminderCount(settlement.getAckReminderCount())
+                .ackRemindedAt(settlement.getAckRemindedAt())
+                .vendorNotReceivedAt(settlement.getVendorNotReceivedAt())
+                .vendorNotReceivedNote(settlement.getVendorNotReceivedNote())
+                .billSentAt(settlement.getBillSentAt())
+                .vendorPaidAt(settlement.getVendorPaidAt())
+                .vendorPaymentMethod(settlement.getVendorPaymentMethod())
+                .vendorPaymentReference(settlement.getVendorPaymentReference())
+                .vendorPaymentNotes(settlement.getVendorPaymentNotes())
+                .vendorPaymentRejectedAt(settlement.getVendorPaymentRejectedAt())
+                .vendorPaymentRejectReason(settlement.getVendorPaymentRejectReason())
                 .createdAt(settlement.getCreatedAt())
                 .lines(lines)
                 .build();
@@ -821,9 +1461,13 @@ public class SettlementService {
     private static String resolveCodCashLocation(
             UUID orderId,
             Set<UUID> codRemittedOrderIds,
+            Set<UUID> withCompany,
             Map<UUID, CodAgentHandover> handoverByOrder) {
         if (orderId == null) {
             return "WITH_AGENT";
+        }
+        if (withCompany.contains(orderId)) {
+            return "WITH_COMPANY";
         }
         CodAgentHandover handover = handoverByOrder.get(orderId);
         if (handover != null) {
@@ -845,10 +1489,11 @@ public class SettlementService {
     private Map<UUID, AgentRef> safeDeliveringAgents(
             List<SettlementCandidateItem> rawItems,
             Set<UUID> codRemittedOrderIds,
+            Set<UUID> withCompany,
             Map<UUID, CodAgentHandover> handoverByOrder,
             UUID vendorId) {
         try {
-            return resolveDeliveringAgents(rawItems, codRemittedOrderIds, handoverByOrder, vendorId);
+            return resolveDeliveringAgents(rawItems, codRemittedOrderIds, withCompany, handoverByOrder, vendorId);
         } catch (RuntimeException ex) {
             return Map.of();
         }
@@ -873,12 +1518,13 @@ public class SettlementService {
     private Map<UUID, AgentRef> resolveDeliveringAgents(
             List<SettlementCandidateItem> rawItems,
             Set<UUID> codRemittedOrderIds,
+            Set<UUID> withCompany,
             Map<UUID, CodAgentHandover> handoverByOrder,
             UUID vendorId) {
         List<UUID> withAgentOrders = rawItems.stream()
                 .filter(item -> isCod(item.paymentMethod()))
                 .filter(item -> "WITH_AGENT".equals(resolveCodCashLocation(
-                        item.orderId(), codRemittedOrderIds, handoverByOrder)))
+                        item.orderId(), codRemittedOrderIds, withCompany, handoverByOrder)))
                 .map(SettlementCandidateItem::orderId)
                 .filter(Objects::nonNull)
                 .distinct()
@@ -947,10 +1593,11 @@ public class SettlementService {
             return Map.of();
         }
         Set<UUID> remitted = new HashSet<>(codCloseDayLineItemRepository.findClosedOrderIds(codOrderIds));
+        Set<UUID> withCompany = hubCodCustodyService.ordersAlreadyWithCompany(codOrderIds);
         Map<UUID, CodAgentHandover> handoverByOrder = loadLatestHandovers(codOrderIds);
         Map<UUID, String> out = new HashMap<>();
         for (UUID orderId : codOrderIds) {
-            out.put(orderId, resolveCodCashLocation(orderId, remitted, handoverByOrder));
+            out.put(orderId, resolveCodCashLocation(orderId, remitted, withCompany, handoverByOrder));
         }
         return out;
     }

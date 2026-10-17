@@ -39,8 +39,21 @@ public class SettlementResponse {
     Instant paidAt;
     UUID paidBy;
     Instant vendorAcknowledgedAt;
-    /** Vendor service-fee invoice, e.g. HLM/SF/26-27/0001. */
+    int ackReminderCount;
+    Instant ackRemindedAt;
+    /** Vendor reported the payout has not reached them. */
+    Instant vendorNotReceivedAt;
+    String vendorNotReceivedNote;
+    /** Vendor service-fee invoice, e.g. KK/26-27/OCT/0001. */
     String serviceInvoiceNumber;
+    /** Vendor-pays-KoyaKart bills: sent to the vendor, vendor reports payment, admin confirms or rejects. */
+    Instant billSentAt;
+    Instant vendorPaidAt;
+    String vendorPaymentMethod;
+    String vendorPaymentReference;
+    String vendorPaymentNotes;
+    Instant vendorPaymentRejectedAt;
+    String vendorPaymentRejectReason;
     Instant createdAt;
     List<Line> lines;
 

@@ -31,6 +31,16 @@ public class AgentPayService {
     private final DeliverySettlementService deliverySettlementService;
     private final SettlementService settlementService;
 
+    public AgentPaySummaryResponse.Payout acknowledge(UUID agentUserId, UUID settlementId) {
+        DeliveryClient.AgentContext agent = deliveryClient.getAgentByUserId(agentUserId);
+        return toPayout(settlementService.acknowledgeByAgent(agentUserId, agent.agentId(), settlementId));
+    }
+
+    public AgentPaySummaryResponse.Payout reportNotReceived(UUID agentUserId, UUID settlementId, String note) {
+        DeliveryClient.AgentContext agent = deliveryClient.getAgentByUserId(agentUserId);
+        return toPayout(settlementService.reportAgentNotReceived(agentUserId, agent.agentId(), settlementId, note));
+    }
+
     public AgentPaySummaryResponse summary(UUID agentUserId, LocalDate from, LocalDate to) {
         DeliveryClient.AgentContext agent = deliveryClient.getAgentByUserId(agentUserId);
         LocalDate today = LocalDate.now(IST);
@@ -155,6 +165,9 @@ public class AgentPayService {
                 .transactionReference(row.getTransactionReference())
                 .paidAt(row.getPaidAt())
                 .orderCount(orderCount)
+                .acknowledgedAt(row.getVendorAcknowledgedAt())
+                .notReceivedAt(row.getVendorNotReceivedAt())
+                .notReceivedNote(row.getVendorNotReceivedNote())
                 .build();
     }
 

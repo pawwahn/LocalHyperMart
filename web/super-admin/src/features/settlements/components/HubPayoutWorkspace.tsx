@@ -1,22 +1,35 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties, ReactNode } from 'react';
 import { Button, Card } from '@/shared/ui';
 import { formatMoney, type DeliveryFranchiseDue } from '../api/settlementsApi';
-import { fetchHubPaymentSubmissions } from '../api/hubPaymentApi';
+import { fetchHubPaymentSubmissions, isFranchiseOnlySubmission } from '../api/hubPaymentApi';
 import { HubPaymentVerificationPanel } from './HubPaymentVerificationPanel';
 import { HubPaymentHistoryPanel } from './HubPaymentHistoryPanel';
 import { HubPaymentRequestsAdminPanel } from './HubPaymentRequestsAdminPanel';
+import type { ReportDatePreset } from '@/shared/dates/istReportPresets';
 
 /** KoyaKart → hub vs hub → KoyaKart — never mixed on one screen. */
 export type HubPayoutTab = 'app-to-hub' | 'hub-to-app';
 
-export type HubPaysSubTab = 'cod-statement' | 'records' | 'franchise-bill' | 'awaiting' | 'history';
+export type HubPaysSubTab =
+  | 'cod-statement'
+  | 'records'
+  | 'cod-awaiting'
+  | 'history'
+  | 'franchise-bill'
+  | 'franchise-history'
+  | 'franchise-awaiting';
 
-const HUB_PAYS_SUB_TABS: { id: HubPaysSubTab; label: string }[] = [
-  { id: 'cod-statement', label: 'Issue COD statement' },
+const COD_SUB_TABS: { id: HubPaysSubTab; label: string }[] = [
+  { id: 'cod-statement', label: 'Issue statement' },
   { id: 'records', label: 'Records' },
-  { id: 'franchise-bill', label: 'Issue franchise bill' },
-  { id: 'awaiting', label: 'Awaiting your confirmation' },
-  { id: 'history', label: 'Payment history' },
+  { id: 'history', label: 'Payments' },
+  { id: 'cod-awaiting', label: 'To confirm' },
+];
+
+const FRANCHISE_SUB_TABS: { id: HubPaysSubTab; label: string }[] = [
+  { id: 'franchise-bill', label: 'Issue bill' },
+  { id: 'franchise-history', label: 'Paid months' },
+  { id: 'franchise-awaiting', label: 'To confirm' },
 ];
 
 type Props = {
@@ -28,6 +41,7 @@ type Props = {
   hubName: string;
   from: string;
   to: string;
+  periodPreset: ReportDatePreset;
   refreshTick: number;
   onPaymentReviewed: () => void;
   franchise: DeliveryFranchiseDue | null;
@@ -35,14 +49,18 @@ type Props = {
   selectedCount: number;
   openCount: number;
   loading: boolean;
-  onRefresh: () => void;
   onMarkPaid: () => void;
   onMarkFranchise: () => void;
   canPayOrders: boolean;
   canCollectFranchise: boolean;
   saving: boolean;
   commissionSection: ReactNode;
+  /** Paid commission rows. Shares a tab with completed orders. */
+  payoutRecords?: ReactNode;
+  payoutRecordCount?: number;
+  completedOrderCount?: number;
   recordsSection: ReactNode;
+  franchisePaidSection?: ReactNode;
   onSubTabChange?: (tab: HubPaysSubTab) => void;
 };
 
@@ -55,6 +73,7 @@ export function HubPayoutWorkspace({
   hubName,
   from,
   to,
+  periodPreset,
   refreshTick,
   onPaymentReviewed,
   franchise,
@@ -62,38 +81,46 @@ export function HubPayoutWorkspace({
   selectedCount,
   openCount,
   loading,
-  onRefresh,
   onMarkPaid,
   onMarkFranchise,
   canPayOrders,
   canCollectFranchise,
   saving,
   commissionSection,
+  payoutRecords,
+  payoutRecordCount = 0,
+  completedOrderCount = 0,
   recordsSection,
+  franchisePaidSection,
   onSubTabChange,
 }: Props) {
   const showFranchise = !!franchise?.enabled;
   const franchiseCollected = !!franchise?.alreadyCollected;
   const [hubPaysTab, setHubPaysTab] = useState<HubPaysSubTab>('cod-statement');
-  const [awaitingCount, setAwaitingCount] = useState(0);
+  const [workTab, setWorkTab] = useState<'records' | 'orders'>('records');
+  const [codAwaitingCount, setCodAwaitingCount] = useState(0);
+  const [franchiseAwaitingCount, setFranchiseAwaitingCount] = useState(0);
   const [pendingTick, setPendingTick] = useState(0);
   const pendingKeyRef = useRef<string | null>(null);
 
   const loadAwaitingCount = useCallback(async () => {
     if (!token || !townId || !hubId) {
-      setAwaitingCount(0);
+      setCodAwaitingCount(0);
+      setFranchiseAwaitingCount(0);
       return;
     }
     try {
       const rows = await fetchHubPaymentSubmissions(token, townId, hubId);
       const pending = rows.filter((r) => r.status === 'PENDING_VERIFICATION');
-      setAwaitingCount(pending.length);
+      setCodAwaitingCount(pending.filter((r) => !isFranchiseOnlySubmission(r)).length);
+      setFranchiseAwaitingCount(pending.filter((r) => isFranchiseOnlySubmission(r)).length);
       const key = pending.map((r) => r.submissionId).sort().join(',');
       const prev = pendingKeyRef.current;
       pendingKeyRef.current = key;
       if (prev !== null && prev !== key) setPendingTick((n) => n + 1);
     } catch {
-      setAwaitingCount(0);
+      setCodAwaitingCount(0);
+      setFranchiseAwaitingCount(0);
     }
   }, [token, townId, hubId]);
 
@@ -140,7 +167,9 @@ export function HubPayoutWorkspace({
           onClick={() => onTab('hub-to-app')}
         >
           Hub pays KoyaKart
-          {awaitingCount > 0 ? ` (${awaitingCount})` : ''}
+          {codAwaitingCount + franchiseAwaitingCount > 0
+            ? ` (${codAwaitingCount + franchiseAwaitingCount})`
+            : ''}
         </button>
       </nav>
 
@@ -162,50 +191,84 @@ export function HubPayoutWorkspace({
               {saving ? 'Saving…' : `Mark paid · ${formatMoney(selectedTotal)}`}
             </Button>
           </Card>
-          {commissionSection}
+          <nav style={styles.subTabs} role="tablist" aria-label="Hub payout work">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={workTab === 'records'}
+              style={workTab === 'records' ? styles.subTabOn : styles.subTabOff}
+              onClick={() => setWorkTab('records')}
+            >
+              Records{payoutRecordCount > 0 ? ` ${payoutRecordCount}` : ''}
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={workTab === 'orders'}
+              style={workTab === 'orders' ? styles.subTabOn : styles.subTabOff}
+              onClick={() => setWorkTab('orders')}
+            >
+              Completed orders{completedOrderCount > 0 ? ` ${completedOrderCount}` : ''}
+            </button>
+          </nav>
+          {workTab === 'records' ? payoutRecords : commissionSection}
         </div>
       ) : null}
 
       {tab === 'hub-to-app' ? (
         <div style={styles.panel}>
-          <Card padding="sm" style={styles.scopeCardHub}>
-            <div style={styles.scopeHeadRow}>
-              <div style={styles.scopeHeadText}>
-                <p style={styles.scopeTitle}>Hub pays KoyaKart</p>
-                <p style={styles.muted}>
-                  Issue bills or open Records — collections stay on their own tab so large histories stay fast.
+          <div style={styles.lanes}>
+            <section style={hubPaysTab.startsWith('franchise') ? styles.lane : styles.laneOn} aria-label="COD cash">
+              <div style={styles.laneHead}>
+                <p style={styles.laneTitle}>
+                  COD cash
+                  <span style={styles.laneAside}> (for the dates above. This is not the franchise fee.)</span>
                 </p>
               </div>
-              <Button
-                size="sm"
-                variant="secondary"
-                onClick={() => {
-                  onRefresh();
-                  void loadAwaitingCount();
-                }}
-                disabled={loading}
-              >
-                {loading ? 'Loading…' : 'Refresh'}
-              </Button>
-            </div>
-            <nav style={styles.subTabs} role="tablist" aria-label="Hub pays KoyaKart">
-              {HUB_PAYS_SUB_TABS.map((t) => (
-                <button
-                  key={t.id}
-                  type="button"
-                  role="tab"
-                  aria-selected={hubPaysTab === t.id}
-                  style={hubPaysTab === t.id ? styles.subTabOn : styles.subTabOff}
-                  onClick={() => {
-                    setHubPaysTab(t.id);
-                    onSubTabChange?.(t.id);
-                  }}
-                >
-                  {t.id === 'awaiting' && awaitingCount > 0 ? `${t.label} (${awaitingCount})` : t.label}
-                </button>
-              ))}
-            </nav>
-          </Card>
+              <nav style={styles.subTabs} role="tablist" aria-label="COD cash">
+                {COD_SUB_TABS.map((t) => (
+                  <button
+                    key={t.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={hubPaysTab === t.id}
+                    style={hubPaysTab === t.id ? styles.subTabOn : styles.subTabOff}
+                    onClick={() => {
+                      setHubPaysTab(t.id);
+                      onSubTabChange?.(t.id);
+                    }}
+                  >
+                    {t.id === 'cod-awaiting' && codAwaitingCount > 0 ? `${t.label} (${codAwaitingCount})` : t.label}
+                  </button>
+                ))}
+              </nav>
+            </section>
+            <section style={hubPaysTab.startsWith('franchise') ? styles.laneOnFr : styles.lane} aria-label="Franchise fee">
+              <div style={styles.laneHead}>
+                <p style={styles.laneTitle}>Franchise fee</p>
+                <p style={styles.laneNote}>Monthly fee owed to KoyaKart</p>
+              </div>
+              <nav style={styles.subTabs} role="tablist" aria-label="Franchise fee">
+                {FRANCHISE_SUB_TABS.map((t) => (
+                  <button
+                    key={t.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={hubPaysTab === t.id}
+                    style={hubPaysTab === t.id ? styles.subTabOnFr : styles.subTabOff}
+                    onClick={() => {
+                      setHubPaysTab(t.id);
+                      onSubTabChange?.(t.id);
+                    }}
+                  >
+                    {t.id === 'franchise-awaiting' && franchiseAwaitingCount > 0
+                      ? `${t.label} (${franchiseAwaitingCount})`
+                      : t.label}
+                  </button>
+                ))}
+              </nav>
+            </section>
+          </div>
 
           {hubPaysTab === 'cod-statement' ? (
             <HubPaymentRequestsAdminPanel
@@ -215,6 +278,9 @@ export function HubPayoutWorkspace({
               refreshTick={refreshTick}
               onChanged={onPaymentReviewed}
               section="cod"
+              periodPreset={periodPreset}
+              periodFrom={from}
+              periodTo={to}
             />
           ) : null}
 
@@ -231,12 +297,42 @@ export function HubPayoutWorkspace({
             />
           ) : null}
 
-          {hubPaysTab === 'awaiting' ? (
+          {hubPaysTab === 'franchise-history' ? (
+            <>
+              {franchisePaidSection}
+              <HubPaymentHistoryPanel
+                token={token}
+                townId={townId}
+                hubId={hubId}
+                hubName={hubName}
+                refreshTick={refreshTick + pendingTick}
+                scope="franchise"
+                hideWhenEmpty={!!franchisePaidSection}
+              />
+            </>
+          ) : null}
+
+          {hubPaysTab === 'cod-awaiting' ? (
             <HubPaymentVerificationPanel
               token={token}
               townId={townId}
               hubId={hubId}
               refreshTick={refreshTick + pendingTick}
+              scope="cod"
+              onReviewed={() => {
+                onPaymentReviewed();
+                void loadAwaitingCount();
+              }}
+            />
+          ) : null}
+
+          {hubPaysTab === 'franchise-awaiting' ? (
+            <HubPaymentVerificationPanel
+              token={token}
+              townId={townId}
+              hubId={hubId}
+              refreshTick={refreshTick + pendingTick}
+              scope="franchise"
               onReviewed={() => {
                 onPaymentReviewed();
                 void loadAwaitingCount();
@@ -251,6 +347,7 @@ export function HubPayoutWorkspace({
               hubId={hubId}
               hubName={hubName}
               refreshTick={refreshTick + pendingTick}
+              scope="cod"
             />
           ) : null}
         </div>
@@ -347,13 +444,61 @@ const styles: Record<string, CSSProperties> = {
     gap: '0.45rem',
   },
   scopeHeadText: { flex: '1 1 12rem', display: 'grid', gap: '0.25rem', minWidth: 0 },
+  hubHead: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: '0.5rem',
+  },
+  lanes: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(16rem, 1fr))',
+    gap: '0.45rem',
+  },
+  lane: {
+    display: 'grid',
+    gap: '0.4rem',
+    padding: '0.5rem 0.6rem',
+    borderRadius: 12,
+    border: '1px solid var(--border)',
+    background: 'var(--bg-elevated)',
+  },
+  laneOn: {
+    display: 'grid',
+    gap: '0.4rem',
+    padding: '0.5rem 0.6rem',
+    borderRadius: 12,
+    border: '1.5px solid #059669',
+    background: '#f0fdf4',
+  },
+  laneOnFr: {
+    display: 'grid',
+    gap: '0.4rem',
+    padding: '0.5rem 0.6rem',
+    borderRadius: 12,
+    border: '1.5px solid #d97706',
+    background: '#fffbeb',
+  },
+  laneHead: { display: 'grid', gap: '0.05rem' },
+  laneTitle: { margin: 0, fontSize: '0.84rem', fontWeight: 800 },
+  laneAside: { fontWeight: 650, fontSize: '0.72rem', color: 'var(--text-muted)' },
+  laneNote: { margin: 0, fontSize: '0.72rem', fontWeight: 600, color: 'var(--text-muted)' },
   subTabs: {
     display: 'flex',
     flexWrap: 'wrap',
-    gap: '0.3rem',
-    marginTop: '0.35rem',
-    paddingTop: '0.45rem',
-    borderTop: '1px solid color-mix(in srgb, #fed7aa 80%, var(--border))',
+    gap: '0.28rem',
+  },
+  subTabOnFr: {
+    border: '1px solid #d97706',
+    borderRadius: 999,
+    padding: '0.28rem 0.6rem',
+    background: '#fff',
+    color: '#9a3412',
+    fontWeight: 800,
+    fontSize: '0.72rem',
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+    lineHeight: 1.25,
   },
   subTabOn: {
     border: '1px solid #059669',

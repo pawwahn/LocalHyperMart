@@ -191,6 +191,14 @@ public class TownController {
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, platformSettingsService.getReferralConfig()));
     }
 
+    @GetMapping("/api/v1/internal/platform/tds-config")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> tdsConfig(HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest, Map.of(
+                "ratePercent", platformSettingsService.vendorTdsRatePercent(),
+                "exemptUpto", platformSettingsService.vendorTdsExemptUpto()
+        )));
+    }
+
     @GetMapping("/api/v1/internal/platform/settings-flags")
     public ResponseEntity<ApiResponse<Map<String, Object>>> settingsFlags(HttpServletRequest httpRequest) {
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, Map.of(

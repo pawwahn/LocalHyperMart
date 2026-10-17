@@ -7,6 +7,9 @@ type Props = {
   fees: number;
   netToVendor: number;
   collectFromVendor?: boolean;
+  subscription?: number;
+  extraCharges?: number;
+  subscriptionLabel?: string;
   title?: string;
   footnote?: string | null;
   /** Vendor awaiting list has no fee quote — show custody only. */
@@ -20,6 +23,9 @@ export function MoneyFlowSummary({
   fees,
   netToVendor,
   collectFromVendor = false,
+  subscription,
+  extraCharges,
+  subscriptionLabel,
   title = 'Money map',
   footnote = null,
   showSettleSteps = true,
@@ -31,6 +37,9 @@ export function MoneyFlowSummary({
     fees,
     netToVendor,
     collectFromVendor,
+    subscription,
+    extraCharges,
+    subscriptionLabel,
   });
 
   if (heldLines.length === 0 && steps.length === 0) return null;

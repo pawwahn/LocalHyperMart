@@ -386,7 +386,8 @@ public class VendorCommercialTermsService {
                 && subTerms != null
                 && (subTerms.getFeeModel() == VendorFeeModel.MONTHLY_SUBSCRIPTION
                 || subTerms.getFeeModel() == VendorFeeModel.HYBRID)) {
-            subscription = subscriptionDue(subTerms, request.getPeriodEnd(), request.isMarkSubscriptionCharged());
+            subscription = subscriptionDue(subTerms, request.getPeriodEnd(), request.isMarkSubscriptionCharged(),
+                    request.ignoreSubscriptionChargedFlag());
             subscriptionIncluded = subscription.compareTo(BigDecimal.ZERO) > 0;
             if (subscriptionIncluded) {
                 lines.add("Monthly subscription ₹" + subscription.toPlainString()
@@ -562,7 +563,8 @@ public class VendorCommercialTermsService {
         terms.setEffectiveTo(to);
     }
 
-    private BigDecimal subscriptionDue(VendorCommercialTerms terms, LocalDate periodEnd, boolean markCharged) {
+    private BigDecimal subscriptionDue(
+            VendorCommercialTerms terms, LocalDate periodEnd, boolean markCharged, boolean ignoreChargedFlag) {
         BigDecimal amount = nz(terms.getMonthlySubscriptionAmount());
         if (amount.compareTo(BigDecimal.ZERO) <= 0) {
             return BigDecimal.ZERO;
@@ -575,6 +577,9 @@ public class VendorCommercialTermsService {
         LocalDate billingDate = LocalDate.of(ref.getYear(), ref.getMonth(), dayInMonth);
         if (ref.isBefore(billingDate)) {
             return BigDecimal.ZERO;
+        }
+        if (ignoreChargedFlag) {
+            return amount.setScale(2, RoundingMode.HALF_UP);
         }
         // Subscription charge flag lives on the open version (copied forward on change).
         VendorCommercialTerms open = termsRepository.findByVendorIdAndEffectiveToIsNull(terms.getVendorId())

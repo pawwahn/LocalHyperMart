@@ -28,6 +28,7 @@ public class SettlementCandidateResponse {
         String orderNumber;
         String subOrderNumber;
         Instant placedAt;
+        Instant deliveredAt;
         VendorSubOrderStatus status;
         PaymentStatus paymentStatus;
         PaymentMethod paymentMethod;

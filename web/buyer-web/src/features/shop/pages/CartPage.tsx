@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { PortalShell } from '@/shared/layout/PortalShell';
 import { useAuth } from '@/shared/auth/AuthContext';
 import { useTown } from '@/shared/town/TownContext';
@@ -91,6 +91,7 @@ export function CartPage() {
   const [promoInput, setPromoInput] = useState('');
   const [promoError, setPromoError] = useState<string | null>(null);
   const [useStoreCredit, setUseStoreCredit] = useState(false);
+  const creditChoice = useRef(false);
   const [confirmCheckout, setConfirmCheckout] = useState(false);
   const [checkoutBusy, setCheckoutBusy] = useState(false);
   const [showCelebration, setShowCelebration] = useState(false);
@@ -208,6 +209,15 @@ export function CartPage() {
       setNotice(null);
     }
   }, [hasCartItems, notice, setNotice]);
+
+  useEffect(() => {
+    window.dispatchEvent(new Event('hlm:wallet-invalidate'));
+  }, []);
+
+  useEffect(() => {
+    if (creditChoice.current || storeCreditBalance <= 0) return;
+    setUseStoreCredit(true);
+  }, [storeCreditBalance]);
 
   const needsAddress = hasCartItems && !selectedAddressId;
   const itemsPayable = cart?.payableSubtotal ?? 0;
@@ -679,73 +689,76 @@ export function CartPage() {
               ) : null}
             </div>
 
-            <div style={styles.summaryRow}>
-              <span>Item total</span>
-              <strong>{cart.subtotalLabel}</strong>
-            </div>
-            {cart.promoDiscount > 0 ? (
-              <div style={styles.summaryRow}>
-                <span>Coupon discount</span>
-                <strong style={styles.discount}>−{cart.promoDiscountLabel}</strong>
+            <div style={styles.bill}>
+              <div style={styles.billLine}>
+                <span>Item total</span>
+                <span style={styles.billAmt}>{cart.subtotalLabel}</span>
               </div>
-            ) : null}
-            <div style={styles.summaryRow}>
-              <span>{membershipWaives ? 'Delivery (membership)' : 'Delivery fee'}</span>
-              <strong>
+              {cart.promoDiscount > 0 ? (
+                <div style={styles.billLine}>
+                  <span>Coupon</span>
+                  <span style={styles.billCredit}>−{cart.promoDiscountLabel}</span>
+                </div>
+              ) : null}
+              <div style={styles.billLine}>
+                <span>Delivery</span>
                 {membershipWaives ? (
-                  <span>
-                    <s style={{ opacity: 0.55, fontWeight: 600 }}>₹{deliveryFee.toFixed(2)}</s> Free
+                  <span style={styles.billAmt}>
+                    <s style={styles.billStruck}>₹{deliveryFee.toFixed(2)}</s>
+                    <span style={styles.billCredit}> Free</span>
                   </span>
                 ) : (
-                  `₹${deliveryFee.toFixed(2)}`
+                  <span style={styles.billAmt}>₹{deliveryFee.toFixed(2)}</span>
                 )}
-              </strong>
+              </div>
+              <div style={styles.billLine}>
+                <span>Platform fee</span>
+                <span style={styles.billAmt}>₹{platformFee.toFixed(2)}</span>
+              </div>
+              {codFee > 0 ? (
+                <div style={styles.billLine}>
+                  <span>COD charge</span>
+                  <span style={styles.billAmt}>₹{codFee.toFixed(2)}</span>
+                </div>
+              ) : null}
+              {storeCreditBalance > 0 ? (
+                <label style={styles.walletRow}>
+                  <span style={styles.walletLabel}>
+                    <input
+                      type="checkbox"
+                      checked={useStoreCredit}
+                      disabled={busy}
+                      style={styles.walletCheck}
+                      onChange={(e) => {
+                        creditChoice.current = true;
+                        setUseStoreCredit(e.target.checked);
+                      }}
+                    />
+                    Wallet
+                  </span>
+                  <span style={useStoreCredit ? styles.billCredit : styles.billMuted}>
+                    {useStoreCredit ? `−₹${creditToApply.toFixed(2)}` : `₹${storeCreditBalance.toFixed(2)}`}
+                  </span>
+                </label>
+              ) : null}
+              <div style={styles.billTotal}>
+                <span>{online ? 'Pay online' : 'Pay on delivery'}</span>
+                <span style={styles.total}>{payLabel}</span>
+              </div>
             </div>
             {showMembershipOffer ? (
               <button type="button" style={styles.memberOffer} onClick={() => setPlansOpen(true)}>
-                <span style={styles.memberOfferIcon} aria-hidden>
-                  🏷
-                </span>
                 <span style={styles.memberOfferCopy}>
-                  <strong>Make delivery free</strong>
-                  <span>
-                    From ₹{Number(starterPlan?.price ?? 0).toFixed(0)} · {starterPlan?.credits} drops
-                  </span>
+                  Make delivery free · from ₹{Number(starterPlan?.price ?? 0).toFixed(0)}
                 </span>
                 <strong style={styles.memberOfferCta}>Plans</strong>
               </button>
             ) : memberCredits > 0 ? (
               <button type="button" style={styles.memberOffer} onClick={() => setPlansOpen(true)}>
-                <span style={styles.memberOfferIcon} aria-hidden>
-                  ✓
-                </span>
-                <span style={styles.memberOfferCopy}>
-                  <strong>{memberCredits} free deliveries left</strong>
-                  <span>Used when this town charges a fee</span>
-                </span>
+                <span style={styles.memberOfferCopy}>{memberCredits} free deliveries left</span>
                 <strong style={styles.memberOfferCta}>View</strong>
               </button>
             ) : null}
-            <div style={styles.summaryRow}>
-              <span>Platform fee</span>
-              <strong>₹{platformFee.toFixed(2)}</strong>
-            </div>
-            {codFee > 0 ? (
-              <div style={styles.summaryRow}>
-                <span>COD charge</span>
-                <strong>₹{codFee.toFixed(2)}</strong>
-              </div>
-            ) : null}
-            {creditToApply > 0 ? (
-              <div style={styles.summaryRow}>
-                <span>Store credit</span>
-                <strong style={styles.discount}>−₹{creditToApply.toFixed(2)}</strong>
-              </div>
-            ) : null}
-            <div style={styles.payRow}>
-              <span>{online ? 'Pay online' : 'Pay on delivery'}</span>
-              <strong style={styles.total}>{payLabel}</strong>
-            </div>
             {showPayMethods ? (
               <div style={styles.payMethods} role="radiogroup" aria-label="Payment method">
                 {showCodOption ? (
@@ -771,26 +784,6 @@ export function CartPage() {
                   </button>
                 ) : null}
               </div>
-            ) : null}
-            {storeCreditBalance > 0 ? (
-              <label style={styles.creditToggle}>
-                <input
-                  type="checkbox"
-                  checked={useStoreCredit}
-                  onChange={(e) => setUseStoreCredit(e.target.checked)}
-                  disabled={busy}
-                />
-                <span>
-                  Use store credit (₹{storeCreditBalance.toFixed(2)} in{' '}
-                  <Link to="/wallet" style={{ color: 'inherit', fontWeight: 800 }}>
-                    wallet
-                  </Link>
-                  )
-                  {useStoreCredit
-                    ? ` · applying ₹${creditToApply.toFixed(2)}`
-                    : ' · leave unused in wallet'}
-                </span>
-              </label>
             ) : null}
             {hasCartItems ? (
               <button
@@ -888,46 +881,91 @@ const styles: Record<string, CSSProperties> = {
   memberOffer: {
     display: 'flex',
     alignItems: 'center',
-    gap: '0.5rem',
+    gap: '0.45rem',
     width: '100%',
-    margin: '0.05rem 0 0.1rem',
-    padding: '0.45rem 0.55rem',
-    borderRadius: 12,
+    padding: '0.32rem 0.55rem',
+    borderRadius: 8,
     border: '1px solid #B7E4C4',
-    background: '#E7F6EC',
-    color: '#1A1C1A',
+    background: '#F3FBF5',
+    color: '#14532D',
     textAlign: 'left',
     cursor: 'pointer',
-    minHeight: 48,
+    minHeight: 32,
   },
-  memberOfferIcon: {
-    width: 28,
-    height: 28,
-    borderRadius: 8,
-    background: '#0C831F',
-    color: '#fff',
-    display: 'grid',
-    placeItems: 'center',
-    fontSize: '0.8rem',
-    flexShrink: 0,
-  },
-  memberOfferCopy: { flex: 1, minWidth: 0, display: 'grid', gap: '0.04rem', fontSize: '0.72rem', color: '#6B7280' },
-  memberOfferCta: { color: '#0C831F', fontSize: '0.78rem', flexShrink: 0 },
-  summaryRow: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'baseline',
-    color: 'var(--text-muted)',
-    fontWeight: 600,
-    fontSize: '0.88rem',
-  },
-  discount: { color: 'var(--accent)' },
-  payRow: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'baseline',
-    marginTop: '0.1rem',
+  memberOfferCopy: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: '0.74rem',
     fontWeight: 700,
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+  },
+  memberOfferCta: { color: '#0C831F', fontSize: '0.74rem', flexShrink: 0 },
+  bill: {
+    display: 'grid',
+    gap: 0,
+    paddingTop: '0.15rem',
+    borderTop: '1px solid var(--border)',
+  },
+  billLine: {
+    display: 'grid',
+    gridTemplateColumns: '1fr auto',
+    alignItems: 'center',
+    columnGap: '0.75rem',
+    minHeight: 28,
+    fontSize: '0.8rem',
+    fontWeight: 600,
+    color: 'var(--text-muted)',
+  },
+  billAmt: {
+    fontVariantNumeric: 'tabular-nums',
+    fontWeight: 700,
+    color: 'var(--text)',
+    fontSize: '0.82rem',
+    textAlign: 'right',
+  },
+  billStruck: {
+    opacity: 0.45,
+    fontWeight: 600,
+    marginRight: '0.3rem',
+  },
+  billCredit: {
+    fontVariantNumeric: 'tabular-nums',
+    fontWeight: 800,
+    color: '#0C831F',
+    fontSize: '0.82rem',
+  },
+  billMuted: {
+    fontVariantNumeric: 'tabular-nums',
+    fontWeight: 700,
+    color: 'var(--text-muted)',
+    fontSize: '0.82rem',
+  },
+  walletRow: {
+    display: 'grid',
+    gridTemplateColumns: '1fr auto',
+    alignItems: 'center',
+    columnGap: '0.5rem',
+    minHeight: 32,
+    marginTop: '0.1rem',
+    fontSize: '0.8rem',
+    fontWeight: 700,
+    color: 'var(--text)',
+    cursor: 'pointer',
+  },
+  walletLabel: { display: 'inline-flex', alignItems: 'center', gap: '0.4rem' },
+  walletCheck: { width: 16, height: 16, margin: 0, accentColor: '#0C831F', cursor: 'pointer' },
+  billTotal: {
+    display: 'grid',
+    gridTemplateColumns: '1fr auto',
+    alignItems: 'baseline',
+    columnGap: '0.75rem',
+    marginTop: '0.15rem',
+    paddingTop: '0.4rem',
+    borderTop: '1px dashed var(--border)',
+    fontWeight: 800,
+    fontSize: '0.92rem',
     color: 'var(--text)',
   },
   payMethods: {
@@ -950,20 +988,6 @@ const styles: Record<string, CSSProperties> = {
     border: '1.5px solid #0C831F',
     background: '#F3FBF5',
     color: '#0C831F',
-  },
-  creditToggle: {
-    display: 'flex',
-    alignItems: 'flex-start',
-    gap: '0.4rem',
-    padding: '0.4rem 0.5rem',
-    borderRadius: 8,
-    border: '1px solid color-mix(in srgb, var(--accent) 28%, var(--border))',
-    background: 'var(--accent-soft)',
-    fontSize: '0.75rem',
-    fontWeight: 600,
-    color: 'var(--text)',
-    lineHeight: 1.3,
-    cursor: 'pointer',
   },
   total: {
     fontFamily: 'var(--font-display)',

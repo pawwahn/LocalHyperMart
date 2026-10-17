@@ -135,22 +135,38 @@ public interface VendorSubOrderRepository extends JpaRepository<VendorSubOrder, 
             """)
     long countMarkedReadyByTownIdAndReadyAtBetween(UUID townId, Instant start, Instant end);
 
-    /** Vendor payout candidates: only delivered bags in the placed-date window. */
+    /**
+     * Vendor payout candidates: delivered bags in the delivered-date window, so a bag placed late on the 31st and
+     * delivered on the 1st lands in the next period instead of being stranded. Falls back to placed time.
+     */
     @Query("""
-            SELECT DISTINCT v FROM VendorSubOrder v
+            SELECT v FROM VendorSubOrder v
             JOIN FETCH v.order o
             WHERE v.vendorId = :vendorId
               AND o.townId = :townId
               AND v.status = com.hyperlocalmart.order.entity.VendorSubOrderStatus.DELIVERED
-              AND o.placedAt IS NOT NULL
-              AND o.placedAt >= :start AND o.placedAt < :end
-            ORDER BY o.placedAt ASC
+              AND COALESCE(o.deliveredAt, o.placedAt) IS NOT NULL
+              AND COALESCE(o.deliveredAt, o.placedAt) >= :start
+              AND COALESCE(o.deliveredAt, o.placedAt) < :end
+            ORDER BY COALESCE(o.deliveredAt, o.placedAt) ASC
             """)
     List<VendorSubOrder> findSettlementCandidates(
             @Param("vendorId") UUID vendorId,
             @Param("townId") UUID townId,
             @Param("start") Instant start,
             @Param("end") Instant end);
+
+    /** Shops that delivered at least one bag in the window, with the town of that order. */
+    @Query("""
+            SELECT DISTINCT v.vendorId, o.townId
+            FROM VendorSubOrder v
+            JOIN v.order o
+            WHERE v.status = com.hyperlocalmart.order.entity.VendorSubOrderStatus.DELIVERED
+              AND COALESCE(o.deliveredAt, o.placedAt) IS NOT NULL
+              AND COALESCE(o.deliveredAt, o.placedAt) >= :start
+              AND COALESCE(o.deliveredAt, o.placedAt) < :end
+            """)
+    List<Object[]> findDeliveredVendorTowns(@Param("start") Instant start, @Param("end") Instant end);
 
     /** Resolve payout selection — only delivered bags may be settled. */
     @Query("""

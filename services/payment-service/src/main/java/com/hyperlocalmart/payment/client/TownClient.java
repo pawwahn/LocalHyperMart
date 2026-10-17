@@ -3,6 +3,7 @@ package com.hyperlocalmart.payment.client;
 import com.hyperlocalmart.common.api.ApiResponse;
 import com.hyperlocalmart.payment.config.TownServiceProperties;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
@@ -12,12 +13,34 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+@Slf4j
 @Component
 @RequiredArgsConstructor
 public class TownClient {
 
     private final RestClient.Builder restClientBuilder;
     private final TownServiceProperties townServiceProperties;
+
+    public TdsConfig tdsConfig() {
+        try {
+            RestClient client = restClientBuilder.baseUrl(townServiceProperties.getBaseUrl()).build();
+            ApiResponse<TdsConfig> response = client.get()
+                    .uri("/api/v1/internal/platform/tds-config")
+                    .retrieve()
+                    .body(new ParameterizedTypeReference<ApiResponse<TdsConfig>>() {});
+            if (response != null && response.getData() != null
+                    && response.getData().ratePercent() != null
+                    && response.getData().exemptUpto() != null) {
+                return response.getData();
+            }
+        } catch (Exception ex) {
+            log.warn("TDS config unavailable, using 0.10% above ₹5,00,000");
+        }
+        return new TdsConfig(new BigDecimal("0.10"), new BigDecimal("500000.00"));
+    }
+
+    public record TdsConfig(BigDecimal ratePercent, BigDecimal exemptUpto) {
+    }
 
     public MembershipConfig membershipConfig() {
         RestClient client = restClientBuilder.baseUrl(townServiceProperties.getBaseUrl()).build();

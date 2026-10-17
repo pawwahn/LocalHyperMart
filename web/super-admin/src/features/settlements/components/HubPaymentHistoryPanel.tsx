@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { ApiError } from '@/shared/api/http';
 import { Card } from '@/shared/ui';
-import { fetchHubPaymentSubmissions, type HubPaymentSubmission } from '../api/hubPaymentApi';
+import { fetchHubPaymentSubmissions, isFranchiseOnlySubmission, type HubPaymentSubmission } from '../api/hubPaymentApi';
 
 type Props = {
   token: string;
@@ -9,6 +9,10 @@ type Props = {
   hubId?: string;
   hubName?: string;
   refreshTick?: number;
+  /** Franchise months stay off the COD payment list. */
+  scope?: 'cod' | 'franchise';
+  /** Skip the card when this list has no rows. */
+  hideWhenEmpty?: boolean;
 };
 
 function money(n: number): string {
@@ -39,6 +43,7 @@ function lineLabel(type: string): string {
   return type === 'FRANCHISE_FEE' ? 'Franchise' : 'COD';
 }
 
+
 function statusStyle(status: string): CSSProperties {
   if (status === 'VERIFIED') {
     return { background: '#ecfdf5', color: '#15803d', borderColor: '#86efac' };
@@ -49,7 +54,15 @@ function statusStyle(status: string): CSSProperties {
   return { background: '#fef3c7', color: '#92400e', borderColor: '#fcd34d' };
 }
 
-export function HubPaymentHistoryPanel({ token, townId, hubId, hubName, refreshTick = 0 }: Props) {
+export function HubPaymentHistoryPanel({
+  token,
+  townId,
+  hubId,
+  hubName,
+  refreshTick = 0,
+  scope = 'cod',
+  hideWhenEmpty = false,
+}: Props) {
   const [rows, setRows] = useState<HubPaymentSubmission[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -76,12 +89,24 @@ export function HubPaymentHistoryPanel({ token, townId, hubId, hubName, refreshT
     void load();
   }, [load, refreshTick]);
 
+  const scoped = useMemo(() => {
+    const inScope = rows.filter((r) =>
+      scope === 'franchise' ? isFranchiseOnlySubmission(r) : !isFranchiseOnlySubmission(r),
+    );
+    if (scope === 'franchise') return inScope.filter((r) => r.status !== 'PENDING_VERIFICATION');
+    return inScope;
+  }, [rows, scope]);
+
   const filtered = useMemo(() => {
-    if (filter === 'ALL') return rows;
-    return rows.filter((r) => r.status === filter);
-  }, [rows, filter]);
+    if (filter === 'ALL') return scoped;
+    return scoped.filter((r) => r.status === filter);
+  }, [scoped, filter]);
 
   if (!townId || !hubId) {
+    return null;
+  }
+
+  if (hideWhenEmpty && !loading && !error && filtered.length === 0) {
     return null;
   }
 
@@ -89,10 +114,12 @@ export function HubPaymentHistoryPanel({ token, townId, hubId, hubName, refreshT
     <Card padding="sm" style={styles.card}>
       <div style={styles.head}>
         <div>
-          <h2 style={styles.title}>Payment history</h2>
+          <h2 style={styles.title}>{scope === 'franchise' ? 'Franchise payment history' : 'Payment history'}</h2>
           <p style={styles.muted}>
             {hubName ? `${hubName} · ` : ''}
-            Hub online payments — pending, confirmed, and rejected.
+            {scope === 'franchise'
+              ? 'Paid franchise months. They are not added to the bill you issue now.'
+              : 'COD online payments — pending, confirmed, and rejected. Franchise months are on their own tab.'}
           </p>
         </div>
         <div style={styles.filters} role="tablist" aria-label="Filter status">
@@ -120,7 +147,11 @@ export function HubPaymentHistoryPanel({ token, townId, hubId, hubName, refreshT
 
       {loading ? <p style={styles.muted}>Loading…</p> : null}
       {error ? <p style={styles.error}>{error}</p> : null}
-      {!loading && filtered.length === 0 ? <p style={styles.muted}>No payments in this filter.</p> : null}
+      {!loading && filtered.length === 0 ? (
+        <p style={styles.muted}>
+          {scope === 'franchise' ? 'No franchise payment history yet.' : 'No payments in this filter.'}
+        </p>
+      ) : null}
 
       {filtered.length > 0 ? (
         <div style={styles.tableWrap}>
@@ -132,7 +163,7 @@ export function HubPaymentHistoryPanel({ token, townId, hubId, hubName, refreshT
                 <th style={styles.th}>Total</th>
                 <th style={styles.th}>Status</th>
                 <th style={styles.th}>UTR / ref</th>
-                <th style={styles.th}>Lines</th>
+                <th style={styles.th}>Bill</th>
                 <th style={styles.th}>Hub note</th>
                 <th style={styles.th}>Admin / outcome</th>
               </tr>
@@ -148,6 +179,7 @@ export function HubPaymentHistoryPanel({ token, townId, hubId, hubName, refreshT
                   </td>
                   <td style={styles.tdMono}>{row.paymentReference}</td>
                   <td style={styles.td}>
+                    {row.documentRef ? <div style={styles.billNum}>{row.documentRef}</div> : null}
                     <ul style={styles.lineList}>
                       {row.lines.map((l) => (
                         <li key={l.lineId}>
@@ -250,5 +282,6 @@ const styles: Record<string, CSSProperties> = {
     border: '1px solid',
   },
   lineList: { margin: 0, paddingLeft: '1.1rem', display: 'grid', gap: '0.15rem' },
+  billNum: { fontWeight: 800, color: 'var(--text)', whiteSpace: 'nowrap', marginBottom: '0.08rem' },
   adminNote: { fontWeight: 650 },
 };

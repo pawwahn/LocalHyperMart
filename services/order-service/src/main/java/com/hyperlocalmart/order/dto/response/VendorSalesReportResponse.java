@@ -55,6 +55,8 @@ public class VendorSalesReportResponse {
         private UUID orderId;
         private String orderNumber;
         private Instant placedAt;
+        /** Order delivered (all bags handed over together). Payout windows use this day. */
+        private Instant deliveredAt;
         private VendorSubOrderStatus status;
         private PaymentMethod paymentMethod;
         private PaymentStatus paymentStatus;

@@ -38,6 +38,7 @@ public class SettlementCandidateView {
         String orderNumber;
         String subOrderNumber;
         Instant placedAt;
+        Instant deliveredAt;
         String status;
         String paymentStatus;
         /** COD or ONLINE — buyer payment rail for the parent order. */

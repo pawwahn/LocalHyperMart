@@ -33,6 +33,8 @@ export type HubPaymentSubmission = {
   verifiedAt?: string | null;
   rejectedAt?: string | null;
   editable?: boolean;
+  /** Issued bill number, for example CLX/COD/26-27/0006. */
+  documentRef?: string | null;
   lines: Array<{
     lineId: string;
     lineType: string;

@@ -3,7 +3,7 @@ package com.hyperlocalmart.payment.service;
 import com.hyperlocalmart.common.exception.BusinessException;
 import com.hyperlocalmart.common.exception.ErrorCode;
 import com.hyperlocalmart.payment.client.OrderClient;
-import com.hyperlocalmart.payment.config.PaymentProperties;
+import com.hyperlocalmart.payment.client.TownClient;
 import com.hyperlocalmart.payment.dto.request.CreateRazorpaySettlementBatchRequest;
 import com.hyperlocalmart.payment.dto.response.PlatformFinanceComplianceResponse;
 import com.hyperlocalmart.payment.dto.response.PlatformFinanceLedgerResponse;
@@ -32,6 +32,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -43,13 +44,17 @@ import java.util.UUID;
 public class PlatformFinanceComplianceService {
 
     private static final ZoneId IST = ZoneId.of("Asia/Kolkata");
-    private static final String TDS_NOTE =
-            "Estimated TDS on gross sales facilitated to vendors (typical e-commerce operator liability u/s 194O). "
-                    + "Rate is configurable; deposit challans and deductee reporting are done outside this screen.";
+    private static String tdsNote(BigDecimal ratePercent, BigDecimal exemptUpto) {
+        return "Estimated at "
+                + ratePercent.stripTrailingZeros().toPlainString()
+                + "% of vendor gross above ₹"
+                + exemptUpto.stripTrailingZeros().toPlainString()
+                + " in the financial year (1 Apr–31 Mar). Both values come from Platform settings.";
+    }
 
     private final PlatformFinanceLedgerService platformFinanceLedgerService;
     private final OrderClient orderClient;
-    private final PaymentProperties paymentProperties;
+    private final TownClient townClient;
     private final SettlementRepository settlementRepository;
     private final PaymentRepository paymentRepository;
     private final RefundRepository refundRepository;
@@ -65,37 +70,15 @@ public class PlatformFinanceComplianceService {
         PlatformFinanceLedgerResponse ledger = platformFinanceLedgerService.ledger(townId, from, to);
         OrderClient.FinanceAccrual accrual = orderClient.getFinanceAccrual(townId, from, to);
 
-        BigDecimal vendorCommission = BigDecimal.ZERO;
-        List<PlatformFinanceComplianceResponse.TdsLine> tdsLines = new ArrayList<>();
-        BigDecimal tdsRate = paymentProperties.getVendorPayoutTdsRatePercent() == null
-                ? BigDecimal.ZERO
-                : paymentProperties.getVendorPayoutTdsRatePercent();
-        BigDecimal totalGross = BigDecimal.ZERO;
-        BigDecimal totalNet = BigDecimal.ZERO;
-        BigDecimal totalTds = BigDecimal.ZERO;
-
-        for (Settlement s : settlementRepository.findPaidVendorSettlementsBetween(townId, start, endExclusive)) {
-            BigDecimal gross = money(s.getGrossAmount());
-            BigDecimal commission = money(s.getCommissionAmount());
-            BigDecimal net = money(s.getNetAmount());
-            vendorCommission = vendorCommission.add(commission);
-            totalGross = totalGross.add(gross);
-            totalNet = totalNet.add(net);
-            BigDecimal tds = gross.multiply(tdsRate).divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP);
-            totalTds = totalTds.add(tds);
-            Instant paidAt = s.getPaidAt();
-            tdsLines.add(PlatformFinanceComplianceResponse.TdsLine.builder()
-                    .settlementId(s.getId())
-                    .paidDate(paidAt != null ? paidAt.atZone(IST).toLocalDate() : null)
-                    .vendorName(payeeDisplayNameService.forSettlement(s))
-                    .vendorId(s.getPayeeId())
-                    .grossSales(gross)
-                    .platformCommission(commission)
-                    .netPaid(net)
-                    .tdsEstimated(tds)
-                    .transactionReference(s.getTransactionReference())
-                    .build());
-        }
+        TownClient.TdsConfig tdsConfig = townClient.tdsConfig();
+        BigDecimal tdsRate = tdsConfig.ratePercent() == null ? new BigDecimal("0.10") : tdsConfig.ratePercent();
+        BigDecimal tdsExempt = tdsConfig.exemptUpto() == null ? new BigDecimal("500000.00") : tdsConfig.exemptUpto();
+        TdsTotals tdsTotals = estimateVendorTds(townId, start, endExclusive, to, tdsRate, tdsExempt);
+        BigDecimal vendorCommission = tdsTotals.commission();
+        List<PlatformFinanceComplianceResponse.TdsLine> tdsLines = tdsTotals.lines();
+        BigDecimal totalGross = tdsTotals.gross();
+        BigDecimal totalNet = tdsTotals.net();
+        BigDecimal totalTds = tdsTotals.tds();
 
         BigDecimal membershipRevenue = BigDecimal.ZERO;
         for (BuyerMembershipPurchase p :
@@ -161,7 +144,8 @@ public class PlatformFinanceComplianceService {
                         .build())
                 .tds(PlatformFinanceComplianceResponse.TdsReport.builder()
                         .ratePercent(tdsRate)
-                        .legalNote(TDS_NOTE)
+                        .exemptUpto(tdsExempt)
+                        .legalNote(tdsNote(tdsRate, tdsExempt))
                         .totalGrossSalesFacilitated(totalGross)
                         .totalTdsEstimated(totalTds)
                         .totalNetPaidToVendors(totalNet)
@@ -173,6 +157,78 @@ public class PlatformFinanceComplianceService {
                 .payoutRegister(payoutRegister)
                 .refundRegister(refundRegister)
                 .build();
+    }
+
+    private TdsTotals estimateVendorTds(
+            UUID townId,
+            Instant reportStart,
+            Instant reportEndExclusive,
+            LocalDate reportTo,
+            BigDecimal ratePercent,
+            BigDecimal exemptUpto) {
+        LocalDate fyStart = reportTo.getMonthValue() >= 4
+                ? LocalDate.of(reportTo.getYear(), 4, 1)
+                : LocalDate.of(reportTo.getYear() - 1, 4, 1);
+        Instant fyStartInstant = fyStart.atStartOfDay(IST).toInstant();
+        List<Settlement> year = new ArrayList<>(settlementRepository.findPaidVendorSettlementsBetween(
+                null,
+                fyStartInstant,
+                reportEndExclusive,
+                fyStart,
+                reportEndExclusive.atZone(IST).toLocalDate()));
+        year.sort(Comparator.comparing(PlatformFinanceLedgerService::cashInstant, Comparator.nullsLast(Comparator.naturalOrder())));
+
+        Map<UUID, BigDecimal> runningByVendor = new HashMap<>();
+        List<PlatformFinanceComplianceResponse.TdsLine> lines = new ArrayList<>();
+        BigDecimal totalGross = BigDecimal.ZERO;
+        BigDecimal totalNet = BigDecimal.ZERO;
+        BigDecimal totalTds = BigDecimal.ZERO;
+        BigDecimal commission = BigDecimal.ZERO;
+
+        for (Settlement settlement : year) {
+            UUID vendorId = settlement.getPayeeId();
+            BigDecimal gross = money(settlement.getGrossAmount());
+            BigDecimal before = runningByVendor.getOrDefault(vendorId, BigDecimal.ZERO);
+            BigDecimal after = before.add(gross);
+            runningByVendor.put(vendorId, after);
+            BigDecimal taxable = after.subtract(exemptUpto).max(BigDecimal.ZERO)
+                    .subtract(before.subtract(exemptUpto).max(BigDecimal.ZERO));
+            BigDecimal tds = taxable.multiply(ratePercent)
+                    .divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP);
+
+            Instant paidAt = PlatformFinanceLedgerService.cashInstant(settlement);
+            boolean inReport = paidAt != null && !paidAt.isBefore(reportStart) && paidAt.isBefore(reportEndExclusive);
+            boolean inTown = townId == null || townId.equals(settlement.getTownId());
+            if (!inReport || !inTown) {
+                continue;
+            }
+            BigDecimal net = money(settlement.getNetAmount());
+            BigDecimal fee = money(settlement.getCommissionAmount());
+            commission = commission.add(fee);
+            totalGross = totalGross.add(gross);
+            totalNet = totalNet.add(net);
+            totalTds = totalTds.add(tds);
+            lines.add(PlatformFinanceComplianceResponse.TdsLine.builder()
+                    .settlementId(settlement.getId())
+                    .paidDate(paidAt.atZone(IST).toLocalDate())
+                    .vendorName(payeeDisplayNameService.forSettlement(settlement))
+                    .vendorId(vendorId)
+                    .grossSales(gross)
+                    .platformCommission(fee)
+                    .netPaid(net)
+                    .tdsEstimated(tds)
+                    .transactionReference(settlement.getTransactionReference())
+                    .build());
+        }
+        return new TdsTotals(commission, totalGross, totalNet, totalTds, lines);
+    }
+
+    private record TdsTotals(
+            BigDecimal commission,
+            BigDecimal gross,
+            BigDecimal net,
+            BigDecimal tds,
+            List<PlatformFinanceComplianceResponse.TdsLine> lines) {
     }
 
     private PlatformFinanceComplianceResponse.ManagementSummary buildManagementSummary(
@@ -226,10 +282,11 @@ public class PlatformFinanceComplianceService {
         BigDecimal vendorFees = BigDecimal.ZERO;
         List<PlatformFinanceComplianceResponse.PayoutLine> lines = new ArrayList<>();
 
-        for (Settlement s : settlementRepository.findPaidWithLinesBetween(townId, start, endExclusive)) {
+        for (Settlement s : settlementRepository.findPaidWithLinesBetween(
+                townId, start, endExclusive, start.atZone(IST).toLocalDate(), endExclusive.atZone(IST).toLocalDate())) {
             boolean franchiseFee = s.getLineItems() != null && s.getLineItems().stream()
                     .anyMatch(l -> "FRANCHISE".equalsIgnoreCase(l.getLineType()));
-            Instant paidAt = s.getPaidAt();
+            Instant paidAt = PlatformFinanceLedgerService.cashInstant(s);
             LocalDate paidDate = paidAt != null ? paidAt.atZone(IST).toLocalDate() : null;
             String period = s.getPeriodStart() + " → " + s.getPeriodEnd();
             BigDecimal gross = money(s.getGrossAmount());

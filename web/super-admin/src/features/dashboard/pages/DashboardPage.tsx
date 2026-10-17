@@ -1,7 +1,8 @@
-import type { CSSProperties } from 'react';
+import { useState, type CSSProperties } from 'react';
 import { Link } from 'react-router-dom';
 import { PortalShell } from '@/shared/layout/PortalShell';
-import { Banner, Card } from '@/shared/ui';
+import { Card } from '@/shared/ui';
+import { OpsInbox } from '../components/OpsInbox';
 
 const LINKS = [
   {
@@ -42,11 +43,10 @@ const LINKS = [
 ];
 
 export function DashboardPage() {
+  const [refreshTick, setRefreshTick] = useState(0);
   return (
-    <PortalShell title="Overview">
-      <Banner tone="info">
-        Soft-launch ops desk — payments and SMS still stubbed; focus on towns, vendors, and catalog.
-      </Banner>
+    <PortalShell title="Overview" onRefresh={() => setRefreshTick((n) => n + 1)}>
+      <OpsInbox refreshTick={refreshTick} />
       <div style={styles.grid}>
         {LINKS.map((item) => (
           <Link key={item.to} to={item.to} style={styles.link}>
@@ -65,15 +65,15 @@ const styles: Record<string, CSSProperties> = {
   grid: {
     display: 'grid',
     gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-    gap: '0.85rem',
+    gap: '0.45rem',
   },
   link: { textDecoration: 'none', color: 'inherit' },
-  card: { display: 'grid', gap: '0.4rem', minHeight: 120 },
+  card: { display: 'grid', gap: '0.2rem' },
   cardTitle: {
     margin: 0,
     fontFamily: 'var(--font-display)',
-    fontSize: '1.2rem',
+    fontSize: '0.95rem',
     fontWeight: 800,
   },
-  cardBody: { margin: 0, color: 'var(--text-muted)', fontSize: '0.92rem' },
+  cardBody: { margin: 0, color: 'var(--text-muted)', fontSize: '0.78rem' },
 };

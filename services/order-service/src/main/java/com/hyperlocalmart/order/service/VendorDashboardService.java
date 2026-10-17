@@ -126,7 +126,9 @@ public class VendorDashboardService {
                 .status(subOrder.getStatus())
                 .paymentMethod(subOrder.getOrder().getPaymentMethod())
                 .paymentStatus(subOrder.getOrder().getPaymentStatus())
-                .placedAt(subOrder.getOrder().getPlacedAt())
+                .placedAt(subOrder.getOrder().getPlacedAt() != null
+                        ? subOrder.getOrder().getPlacedAt()
+                        : subOrder.getOrder().getCreatedAt())
                 .itemCount(itemCount)
                 .build();
     }

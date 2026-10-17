@@ -41,6 +41,15 @@ public interface WalletTransactionRepository extends JpaRepository<WalletTransac
             Instant start, Instant endExclusive);
 
     @Query("""
+            SELECT t FROM WalletTransaction t
+            WHERE t.walletId IN :walletIds AND t.createdAt < :endExclusive
+            ORDER BY t.createdAt ASC, t.id ASC
+            """)
+    List<WalletTransaction> findByWalletIdInAndCreatedAtBefore(
+            @Param("walletIds") Collection<UUID> walletIds,
+            @Param("endExclusive") Instant endExclusive);
+
+    @Query("""
             SELECT t.referenceType, COUNT(t), COALESCE(SUM(t.amount), 0)
             FROM WalletTransaction t
             WHERE t.type = :type AND t.createdAt >= :start AND t.createdAt < :end

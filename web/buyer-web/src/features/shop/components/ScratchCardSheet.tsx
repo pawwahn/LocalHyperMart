@@ -108,9 +108,7 @@ export function ScratchCardSheet({ card, token, onClose, onRevealed }: Props) {
         </h2>
         <p style={styles.sub}>
           {card.orderNumber ? `Order ${card.orderNumber}` : 'Thanks for your order'}
-          {revealed
-            ? ''
-            : ` · win ₹${Math.round(Number(card.rewardMin))}–₹${Math.round(Number(card.rewardMax))}`}
+          {revealed ? '' : ' · scratch to see what you won'}
         </p>
 
         <div style={styles.stage}>

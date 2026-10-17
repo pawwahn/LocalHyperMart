@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
@@ -53,10 +54,34 @@ public interface HubPaymentRequestRepository extends JpaRepository<HubPaymentReq
 
     List<HubPaymentRequest> findByTownIdAndDocumentNumberIsNullOrderByCreatedAtAscIdAsc(UUID townId);
 
+    @Query("""
+            SELECT COALESCE(SUM(r.totalAmount), 0)
+            FROM HubPaymentRequest r
+            WHERE r.hubId = :hubId
+              AND r.status IN :statuses
+            """)
+    BigDecimal sumTotalByHubAndStatusIn(
+            @Param("hubId") UUID hubId,
+            @Param("statuses") List<HubPaymentRequestStatus> statuses);
+
     boolean existsByHubIdAndRequestTypeAndStatusIn(
             UUID hubId,
             HubPaymentRequestType requestType,
             List<HubPaymentRequestStatus> statuses);
+
+    List<HubPaymentRequest> findByStatusInOrderByPeriodStartAsc(List<HubPaymentRequestStatus> statuses);
+
+    @Query("""
+            SELECT r FROM HubPaymentRequest r
+            WHERE r.status IN :statuses
+              AND r.periodEnd >= :from
+              AND r.periodStart <= :to
+            ORDER BY r.periodStart
+            """)
+    List<HubPaymentRequest> findOpenForDuesBetween(
+            @Param("statuses") List<HubPaymentRequestStatus> statuses,
+            @Param("from") LocalDate from,
+            @Param("to") LocalDate to);
 
     @Query("""
             SELECT CASE WHEN COUNT(r) > 0 THEN true ELSE false END

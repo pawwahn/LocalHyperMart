@@ -132,6 +132,14 @@ public class PlatformSettingsService {
                 patch = new LinkedHashMap<>(patch);
                 patch.remove("deliveryFee");
             }
+            if (patch.containsKey("vendorTdsRatePercent")) {
+                current.put("vendorTdsRatePercent", normalizeTdsRate(patch.get("vendorTdsRatePercent")));
+                patch.remove("vendorTdsRatePercent");
+            }
+            if (patch.containsKey("vendorTdsExemptUpto")) {
+                current.put("vendorTdsExemptUpto", normalizeTdsExempt(patch.get("vendorTdsExemptUpto")));
+                patch.remove("vendorTdsExemptUpto");
+            }
             if (patch.containsKey("supplierGstin")) {
                 current.put("supplierGstin", normalizeGstin(patch.get("supplierGstin")));
                 patch.remove("supplierGstin");
@@ -279,6 +287,8 @@ public class PlatformSettingsService {
             parts.add("Referral share message updated");
         }
         auditMoney(parts, "Delivery fee", left.get("deliveryFee"), right.get("deliveryFee"));
+        auditPlain(parts, "Vendor TDS %", left.get("vendorTdsRatePercent"), right.get("vendorTdsRatePercent"));
+        auditMoney(parts, "Vendor TDS exempt up to", left.get("vendorTdsExemptUpto"), right.get("vendorTdsExemptUpto"));
         auditPlain(parts, "Vendor alert", left.get("vendorOrderAlertMessage"), right.get("vendorOrderAlertMessage"));
         auditBool(parts, "Maps", left.get("mapsEnabled"), right.get("mapsEnabled"));
         auditBool(parts, "Maintenance", left.get("maintenanceMode"), right.get("maintenanceMode"));
@@ -533,12 +543,53 @@ public class PlatformSettingsService {
                 "Order groceries from local shops on KoyaKart. Use my code {code}: {link}");
         map.put("mealPlannerEnabled", false);
         map.put("hubAdminCanSeeAgentRatings", true);
+        map.put("vendorTdsRatePercent", new BigDecimal("0.10"));
+        map.put("vendorTdsExemptUpto", new BigDecimal("500000.00"));
         return map;
     }
 
     @Transactional(readOnly = true)
     public boolean hubAdminCanSeeAgentRatings() {
         return asBool(getSettings().get("hubAdminCanSeeAgentRatings"), true);
+    }
+
+    @Transactional(readOnly = true)
+    public BigDecimal vendorTdsRatePercent() {
+        return readMoney(getSettings().get("vendorTdsRatePercent"), new BigDecimal("0.10"));
+    }
+
+    @Transactional(readOnly = true)
+    public BigDecimal vendorTdsExemptUpto() {
+        return readMoney(getSettings().get("vendorTdsExemptUpto"), new BigDecimal("500000.00"));
+    }
+
+    private static BigDecimal readMoney(Object raw, BigDecimal fallback) {
+        if (raw instanceof BigDecimal decimal) {
+            return decimal.setScale(2, RoundingMode.HALF_UP);
+        }
+        if (raw instanceof Number n) {
+            return BigDecimal.valueOf(n.doubleValue()).setScale(2, RoundingMode.HALF_UP);
+        }
+        if (raw instanceof String s && !s.isBlank()) {
+            return new BigDecimal(s.trim()).setScale(2, RoundingMode.HALF_UP);
+        }
+        return fallback;
+    }
+
+    private static BigDecimal normalizeTdsRate(Object raw) {
+        BigDecimal value = readMoney(raw, new BigDecimal("0.10"));
+        if (value.signum() < 0 || value.compareTo(new BigDecimal("100")) > 0) {
+            throw new IllegalArgumentException("Vendor TDS % must be between 0 and 100");
+        }
+        return value;
+    }
+
+    private static BigDecimal normalizeTdsExempt(Object raw) {
+        BigDecimal value = readMoney(raw, new BigDecimal("500000.00"));
+        if (value.signum() < 0) {
+            throw new IllegalArgumentException("Vendor TDS exempt amount must be zero or more");
+        }
+        return value;
     }
 
     @Transactional(readOnly = true)

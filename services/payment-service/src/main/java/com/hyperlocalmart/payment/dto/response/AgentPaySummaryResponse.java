@@ -64,5 +64,8 @@ public class AgentPaySummaryResponse {
         String transactionReference;
         Instant paidAt;
         int orderCount;
+        Instant acknowledgedAt;
+        Instant notReceivedAt;
+        String notReceivedNote;
     }
 }

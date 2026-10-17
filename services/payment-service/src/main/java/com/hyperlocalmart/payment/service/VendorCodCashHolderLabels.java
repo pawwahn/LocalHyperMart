@@ -27,6 +27,7 @@ public final class VendorCodCashHolderLabels {
         return switch (loc) {
             case "WITH_VENDOR" -> new View("VENDOR", "Shop", "Confirmed at shop");
             case "DECLARED_TO_VENDOR" -> new View("VENDOR", "Shop", "Declared — shop to confirm");
+            case "WITH_COMPANY" -> new View("PLATFORM", "App", "COD already with KoyaKart");
             case "AT_HUB" -> new View("HUB_ADMIN", "Hub desk", hub != null ? hub : "Close-day remitted");
             case "DECLARED_TO_HUB" -> new View("HUB_ADMIN", "Hub desk", "Declared — hub to confirm");
             default -> {

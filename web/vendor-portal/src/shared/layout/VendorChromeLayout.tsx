@@ -3,6 +3,8 @@ import { Outlet, useLocation } from 'react-router-dom';
 import { DashboardPage } from '@/features/orders/pages/DashboardPage';
 import { ListingsPage } from '@/features/listings/pages/ListingsPage';
 import { ReportsPage } from '@/features/reports/pages/ReportsPage';
+import { PayoutAckReminder } from '@/features/payouts/components/PayoutAckReminder';
+import { VendorBillReminder } from '@/features/payouts/components/VendorBillReminder';
 import { PortalShell } from './PortalShell';
 import { PortalChromeProvider, usePortalChromeState } from './PortalChromeContext';
 
@@ -59,6 +61,8 @@ function VendorChromeLayoutInner() {
         </KeepAlivePane>
       ) : null}
       {!keepAliveRoute ? <Outlet /> : null}
+      <PayoutAckReminder />
+      <VendorBillReminder />
     </PortalShell>
   );
 }

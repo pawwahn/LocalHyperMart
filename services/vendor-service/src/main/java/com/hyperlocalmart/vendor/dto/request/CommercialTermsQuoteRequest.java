@@ -47,6 +47,13 @@ public class CommercialTermsQuoteRequest {
      */
     private Boolean allowFeeExceedGross;
 
+    /** Subscription bills track paid months in payment-service; skip the legacy charged-month flag. */
+    private Boolean ignoreSubscriptionChargedFlag;
+
+    public boolean ignoreSubscriptionChargedFlag() {
+        return Boolean.TRUE.equals(ignoreSubscriptionChargedFlag);
+    }
+
     public boolean includeSubscription() {
         return includeSubscription == null || includeSubscription;
     }

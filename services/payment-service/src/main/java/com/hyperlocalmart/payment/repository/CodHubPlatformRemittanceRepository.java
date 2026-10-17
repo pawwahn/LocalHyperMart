@@ -19,6 +19,13 @@ public interface CodHubPlatformRemittanceRepository extends JpaRepository<CodHub
     BigDecimal sumAmountByTownAndHub(@Param("townId") UUID townId, @Param("hubId") UUID hubId);
 
     @Query("""
+            SELECT r.townId, r.hubId, COALESCE(SUM(r.amount), 0)
+            FROM CodHubPlatformRemittance r
+            GROUP BY r.townId, r.hubId
+            """)
+    List<Object[]> sumAmountGroupedByHub();
+
+    @Query("""
             SELECT COALESCE(SUM(r.amount), 0) FROM CodHubPlatformRemittance r
             WHERE r.townId = :townId AND r.hubId = :hubId
               AND r.remittanceDate >= :from AND r.remittanceDate <= :to

@@ -37,6 +37,14 @@ class VendorCodCashHolderLabelsTest {
     }
 
     @Test
+    void codAlreadyWithCompanySitsWithApp() {
+        var view = VendorCodCashHolderLabels.describe("COD", false, "WITH_COMPANY", null, "Town Hub");
+        assertThat(view.holderRole()).isEqualTo("PLATFORM");
+        assertThat(view.holderLabel()).isEqualTo("App");
+        assertThat(view.holderDetail()).isEqualTo("COD already with KoyaKart");
+    }
+
+    @Test
     void remittedCloseDayIsHubDesk() {
         var view = VendorCodCashHolderLabels.describe("COD", false, "AT_HUB", "Kiran", "Town Hub");
         assertThat(view.holderRole()).isEqualTo("HUB_ADMIN");

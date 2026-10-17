@@ -11,15 +11,11 @@ import { downloadHubPaymentReceiptHtml, fetchHubPaymentReceipt } from '../api/hu
 
 import { formatIsoDateRange } from '../lib/codFormat';
 
-import {
-  rangeForTransferHistoryPreset,
-  TRANSFER_HISTORY_PRESET_OPTIONS,
-  type TransferHistoryPreset,
-} from '@hlm-dates/istReportPresets';
-
 type Props = {
   token: string;
   refreshKey?: number;
+  from: string;
+  to: string;
 };
 
 function money(n: number): string {
@@ -111,6 +107,7 @@ function PaymentHistoryRow({
       <td style={styles.td}>{formatWhen(row.submittedAt)}</td>
       <td style={styles.tdNum}>{money(row.totalAmount)}</td>
       <td style={styles.tdLines}>
+        {row.documentRef ? <div style={styles.billNum}>{row.documentRef}</div> : null}
         {row.lines.map((l) => (
           <div key={l.lineId}>
             {lineLabel(l.lineType)} {money(l.amount)}
@@ -167,26 +164,23 @@ function PaymentHistoryRow({
   );
 }
 
-export function HubPaymentHistoryPanel({ token, refreshKey = 0 }: Props) {
+export function HubPaymentHistoryPanel({ token, refreshKey = 0, from, to }: Props) {
   const [rows, setRows] = useState<HubPaymentSubmission[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [preset, setPreset] = useState<TransferHistoryPreset>('financialYear');
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
   const [bulkNotice, setBulkNotice] = useState<string | null>(null);
   const [editing, setEditing] = useState<HubPaymentSubmission | null>(null);
 
-  const range = useMemo(() => rangeForTransferHistoryPreset(preset), [preset]);
-
   const filtered = useMemo(() => {
-    if (!range) return rows;
-    return rows.filter((r) => inRange(r, range.from, range.to));
-  }, [rows, range]);
+    if (!from || !to) return rows;
+    return rows.filter((r) => inRange(r, from, to));
+  }, [rows, from, to]);
 
   const verifiedFiltered = useMemo(() => filtered.filter((r) => r.status === 'VERIFIED'), [filtered]);
 
-  const rangeLabel = range ? formatIsoDateRange(range.from, range.to) : 'All time (IST)';
+  const rangeLabel = from && to ? formatIsoDateRange(from, to) : 'All time';
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -208,7 +202,7 @@ export function HubPaymentHistoryPanel({ token, refreshKey = 0 }: Props) {
   useEffect(() => {
     setSelected(new Set());
     setBulkNotice(null);
-  }, [preset, refreshKey]);
+  }, [from, to, refreshKey]);
 
   const allVerifiedSelected =
     verifiedFiltered.length > 0 && verifiedFiltered.every((r) => selected.has(r.submissionId));
@@ -240,18 +234,6 @@ export function HubPaymentHistoryPanel({ token, refreshKey = 0 }: Props) {
   return (
     <div style={styles.wrap}>
       <div style={styles.toolbar}>
-        <div style={styles.presets}>
-          {TRANSFER_HISTORY_PRESET_OPTIONS.map(({ id, label }) => (
-            <button
-              key={id}
-              type="button"
-              style={preset === id ? styles.presetOn : styles.presetOff}
-              onClick={() => setPreset(id)}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
         <div style={styles.toolbarMeta}>
           <div style={styles.toolbarSummaryRow}>
             <p style={styles.rangeLine}>
@@ -300,38 +282,6 @@ export function HubPaymentHistoryPanel({ token, refreshKey = 0 }: Props) {
             </Button>
             </div>
           </div>
-          <table style={styles.helpTable} aria-label="Column meanings">
-            <tbody>
-              <tr>
-                <th scope="row" style={styles.helpTh}>
-                  Tenure filter
-                </th>
-                <td style={styles.helpTd}>Paid date (IST), else submission day</td>
-                <th scope="row" style={styles.helpTh}>
-                  Paid
-                </th>
-                <td style={styles.helpTd}>Bank transfer date you entered</td>
-              </tr>
-              <tr>
-                <th scope="row" style={styles.helpTh}>
-                  Submitted
-                </th>
-                <td style={styles.helpTd}>When UTR was saved</td>
-                <th scope="row" style={styles.helpTh}>
-                  Confirmed
-                </th>
-                <td style={styles.helpTd}>When KoyaKart verified credit</td>
-              </tr>
-              <tr>
-                <th scope="row" style={styles.helpTh}>
-                  Bills
-                </th>
-                <td style={styles.helpTd} colSpan={3}>
-                  COD / franchise period covered by this transfer
-                </td>
-              </tr>
-            </tbody>
-          </table>
         </div>
       </div>
 
@@ -369,7 +319,7 @@ export function HubPaymentHistoryPanel({ token, refreshKey = 0 }: Props) {
                 <th style={styles.th}>Paid</th>
                 <th style={styles.th}>Submitted</th>
                 <th style={{ ...styles.th, ...styles.thNum }}>Amount</th>
-                <th style={styles.th}>Bills</th>
+                <th style={styles.th}>Bill</th>
                 <th style={styles.th}>UTR / ref</th>
                 <th style={styles.th}>Status</th>
                 <th style={styles.th}>Confirmed</th>
@@ -513,6 +463,7 @@ const styles: Record<string, CSSProperties> = {
   emptyIcon: { fontSize: '1.5rem', opacity: 0.45 },
   emptyTitle: { margin: '0.35rem 0 0.15rem', fontWeight: 800, fontSize: '0.9rem' },
   lineSub: { fontSize: '0.65rem', color: 'var(--text-muted)' },
+  billNum: { fontWeight: 800, color: 'var(--text)', whiteSpace: 'nowrap', marginBottom: '0.08rem' },
   billBtn: {
     border: '1px solid var(--border)',
     background: 'var(--bg)',

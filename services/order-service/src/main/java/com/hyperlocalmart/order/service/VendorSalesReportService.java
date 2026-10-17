@@ -147,6 +147,7 @@ public class VendorSalesReportService {
                     .orderId(subOrder.getOrder().getId())
                     .orderNumber(subOrder.getOrder().getOrderNumber())
                     .placedAt(subOrder.getOrder().getPlacedAt())
+                    .deliveredAt(subOrder.getOrder().getDeliveredAt())
                     .status(subOrder.getStatus())
                     .paymentMethod(payMethod)
                     .paymentStatus(payStatus)

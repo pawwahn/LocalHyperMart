@@ -140,6 +140,8 @@ public class PlatformFinanceComplianceResponse {
     @Builder
     public static class TdsReport {
         private BigDecimal ratePercent;
+        /** Vendor gross in the financial year below this amount has no estimated TDS. */
+        private BigDecimal exemptUpto;
         private String legalNote;
         private BigDecimal totalGrossSalesFacilitated;
         private BigDecimal totalTdsEstimated;

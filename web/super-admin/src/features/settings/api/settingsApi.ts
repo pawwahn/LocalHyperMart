@@ -17,6 +17,10 @@ export type PlatformSettingsVm = {
   deliveryFee: number;
   /** Spoken and displayed for every vendor's new-order alert. */
   vendorOrderAlertMessage: string;
+  /** Estimated vendor TDS percent. Changed on Platform settings. */
+  vendorTdsRatePercent?: number;
+  /** Financial-year vendor gross below this amount has no estimated TDS. */
+  vendorTdsExemptUpto?: number;
   /** Legal name printed on vendor service-fee invoices. */
   supplierLegalName: string;
   supplierGstin: string;
@@ -76,6 +80,8 @@ function mapSettings(data: SettingsDto): PlatformSettingsVm {
     supportPhone: asString(data.supportPhone),
     deliveryFee: asNumber(data.deliveryFee, 40),
     vendorOrderAlertMessage: asString(data.vendorOrderAlertMessage, 'Order received'),
+    vendorTdsRatePercent: asNumber(data.vendorTdsRatePercent, 0.1),
+    vendorTdsExemptUpto: asNumber(data.vendorTdsExemptUpto, 500000),
     supplierLegalName: asString(data.supplierLegalName, 'KoyaKart') || 'KoyaKart',
     supplierGstin: asString(data.supplierGstin).toUpperCase(),
     supplierAddress: asString(data.supplierAddress),

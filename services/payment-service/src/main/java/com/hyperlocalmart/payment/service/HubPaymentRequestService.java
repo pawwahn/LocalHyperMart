@@ -4,8 +4,6 @@ import com.hyperlocalmart.common.api.PageResponse;
 import com.hyperlocalmart.common.exception.BusinessException;
 import com.hyperlocalmart.common.exception.ErrorCode;
 import com.hyperlocalmart.payment.client.DeliveryClient;
-import com.hyperlocalmart.payment.client.OrderClient;
-import com.hyperlocalmart.payment.client.OrderClient.CodDeliveredItem;
 import com.hyperlocalmart.payment.repository.CodCloseDayLineItemRepository;
 import com.hyperlocalmart.payment.dto.request.CreateHubCodPaymentRequest;
 import com.hyperlocalmart.payment.dto.request.CreateHubFranchisePaymentRequest;
@@ -44,9 +42,7 @@ public class HubPaymentRequestService {
             HubPaymentRequestStatus.APPROVED);
 
     private final DeliveryClient deliveryClient;
-    private final OrderClient orderClient;
-    private final CodHubLedgerService codHubLedgerService;
-    private final CodCloseDayLineItemRepository codCloseDayLineItemRepository;
+    private final HubCodCustodyService hubCodCustodyService;
     private final DeliverySettlementService deliverySettlementService;
     private final HubPaymentRequestRepository requestRepository;
     private final HubPaymentRequestCodLineRepository codLineRepository;
@@ -299,56 +295,12 @@ public class HubPaymentRequestService {
     }
 
     private CodDraft buildCodDraft(UUID townId, UUID hubId, LocalDate from, LocalDate to) {
-        CodHubLedgerResponse ledger = codHubLedgerService.ledger(townId, hubId, null, null, hubId, true);
-        BigDecimal balanceOwed = scale(ledger.getBalanceOwedToCompany());
-
-        // Bill by order delivery date (IST), not close-day date — late close-days still belong to that delivery month.
-        List<CodDeliveredItem> delivered;
-        try {
-            delivered = orderClient.getCodDeliveredRange(townId, null, from, to, false).items();
-        } catch (RuntimeException ex) {
-            delivered = List.of();
-        }
-        if (delivered == null) {
-            delivered = List.of();
-        }
-        List<UUID> deliveredOrderIds = delivered.stream()
-                .map(CodDeliveredItem::orderId)
-                .filter(Objects::nonNull)
-                .distinct()
+        HubCodCustodyService.Due due = hubCodCustodyService.dueInRange(townId, hubId, from, to);
+        BigDecimal balanceOwed = due.balanceOwed();
+        List<CodLineDraft> lines = due.lines().stream()
+                .map(line -> new CodLineDraft(line.orderId(), line.orderNumber(), line.closeDate(), line.amount()))
                 .toList();
-
-        List<CodLineDraft> lines = new ArrayList<>();
-        if (!deliveredOrderIds.isEmpty()) {
-            List<CodCloseDayLineItem> closeLines = codCloseDayLineItemRepository.findHubCloseLinesForOrders(
-                    townId, hubId, CodCustodianType.HUB, deliveredOrderIds);
-            Set<UUID> seenOrders = new HashSet<>();
-            for (CodCloseDayLineItem item : closeLines) {
-                if (item.getOrderId() == null || !seenOrders.add(item.getOrderId())) {
-                    continue;
-                }
-                CodCloseDay close = item.getCloseDay();
-                lines.add(new CodLineDraft(
-                        item.getOrderId(),
-                        item.getOrderNumber(),
-                        close == null ? null : close.getCloseDate(),
-                        scale(item.getAmount())));
-            }
-        }
-
-        if (!lines.isEmpty()) {
-            List<UUID> orderIds = lines.stream().map(CodLineDraft::orderId).toList();
-            Set<UUID> blocked = new HashSet<>(codLineRepository.findBlockedOrderIds(orderIds, BLOCKING_STATUSES));
-            lines.removeIf(l -> blocked.contains(l.orderId()));
-        }
-
-        lines.sort(Comparator.comparing(CodLineDraft::closeDate, Comparator.nullsLast(Comparator.naturalOrder()))
-                .thenComparing(CodLineDraft::orderNumber, Comparator.nullsLast(String::compareToIgnoreCase)));
-
-        BigDecimal total = lines.stream()
-                .map(CodLineDraft::amount)
-                .reduce(BigDecimal.ZERO, BigDecimal::add)
-                .setScale(2, RoundingMode.HALF_UP);
+        BigDecimal total = due.total();
 
         String warning = null;
         if (total.compareTo(balanceOwed) > 0) {

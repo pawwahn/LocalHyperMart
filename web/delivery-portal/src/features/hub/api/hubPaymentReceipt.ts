@@ -47,7 +47,7 @@ function escapeHtml(text: string): string {
 }
 
 function moneyInr(n: number): string {
-  return `₹${Number(n || 0).toFixed(2)}`;
+  return `₹${Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 function formatIst(iso?: string | null): string {
@@ -70,78 +70,99 @@ function formatPayDate(iso: string): string {
   return d.toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', year: 'numeric' });
 }
 
+function dayLabel(iso?: string | null): string {
+  if (!iso) return '';
+  const d = new Date(`${iso.slice(0, 10)}T12:00:00`);
+  if (Number.isNaN(d.getTime())) return iso.slice(0, 10);
+  return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+function lineLabel(line: HubPaymentReceipt['lines'][number]): string {
+  if (line.lineType === 'COD_REMITTANCE') return 'COD remittance';
+  const start = dayLabel(line.franchisePeriodStart);
+  const end = dayLabel(line.franchisePeriodEnd);
+  if (start && end) return `Franchise · ${start} – ${end}`;
+  return 'Franchise fee';
+}
+
+/** Drop the auto-built amount list. Keep only what the hub typed, such as how they paid. */
+function payerNote(receipt: HubPaymentReceipt): string {
+  const raw = receipt.hubNotes?.trim() ?? '';
+  if (!raw) return '';
+  const ref = receipt.paymentReference.trim();
+  let text = raw
+    .replace(/COD remittance\s*·\s*₹[\d,.]+/gi, '')
+    .replace(/Franchise\s*·\s*₹[\d,.]+/gi, '')
+    .replace(/Franchise monthly[\s\S]*?₹[\d,.]+/gi, '')
+    .replace(ref ? new RegExp(`\\bref\\s+${ref.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'i') : /$^/, '');
+  text = text.replace(/[·|]+/g, ' ').replace(/\s+/g, ' ').trim();
+  return text;
+}
+
 export function hubPaymentReceiptHtml(receipt: HubPaymentReceipt): string {
   const lineRows = receipt.lines
     .map(
-      (l) => `
-      <tr>
-        <td>${escapeHtml(l.lineDescription)}</td>
-        <td class="num">${moneyInr(l.amount)}</td>
-        <td class="meta">${escapeHtml(l.lineType === 'FRANCHISE_FEE' && l.franchisePeriodStart && l.franchisePeriodEnd ? `${l.franchisePeriodStart} → ${l.franchisePeriodEnd}` : l.codRemittanceId ? `Remittance ${l.codRemittanceId}` : '—')}</td>
+      (line) => `<tr>
+        <td>${escapeHtml(lineLabel(line))}</td>
+        <td class="num">${moneyInr(line.amount)}</td>
       </tr>`,
     )
     .join('');
-
-  const hubNote = receipt.hubNotes?.trim()
-    ? `<p><strong>Hub note:</strong> ${escapeHtml(receipt.hubNotes.trim())}</p>`
-    : '';
-  const adminNote = receipt.adminNotes?.trim()
-    ? `<p><strong>KoyaKart note:</strong> ${escapeHtml(receipt.adminNotes.trim())}</p>`
-    : '';
+  const note = payerNote(receipt);
+  const adminNote = receipt.adminNotes?.trim() ?? '';
+  const mismatch = receipt.amountsConsistent
+    ? ''
+    : `<p class="warn">Line total ${moneyInr(receipt.linesTotal)} does not match ${moneyInr(receipt.totalAmount)}.</p>`;
 
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>${escapeHtml(receipt.receiptNumber)} · KoyaKart</title>
+  <title>${escapeHtml(receipt.receiptNumber)}</title>
   <style>
     * { box-sizing: border-box; }
-    body { font-family: system-ui,Segoe UI,sans-serif; color: #111; margin: 0; padding: 24px; font-size: 13px; line-height: 1.45; }
-    h1 { font-size: 20px; margin: 0 0 4px; }
-    .sub { color: #555; margin: 0 0 20px; }
-    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 24px; margin-bottom: 20px; }
-    .label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: #666; font-weight: 700; }
-    .val { font-weight: 600; margin-top: 2px; }
-    table { width: 100%; border-collapse: collapse; margin: 16px 0; }
-    th, td { border-bottom: 1px solid #ddd; padding: 8px 6px; text-align: left; vertical-align: top; }
-    th { font-size: 11px; text-transform: uppercase; color: #666; }
-    td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
-    td.meta { font-size: 11px; color: #555; font-family: ui-monospace,monospace; word-break: break-all; }
-    .total { font-size: 18px; font-weight: 800; text-align: right; margin-top: 8px; }
-    .ok { color: #15803d; font-size: 11px; font-weight: 700; }
-    .foot { margin-top: 24px; padding-top: 12px; border-top: 1px solid #ddd; font-size: 11px; color: #666; }
+    html, body { background: #fff; color: #0f172a; color-scheme: light; }
+    body { font-family: Segoe UI, system-ui, sans-serif; margin: 0; padding: 28px; font-size: 13px; }
+    .sheet { max-width: 640px; border-top: 4px solid #0C831F; }
+    .brand { margin: 0; font-size: 12px; font-weight: 800; letter-spacing: 0.04em; color: #0C831F; text-transform: uppercase; }
+    h1 { margin: 2px 0 0; font-size: 20px; }
+    .status { margin: 4px 0 16px; color: #64748b; font-size: 12px; }
+    .facts { display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; margin: 0 0 16px; }
+    .facts dt { margin: 0; color: #64748b; font-size: 12px; }
+    .facts dd { margin: 0; font-weight: 700; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: 7px 0; border-bottom: 1px solid #e2e8f0; text-align: left; }
+    th { font-size: 11px; text-transform: uppercase; letter-spacing: 0.03em; color: #64748b; font-weight: 700; }
+    .num { text-align: right; font-variant-numeric: tabular-nums; }
+    .total td { border-bottom: none; font-weight: 800; font-size: 15px; padding-top: 10px; }
+    .note { margin: 12px 0 0; color: #334155; font-size: 12px; }
+    .warn { margin: 12px 0 0; color: #b45309; font-weight: 700; font-size: 12px; }
+    .foot { margin-top: 18px; color: #94a3b8; font-size: 11px; }
     @media print { body { padding: 12px; } }
   </style>
 </head>
 <body>
-  <h1>${escapeHtml(receipt.documentTitle)}</h1>
-  <p class="sub">Receipt <strong>${escapeHtml(receipt.receiptNumber)}</strong> · ${escapeHtml(receipt.statusLabel)}</p>
-  <div class="grid">
-    <div><div class="label">Hub</div><div class="val">${escapeHtml(receipt.hubName)}</div></div>
-    <div><div class="label">Bank / UTR reference</div><div class="val">${escapeHtml(receipt.paymentReference)}</div></div>
-    <div><div class="label">Payment date (IST)</div><div class="val">${escapeHtml(formatPayDate(receipt.paymentDate))}</div></div>
-    <div><div class="label">Confirmed by KoyaKart</div><div class="val">${escapeHtml(formatIst(receipt.verifiedAt))}</div></div>
-    <div><div class="label">Submitted</div><div class="val">${escapeHtml(formatIst(receipt.submittedAt))}</div></div>
-    <div><div class="label">Submission ID</div><div class="val" style="font-family:ui-monospace,monospace;font-size:11px;">${escapeHtml(receipt.submissionId)}</div></div>
-  </div>
-  <table>
-    <thead>
-      <tr>
-        <th>Description</th>
-        <th class="num">Amount (INR)</th>
-        <th>Ledger reference</th>
-      </tr>
-    </thead>
-    <tbody>
-      ${lineRows}
-    </tbody>
-  </table>
-  <div class="total">Total ${moneyInr(receipt.totalAmount)}</div>
-  ${receipt.amountsConsistent ? '<p class="ok">Line items sum matches total (verified from KoyaKart records).</p>' : '<p style="color:#b45309;font-weight:700;">Line total does not match header total — contact KoyaKart support.</p>'}
-  ${hubNote}
-  ${adminNote}
-  <div class="foot">
-    Generated ${escapeHtml(formatIst(receipt.generatedAt))} (IST) · KoyaKart platform · This receipt reflects amounts recorded at confirmation.
+  <div class="sheet">
+    <p class="brand">KoyaKart</p>
+    <h1>Payment receipt</h1>
+    <p class="status">${escapeHtml(receipt.receiptNumber)} · ${escapeHtml(receipt.statusLabel)}</p>
+    <dl class="facts">
+      <dt>From</dt><dd>${escapeHtml(receipt.hubName)}</dd>
+      <dt>Paid</dt><dd>${escapeHtml(formatPayDate(receipt.paymentDate))}</dd>
+      <dt>UTR</dt><dd>${escapeHtml(receipt.paymentReference || '—')}</dd>
+      <dt>Confirmed</dt><dd>${escapeHtml(formatIst(receipt.verifiedAt))}</dd>
+    </dl>
+    <table>
+      <thead><tr><th>What</th><th class="num">Amount</th></tr></thead>
+      <tbody>
+        ${lineRows}
+        <tr class="total"><td>Total</td><td class="num">${moneyInr(receipt.totalAmount)}</td></tr>
+      </tbody>
+    </table>
+    ${note ? `<p class="note">${escapeHtml(note)}</p>` : ''}
+    ${adminNote ? `<p class="note">KoyaKart: ${escapeHtml(adminNote)}</p>` : ''}
+    ${mismatch}
+    <p class="foot">Hub paid KoyaKart · ${escapeHtml(formatIst(receipt.generatedAt))} IST</p>
   </div>
 </body>
 </html>`;

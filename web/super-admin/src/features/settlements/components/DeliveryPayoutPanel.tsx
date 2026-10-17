@@ -6,6 +6,7 @@ import { listTowns, type TownVm } from '@/features/towns/api/townsApi';
 import { listHubs, type AdminHubVm } from '@/features/hubs/api/hubsApi';
 import { listAllAgents, type AdminAgentVm } from '@/features/agents/api/agentsApi';
 import {
+  correctVendorPayout,
   createDeliverySettlement,
   fetchDeliverySettlementCandidates,
   formatMoney,
@@ -19,6 +20,7 @@ import {
   SettlementAuditSection,
   type SettlementChangeLogProps,
 } from './SettlementAuditSection';
+import { downloadHubPayoutStatement } from '../hubPayoutStatement';
 import { ListPager } from './ListPager';
 import { HubPayoutWorkspace, type HubPayoutTab, type HubPaysSubTab } from './HubPayoutWorkspace';
 import {
@@ -44,6 +46,20 @@ function cadenceLabel(cadence?: string): string {
     default:
       return 'month';
   }
+}
+
+function isFranchiseSettlement(s: SettlementVm): boolean {
+  return (s.lines ?? []).some((l) => {
+    if ((l.lineType ?? '').toUpperCase() === 'FRANCHISE') return true;
+    return (l.description ?? '').trim().toLowerCase().startsWith('franchise');
+  });
+}
+
+function periodOverlaps(s: SettlementVm, from: string, to: string): boolean {
+  const start = s.periodStart ?? '';
+  const end = s.periodEnd ?? '';
+  if (!start || !end) return true;
+  return start <= to && end >= from;
 }
 
 type Props = {
@@ -96,6 +112,46 @@ export function DeliveryPayoutPanel({
   const [hubPaysTab, setHubPaysTab] = useState<HubPaysSubTab>('cod-statement');
   const [recordPage, setRecordPage] = useState(0);
   const [recordPageSize, setRecordPageSize] = useState(25);
+  const [franchiseRecordPage, setFranchiseRecordPage] = useState(0);
+  const [franchiseRecordPageSize, setFranchiseRecordPageSize] = useState(25);
+  const [correctId, setCorrectId] = useState<string | null>(null);
+  const [correctMethod, setCorrectMethod] = useState('UPI');
+  const [correctRef, setCorrectRef] = useState('');
+  const [correctNotes, setCorrectNotes] = useState('');
+  const [correcting, setCorrecting] = useState(false);
+
+  function openCorrect(s: SettlementVm) {
+    setCorrectId(s.id);
+    setCorrectMethod(s.payoutMethod || 'UPI');
+    setCorrectRef(s.transactionReference ?? '');
+    setCorrectNotes(s.transactionNotes ?? '');
+    setError(null);
+  }
+
+  async function sendCorrect(s: SettlementVm) {
+    if (!correctRef.trim()) {
+      setError('Txn ref is required (UTR / UPI / cheque number)');
+      return;
+    }
+    setCorrecting(true);
+    setError(null);
+    try {
+      const updated = await correctVendorPayout(token, s.id, {
+        payoutMethod: correctMethod,
+        transactionReference: correctRef.trim(),
+        transactionNotes: correctNotes.trim() || undefined,
+      });
+      setHistory((prev) => prev.map((row) => (row.id === s.id ? { ...row, ...updated } : row)));
+      setCorrectId(null);
+      setSuccess(
+        `Sent the updated payout to ${settlementPayeeLabel(s)} · ${updated.payoutMethod} · ref ${updated.transactionReference}. They can confirm it again.`,
+      );
+    } catch (err) {
+      setError(err instanceof ApiError || err instanceof Error ? err.message : 'Could not update payout');
+    } finally {
+      setCorrecting(false);
+    }
+  }
 
   const townHubs = useMemo(() => hubs.filter((h) => h.townId === townId), [hubs, townId]);
   const selectedHubName = useMemo(
@@ -206,15 +262,8 @@ export function DeliveryPayoutPanel({
       payeeId: payeeId || undefined,
       payeeType,
     });
-    setHistory(
-      rows.filter((s) => {
-        const start = s.periodStart ?? '';
-        const end = s.periodEnd ?? '';
-        if (!start || !end) return true;
-        return start <= to && end >= from;
-      }),
-    );
-  }, [token, townId, payeeId, payeeType, from, to]);
+    setHistory(rows);
+  }, [token, townId, payeeId, payeeType]);
 
   const reload = useCallback(async () => {
     if (!token) return;
@@ -243,7 +292,8 @@ export function DeliveryPayoutPanel({
   }, [token, isHub, hubTab, reloadCandidates, reloadHistory]);
 
   useEffect(() => {
-    if (!isHub || hubTab !== 'hub-to-app' || hubPaysTab !== 'records' || !token) return;
+    if (!isHub || hubTab !== 'hub-to-app' || !token) return;
+    if (hubPaysTab !== 'records' && hubPaysTab !== 'franchise-history') return;
     void reloadHistory().catch((err) => {
       setError(err instanceof ApiError || err instanceof Error ? err.message : 'Failed to load records');
     });
@@ -351,38 +401,52 @@ export function DeliveryPayoutPanel({
   const hubRefreshCombined = codRefreshTick + refreshTick + hubPaymentRefreshTick;
 
   const auditHistory = useMemo(() => {
-    if (!isHub) return history;
+    const dated = history.filter((s) => periodOverlaps(s, from, to));
+    if (!isHub) return dated;
     const isCollection = (s: SettlementVm) => (s.direction ?? '').toUpperCase() === 'COLLECTION';
     if (hubTab === 'hub-to-app') {
-      return history.filter(isCollection);
+      return dated.filter((s) => isCollection(s) && !isFranchiseSettlement(s));
     }
-    return history.filter((s) => !isCollection(s));
-  }, [history, isHub, hubTab]);
+    return dated.filter((s) => !isCollection(s));
+  }, [history, isHub, hubTab, from, to]);
 
-  const recordPageCount = Math.max(1, Math.ceil(auditHistory.length / recordPageSize));
-  const safeRecordPage = Math.min(recordPage, recordPageCount - 1);
-  const pagedAuditHistory = useMemo(() => {
-    const start = safeRecordPage * recordPageSize;
-    return auditHistory.slice(start, start + recordPageSize);
-  }, [auditHistory, safeRecordPage, recordPageSize]);
+  const franchiseCollections = useMemo(
+    () =>
+      history.filter(
+        (s) => (s.direction ?? '').toUpperCase() === 'COLLECTION' && isFranchiseSettlement(s),
+      ),
+    [history],
+  );
 
   useEffect(() => {
     setRecordPage(0);
   }, [auditHistory.length, recordPageSize, hubTab, townId, payeeId]);
 
-  const hubRecordsTable = (
+  useEffect(() => {
+    setFranchiseRecordPage(0);
+  }, [franchiseCollections.length, franchiseRecordPageSize, townId, payeeId]);
+
+  function settlementRowsTable(
+    rows: SettlementVm[],
+    page: number,
+    pageSize: number,
+    onPage: (page: number) => void,
+    onPageSize: (size: number) => void,
+  ) {
+    const pageCount = Math.max(1, Math.ceil(rows.length / pageSize));
+    const safePage = Math.min(page, pageCount - 1);
+    const pageRows = rows.slice(safePage * pageSize, safePage * pageSize + pageSize);
+    const columnCount = isHub ? 7 : 6;
+    return (
     <div>
       <ListPager
-        page={safeRecordPage}
-        pageCount={recordPageCount}
-        total={auditHistory.length}
-        pageSize={recordPageSize}
+        page={safePage}
+        pageCount={pageCount}
+        total={rows.length}
+        pageSize={pageSize}
         pageSizes={[25, 50, 100, 200]}
-        onPage={setRecordPage}
-        onPageSize={(size) => {
-          setRecordPageSize(size);
-          setRecordPage(0);
-        }}
+        onPage={onPage}
+        onPageSize={onPageSize}
       />
       <div style={styles.tableInAudit}>
         <table style={styles.table}>
@@ -393,11 +457,12 @@ export function DeliveryPayoutPanel({
               <th style={styles.th}>Period</th>
               <th style={styles.th}>Mode</th>
               <th style={styles.thRight}>Amount</th>
+              {isHub ? <th style={styles.th}>Bill</th> : null}
               <th style={styles.th}>Type</th>
             </tr>
           </thead>
           <tbody>
-            {pagedAuditHistory.map((s) => {
+            {pageRows.map((s) => {
               const collection = (s.direction ?? '').toUpperCase() === 'COLLECTION';
               const lines = s.lines ?? [];
               const open = expandedHistoryId === s.id;
@@ -436,15 +501,93 @@ export function DeliveryPayoutPanel({
                       <div style={styles.sub}>{s.transactionReference || 'No txn ref'}</div>
                     </td>
                     <td style={styles.tdRight}>{formatMoney(s.netAmount)}</td>
+                    {isHub ? (
+                      <td style={styles.tdNowrap}>
+                        {!collection && s.status === 'PAID' && s.serviceInvoiceNumber ? (
+                          <button
+                            type="button"
+                            style={styles.billLink}
+                            onClick={() => downloadHubPayoutStatement(s)}
+                          >
+                            {s.serviceInvoiceNumber}
+                          </button>
+                        ) : (
+                          '—'
+                        )}
+                      </td>
+                    ) : null}
                     <td style={styles.td}>
                       <span style={collection ? styles.collectBadge : styles.settled}>
                         {collection ? 'Received' : s.status}
                       </span>
+                      {!collection && s.vendorNotReceivedAt && !s.vendorAcknowledgedAt ? (
+                        <div style={styles.hubFlag}>
+                          {isHub ? 'Hub' : 'Agent'} not received
+                          {s.vendorNotReceivedNote ? (
+                            <div style={styles.sub}>{s.vendorNotReceivedNote}</div>
+                          ) : null}
+                          {correctId !== s.id ? (
+                            <button type="button" style={styles.linkBtn} onClick={() => openCorrect(s)}>
+                              Correct and send
+                            </button>
+                          ) : null}
+                        </div>
+                      ) : !collection && s.vendorAcknowledgedAt ? (
+                        <div style={styles.hubOk}>{isHub ? 'Hub' : 'Agent'} confirmed</div>
+                      ) : !collection && s.status === 'PAID' ? (
+                        <div style={styles.hubWait}>{isHub ? 'Hub' : 'Agent'} yet to confirm</div>
+                      ) : null}
                     </td>
                   </tr>
+                  {correctId === s.id && !collection ? (
+                    <tr>
+                      <td colSpan={columnCount} style={styles.detailCell}>
+                        <div style={styles.correctRow}>
+                          <label style={styles.label}>
+                            Mode
+                            <select
+                              style={styles.input}
+                              value={correctMethod}
+                              onChange={(e) => setCorrectMethod(e.target.value)}
+                            >
+                              {PAYOUT_METHODS.map((method) => (
+                                <option key={method} value={method}>
+                                  {method}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <label style={styles.label}>
+                            New ref
+                            <input
+                              style={styles.input}
+                              value={correctRef}
+                              placeholder="UTR / UPI"
+                              onChange={(e) => setCorrectRef(e.target.value)}
+                            />
+                          </label>
+                          <label style={{ ...styles.label, flex: 1 }}>
+                            Note
+                            <input
+                              style={styles.input}
+                              value={correctNotes}
+                              placeholder="What you changed"
+                              onChange={(e) => setCorrectNotes(e.target.value)}
+                            />
+                          </label>
+                          <Button type="button" size="sm" disabled={correcting} onClick={() => void sendCorrect(s)}>
+                            {correcting ? 'Sending…' : 'Send'}
+                          </Button>
+                          <Button type="button" size="sm" variant="ghost" onClick={() => setCorrectId(null)}>
+                            Cancel
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : null}
                   {open ? (
                     <tr>
-                      <td colSpan={6} style={styles.detailCell}>
+                      <td colSpan={columnCount} style={styles.detailCell}>
                         <ul style={styles.lineList}>
                           {lines.map((l) => (
                             <li key={l.id}>
@@ -462,6 +605,22 @@ export function DeliveryPayoutPanel({
         </table>
       </div>
     </div>
+    );
+  }
+
+  const hubRecordsTable = settlementRowsTable(auditHistory, recordPage, recordPageSize, setRecordPage, (size) => {
+    setRecordPageSize(size);
+    setRecordPage(0);
+  });
+  const franchiseRecordsTable = settlementRowsTable(
+    franchiseCollections,
+    franchiseRecordPage,
+    franchiseRecordPageSize,
+    setFranchiseRecordPage,
+    (size) => {
+      setFranchiseRecordPageSize(size);
+      setFranchiseRecordPage(0);
+    },
   );
 
   const ordersTableCard = showOrders ? (
@@ -592,7 +751,42 @@ export function DeliveryPayoutPanel({
       <div className={isHub ? 'dp-layout dp-layout-hub' : 'dp-layout'}>
         <div className="dp-main">
           <Card padding="sm" style={styles.cardPad}>
-            <div style={styles.presets}>
+            {isHub ? (
+            <div style={styles.presetGrid}>
+              {REPORT_DATE_PRESET_OPTIONS.filter((o) => o.id !== 'financialYear' && o.id !== 'custom').map(({ id, label }) => (
+                <button
+                  key={id}
+                  type="button"
+                  style={preset === id ? styles.presetActive : styles.preset}
+                  onClick={() => applyPreset(id)}
+                >
+                  {label}
+                </button>
+              ))}
+              {REPORT_DATE_PRESET_OPTIONS.filter((o) => o.id === 'financialYear' || o.id === 'custom').map(({ id, label }) => (
+                <button
+                  key={id}
+                  type="button"
+                  style={preset === id ? styles.presetActive : styles.preset}
+                  onClick={() => applyPreset(id)}
+                >
+                  {label}
+                </button>
+              ))}
+              <button
+                type="button"
+                style={styles.refreshBtn}
+                onClick={() => {
+                  void reload();
+                  setHubPaymentRefreshTick((t) => t + 1);
+                }}
+                disabled={loading}
+              >
+                {loading ? 'Loading…' : 'Refresh'}
+              </button>
+            </div>
+            ) : (
+            <div style={styles.presetWrap}>
               {REPORT_DATE_PRESET_OPTIONS.map(({ id, label }) => (
                 <button
                   key={id}
@@ -604,6 +798,7 @@ export function DeliveryPayoutPanel({
                 </button>
               ))}
             </div>
+            )}
             <div className="dp-filters">
               <label style={styles.label}>
                 Town
@@ -709,7 +904,7 @@ export function DeliveryPayoutPanel({
               {isHub
                 ? hubTab === 'app-to-hub'
                   ? 'Commission payouts only — use “KoyaKart pays hub”. Switch tab for hub franchise/COD.'
-                  : 'Hub collections only — confirm hub online payments here. Commission is on the other tab.'
+                  : 'Dates above apply to COD statements and records. Franchise uses its own month.'
                 : 'Hub agents: Towns → Hub & agent pay. Shop delivery agents: Towns → Vendor delivery (₹ per order). Pick the agent who completed the trip — vendor shop orders pay the shop’s agent, not hub agents.'}
             </p>
           </Card>
@@ -725,6 +920,7 @@ export function DeliveryPayoutPanel({
                 hubName={selectedHubName}
                 from={from}
                 to={to}
+                periodPreset={preset}
                 refreshTick={hubRefreshCombined}
                 onPaymentReviewed={() => setHubPaymentRefreshTick((t) => t + 1)}
                 franchise={franchise}
@@ -732,24 +928,48 @@ export function DeliveryPayoutPanel({
                 selectedCount={selected.size}
                 openCount={openItems.length}
                 loading={loading}
-                onRefresh={() => void reload()}
                 onMarkPaid={() => requestConfirm('PER_ORDER')}
                 onMarkFranchise={() => requestConfirm('FRANCHISE')}
                 canPayOrders={canPayOrders}
                 canCollectFranchise={canCollectFranchise}
                 saving={saving}
                 commissionSection={ordersTableCard}
+                payoutRecords={
+                  <SettlementAuditSection
+                    historyCount={auditHistory.length}
+                    historyTabLabel="KK → Hub payouts"
+                    historyHint="Commission paid to hub (not franchise/COD)."
+                    historyEmpty="No commission payouts to hub in this range."
+                    changeLog={{ ...changeLog, townId: townId || changeLog.townId }}
+                    historyContent={hubRecordsTable}
+                  />
+                }
+                payoutRecordCount={auditHistory.length}
+                completedOrderCount={items.length}
                 onSubTabChange={setHubPaysTab}
                 recordsSection={
                   <SettlementAuditSection
                     collapsible={false}
                     historyCount={auditHistory.length}
-                    historyTabLabel="Hub → KK collections"
-                    historyHint="Franchise & amounts received from hub (not commission)."
-                    historyEmpty="No collections from hub in this range."
+                    historyTabLabel="COD collections"
+                    historyHint="COD cash received from the hub."
+                    historyEmpty="No COD collections in this range."
                     changeLog={{ ...changeLog, townId: townId || changeLog.townId }}
                     historyContent={hubRecordsTable}
                   />
+                }
+                franchisePaidSection={
+                  franchiseCollections.length > 0 ? (
+                    <SettlementAuditSection
+                      collapsible={false}
+                      historyCount={franchiseCollections.length}
+                      historyTabLabel="Franchise fees"
+                      historyHint="Franchise fees received from the hub."
+                      historyEmpty="No franchise fees recorded yet."
+                      changeLog={{ ...changeLog, townId: townId || changeLog.townId }}
+                      historyContent={franchiseRecordsTable}
+                    />
+                  ) : null
                 }
               />
             ) : (
@@ -872,7 +1092,7 @@ export function DeliveryPayoutPanel({
         onConfirm={() => void submit('FRANCHISE')}
       />
 
-      {isHub && hubTab === 'hub-to-app' ? null : isHub && !payeeId ? null : (
+      {isHub ? null : (
       <SettlementAuditSection
         historyCount={auditHistory.length}
         historyTabLabel={
@@ -927,7 +1147,36 @@ const styles: Record<string, CSSProperties> = {
     letterSpacing: '-0.01em',
   },
   count: { color: 'var(--text-muted)', fontWeight: 650, fontSize: '0.8rem' },
-  presets: { display: 'flex', gap: '0.3rem', flexWrap: 'wrap' },
+  presetGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(12, max-content)',
+    gap: '0.3rem',
+    justifyContent: 'start',
+    alignItems: 'center',
+    maxWidth: '100%',
+  },
+  presetWrap: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: '0.3rem',
+    alignItems: 'center',
+    minWidth: 0,
+    maxWidth: '100%',
+  },
+  refreshBtn: {
+    gridColumn: 12,
+    justifySelf: 'center',
+    border: 'none',
+    background: '#0C831F',
+    color: '#fff',
+    borderRadius: 999,
+    padding: '0.22rem 0.7rem',
+    fontSize: '0.72rem',
+    fontWeight: 800,
+    fontFamily: 'inherit',
+    cursor: 'pointer',
+    lineHeight: 1.2,
+  },
   preset: {
     border: '1px solid var(--border)',
     background: 'var(--bg)',
@@ -1118,6 +1367,31 @@ const styles: Record<string, CSSProperties> = {
     padding: '0.1rem 0.35rem',
     fontWeight: 700,
   },
+  hubFlag: {
+    marginTop: '0.2rem',
+    color: '#9a3412',
+    fontWeight: 800,
+    fontSize: '0.68rem',
+    lineHeight: 1.3,
+  },
+  correctRow: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    alignItems: 'flex-end',
+    gap: '0.4rem',
+  },
+  hubOk: {
+    marginTop: '0.2rem',
+    color: '#047857',
+    fontWeight: 700,
+    fontSize: '0.68rem',
+  },
+  hubWait: {
+    marginTop: '0.2rem',
+    color: '#b45309',
+    fontWeight: 700,
+    fontSize: '0.68rem',
+  },
   openBadge: {
     fontSize: '0.64rem',
     color: '#92400e',
@@ -1155,6 +1429,26 @@ const styles: Record<string, CSSProperties> = {
     textDecoration: 'underline',
     textUnderlineOffset: 2,
     fontFamily: 'inherit',
+  },
+  tdNowrap: {
+    padding: '0.35rem 0.45rem',
+    borderBottom: '1px solid var(--border)',
+    whiteSpace: 'nowrap',
+    fontSize: '0.72rem',
+    verticalAlign: 'top',
+  },
+  billLink: {
+    padding: 0,
+    border: 'none',
+    background: 'none',
+    color: 'var(--accent)',
+    fontSize: '0.72rem',
+    fontWeight: 700,
+    cursor: 'pointer',
+    textDecoration: 'underline',
+    textUnderlineOffset: 2,
+    fontFamily: 'inherit',
+    whiteSpace: 'nowrap',
   },
   detailCell: {
     padding: '0.5rem 0.65rem',

@@ -1,6 +1,7 @@
 /** Who physically holds buyer money before settlement completes. */
 export type BuyerMoneyHeld = {
   withPlatform: number;
+  alreadyIn: number;
   atHub: number;
   withShop: number;
   withAgent: number;
@@ -20,6 +21,7 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
 export function emptyBuyerMoneyHeld(): BuyerMoneyHeld {
   return {
     withPlatform: 0,
+    alreadyIn: 0,
     atHub: 0,
     withShop: 0,
     withAgent: 0,
@@ -31,6 +33,7 @@ export function emptyBuyerMoneyHeld(): BuyerMoneyHeld {
 /** Map settlement cash split (super-admin) into held buckets. */
 export function buyerMoneyFromCashSplit(split: {
   online: number;
+  codAlreadyIn?: number;
   codAtHub: number;
   codWithVendor: number;
   codWithAgent: number;
@@ -39,6 +42,7 @@ export function buyerMoneyFromCashSplit(split: {
 }): BuyerMoneyHeld {
   return {
     withPlatform: round2(split.online),
+    alreadyIn: round2(split.codAlreadyIn ?? 0),
     atHub: round2(split.codAtHub),
     withShop: round2(split.codWithVendor),
     withAgent: round2(split.codWithAgent),
@@ -51,6 +55,7 @@ export function sumBuyerMoneyHeld(rows: Array<{ amount: number; held: BuyerMoney
   const out = emptyBuyerMoneyHeld();
   for (const row of rows) {
     out.withPlatform += row.held.withPlatform;
+    out.alreadyIn += row.held.alreadyIn;
     out.atHub += row.held.atHub;
     out.withShop += row.held.withShop;
     out.withAgent += row.held.withAgent;
@@ -59,6 +64,7 @@ export function sumBuyerMoneyHeld(rows: Array<{ amount: number; held: BuyerMoney
   }
   return {
     withPlatform: round2(out.withPlatform),
+    alreadyIn: round2(out.alreadyIn),
     atHub: round2(out.atHub),
     withShop: round2(out.withShop),
     withAgent: round2(out.withAgent),
@@ -69,7 +75,7 @@ export function sumBuyerMoneyHeld(rows: Array<{ amount: number; held: BuyerMoney
 
 export function heldRowTotal(h: BuyerMoneyHeld): number {
   return round2(
-    h.withPlatform + h.atHub + h.withShop + h.withAgent + h.declaredToHub + h.declaredToShop,
+    h.withPlatform + h.alreadyIn + h.atHub + h.withShop + h.withAgent + h.declaredToHub + h.declaredToShop,
   );
 }
 
@@ -97,6 +103,10 @@ export function buyerMoneyForVendorBag(
   }
   const loc = (holder?.codCashLocation ?? '').toUpperCase();
   const role = (holder?.holderRole ?? '').toUpperCase();
+  if (loc === 'WITH_COMPANY') {
+    h.alreadyIn = amt;
+    return h;
+  }
   if (loc === 'AT_HUB' || role === 'HUB_ADMIN') {
     h.atHub = amt;
     return h;
@@ -145,8 +155,15 @@ export function buildMoneyTransferPlan(input: {
   fees: number;
   netToVendor: number;
   collectFromVendor: boolean;
+  /** Monthly subscription inside {@code fees} (collect mode). */
+  subscription?: number;
+  /** Penalty / other charge added on top of fees (collect mode). */
+  extraCharges?: number;
+  subscriptionLabel?: string;
 }): { heldLines: Array<{ label: string; amount: number; hint?: string }>; steps: MoneyTransferStep[] } {
   const { held, gross, fees, netToVendor, collectFromVendor } = input;
+  const subscription = Math.max(0, input.subscription ?? 0);
+  const extraCharges = Math.max(0, input.extraCharges ?? 0);
   const heldLines: Array<{ label: string; amount: number; hint?: string }> = [];
 
   if (held.withPlatform > 0) {
@@ -154,6 +171,13 @@ export function buildMoneyTransferPlan(input: {
       label: 'KoyaKart (online UPI)',
       amount: held.withPlatform,
       hint: 'Buyer already paid the app',
+    });
+  }
+  if (held.alreadyIn > 0) {
+    heldLines.push({
+      label: 'KoyaKart (already in)',
+      amount: held.alreadyIn,
+      hint: 'Hub already sent this COD, or the buyer paid with wallet',
     });
   }
   if (held.atHub > 0) {
@@ -187,20 +211,29 @@ export function buildMoneyTransferPlan(input: {
   const steps: MoneyTransferStep[] = [];
 
   if (collectFromVendor) {
-    if (fees > 0) {
+    const commission = round2(Math.max(0, fees - subscription));
+    if (commission > 0) {
       steps.push({
         from: 'Shop',
         to: 'KoyaKart',
-        amount: round2(fees),
-        detail: 'Commission / monthly fee on shop-held COD (Vendor pays KoyaKart)',
+        amount: commission,
+        detail: 'Commission on shop-held COD',
       });
     }
-    if (netToVendor > 0) {
+    if (subscription > 0) {
       steps.push({
         from: 'Shop',
         to: 'KoyaKart',
-        amount: round2(netToVendor),
-        detail: 'Other charges or fee top-up',
+        amount: round2(subscription),
+        detail: input.subscriptionLabel ?? 'Monthly subscription',
+      });
+    }
+    if (extraCharges > 0) {
+      steps.push({
+        from: 'Shop',
+        to: 'KoyaKart',
+        amount: round2(extraCharges),
+        detail: 'Other charges',
       });
     }
     return { heldLines, steps };

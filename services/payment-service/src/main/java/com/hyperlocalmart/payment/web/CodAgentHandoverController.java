@@ -97,6 +97,15 @@ public class CodAgentHandoverController {
                 custodianReceivableService.receivables(townId, date, hubId, vendorId)));
     }
 
+    @GetMapping("/api/v1/payments/cod/handovers/pending-count")
+    public ResponseEntity<ApiResponse<Integer>> pendingHandoverCount(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @RequestParam UUID vendorId,
+            HttpServletRequest httpRequest) {
+        requireHubVendorOrSuper(principal);
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest, handoverService.countDeclaredForVendor(vendorId)));
+    }
+
     @GetMapping("/api/v1/payments/cod/handovers/pending")
     public ResponseEntity<ApiResponse<List<CodAgentHandoverResponse>>> pendingHandovers(
             @AuthenticationPrincipal AuthUserPrincipal principal,

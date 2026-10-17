@@ -6,6 +6,8 @@ export type SettlementCandidate = {
   orderNumber: string;
   subOrderNumber: string;
   placedAt?: string | null;
+  /** Payout window day (IST). Commission rate still follows placedAt. */
+  deliveredAt?: string | null;
   status: string;
   paymentStatus?: string | null;
   paymentMethod?: string | null;
@@ -71,16 +73,29 @@ export type SettlementVm = {
   transactionNotes?: string | null;
   paidAt?: string | null;
   vendorAcknowledgedAt?: string | null;
+  ackReminderCount?: number | null;
+  ackRemindedAt?: string | null;
+  vendorNotReceivedAt?: string | null;
+  vendorNotReceivedNote?: string | null;
+  serviceInvoiceNumber?: string | null;
+  billSentAt?: string | null;
+  vendorPaidAt?: string | null;
+  vendorPaymentMethod?: string | null;
+  vendorPaymentReference?: string | null;
+  vendorPaymentNotes?: string | null;
+  vendorPaymentRejectedAt?: string | null;
+  vendorPaymentRejectReason?: string | null;
   createdAt?: string | null;
   lines: SettlementLine[];
 };
 
 export function settlementClaimAmount(s: SettlementVm): number {
-  const fromApi = Number(s.claimChargebacksAmount);
-  if (Number.isFinite(fromApi) && fromApi > 0) return fromApi;
   const fromLines = (s.lines ?? [])
     .filter((l) => (l.lineType ?? '').toUpperCase() === 'ADJUSTMENT')
     .reduce((sum, l) => sum + Math.abs(Number(l.amount ?? 0)), 0);
+  if ((s.direction ?? '').toUpperCase() === 'COLLECTION') return Math.max(0, fromLines);
+  const fromApi = Number(s.claimChargebacksAmount);
+  if (Number.isFinite(fromApi) && fromApi > 0) return fromApi;
   return Math.max(0, fromLines);
 }
 
@@ -106,6 +121,8 @@ export type CreateSettlementInput = {
   subOrderIds: string[];
   commissionAmount?: number;
   markPaid?: boolean;
+  /** COLLECTION + markPaid false: issue the bill; vendor pays and admin confirms. */
+  sendBill?: boolean;
   payoutMethod?: string;
   transactionReference?: string;
   transactionNotes?: string;
@@ -113,6 +130,26 @@ export type CreateSettlementInput = {
   otherChargesAmount?: number;
   otherChargesReason?: string;
 };
+
+export async function confirmVendorBillPayment(
+  token: string,
+  settlementId: string,
+  input: { transactionNotes?: string } = {},
+): Promise<SettlementVm> {
+  return apiRequest<SettlementVm>(`/api/v1/payments/settlements/admin/vendor-bills/${settlementId}/confirm`, {
+    method: 'POST',
+    token,
+    body: input,
+  });
+}
+
+export async function rejectVendorBillPayment(token: string, settlementId: string, reason: string): Promise<SettlementVm> {
+  return apiRequest<SettlementVm>(`/api/v1/payments/settlements/admin/vendor-bills/${settlementId}/reject`, {
+    method: 'POST',
+    token,
+    body: { reason },
+  });
+}
 
 function money(value: number | null | undefined): string {
   return `₹${Number(value ?? 0).toFixed(2)}`;
@@ -228,6 +265,127 @@ export async function createDeliverySettlement(
     method: 'POST',
     token,
     body: input,
+  });
+}
+
+export type SubscriptionBill = {
+  /** yyyy-MM */
+  month: string;
+  periodStart: string;
+  periodEnd: string;
+  amount: number;
+  /** NOT_SENT → SENT (vendor to pay) → PAYMENT_SUBMITTED (admin to confirm / reject) → PAID; REJECTED → vendor resubmits */
+  status: 'NOT_SENT' | 'SENT' | 'PAYMENT_SUBMITTED' | 'REJECTED' | 'PAID' | string;
+  rejectedAt?: string | null;
+  rejectReason?: string | null;
+  settlementId?: string | null;
+  billSentAt?: string | null;
+  vendorPaidAt?: string | null;
+  /** yyyy-MM-dd on the bank statement. Null until admin sets it. */
+  bankPaidOn?: string | null;
+  vendorPaymentMethod?: string | null;
+  vendorPaymentReference?: string | null;
+  vendorPaymentNotes?: string | null;
+  paidAt?: string | null;
+  payoutMethod?: string | null;
+  transactionReference?: string | null;
+  invoiceNumber?: string | null;
+};
+
+export async function sendSubscriptionBill(
+  token: string,
+  input: { townId: string; vendorId: string; vendorName?: string; month: string },
+): Promise<SubscriptionBill> {
+  return apiRequest<SubscriptionBill>('/api/v1/payments/settlements/admin/subscription-bills/send', {
+    method: 'POST',
+    token,
+    body: input,
+  });
+}
+
+export async function rejectSubscriptionPayment(
+  token: string,
+  settlementId: string,
+  reason: string,
+): Promise<SubscriptionBill> {
+  return apiRequest<SubscriptionBill>(
+    `/api/v1/payments/settlements/admin/subscription-bills/${settlementId}/reject`,
+    { method: 'POST', token, body: { reason } },
+  );
+}
+
+export async function correctSubscriptionPayment(
+  token: string,
+  settlementId: string,
+  input: { bankPaidOn: string; payoutMethod: string; transactionReference: string; transactionNotes?: string },
+): Promise<SubscriptionBill> {
+  return apiRequest<SubscriptionBill>(
+    `/api/v1/payments/settlements/admin/subscription-bills/${settlementId}/correct`,
+    { method: 'POST', token, body: input },
+  );
+}
+
+export async function confirmSubscriptionPayment(
+  token: string,
+  settlementId: string,
+  input: { payoutMethod?: string; transactionReference?: string; transactionNotes?: string } = {},
+): Promise<SubscriptionBill> {
+  return apiRequest<SubscriptionBill>(
+    `/api/v1/payments/settlements/admin/subscription-bills/${settlementId}/confirm`,
+    { method: 'POST', token, body: input },
+  );
+}
+
+export async function listSubscriptionBills(token: string, vendorId: string): Promise<SubscriptionBill[]> {
+  const data = await apiRequest<{ items: SubscriptionBill[] }>(
+    `/api/v1/payments/settlements/admin/subscription-bills?vendorId=${encodeURIComponent(vendorId)}`,
+    { token },
+  );
+  return data.items ?? [];
+}
+
+export async function collectSubscriptionBill(
+  token: string,
+  input: {
+    townId: string;
+    vendorId: string;
+    vendorName?: string;
+    month: string;
+    payoutMethod: string;
+    transactionReference: string;
+    transactionNotes?: string;
+  },
+): Promise<SettlementVm> {
+  return apiRequest<SettlementVm>('/api/v1/payments/settlements/admin/subscription-bills', {
+    method: 'POST',
+    token,
+    body: input,
+  });
+}
+
+export async function correctVendorPayout(
+  token: string,
+  settlementId: string,
+  input: { payoutMethod: string; transactionReference: string; transactionNotes?: string },
+): Promise<SettlementVm> {
+  return apiRequest<SettlementVm>(`/api/v1/payments/settlements/${settlementId}/correct-payout`, {
+    method: 'POST',
+    token,
+    body: input,
+  });
+}
+
+export async function remindVendorBill(token: string, settlementId: string): Promise<SettlementVm> {
+  return apiRequest<SettlementVm>(`/api/v1/payments/settlements/${settlementId}/remind-bill`, {
+    method: 'POST',
+    token,
+  });
+}
+
+export async function remindSettlementAck(token: string, settlementId: string): Promise<SettlementVm> {
+  return apiRequest<SettlementVm>(`/api/v1/payments/settlements/${settlementId}/remind-ack`, {
+    method: 'POST',
+    token,
   });
 }
 

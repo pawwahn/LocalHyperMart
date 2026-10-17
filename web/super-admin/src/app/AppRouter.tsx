@@ -57,6 +57,12 @@ const SettlementsPage = lazy(() =>
 const FinanceLedgerPage = lazy(() =>
   import('@/features/finance/pages/FinanceLedgerPage').then((m) => ({ default: m.FinanceLedgerPage })),
 );
+const PartyAuditReportPage = lazy(() =>
+  import('@/features/finance/pages/PartyAuditReportPage').then((m) => ({ default: m.PartyAuditReportPage })),
+);
+const TownDuesPage = lazy(() =>
+  import('@/features/dues/pages/TownDuesPage').then((m) => ({ default: m.TownDuesPage })),
+);
 const HubsPage = lazy(() => import('@/features/hubs/pages/HubsPage').then((m) => ({ default: m.HubsPage })));
 const AgentsPage = lazy(() =>
   import('@/features/agents/pages/AgentsPage').then((m) => ({ default: m.AgentsPage })),
@@ -97,6 +103,8 @@ export function AppRouter() {
                 <Route path="/store-listings" element={<StoreListingsPage />} />
                 <Route path="/settlements" element={<SettlementsPage />} />
                 <Route path="/finance-ledger" element={<FinanceLedgerPage />} />
+                <Route path="/audit-report" element={<PartyAuditReportPage />} />
+                <Route path="/dues" element={<TownDuesPage />} />
                 <Route path="/hubs" element={<HubsPage />} />
                 <Route path="/agents" element={<AgentsPage />} />
                 <Route path="/settings" element={<SettingsPage />} />

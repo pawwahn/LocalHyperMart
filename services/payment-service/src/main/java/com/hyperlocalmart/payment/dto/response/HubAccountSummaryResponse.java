@@ -104,5 +104,13 @@ public class HubAccountSummaryResponse {
         String reference;
         Instant recordedAt;
         int orderCount;
+        /** How KoyaKart sent the money (UPI, bank, cash). */
+        String payoutMethod;
+        /** Statement number on the hub payout bill. */
+        String invoiceNumber;
+        /** Hub confirmed the money arrived. */
+        Instant acknowledgedAt;
+        /** Hub said the money has not arrived. */
+        Instant notReceivedAt;
     }
 }

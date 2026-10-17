@@ -19,22 +19,39 @@ function money(n?: number | null): string {
 const MAX_TX_ROWS = 400;
 
 function txRows(entries: FinanceLedgerEntry[]): string {
-  const slice = entries.slice(0, MAX_TX_ROWS);
+  const slice = [...entries]
+    .sort((a, b) => `${a.bookDate}|${a.occurredAt ?? ''}|${a.entryId}`.localeCompare(`${b.bookDate}|${b.occurredAt ?? ''}|${b.entryId}`))
+    .slice(0, MAX_TX_ROWS);
   if (slice.length === 0) {
-    return '<tr><td colspan="6">No transactions</td></tr>';
+    return '<tr><td colspan="7">No transactions</td></tr>';
   }
-  return slice
-    .map(
-      (e) => `<tr>
+  let balance = 0;
+  const body = slice
+    .map((e) => {
+      const inflow = e.direction === 'IN';
+      const amount = Number(e.amount ?? 0);
+      balance += inflow ? amount : -amount;
+      const who = displayCounterparty(e.counterpartyName, e.counterpartyRole, e.counterpartyId);
+      return `<tr>
         <td>${esc(e.bookDate)}</td>
-        <td>${esc(e.direction)}</td>
+        <td>${esc(inflow ? 'Received from' : 'Paid to')} ${esc(who)}</td>
         <td>${esc(e.categoryLabel)}</td>
-        <td class="right">${esc(money(e.amount))}</td>
-        <td>${esc(displayCounterparty(e.counterpartyName, e.counterpartyRole, e.counterpartyId))}</td>
+        <td class="right">${inflow ? esc(money(amount)) : ''}</td>
+        <td class="right">${inflow ? '' : esc(money(amount))}</td>
+        <td class="right">${esc(money(Math.round(balance * 100) / 100))}</td>
         <td>${esc(e.transactionReference ?? '')}</td>
-      </tr>`,
-    )
+      </tr>`;
+    })
     .join('');
+  const cashIn = slice.filter((e) => e.direction === 'IN').reduce((sum, e) => sum + Number(e.amount ?? 0), 0);
+  const cashOut = slice.filter((e) => e.direction !== 'IN').reduce((sum, e) => sum + Number(e.amount ?? 0), 0);
+  return `${body}<tr>
+    <td colspan="3"><strong>Outstanding</strong></td>
+    <td class="right"><strong>${esc(money(cashIn))}</strong></td>
+    <td class="right"><strong>${esc(money(cashOut))}</strong></td>
+    <td class="right"><strong>${esc(money(Math.round((cashIn - cashOut) * 100) / 100))}</strong></td>
+    <td></td>
+  </tr>`;
 }
 
 function hubRowsHtml(rows: FinancePartyRow[]): string {
@@ -118,7 +135,7 @@ export function financeCompliancePrintHtml(
     <div class="card"><strong>${esc(money(r.passThroughInflows))}</strong>Pass-through IN</div>
     <div class="card"><strong>${esc(money(r.passThroughOutflows))}</strong>Pass-through OUT</div>
     <div class="card"><strong>${esc(money(r.walletGranted))}</strong>Wallet gifted (scratch / referral / store credit)</div>
-    <div class="card"><strong>${esc(money(r.walletScratch))}</strong>Scratch gifts</div>
+    <div class="card"><strong>${esc(money(r.walletScratchUsed))} / ${esc(money(r.walletScratch))}</strong>Scratch gifts (used / given)</div>
     <div class="card"><strong>${esc(money(r.walletReferral))}</strong>Referral gifts</div>
     <div class="card"><strong>${esc(money(r.walletStoreCredit))}</strong>Store credit</div>
     <div class="card"><strong>${esc(money(r.walletRedeemed))}</strong>Wallet used on orders</div>
@@ -127,7 +144,7 @@ export function financeCompliancePrintHtml(
   <h2>2. Cash transactions</h2>
   ${truncatedNote}
   <table>
-    <thead><tr><th>Date</th><th>In/Out</th><th>Category</th><th class="right">Amount</th><th>Counterparty</th><th>Reference</th></tr></thead>
+    <thead><tr><th>Date</th><th>Received from / Paid to</th><th>Category</th><th class="right">Cash in</th><th class="right">Cash out</th><th class="right">Balance</th><th>Reference</th></tr></thead>
     <tbody>${txRows(cashEntries)}</tbody>
   </table>
 

@@ -12,10 +12,16 @@ import {
   type CommercialTermsQuote,
 } from '@/features/vendors/api/commercialTermsApi';
 import {
+  confirmVendorBillPayment,
+  correctVendorPayout,
   createSettlement,
   fetchSettlementCandidates,
+  rejectVendorBillPayment,
   formatMoney,
   listSettlements,
+  listSubscriptionBills,
+  remindSettlementAck,
+  remindVendorBill,
   settlementClaimAmount,
   settlementOtherChargesAmount,
   type PendingSettlementClaim,
@@ -23,9 +29,11 @@ import {
   type SettlementVm,
 } from '../api/settlementsApi';
 import { DeliveryPayoutPanel } from '../components/DeliveryPayoutPanel';
+import { SubscriptionBillsPanel } from '../components/SubscriptionBillsPanel';
 import { displayPayeeLabel } from '@/shared/display/displayNames';
 import { ListPager } from '../components/ListPager';
 import {
+  CollectFeesCard,
   VendorPayoutWorkspace,
   type VendorAppSubTab,
   type VendorPaysSubTab,
@@ -66,16 +74,36 @@ function placedDateInIst(placedAt?: string | null): string | null {
   return isoDateInIst(new Date(placedAt));
 }
 
-function isPlacedInRange(placedAt: string | null | undefined, from: string, to: string): boolean {
-  const day = placedDateInIst(placedAt);
+/** Vendor collections are booked on the day the vendor paid, not the day admin confirmed. */
+function settlementCashAt(s: SettlementVm): string | null {
+  const collection = (s.direction ?? '').toUpperCase() === 'COLLECTION';
+  if (collection && s.vendorPaidAt) return s.vendorPaidAt;
+  return s.paidAt ?? null;
+}
+
+/** Payout windows go by delivered day (IST); placed time only when delivery time is missing. */
+function payoutAt(c: SettlementCandidate): string | null | undefined {
+  return c.deliveredAt || c.placedAt;
+}
+
+function isDeliveredInRange(c: SettlementCandidate, from: string, to: string): boolean {
+  const day = placedDateInIst(payoutAt(c));
   if (!day) return false;
   return day >= from && day <= to;
 }
 
-/** Oldest placed time first so the list reads top to bottom through the range. */
+function shortWhen(iso?: string | null): string {
+  return iso
+    ? new Date(iso).toLocaleString(undefined, { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
+    : '—';
+}
+
+/** Oldest delivery first so the list reads top to bottom through the range. */
 function oldestFirst(a: SettlementCandidate, b: SettlementCandidate): number {
-  const ta = a.placedAt ? Date.parse(a.placedAt) : Number.POSITIVE_INFINITY;
-  const tb = b.placedAt ? Date.parse(b.placedAt) : Number.POSITIVE_INFINITY;
+  const pa = payoutAt(a);
+  const pb = payoutAt(b);
+  const ta = pa ? Date.parse(pa) : Number.POSITIVE_INFINITY;
+  const tb = pb ? Date.parse(pb) : Number.POSITIVE_INFINITY;
   const left = Number.isNaN(ta) ? Number.POSITIVE_INFINITY : ta;
   const right = Number.isNaN(tb) ? Number.POSITIVE_INFINITY : tb;
   if (left !== right) return left - right;
@@ -107,13 +135,13 @@ function settlementChangeLog(
         ? ['DELIVERY_PAYOUT', 'AGENT_PAYOUT']
         : tab === 'HUB'
           ? ['FRANCHISE_COLLECT', 'DELIVERY_PAYOUT', 'HUB_PAYOUT']
-          : ['VENDOR_PAYOUT', 'VENDOR_COLLECTION'],
+          : ['VENDOR_PAYOUT', 'VENDOR_COLLECTION', 'VENDOR_NOT_RECEIVED', 'VENDOR_PAYOUT_CORRECTED', 'VENDOR_BILL_REMINDED'],
     prefixes:
       tab === 'AGENT'
         ? ['Paid AGENT', 'Paid agent']
         : tab === 'HUB'
           ? ['Collected franchise', 'Paid HUB', 'Paid hub']
-          : ['Paid vendor', 'Collected from vendor'],
+          : ['Paid vendor', 'Collected from vendor', 'Vendor not received', 'Corrected vendor payout', 'Vendor bill reminder'],
     emptyHint:
       tab === 'AGENT'
         ? 'No agent payout changes for this town.'
@@ -121,6 +149,16 @@ function settlementChangeLog(
           ? 'No hub payout or franchise collection changes for this town.'
           : 'No vendor payout or fee-collection changes for this town.',
   };
+}
+
+/** "7.5000% of ₹977 [2026-09-01 → open]" → "7.5% of ₹977 (terms from 1 Sept 2026)". */
+function tidyFeeLine(line: string): string {
+  return line
+    .replace(/(\d+\.\d*?)0+%/g, (_, n: string) => `${n.replace(/\.$/, '')}%`)
+    .replace(/\s*\[(\d{4}-\d{2}-\d{2})\s*→\s*open\]/g, (_, d: string) =>
+      ` (terms from ${new Date(`${d}T00:00:00`).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })})`,
+    )
+    .replace(/\s*\(terms as of [^)]*\)/g, '');
 }
 
 export function SettlementsPage() {
@@ -141,6 +179,111 @@ export function SettlementsPage() {
   const [pendingClaims, setPendingClaims] = useState<PendingSettlementClaim[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [history, setHistory] = useState<SettlementVm[]>([]);
+  const [remindingId, setRemindingId] = useState<string | null>(null);
+  const [subscriptionDueCount, setSubscriptionDueCount] = useState(0);
+
+  useEffect(() => {
+    setSubscriptionDueCount(0);
+    if (!session?.accessToken || !vendorId) return;
+    let cancelled = false;
+    void listSubscriptionBills(session.accessToken, vendorId)
+      .then((list) => {
+        if (!cancelled) setSubscriptionDueCount(list.filter((b) => b.status !== 'PAID').length);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [session?.accessToken, vendorId]);
+
+  function openCorrect(s: SettlementVm) {
+    setCorrectId(s.id);
+    setCorrectMethod(s.payoutMethod || 'UPI');
+    setCorrectRef(s.transactionReference ?? '');
+    setCorrectNotes(s.transactionNotes ?? '');
+    setError(null);
+  }
+
+  async function saveCorrect(s: SettlementVm) {
+    if (!session?.accessToken) return;
+    if (!correctRef.trim()) {
+      setError('Txn ref is required (UTR / UPI / cheque number)');
+      setCorrectAsk(null);
+      return;
+    }
+    setBillActionId(s.id);
+    setError(null);
+    try {
+      const updated = await correctVendorPayout(session.accessToken, s.id, {
+        payoutMethod: correctMethod,
+        transactionReference: correctRef.trim(),
+        transactionNotes: correctNotes.trim() || undefined,
+      });
+      setHistory((prev) => prev.map((x) => (x.id === s.id ? { ...x, ...updated } : x)));
+      setCorrectId(null);
+      setCorrectAsk(null);
+      setSuccess(
+        `Updated payout for ${displayPayeeLabel(s.payeeName, s.payeeId, s.payeeType)} · ${updated.payoutMethod} · ref ${updated.transactionReference}. They'll be asked to check again.`,
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not update payout');
+      setCorrectAsk(null);
+    } finally {
+      setBillActionId(null);
+    }
+  }
+
+  function askConfirmVendorPayments() {
+    const next = billsToConfirm[0];
+    if (next) setBillAsk({ kind: 'confirm', s: next });
+  }
+
+  async function remindOpenBills() {
+    if (!session?.accessToken) {
+      setVendorPaysSubTab('records');
+      return;
+    }
+    const due = openShopBills.filter((s) => !s.vendorPaidAt);
+    setVendorPaysSubTab('records');
+    if (due.length === 0) return;
+    setRemindingId('bills');
+    setError(null);
+    try {
+      for (const s of due) {
+        const updated = await remindVendorBill(session.accessToken, s.id);
+        setHistory((prev) => prev.map((x) => (x.id === s.id ? { ...x, ...updated } : x)));
+      }
+      const shop = selectedVendor?.shopName || selectedVendor?.businessName || 'the vendor';
+      setSuccess(`Reminder sent to ${shop} to pay ${formatMoney(outstandingCollect)}.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not remind the vendor');
+    } finally {
+      setRemindingId(null);
+    }
+  }
+
+  async function sendAckReminder(s: SettlementVm) {
+    if (!session?.accessToken) return;
+    setRemindingId(s.id);
+    setError(null);
+    try {
+      const updated = await remindSettlementAck(session.accessToken, s.id);
+      setHistory((prev) =>
+        prev.map((x) =>
+          x.id === s.id
+            ? { ...x, ackReminderCount: updated.ackReminderCount, ackRemindedAt: updated.ackRemindedAt }
+            : x,
+        ),
+      );
+      setSuccess(
+        `Reminder ${updated.ackReminderCount ?? 1} sent to ${displayPayeeLabel(s.payeeName, s.payeeId, s.payeeType)} · they'll see a popup to ack receipt`,
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not send reminder');
+    } finally {
+      setRemindingId(null);
+    }
+  }
   const [expandedHistoryId, setExpandedHistoryId] = useState<string | null>(null);
   const [payoutMethod, setPayoutMethod] = useState('UPI');
   const [transactionReference, setTransactionReference] = useState('');
@@ -156,11 +299,19 @@ export function SettlementsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [confirmPayOpen, setConfirmPayOpen] = useState(false);
+  const [confirmBillOpen, setConfirmBillOpen] = useState(false);
+  const [billAsk, setBillAsk] = useState<{ kind: 'confirm' | 'reject'; s: SettlementVm } | null>(null);
+  const [correctId, setCorrectId] = useState<string | null>(null);
+  const [correctMethod, setCorrectMethod] = useState('UPI');
+  const [correctRef, setCorrectRef] = useState('');
+  const [correctNotes, setCorrectNotes] = useState('');
+  const [correctAsk, setCorrectAsk] = useState<SettlementVm | null>(null);
+  const [billActionId, setBillActionId] = useState<string | null>(null);
+  const [billComments, setBillComments] = useState<Record<string, string>>({});
   const [tab, setTab] = useState<'VENDOR' | 'HUB' | 'AGENT'>('VENDOR');
   const [vendorTab, setVendorTab] = useState<VendorPayoutTab>('app-to-vendor');
   const [vendorAppSubTab, setVendorAppSubTab] = useState<VendorAppSubTab>('pay');
   const [vendorPaysSubTab, setVendorPaysSubTab] = useState<VendorPaysSubTab>('collect');
-  const [vendorRecordsLoaded, setVendorRecordsLoaded] = useState(false);
   const [historyPage, setHistoryPage] = useState(0);
   const [historyPageSize, setHistoryPageSize] = useState(DEFAULT_HISTORY_PAGE_SIZE);
   const collectFromVendor = vendorTab === 'vendor-to-app';
@@ -169,6 +320,7 @@ export function SettlementsPage() {
   const [deliveryRefreshTick, setDeliveryRefreshTick] = useState(0);
   const [codRefreshTick, setCodRefreshTick] = useState(0);
   const [orderSearch, setOrderSearch] = useState('');
+  const [showSettled, setShowSettled] = useState(false);
   const [orderPage, setOrderPage] = useState(0);
   const [orderPageSize, setOrderPageSize] = useState(DEFAULT_ORDER_PAGE_SIZE);
 
@@ -209,15 +361,52 @@ export function SettlementsPage() {
     });
   }, [scopedCandidates, orderSearch]);
 
+  const listedCandidates = useMemo(
+    () => (showSettled ? filteredCandidates : filteredCandidates.filter((c) => !c.alreadySettled)),
+    [filteredCandidates, showSettled],
+  );
+  const settledInView = filteredCandidates.some((c) => c.alreadySettled);
+
   const payoutHistory = useMemo(
     () => history.filter((s) => (s.direction ?? 'PAYOUT').toUpperCase() !== 'COLLECTION'),
     [history],
   );
 
+  const vendorNeedsAction = useMemo(
+    () =>
+      payoutHistory.filter(
+        (s) => s.status === 'PAID' && !!s.vendorNotReceivedAt && !s.vendorAcknowledgedAt,
+      ).length,
+    [payoutHistory],
+  );
+
   const collectionHistory = useMemo(
-    () => history.filter((s) => (s.direction ?? '').toUpperCase() === 'COLLECTION'),
+    () =>
+      history.filter(
+        (s) =>
+          (s.direction ?? '').toUpperCase() === 'COLLECTION' &&
+          !(s.lines ?? []).some((l) => (l.lineType ?? '').toUpperCase() === 'SUBSCRIPTION'),
+      ),
     [history],
   );
+
+  /** Shop-fee bills already sent and not yet confirmed received. */
+  const openShopBills = useMemo(
+    () =>
+      collectionHistory.filter(
+        (s) =>
+          s.status !== 'PAID' &&
+          !!s.billSentAt &&
+          !(s.lines ?? []).some((l) => (l.lineType ?? '').toUpperCase() === 'SUBSCRIPTION'),
+      ),
+    [collectionHistory],
+  );
+  const outstandingCollect = useMemo(
+    () => roundMoney(openShopBills.reduce((sum, s) => sum + Number(s.netAmount ?? 0), 0)),
+    [openShopBills],
+  );
+  const billsAwaitingVendor = useMemo(() => openShopBills.filter((s) => !s.vendorPaidAt), [openShopBills]);
+  const billsToConfirm = useMemo(() => openShopBills.filter((s) => !!s.vendorPaidAt), [openShopBills]);
 
   const visibleHistory = collectFromVendor ? collectionHistory : payoutHistory;
   const historyPageCount = Math.max(1, Math.ceil(visibleHistory.length / historyPageSize));
@@ -256,13 +445,13 @@ export function SettlementsPage() {
     return [...totals.values()].sort((a, b) => b.amount - a.amount);
   }, [selectedStillWithAgent]);
 
-  const orderPageCount = Math.max(1, Math.ceil(filteredCandidates.length / orderPageSize));
+  const orderPageCount = Math.max(1, Math.ceil(listedCandidates.length / orderPageSize));
   const safeOrderPage = Math.min(orderPage, orderPageCount - 1);
 
   const pagedCandidates = useMemo(() => {
     const start = safeOrderPage * orderPageSize;
-    return filteredCandidates.slice(start, start + orderPageSize);
-  }, [filteredCandidates, safeOrderPage, orderPageSize]);
+    return listedCandidates.slice(start, start + orderPageSize);
+  }, [listedCandidates, safeOrderPage, orderPageSize]);
 
   const selectedFingerprint = useMemo(
     () => Array.from(selected).sort().join('\n'),
@@ -271,7 +460,7 @@ export function SettlementsPage() {
 
   useEffect(() => {
     setOrderPage(0);
-  }, [candidates.length, orderSearch, orderPageSize, townId, vendorId, from, to]);
+  }, [candidates.length, orderSearch, orderPageSize, townId, vendorId, from, to, showSettled]);
 
   const selectedTotal = useMemo(() => {
     let sum = 0;
@@ -290,7 +479,17 @@ export function SettlementsPage() {
   const grossMismatch =
     quoteGross != null && Math.abs(quoteGross - selectedTotal) > 0.009;
 
+  const quoteMatches =
+    selected.size > 0 &&
+    feeQuote != null &&
+    (quoteGross == null || Math.abs(quoteGross - selectedTotal) <= 0.009);
+  /** Bags are selected but the fee quote is still for the other tab or not back yet. */
+  const netPending = selected.size > 0 && !quoteMatches;
+
   const expectedNet = useMemo(() => {
+    if (!quoteMatches) {
+      return collectFromVendor ? roundMoney(otherChargesNum) : 0;
+    }
     if (collectFromVendor) {
       return roundMoney(commissionNum + otherChargesNum);
     }
@@ -300,6 +499,7 @@ export function SettlementsPage() {
         : roundMoney(selectedTotal - commissionNum);
     return Math.max(0, roundMoney(afterFees - pendingClaimChargebacks - otherChargesNum));
   }, [
+    quoteMatches,
     collectFromVendor,
     feeQuote,
     selectedTotal,
@@ -316,7 +516,7 @@ export function SettlementsPage() {
       setCommissionAmount('0');
       return;
     }
-    if (!collectFromVendor && selected.size === 0) {
+    if (selected.size === 0) {
       setFeeQuote(null);
       setFeeQuoteError(null);
       setFeeQuoteLoading(false);
@@ -342,7 +542,7 @@ export function SettlementsPage() {
             periodStart: from,
             periodEnd: to,
             markSubscriptionCharged: false,
-            includeSubscription: collectFromVendor,
+            includeSubscription: false,
             allowFeeExceedGross: collectFromVendor,
             orderLines,
           });
@@ -358,7 +558,7 @@ export function SettlementsPage() {
                 ? err.message
                 : collectFromVendor
                   ? 'Could not load billing fees for this collection'
-                  : 'Could not load billing fees for this payout',
+                : 'Could not load billing fees for this payout',
             );
           }
         } finally {
@@ -406,9 +606,9 @@ export function SettlementsPage() {
       return;
     }
     const data = await fetchSettlementCandidates(token, { townId, vendorId, from, to });
-    // Strict placed-date filter (IST calendar day) so UI matches the From/To pickers.
+    // Strict delivered-date filter (IST calendar day) so UI matches the From/To pickers.
     const items = (data.items ?? [])
-      .filter((i) => isPlacedInRange(i.placedAt, from, to))
+      .filter((i) => isDeliveredInRange(i, from, to))
       .sort(oldestFirst);
     setCandidates(items);
     setPendingClaimChargebacks(Number(data.pendingClaimChargebacks ?? 0));
@@ -438,8 +638,16 @@ export function SettlementsPage() {
       townId: townId || undefined,
       payeeId: vendorId || undefined,
     });
-    // Show payouts whose settlement period overlaps the selected From/To range.
+    // Paid settlements by IST paid day (one period each); open ones by window overlap.
     const inRange = items.filter((s) => {
+      const openShopBill =
+        (s.direction ?? '').toUpperCase() === 'COLLECTION' &&
+        s.status !== 'PAID' &&
+        !!s.billSentAt &&
+        !(s.lines ?? []).some((l) => (l.lineType ?? '').toUpperCase() === 'SUBSCRIPTION');
+      if (openShopBill) return true;
+      const paidDay = s.status === 'PAID' ? placedDateInIst(settlementCashAt(s)) : null;
+      if (paidDay) return paidDay >= from && paidDay <= to;
       const start = s.periodStart ?? '';
       const end = s.periodEnd ?? '';
       if (!start || !end) return true;
@@ -464,14 +672,11 @@ export function SettlementsPage() {
         (err: unknown) =>
           err instanceof ApiError || err instanceof Error ? err.message : 'Failed to load payout orders',
       );
-      const historyErr =
-        vendorRecordsLoaded
-          ? await reloadHistory().then(
-              () => null,
-              (err: unknown) =>
-                err instanceof ApiError || err instanceof Error ? err.message : 'Failed to load payout history',
-            )
-          : null;
+      const historyErr = await reloadHistory().then(
+        () => null,
+        (err: unknown) =>
+          err instanceof ApiError || err instanceof Error ? err.message : 'Failed to load payout history',
+      );
       if (candidateErr) {
         setCandidates([]);
         setPendingClaimChargebacks(0);
@@ -486,7 +691,7 @@ export function SettlementsPage() {
     } finally {
       setLoading(false);
     }
-  }, [token, townId, vendorId, reloadMeta, reloadCandidates, reloadHistory, vendorRecordsLoaded]);
+  }, [token, townId, vendorId, reloadMeta, reloadCandidates, reloadHistory]);
 
   useEffect(() => {
     void reload();
@@ -539,7 +744,7 @@ export function SettlementsPage() {
       return;
     }
     if (collectFromVendor && expectedNet <= 0) {
-      setError('Nothing to collect — no monthly fee, commission, or extra charge.');
+      setError('Nothing to collect — no commission or extra charge on these bags. Monthly subscription is on the Subscription bill tab.');
       setConfirmPayOpen(false);
       return;
     }
@@ -576,24 +781,23 @@ export function SettlementsPage() {
           } · ${created.payoutMethod} · ref ${txnRef}`,
         );
       } else {
-        const claimsTaken = settlementClaimAmount(created);
-        const otherTaken = settlementOtherChargesAmount(created);
-        const parts = [
-          `gross ${formatMoney(created.grossAmount)}`,
-          `fees ${formatMoney(created.commissionAmount)}`,
-        ];
-        if (claimsTaken > 0) parts.push(`claims ${formatMoney(claimsTaken)}`);
-        if (otherTaken > 0) parts.push(`other ${formatMoney(otherTaken)}`);
-        setSuccess(
+      const claimsTaken = settlementClaimAmount(created);
+      const otherTaken = settlementOtherChargesAmount(created);
+      const parts = [
+        `gross ${formatMoney(created.grossAmount)}`,
+        `fees ${formatMoney(created.commissionAmount)}`,
+      ];
+      if (claimsTaken > 0) parts.push(`claims ${formatMoney(claimsTaken)}`);
+      if (otherTaken > 0) parts.push(`other ${formatMoney(otherTaken)}`);
+      setSuccess(
           `Paid ${formatMoney(created.netAmount)} (${parts.join(' − ')}) to ${shop} · ${created.payoutMethod} · ref ${txnRef}`,
-        );
+      );
       }
       setTransactionReference('');
       setTransactionNotes('');
       setOtherChargesAmount('');
       setOtherChargesReason('');
       setConfirmPayOpen(false);
-      setVendorRecordsLoaded(true);
       setDeliveryRefreshTick((n) => n + 1);
       await Promise.all([reloadCandidates(), reloadHistory()]);
     } catch (err) {
@@ -608,6 +812,105 @@ export function SettlementsPage() {
       setSaving(false);
     }
   }
+
+  async function sendCollectionBill() {
+    if (!token || !townId || !vendorId || !feeQuote || expectedNet <= 0) return;
+    if (otherChargesNum > 0 && !otherChargesReason.trim()) {
+      setError('Add a reason for the extra charge');
+      setConfirmBillOpen(false);
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      const created = await createSettlement(token, {
+        townId,
+        vendorId,
+        vendorName: selectedVendor?.shopName || selectedVendor?.businessName,
+        periodStart: from,
+        periodEnd: to,
+        periodType,
+        direction: 'COLLECTION',
+        subOrderIds: Array.from(selected),
+        markPaid: false,
+        sendBill: true,
+        transactionNotes: transactionNotes.trim() || undefined,
+        otherChargesAmount: otherChargesNum > 0 ? otherChargesNum : undefined,
+        otherChargesReason: otherChargesNum > 0 ? otherChargesReason.trim() : undefined,
+      });
+      const shop = displayPayeeLabel(created.payeeName, created.payeeId, created.payeeType ?? 'VENDOR');
+      setSuccess(
+        `Bill ${created.serviceInvoiceNumber ?? ''} for ${formatMoney(created.netAmount)} sent to ${shop}. ` +
+          'They pay and enter the UTR in their portal — confirm or reject it in Records.',
+      );
+      setOtherChargesAmount('');
+      setOtherChargesReason('');
+      setConfirmBillOpen(false);
+      setDeliveryRefreshTick((n) => n + 1);
+      await Promise.all([reloadCandidates(), reloadHistory()]);
+      setVendorPaysSubTab('records');
+      openVendorRecords('collect');
+    } catch (err) {
+      setError(err instanceof ApiError || err instanceof Error ? err.message : 'Failed to send bill');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function confirmBillPayment(s: SettlementVm) {
+    if (!token) return;
+    setBillActionId(s.id);
+    setError(null);
+    try {
+      const comment = (billComments[s.id] ?? '').trim();
+      await confirmVendorBillPayment(token, s.id, comment ? { transactionNotes: comment } : {});
+      setSuccess(`Payment ${formatMoney(s.netAmount)} confirmed · ref ${s.vendorPaymentReference ?? '—'}`);
+      setBillComments((prev) => ({ ...prev, [s.id]: '' }));
+      await reloadHistory();
+    } catch (err) {
+      setError(err instanceof ApiError || err instanceof Error ? err.message : 'Failed to confirm payment');
+    } finally {
+      setBillActionId(null);
+    }
+  }
+
+  async function rejectBillPayment(s: SettlementVm) {
+    if (!token) return;
+    const reason = (billComments[s.id] ?? '').trim();
+    if (!reason) {
+      setError('Write a comment for the vendor before rejecting (what is wrong / what to send)');
+      return;
+    }
+    setBillActionId(s.id);
+    setError(null);
+    try {
+      await rejectVendorBillPayment(token, s.id, reason);
+      setSuccess('Payment sent back to the vendor with your comment');
+      setBillComments((prev) => ({ ...prev, [s.id]: '' }));
+      await reloadHistory();
+    } catch (err) {
+      setError(err instanceof ApiError || err instanceof Error ? err.message : 'Failed to reject payment');
+    } finally {
+      setBillActionId(null);
+    }
+  }
+
+  const canSendBill =
+    !saving && !!townId && !!vendorId && !feeQuoteLoading && !feeQuoteError && !!feeQuote && expectedNet > 0;
+  const sendBillHint = saving
+    ? null
+    : !townId || !vendorId
+      ? 'Pick a town and vendor'
+      : feeQuoteLoading
+        ? 'Calculating billing fees…'
+        : feeQuoteError || !feeQuote
+          ? feeQuoteError || 'Billing fees not available'
+          : expectedNet <= 0
+            ? outstandingCollect > 0
+              ? null
+              : 'Nothing to bill'
+            : null;
 
   function requestMarkPaid() {
     if (!transactionReference.trim()) {
@@ -654,10 +957,25 @@ export function SettlementsPage() {
     !!vendorId &&
     (selected.size > 0 || collectFromVendor || pendingClaimChargebacks > 0);
 
+  function switchVendorTab(next: VendorPayoutTab) {
+    setVendorTab(next);
+    setFeeQuote(null);
+    setFeeQuoteError(null);
+    setCommissionAmount('0');
+    if (next === 'subscription') {
+      setFeeQuoteLoading(false);
+      return;
+    }
+    const nextIds = candidates
+      .filter((c) => !c.alreadySettled && vendorSettlementBucket(c) === next)
+      .map((c) => c.subOrderId);
+    setFeeQuoteLoading(nextIds.length > 0);
+    setSelected(new Set(nextIds));
+  }
+
   function openVendorRecords(which: 'pay' | 'collect') {
     if (which === 'pay') setVendorAppSubTab('records');
     else setVendorPaysSubTab('records');
-    setVendorRecordsLoaded(true);
     void reloadHistory();
   }
 
@@ -672,7 +990,7 @@ export function SettlementsPage() {
       historyTabLabel={collectFromVendor ? 'Vendor → KK collections' : 'KK → vendor payouts'}
       historyHint={
         collectFromVendor
-          ? 'Fees received from this shop (not goods payouts).'
+          ? 'Shop-held fee bills only. Monthly subscription is on the Subscription bill tab.'
           : 'Goods payouts to this shop (not fee collections).'
       }
       historyEmpty={
@@ -736,8 +1054,8 @@ export function SettlementsPage() {
                   <Fragment key={s.id}>
                     <tr>
                       <td style={styles.tdMuted}>
-                        {s.paidAt
-                          ? new Date(s.paidAt).toLocaleString(undefined, {
+                        {settlementCashAt(s)
+                          ? new Date(settlementCashAt(s)!).toLocaleString(undefined, {
                               day: '2-digit',
                               month: 'short',
                               year: 'numeric',
@@ -745,6 +1063,18 @@ export function SettlementsPage() {
                               minute: '2-digit',
                             })
                           : '—'}
+                        {isCollection && s.vendorPaidAt && s.paidAt ? (
+                          <div style={styles.sub}>
+                            Verified{' '}
+                            {new Date(s.paidAt).toLocaleString(undefined, {
+                              day: '2-digit',
+                              month: 'short',
+                              year: 'numeric',
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })}
+                          </div>
+                        ) : null}
                       </td>
                       <td style={styles.td}>
                         {displayPayeeLabel(s.payeeName, s.payeeId, s.payeeType)}
@@ -768,8 +1098,18 @@ export function SettlementsPage() {
                         ) : null}
                       </td>
                       <td style={styles.tdMuted}>
-                        {s.payoutMethod ?? '—'}
-                        <div style={styles.sub}>{s.transactionReference || 'No txn ref'}</div>
+                        {s.status !== 'PAID' && isCollection && s.vendorPaidAt ? (
+                          <>
+                            {s.vendorPaymentMethod ?? '—'}
+                            <div style={styles.sub}>Vendor UTR {s.vendorPaymentReference || '—'}</div>
+                            {s.vendorPaymentNotes ? <div style={styles.sub}>“{s.vendorPaymentNotes}”</div> : null}
+                          </>
+                        ) : (
+                          <>
+                            {s.payoutMethod ?? '—'}
+                            <div style={styles.sub}>{s.transactionReference || 'No txn ref'}</div>
+                          </>
+                        )}
                       </td>
                       <td style={styles.tdRight}>{formatMoney(s.grossAmount)}</td>
                       <td style={styles.tdRight}>{formatMoney(s.commissionAmount)}</td>
@@ -779,20 +1119,192 @@ export function SettlementsPage() {
                       <td style={styles.tdRight}>{formatMoney(other)}</td>
                       <td style={styles.tdRight}>{formatMoney(s.netAmount)}</td>
                       <td style={styles.td}>
+                        {isCollection && s.status !== 'PAID' && s.billSentAt ? (
+                          <div style={styles.billBox}>
+                            <span
+                              style={
+                                s.vendorPaidAt
+                                  ? styles.billPaidBadge
+                                  : s.vendorPaymentRejectedAt
+                                    ? styles.billRejectBadge
+                                    : styles.openBadge
+                              }
+                            >
+                              {s.vendorPaidAt
+                                ? 'Vendor paid · check'
+                                : s.vendorPaymentRejectedAt
+                                  ? 'Rejected · vendor to resend'
+                                  : 'Bill sent · awaiting vendor'}
+                            </span>
+                            <div style={styles.sub}>
+                              {s.serviceInvoiceNumber ?? ''} · sent{' '}
+                              {new Date(s.billSentAt).toLocaleString(undefined, {
+                                day: '2-digit',
+                                month: 'short',
+                                hour: '2-digit',
+                                minute: '2-digit',
+                              })}
+                            </div>
+                            {(s.ackReminderCount ?? 0) > 0 ? (
+                              <div style={styles.sub}>
+                                Reminded {s.ackReminderCount}×
+                                {s.ackRemindedAt
+                                  ? ` · last ${new Date(s.ackRemindedAt).toLocaleString(undefined, {
+                                      day: '2-digit',
+                                      month: 'short',
+                                      hour: '2-digit',
+                                      minute: '2-digit',
+                                    })}`
+                                  : ''}
+                              </div>
+                            ) : null}
+                            {s.vendorPaymentRejectedAt && s.vendorPaymentRejectReason ? (
+                              <div style={styles.billReason}>Your comment: {s.vendorPaymentRejectReason}</div>
+                            ) : null}
+                            {s.vendorPaidAt ? (
+                              <>
+                                <input
+                                  style={styles.billInput}
+                                  placeholder="Comment to vendor (required to reject)"
+                                  value={billComments[s.id] ?? ''}
+                                  maxLength={500}
+                                  onChange={(e) => setBillComments((prev) => ({ ...prev, [s.id]: e.target.value }))}
+                                />
+                                <div style={styles.billActions}>
+                                  <Button
+                                    size="sm"
+                                    disabled={billActionId === s.id}
+                                    onClick={() => setBillAsk({ kind: 'confirm', s })}
+                                  >
+                                    {billActionId === s.id ? 'Saving…' : 'Confirm received'}
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    disabled={billActionId === s.id}
+                                    onClick={() => {
+                                      if (!(billComments[s.id] ?? '').trim()) {
+                                        setError('Write a comment for the vendor before rejecting (what is wrong / what to send)');
+                                        return;
+                                      }
+                                      setError(null);
+                                      setBillAsk({ kind: 'reject', s });
+                                    }}
+                                  >
+                                    Reject
+                                  </Button>
+                                </div>
+                              </>
+                            ) : null}
+                          </div>
+                        ) : (
                         <span style={s.status === 'PAID' ? styles.settled : styles.openBadge}>
-                          {s.status}
+                          {isCollection && s.status === 'PAID' ? 'RECEIVED' : s.status}
                         </span>
+                        )}
+                        {isCollection && s.status === 'PAID' && s.transactionNotes ? (
+                          <div style={styles.sub}>“{s.transactionNotes}”</div>
+                        ) : null}
                         {s.status === 'PAID' && !isCollection ? (
-                          <div style={styles.sub}>
-                            {s.vendorAcknowledgedAt
-                              ? `Vendor ack · ${new Date(s.vendorAcknowledgedAt).toLocaleString(undefined, {
+                          s.vendorNotReceivedAt && !s.vendorAcknowledgedAt ? (
+                            <div style={styles.notReceived}>
+                              {s.payeeType === 'HUB' ? 'Hub not received' : 'Vendor not received'}
+                              <div style={styles.sub}>
+                                {new Date(s.vendorNotReceivedAt).toLocaleString(undefined, {
                                   day: '2-digit',
                                   month: 'short',
                                   hour: '2-digit',
                                   minute: '2-digit',
-                                })}`
-                              : 'Awaiting vendor ack'}
-                          </div>
+                                })}
+                              </div>
+                              {s.vendorNotReceivedNote ? (
+                                <div style={styles.billReason}>
+                                  {s.payeeType === 'HUB' ? 'Hub' : 'Vendor'}: {s.vendorNotReceivedNote}
+                                </div>
+                              ) : null}
+                              {correctId === s.id ? (
+                                <div style={styles.correctBox}>
+                                  <select
+                                    style={styles.billInput}
+                                    value={correctMethod}
+                                    onChange={(e) => setCorrectMethod(e.target.value)}
+                                  >
+                                    {PAYOUT_METHODS.map((m) => (
+                                      <option key={m} value={m}>
+                                        {m}
+                                      </option>
+                                    ))}
+                                  </select>
+                                  <input
+                                    style={styles.billInput}
+                                    value={correctRef}
+                                    placeholder="UTR / UPI / cheque"
+                                    onChange={(e) => setCorrectRef(e.target.value)}
+                                  />
+                                  <input
+                                    style={styles.billInput}
+                                    value={correctNotes}
+                                    placeholder="Note (optional)"
+                                    onChange={(e) => setCorrectNotes(e.target.value)}
+                                  />
+                                  <div style={styles.billActions}>
+                                    <Button size="sm" disabled={billActionId === s.id} onClick={() => setCorrectAsk(s)}>
+                                      Save
+                                    </Button>
+                                    <Button size="sm" variant="ghost" onClick={() => setCorrectId(null)}>
+                                      Cancel
+                                    </Button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <button type="button" style={styles.remindBtn} onClick={() => openCorrect(s)}>
+                                  Correct record
+                                </button>
+                              )}
+                            </div>
+                          ) : (
+                            <div style={styles.sub}>
+                              {s.vendorAcknowledgedAt
+                                ? `${s.payeeType === 'HUB' ? 'Hub' : 'Vendor'} ack · ${new Date(s.vendorAcknowledgedAt).toLocaleString(undefined, {
+                                    day: '2-digit',
+                                    month: 'short',
+                                    hour: '2-digit',
+                                    minute: '2-digit',
+                                  })}`
+                                : s.payeeType === 'HUB'
+                                  ? 'Awaiting hub ack'
+                                  : 'Awaiting vendor ack'}
+                            </div>
+                          )
+                        ) : null}
+                        {s.status === 'PAID' && !isCollection && !s.vendorAcknowledgedAt ? (
+                          <>
+                            <button
+                              type="button"
+                              style={styles.remindBtn}
+                              disabled={remindingId === s.id}
+                              onClick={() => void sendAckReminder(s)}
+                            >
+                              {remindingId === s.id
+                                ? 'Sending…'
+                                : (s.ackReminderCount ?? 0) > 0
+                                  ? 'Remind again'
+                                  : 'Remind'}
+                            </button>
+                            {(s.ackReminderCount ?? 0) > 0 ? (
+                              <div style={styles.sub}>
+                                Reminded {s.ackReminderCount}×
+                                {s.ackRemindedAt
+                                  ? ` · last ${new Date(s.ackRemindedAt).toLocaleString(undefined, {
+                                      day: '2-digit',
+                                      month: 'short',
+                                      hour: '2-digit',
+                                      minute: '2-digit',
+                                    })}`
+                                  : ''}
+                              </div>
+                            ) : null}
+                          </>
                         ) : null}
                       </td>
                     </tr>
@@ -1004,13 +1516,13 @@ export function SettlementsPage() {
           </Card>
 
           {!townId || !vendorId ? (
-            <Card padding="sm" style={styles.cardPad}>
+          <Card padding="sm" style={styles.cardPad}>
               <p style={styles.muted}>Select a town and vendor to open the vendor workspace.</p>
             </Card>
           ) : (
           <VendorPayoutWorkspace
             tab={vendorTab}
-            onTab={setVendorTab}
+            onTab={switchVendorTab}
             appSubTab={vendorAppSubTab}
             onAppSubTab={(t) => {
               setVendorAppSubTab(t);
@@ -1021,29 +1533,86 @@ export function SettlementsPage() {
               setVendorPaysSubTab(t);
               if (t === 'records') openVendorRecords('collect');
             }}
+            onCheckRecords={() => void remindOpenBills()}
+            remindingBills={remindingId === 'bills'}
+            awaitingBillCount={billsAwaitingVendor.length}
+            paidBillCount={billsToConfirm.length}
+            onConfirmReceived={askConfirmVendorPayments}
             payOpenCount={payOpenCount}
-            collectOpenCount={collectOpenCount}
+            collectOpenCount={collectOpenCount + openShopBills.length}
+            outstandingCollect={outstandingCollect}
+            outstandingBillCount={openShopBills.length}
             selectedCount={selected.size}
             selectedGross={selectedTotal}
             expectedNet={expectedNet}
+            netPending={netPending}
             loading={loading}
             saving={saving}
             canSubmit={canPay}
             submitHint={canPay ? null : payHint}
             onRefresh={() => void reload()}
             onSubmit={requestMarkPaid}
+            canSendBill={canSendBill}
+            sendBillHint={sendBillHint}
+            onSendBill={() => {
+              setError(null);
+              setConfirmBillOpen(true);
+            }}
             workSection={
       <div className="sp-layout">
-        <div className="sp-main">
-          <Card padding="sm" style={styles.cardPad}>
+        <div className={collectFromVendor ? 'sp-main sp-joined' : 'sp-main'}>
+          {collectFromVendor ? (
+            <CollectFeesCard
+              attached
+              loading={loading}
+              saving={saving}
+              canSubmit={canPay}
+              canSendBill={canSendBill}
+              sendBillHint={sendBillHint}
+              selectedCount={selected.size}
+              selectedGross={selectedTotal}
+              expectedNet={expectedNet}
+              netPending={netPending}
+              outstandingCollect={outstandingCollect}
+              outstandingBillCount={openShopBills.length}
+              paysSubTab={vendorPaysSubTab}
+              onPaysSubTab={setVendorPaysSubTab}
+              onCheckRecords={() => void remindOpenBills()}
+              remindingBills={remindingId === 'bills'}
+              awaitingBillCount={billsAwaitingVendor.length}
+              paidBillCount={billsToConfirm.length}
+              onConfirmReceived={askConfirmVendorPayments}
+              onRefresh={() => void reload()}
+              onSubmit={requestMarkPaid}
+              onSendBill={() => {
+                setError(null);
+                setConfirmBillOpen(true);
+              }}
+            />
+          ) : null}
+          <Card
+            padding="sm"
+            style={collectFromVendor ? { ...styles.cardPad, ...styles.joinedTable } : styles.cardPad}
+          >
             <div style={styles.tableHead}>
               <h2 style={styles.sectionTitle}>
                 {collectFromVendor ? 'Shop-held COD' : 'Pay bags'}{' '}
                 <span style={styles.count}>
-                  {scopedCandidates.length} bag{scopedCandidates.length === 1 ? '' : 's'} · {selected.size} selected ·{' '}
+                  {listedCandidates.length} bag{listedCandidates.length === 1 ? '' : 's'} · {selected.size} selected ·{' '}
                   {formatMoney(selectedTotal)} gross
                 </span>
               </h2>
+              <span style={styles.headChecks}>
+              {settledInView ? (
+                <label style={styles.checkInline}>
+                  <input
+                    type="checkbox"
+                    checked={showSettled}
+                    onChange={(e) => setShowSettled(e.target.checked)}
+                  />
+                  Show settled
+                </label>
+              ) : null}
               <label style={styles.checkInline}>
                 <input
                   type="checkbox"
@@ -1053,6 +1622,7 @@ export function SettlementsPage() {
                 />
                 All unsettled
               </label>
+              </span>
             </div>
             {!townId || !vendorId ? (
               <p style={styles.muted}>Select a town and vendor to load orders.</p>
@@ -1061,11 +1631,17 @@ export function SettlementsPage() {
             ) : scopedCandidates.length === 0 ? (
               <p style={styles.muted}>
                 {collectFromVendor
-                  ? 'No shop-held COD in this range. Monthly fee can still be collected if due.'
+                  ? outstandingCollect > 0
+                    ? `No new shop-held bags. ${formatMoney(outstandingCollect)} is already billed and still to receive — confirm it in Records.`
+                    : 'No shop-held COD in this range. Monthly subscription is on the Subscription bill tab.'
                   : 'No bags where KoyaKart or the hub holds cash in this range.'}
               </p>
-            ) : filteredCandidates.length === 0 ? (
-              <p style={styles.muted}>No bags match your search.</p>
+            ) : listedCandidates.length === 0 ? (
+              <p style={styles.muted}>
+                {orderSearch.trim()
+                  ? 'No bags match your search.'
+                  : 'Settled bags are hidden. Tick Show settled to see them.'}
+              </p>
             ) : (
               <>
                 <div style={styles.ordersToolbar}>
@@ -1079,7 +1655,7 @@ export function SettlementsPage() {
                   <ListPager
                     page={safeOrderPage}
                     pageCount={orderPageCount}
-                    total={filteredCandidates.length}
+                    total={listedCandidates.length}
                     pageSize={orderPageSize}
                     onPage={setOrderPage}
                     onPageSize={(size) => {
@@ -1093,7 +1669,7 @@ export function SettlementsPage() {
                   <thead>
                     <tr>
                       <th style={styles.th} />
-                      <th style={styles.th}>Placed</th>
+                      <th style={styles.th}>Delivered</th>
                       <th style={styles.th}>Order</th>
                       <th style={styles.th}>Status</th>
                       <th style={styles.th}>Payment</th>
@@ -1120,14 +1696,8 @@ export function SettlementsPage() {
                           />
                         </td>
                         <td style={styles.tdMuted}>
-                          {row.placedAt
-                            ? new Date(row.placedAt).toLocaleString(undefined, {
-                                day: '2-digit',
-                                month: 'short',
-                                hour: '2-digit',
-                                minute: '2-digit',
-                              })
-                            : '—'}
+                          {shortWhen(row.deliveredAt || row.placedAt)}
+                          <div style={styles.sub}>Placed {shortWhen(row.placedAt)}</div>
                         </td>
                         <td style={styles.td}>
                           <strong>{row.orderNumber}</strong>
@@ -1147,7 +1717,9 @@ export function SettlementsPage() {
                             const badgeStyle =
                               stage === 'AT_HUB'
                                 ? styles.codHubBadge
-                                : stage === 'WITH_VENDOR'
+                                : stage === 'WITH_COMPANY'
+                                  ? styles.onlinePayHint
+                                  : stage === 'WITH_VENDOR'
                                   ? styles.codVendorBadge
                                   : stage === 'DECLARED_TO_VENDOR' || stage === 'DECLARED_TO_HUB'
                                     ? styles.codDeclaredBadge
@@ -1155,7 +1727,9 @@ export function SettlementsPage() {
                             const title =
                               stage === 'AT_HUB'
                                 ? 'Hub recorded agent remittance (close-day)'
-                                : stage === 'WITH_VENDOR'
+                                : stage === 'WITH_COMPANY'
+                                  ? 'This COD is already with KoyaKart'
+                                  : stage === 'WITH_VENDOR'
                                   ? 'Shop confirmed COD receipt from their agent'
                                   : stage === 'DECLARED_TO_VENDOR'
                                     ? 'Agent declared to shop — shop has not confirmed yet'
@@ -1209,8 +1783,20 @@ export function SettlementsPage() {
                   <span style={styles.netLabel}>
                     {collectFromVendor ? 'Collect from vendor' : 'Net to vendor'}
                   </span>
-                  <strong style={styles.netValue}>{formatMoney(expectedNet)}</strong>
+                  <strong style={styles.netValue}>
+                    {netPending
+                      ? '…'
+                      : formatMoney(collectFromVendor ? roundMoney(expectedNet + outstandingCollect) : expectedNet)}
+                  </strong>
                 </div>
+                {collectFromVendor && outstandingCollect > 0 ? (
+                  <div style={styles.mathRow}>
+                    <span>
+                      Billed, not received · {openShopBills.length} bill{openShopBills.length === 1 ? '' : 's'}
+                    </span>
+                    <strong>{formatMoney(outstandingCollect)}</strong>
+                  </div>
+                ) : null}
 
                 {grossMismatch ? (
                   <p style={styles.feeError}>
@@ -1221,6 +1807,7 @@ export function SettlementsPage() {
 
                 {(selectedCashSplit.codWithAgent > 0 ||
                   selectedCashSplit.codAtHub > 0 ||
+                  selectedCashSplit.codAlreadyIn > 0 ||
                   selectedCashSplit.codWithVendor > 0 ||
                   selectedCashSplit.codDeclaredToVendor > 0 ||
                   selectedCashSplit.codDeclaredToHub > 0 ||
@@ -1231,6 +1818,7 @@ export function SettlementsPage() {
                     fees={commissionNum}
                     netToVendor={expectedNet}
                     collectFromVendor={collectFromVendor}
+                    extraCharges={collectFromVendor ? otherChargesNum : 0}
                     footnote={
                       !collectFromVendor && selectedCashSplit.codAtHub > 0
                         ? 'Hub COD remittance is a separate hub → KoyaKart step (Issue COD statement). Vendor payout does not pull cash from agents.'
@@ -1240,14 +1828,14 @@ export function SettlementsPage() {
                   />
                 )}
 
-                {selectedCashSplit.codWithAgent > 0 ? (
+                    {selectedCashSplit.codWithAgent > 0 ? (
                   <div style={styles.cashSplit}>
                     <span style={styles.cashSplitTitle}>COD still with agent</span>
-                    {codHeldByAgent.length > 0 ? (
-                      <div style={styles.codAgentHeldBy}>
+                        {codHeldByAgent.length > 0 ? (
+                          <div style={styles.codAgentHeldBy}>
                         {codHeldByAgent.map((row) => (
                           <p key={`${row.name}-${row.phone ?? ''}`} style={styles.codAgentHeldRow}>
-                            <span>Held by</span>
+                                <span>Held by</span>
                             <strong>{row.name}</strong>
                             {row.phone ? (
                               <a href={`tel:${row.phone}`} style={styles.agentPhoneLink}>
@@ -1255,21 +1843,21 @@ export function SettlementsPage() {
                               </a>
                             ) : null}
                             <span>{formatMoney(row.amount)}</span>
-                          </p>
-                        ))}
-                      </div>
-                    ) : null}
-                    {selectedStillWithAgent.length > 0 ? (
-                      <ul style={styles.codAgentOrderList}>
-                        {selectedStillWithAgent.map((c) => (
-                          <li key={c.subOrderId}>
-                            <strong>{c.orderNumber}</strong> · {formatMoney(c.subtotal)}
-                            <span style={styles.codAgentOrderHint}>
-                              {c.codDeliveringAgentName
-                                ? ` · ${c.codDeliveringAgentName}`
-                                : c.vendorAgentDelivery
-                                  ? ` · shop agent (unknown)`
-                                  : ' · hub agent (unknown)'}
+                              </p>
+                            ))}
+                          </div>
+                        ) : null}
+                        {selectedStillWithAgent.length > 0 ? (
+                          <ul style={styles.codAgentOrderList}>
+                            {selectedStillWithAgent.map((c) => (
+                              <li key={c.subOrderId}>
+                                <strong>{c.orderNumber}</strong> · {formatMoney(c.subtotal)}
+                                <span style={styles.codAgentOrderHint}>
+                                  {c.codDeliveringAgentName
+                                    ? ` · ${c.codDeliveringAgentName}`
+                                    : c.vendorAgentDelivery
+                                      ? ` · shop agent (unknown)`
+                                      : ' · hub agent (unknown)'}
                               {c.codDeliveringAgentPhone ? (
                                 <>
                                   {' · '}
@@ -1278,14 +1866,14 @@ export function SettlementsPage() {
                                   </a>
                                 </>
                               ) : null}
-                            </span>
-                          </li>
-                        ))}
-                      </ul>
-                    ) : null}
-                    <p style={styles.cashSplitHint}>
+                                </span>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : null}
+                      <p style={styles.cashSplitHint}>
                       Confirm handover or hub close-day before paying vendor on these bags.
-                    </p>
+                      </p>
                   </div>
                 ) : null}
 
@@ -1298,19 +1886,19 @@ export function SettlementsPage() {
                     <strong>{formatMoney(quoteGross ?? selectedTotal)}</strong>
                   </div>
                   <div style={styles.mathRow}>
-                    <span>{collectFromVendor ? 'Fees to collect' : 'Billing fees'}</span>
+                    <span>{collectFromVendor ? 'Commission to collect' : 'Billing fees'}</span>
                     <strong>
                       {collectFromVendor ? '' : '− '}
                       {formatMoney(commissionNum)}
                     </strong>
                   </div>
                   {!collectFromVendor ? (
-                    <div style={styles.mathRow}>
-                      <span>Claim deductions</span>
-                      <strong style={pendingClaimChargebacks > 0 ? styles.claimAmt : undefined}>
-                        − {formatMoney(pendingClaimChargebacks)}
-                      </strong>
-                    </div>
+                  <div style={styles.mathRow}>
+                    <span>Claim deductions</span>
+                    <strong style={pendingClaimChargebacks > 0 ? styles.claimAmt : undefined}>
+                      − {formatMoney(pendingClaimChargebacks)}
+                    </strong>
+                  </div>
                   ) : null}
                   <div style={styles.mathRow}>
                     <span>{collectFromVendor ? 'Extra charge' : 'Penalty / other'}</span>
@@ -1360,7 +1948,7 @@ export function SettlementsPage() {
                   ) : feeQuote?.breakdownLines?.length ? (
                     <ul style={styles.feeList}>
                       {feeQuote.breakdownLines.map((line) => (
-                        <li key={line}>{line}</li>
+                        <li key={line}>{tidyFeeLine(line)}</li>
                       ))}
                     </ul>
                   ) : (
@@ -1387,12 +1975,24 @@ export function SettlementsPage() {
             )}
 
             <div style={styles.sideActions}>
-              <Button size="sm" disabled={!canPay} onClick={requestMarkPaid}>
+              {collectFromVendor ? (
+                <Button size="sm" disabled={!canSendBill} onClick={() => setConfirmBillOpen(true)}>
+                  {saving ? 'Saving…' : `Send bill to vendor · ${formatMoney(expectedNet)}`}
+              </Button>
+              ) : null}
+              <Button
+                size="sm"
+                variant={collectFromVendor ? 'secondary' : undefined}
+                disabled={!canPay}
+                onClick={requestMarkPaid}
+              >
                 {saving
                   ? 'Saving…'
-                  : collectFromVendor
-                    ? `Mark received · ${formatMoney(expectedNet)}`
-                    : `Mark paid · ${formatMoney(expectedNet)}`}
+                  : netPending
+                    ? 'Calculating…'
+                    : collectFromVendor
+                      ? `Mark received · ${formatMoney(expectedNet)}`
+                      : `Mark paid · ${formatMoney(expectedNet)}`}
               </Button>
               {!canPay && payHint ? <p style={styles.payHint}>{payHint}</p> : null}
               <Button size="sm" variant="secondary" onClick={() => void reload()} disabled={loading}>
@@ -1405,6 +2005,30 @@ export function SettlementsPage() {
             }
             payRecords={vendorRecordsSection}
             collectRecords={vendorRecordsSection}
+            subscriptionDueCount={subscriptionDueCount}
+            needsActionCount={vendorNeedsAction}
+            subscriptionSection={
+              <SubscriptionBillsPanel
+                key={vendorId}
+                token={token}
+                townId={townId}
+                vendorId={vendorId}
+                vendorName={selectedVendor?.shopName || selectedVendor?.businessName}
+                vendor={selectedVendor}
+                town={towns.find((t) => t.id === townId) ?? null}
+                payoutMethod={payoutMethod}
+                transactionReference={transactionReference}
+                transactionNotes={transactionNotes}
+                onDueCount={setSubscriptionDueCount}
+                onCollected={(msg) => {
+                  setError(null);
+                  setSuccess(msg);
+                  setTransactionReference('');
+                  setTransactionNotes('');
+                }}
+                onError={(msg) => setError(msg)}
+              />
+            }
           />
           )}
       </div>
@@ -1425,6 +2049,143 @@ export function SettlementsPage() {
           if (!saving) setConfirmPayOpen(false);
         }}
         onConfirm={() => void submitPayout()}
+      />
+      <ConfirmDialog
+        open={confirmBillOpen}
+        title="Send bill to vendor?"
+        description={
+          <div style={styles.dlgBody}>
+            <div style={styles.dlgHero}>
+              <span style={styles.dlgHeroLabel}>Bill amount</span>
+              <strong style={styles.dlgHeroValue}>{formatMoney(expectedNet)}</strong>
+              <span>{selectedVendor?.shopName || selectedVendor?.businessName || 'Vendor'}</span>
+                          </div>
+            <div style={styles.dlgRow}>
+              <span>Shop-held bags</span>
+              <strong>{selected.size}</strong>
+            </div>
+            <div style={styles.dlgRow}>
+              <span>Commission</span>
+              <strong>{formatMoney(commissionNum)}</strong>
+            </div>
+            {otherChargesNum > 0 ? (
+              <div style={styles.dlgRow}>
+                <span>Extra charge{otherChargesReason.trim() ? ` · ${otherChargesReason.trim()}` : ''}</span>
+                <strong>{formatMoney(otherChargesNum)}</strong>
+              </div>
+                          ) : null}
+            <div style={styles.dlgRow}>
+              <span>Period</span>
+              <strong>
+                {from} → {to}
+              </strong>
+                            </div>
+            <p style={styles.dlgNote}>
+              The vendor sees this bill on their Payouts page, pays and enters the UTR. You then confirm or reject it in
+              Records.
+            </p>
+          </div>
+        }
+        confirmLabel="Yes, send bill"
+        cancelLabel="Cancel"
+        danger={false}
+        busy={saving}
+        onClose={() => {
+          if (!saving) setConfirmBillOpen(false);
+        }}
+        onConfirm={() => void sendCollectionBill()}
+      />
+      <ConfirmDialog
+        open={billAsk != null}
+        title={billAsk?.kind === 'reject' ? 'Reject vendor payment?' : 'Confirm payment received?'}
+        description={
+          billAsk ? (
+            <div style={styles.dlgBody}>
+              <div style={styles.dlgHero}>
+                <span style={styles.dlgHeroLabel}>{billAsk.s.serviceInvoiceNumber ?? 'Bill'}</span>
+                <strong style={styles.dlgHeroValue}>{formatMoney(billAsk.s.netAmount)}</strong>
+                <span>{displayPayeeLabel(billAsk.s.payeeName, billAsk.s.payeeId, billAsk.s.payeeType ?? 'VENDOR')}</span>
+              </div>
+              <div style={styles.dlgRow}>
+                <span>Vendor paid by</span>
+                <strong>
+                  {billAsk.s.vendorPaymentMethod ?? '—'} · {billAsk.s.vendorPaymentReference ?? '—'}
+                </strong>
+              </div>
+              {(billComments[billAsk.s.id] ?? '').trim() ? (
+                <div style={styles.dlgRow}>
+                  <span>Your comment</span>
+                  <strong>{(billComments[billAsk.s.id] ?? '').trim()}</strong>
+                </div>
+                      ) : null}
+              <p style={styles.dlgNote}>
+                {billAsk.kind === 'reject'
+                  ? 'The vendor sees your comment and can pay / resend the details.'
+                  : "Check the money reached KoyaKart's account before confirming."}
+              </p>
+            </div>
+          ) : (
+            ''
+          )
+        }
+        confirmLabel={billAsk?.kind === 'reject' ? 'Yes, reject' : 'Yes, received'}
+        cancelLabel="Cancel"
+        danger={billAsk?.kind === 'reject'}
+        busy={billActionId != null}
+        onClose={() => {
+          if (billActionId == null) setBillAsk(null);
+        }}
+        onConfirm={() => {
+          const ask = billAsk;
+          if (!ask) return;
+          void (ask.kind === 'reject' ? rejectBillPayment(ask.s) : confirmBillPayment(ask.s)).finally(() =>
+            setBillAsk(null),
+          );
+        }}
+      />
+      <ConfirmDialog
+        open={correctAsk != null}
+        title="Update this payout?"
+        description={
+          correctAsk ? (
+            <div style={styles.dlgBody}>
+              <div style={styles.dlgHero}>
+                <span style={styles.dlgHeroLabel}>Vendor not received</span>
+                <strong style={styles.dlgHeroValue}>{formatMoney(correctAsk.netAmount)}</strong>
+                <span>{displayPayeeLabel(correctAsk.payeeName, correctAsk.payeeId, correctAsk.payeeType)}</span>
+          </div>
+              <div style={styles.dlgRow}>
+                <span>Mode</span>
+                <strong>{correctMethod}</strong>
+              </div>
+              <div style={styles.dlgRow}>
+                <span>Txn ref</span>
+                <strong>{correctRef.trim() || '—'}</strong>
+              </div>
+              {correctNotes.trim() ? (
+                <div style={styles.dlgRow}>
+                  <span>Note</span>
+                  <strong>{correctNotes.trim()}</strong>
+                </div>
+              ) : null}
+              <p style={styles.dlgNote}>
+                The vendor is asked to check again. It stays Vendor not received until they confirm.
+              </p>
+            </div>
+          ) : (
+            ''
+          )
+        }
+        confirmLabel="Yes, update"
+        cancelLabel="Cancel"
+        danger={false}
+        busy={billActionId != null}
+        onClose={() => {
+          if (billActionId == null) setCorrectAsk(null);
+        }}
+        onConfirm={() => {
+          if (correctAsk) void saveCorrect(correctAsk);
+        }}
       />
       </>
       ) : null}
@@ -1462,6 +2223,9 @@ const layoutCss = `
     grid-column: 1 / -1;
   }
 }
+.sp-joined {
+  gap: 0;
+}
 @media (min-width: 1040px) {
   .sp-layout {
     grid-template-columns: minmax(0, 1fr) minmax(240px, 270px);
@@ -1498,6 +2262,14 @@ const styles: Record<string, CSSProperties> = {
     fontFamily: 'inherit',
   },
   cardPad: { display: 'grid', gap: '0.45rem' },
+  joinedTable: {
+    borderTopLeftRadius: 0,
+    borderTopRightRadius: 0,
+    borderTop: '1px solid #fed7aa',
+    borderColor: '#fed7aa',
+    marginTop: 0,
+    boxShadow: 'none',
+  },
   toolbar: { display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' },
   sectionTitle: {
     margin: 0,
@@ -1638,6 +2410,57 @@ const styles: Record<string, CSSProperties> = {
   feeError: { margin: 0, fontSize: '0.72rem', color: '#b91c1c', fontWeight: 650, lineHeight: 1.3 },
   sideActions: { display: 'grid', gap: '0.35rem' },
   payHint: { margin: 0, color: '#b91c1c', fontSize: '0.75rem', fontWeight: 700, lineHeight: 1.3 },
+  billBox: { display: 'grid', gap: '0.2rem', minWidth: 190 },
+  billPaidBadge: {
+    fontSize: '0.64rem',
+    color: '#1d4ed8',
+    background: '#dbeafe',
+    borderRadius: 'var(--radius-full)',
+    padding: '0.1rem 0.4rem',
+    fontWeight: 800,
+    justifySelf: 'start',
+  },
+  billRejectBadge: {
+    fontSize: '0.64rem',
+    color: '#991b1b',
+    background: '#fee2e2',
+    borderRadius: 'var(--radius-full)',
+    padding: '0.1rem 0.4rem',
+    fontWeight: 800,
+    justifySelf: 'start',
+  },
+  billReason: { fontSize: '0.7rem', color: '#991b1b', fontWeight: 700 },
+  billInput: {
+    minHeight: 30,
+    padding: '0.2rem 0.4rem',
+    borderRadius: 6,
+    border: '1px solid var(--border)',
+    fontSize: '0.75rem',
+    background: 'var(--bg)',
+    color: 'var(--text)',
+  },
+  billActions: { display: 'flex', gap: '0.3rem', flexWrap: 'wrap' },
+  dlgBody: { display: 'grid', gap: '0.3rem' },
+  dlgHero: {
+    display: 'grid',
+    gap: '0.05rem',
+    padding: '0.5rem 0.65rem',
+    borderRadius: 'var(--radius-md, 10px)',
+    background: 'color-mix(in srgb, var(--brand, #0C831F) 8%, transparent)',
+    border: '1px solid color-mix(in srgb, var(--brand, #0C831F) 25%, transparent)',
+    color: 'var(--text)',
+    marginBottom: '0.2rem',
+  },
+  dlgHeroLabel: { fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--text-muted)' },
+  dlgHeroValue: { fontSize: '1.4rem', fontWeight: 800, color: 'var(--brand, #0C831F)', lineHeight: 1.15 },
+  dlgRow: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    gap: '0.6rem',
+    padding: '0.2rem 0',
+    borderBottom: '1px dashed var(--border)',
+  },
+  dlgNote: { margin: '0.25rem 0 0', fontSize: '0.8rem' },
   req: { color: '#b91c1c', fontWeight: 800 },
   claimAmt: { color: '#7c3aed' },
   claimList: {
@@ -1646,6 +2469,28 @@ const styles: Record<string, CSSProperties> = {
     fontSize: '0.72rem',
     color: 'var(--text-muted)',
     lineHeight: 1.35,
+  },
+  notReceived: {
+    marginTop: '0.2rem',
+    display: 'grid',
+    gap: '0.15rem',
+    color: '#9a3412',
+    fontWeight: 800,
+    fontSize: '0.72rem',
+  },
+  correctBox: { display: 'grid', gap: '0.25rem', marginTop: '0.2rem', minWidth: '9rem' },
+  remindBtn: {
+    marginTop: '0.25rem',
+    minHeight: 28,
+    padding: '0.15rem 0.55rem',
+    borderRadius: 8,
+    border: '1px solid #b45309',
+    background: '#fffbeb',
+    color: '#78350f',
+    fontWeight: 800,
+    fontSize: '0.72rem',
+    cursor: 'pointer',
+    whiteSpace: 'nowrap',
   },
   linkBtn: {
     marginTop: '0.15rem',
@@ -1673,6 +2518,7 @@ const styles: Record<string, CSSProperties> = {
     gap: '0.5rem',
     flexWrap: 'wrap',
   },
+  headChecks: { display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' },
   checkInline: {
     display: 'flex',
     alignItems: 'center',

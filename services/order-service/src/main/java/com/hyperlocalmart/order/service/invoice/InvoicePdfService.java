@@ -147,7 +147,7 @@ public class InvoicePdfService {
         table.setHorizontalAlignment(Element.ALIGN_RIGHT);
 
         addTotalRow(table, "Items Subtotal", invoice.getItemsSubtotal());
-        addTotalRow(table, "Delivery Fee", invoice.getDeliveryFee());
+        addTotalRow(table, "Delivery fee (incl. GST 18%)", invoice.getDeliveryFee());
         if (isPositive(invoice.getPlatformFee())) {
             addTotalRow(table, "Platform Fee", invoice.getPlatformFee());
         }

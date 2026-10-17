@@ -5,6 +5,7 @@ export type CodCashStage =
   | 'ONLINE'
   | 'WITH_AGENT'
   | 'AT_HUB'
+  | 'WITH_COMPANY'
   | 'WITH_VENDOR'
   | 'DECLARED_TO_VENDOR'
   | 'DECLARED_TO_HUB';
@@ -18,6 +19,7 @@ export function codCashStage(
   if (loc === 'DECLARED_TO_VENDOR') return 'DECLARED_TO_VENDOR';
   if (loc === 'DECLARED_TO_HUB') return 'DECLARED_TO_HUB';
   if (loc === 'AT_HUB') return 'AT_HUB';
+  if (loc === 'WITH_COMPANY') return 'WITH_COMPANY';
   if (loc === 'WITH_AGENT') return 'WITH_AGENT';
   return row.codRemittedToHub ? 'AT_HUB' : 'WITH_AGENT';
 }
@@ -38,6 +40,8 @@ export function codCashLocationLabel(stage: CodCashStage): string {
       return 'Cash with agent';
     case 'AT_HUB':
       return 'At hub (close-day)';
+    case 'WITH_COMPANY':
+      return 'KoyaKart · already received';
     case 'WITH_VENDOR':
       return 'With shop (confirmed)';
     case 'DECLARED_TO_VENDOR':
@@ -83,6 +87,7 @@ export function sumSelectedByCashStage(
   selected: Set<string>,
 ): {
   online: number;
+  codAlreadyIn: number;
   codWithAgent: number;
   codAtHub: number;
   codWithVendor: number;
@@ -90,6 +95,7 @@ export function sumSelectedByCashStage(
   codDeclaredToHub: number;
 } {
   let online = 0;
+  let codAlreadyIn = 0;
   let codWithAgent = 0;
   let codAtHub = 0;
   let codWithVendor = 0;
@@ -100,6 +106,7 @@ export function sumSelectedByCashStage(
     const amt = Number(c.subtotal ?? 0);
     const stage = codCashStage(c);
     if (stage === 'ONLINE') online += amt;
+    else if (stage === 'WITH_COMPANY') codAlreadyIn += amt;
     else if (stage === 'WITH_AGENT') codWithAgent += amt;
     else if (stage === 'AT_HUB') codAtHub += amt;
     else if (stage === 'WITH_VENDOR') codWithVendor += amt;
@@ -109,6 +116,7 @@ export function sumSelectedByCashStage(
   const round = (n: number) => Math.round(n * 100) / 100;
   return {
     online: round(online),
+    codAlreadyIn: round(codAlreadyIn),
     codWithAgent: round(codWithAgent),
     codAtHub: round(codAtHub),
     codWithVendor: round(codWithVendor),

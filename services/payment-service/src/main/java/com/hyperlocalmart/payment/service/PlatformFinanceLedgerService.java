@@ -105,7 +105,8 @@ public class PlatformFinanceLedgerService {
             rows.add(fromCodRemittance(remittance));
         }
 
-        for (Settlement settlement : settlementRepository.findPaidWithLinesBetween(townIdFilter, start, endExclusive)) {
+        for (Settlement settlement : settlementRepository.findPaidWithLinesBetween(
+                townIdFilter, start, endExclusive, from, to.plusDays(1))) {
             rows.add(fromSettlement(settlement));
         }
 
@@ -118,11 +119,17 @@ public class PlatformFinanceLedgerService {
 
         rows.sort(Comparator.comparing(PlatformFinanceLedgerResponse.LedgerEntry::getOccurredAt).reversed());
 
-        boolean truncated = rows.size() > MAX_ENTRIES;
+        // Scratch, referral, and store-credit grants sit in the buyer's wallet until spent.
+        // They are not bank movements, so they stay in the wallet summary and off the cash book.
         List<PlatformFinanceLedgerResponse.LedgerEntry> allRows = rows;
+        List<PlatformFinanceLedgerResponse.LedgerEntry> cashRows = rows.stream()
+                .filter(row -> !isWalletGrant(row))
+                .collect(Collectors.toCollection(ArrayList::new));
+        boolean truncated = cashRows.size() > MAX_ENTRIES;
         if (truncated) {
-            rows = new ArrayList<>(rows.subList(0, MAX_ENTRIES));
+            cashRows = new ArrayList<>(cashRows.subList(0, MAX_ENTRIES));
         }
+        rows = cashRows;
 
         BigDecimal totalIn = BigDecimal.ZERO;
         BigDecimal totalOut = BigDecimal.ZERO;
@@ -154,8 +161,10 @@ public class PlatformFinanceLedgerService {
 
         for (PlatformFinanceLedgerResponse.LedgerEntry row : allRows) {
             BigDecimal amt = money(row.getAmount());
-            accumulateCategory(categoryMap, row, amt);
             boolean wallet = "WALLET".equals(row.getPaymentRail());
+            if (!isWalletGrant(row)) {
+                accumulateCategory(categoryMap, row, amt);
+            }
             if (townIdFilter == null && row.getTownId() != null && !wallet) {
                 accumulateTown(townMap, row, amt);
             }
@@ -240,6 +249,7 @@ public class PlatformFinanceLedgerService {
                 .walletGranted(scale(walletGranted))
                 .walletRedeemed(scale(walletRedeemed))
                 .walletScratch(scale(walletScratch))
+                .walletScratchUsed(scale(scratchUsedInPeriod(start, endExclusive)))
                 .walletReferral(scale(walletReferral))
                 .walletStoreCredit(scale(walletStoreCredit))
                 .entryCount(allRows.size())
@@ -355,6 +365,91 @@ public class PlatformFinanceLedgerService {
         t.setCodRemittances(scale(t.getCodRemittances()));
         t.setOtherInflows(scale(t.getOtherInflows()));
         t.setPayouts(scale(t.getPayouts()));
+    }
+
+    /**
+     * Scratch credited in this period, and how much of that credit buyers have spent by the period end.
+     * Checkout spends the oldest wallet credit first, so store credit and referrals are used before newer scratch.
+     */
+    private BigDecimal scratchUsedInPeriod(Instant start, Instant endExclusive) {
+        List<WalletTransaction> granted = walletTransactionRepository
+                .findByCreatedAtGreaterThanEqualAndCreatedAtLessThanOrderByCreatedAtDesc(start, endExclusive)
+                .stream()
+                .filter(tx -> "CREDIT".equalsIgnoreCase(tx.getType()) && "SCRATCH_CARD".equals(tx.getReferenceType()))
+                .toList();
+        if (granted.isEmpty()) {
+            return BigDecimal.ZERO;
+        }
+        Set<UUID> grantIds = granted.stream().map(WalletTransaction::getId).collect(Collectors.toSet());
+        Set<UUID> walletIds = granted.stream().map(WalletTransaction::getWalletId).collect(Collectors.toSet());
+        Map<UUID, List<CreditLot>> open = new HashMap<>();
+        BigDecimal used = BigDecimal.ZERO;
+        for (WalletTransaction tx : walletTransactionRepository.findByWalletIdInAndCreatedAtBefore(walletIds, endExclusive)) {
+            List<CreditLot> lots = open.computeIfAbsent(tx.getWalletId(), id -> new ArrayList<>());
+            BigDecimal amount = tx.getAmount() == null ? BigDecimal.ZERO : tx.getAmount();
+            if ("CREDIT".equalsIgnoreCase(tx.getType())) {
+                lots.add(new CreditLot(tx.getReferenceType(), amount, grantIds.contains(tx.getId())));
+                continue;
+            }
+            if ("ORDER_ITEM_RESTORE".equals(tx.getReferenceType())) {
+                consumeRestore(lots, amount);
+                continue;
+            }
+            used = used.add(consumeFifo(lots, amount));
+        }
+        return used;
+    }
+
+    /** Returns how much of this spend came from scratch credits issued in the report period. */
+    private static BigDecimal consumeFifo(List<CreditLot> lots, BigDecimal amount) {
+        BigDecimal left = amount;
+        BigDecimal fromPeriodScratch = BigDecimal.ZERO;
+        for (CreditLot lot : lots) {
+            if (left.signum() <= 0) {
+                break;
+            }
+            if (lot.remaining.signum() <= 0) {
+                continue;
+            }
+            BigDecimal take = lot.remaining.min(left);
+            lot.remaining = lot.remaining.subtract(take);
+            left = left.subtract(take);
+            if (lot.periodScratch && "SCRATCH_CARD".equals(lot.source)) {
+                fromPeriodScratch = fromPeriodScratch.add(take);
+            }
+        }
+        return fromPeriodScratch;
+    }
+
+    /** A restored item puts store credit back by undoing the newest cancel credit, not scratch. */
+    private static void consumeRestore(List<CreditLot> lots, BigDecimal amount) {
+        BigDecimal left = amount;
+        for (int i = lots.size() - 1; i >= 0 && left.signum() > 0; i--) {
+            CreditLot lot = lots.get(i);
+            if (lot.remaining.signum() <= 0 || lot.source == null || !lot.source.contains("CANCEL")) {
+                continue;
+            }
+            BigDecimal take = lot.remaining.min(left);
+            lot.remaining = lot.remaining.subtract(take);
+            left = left.subtract(take);
+        }
+    }
+
+    private static final class CreditLot {
+        private final String source;
+        private BigDecimal remaining;
+        private final boolean periodScratch;
+
+        private CreditLot(String source, BigDecimal remaining, boolean periodScratch) {
+            this.source = source;
+            this.remaining = remaining;
+            this.periodScratch = periodScratch;
+        }
+    }
+
+    /** Credit sitting in a buyer wallet. Cash moves only when they spend it at checkout. */
+    private static boolean isWalletGrant(PlatformFinanceLedgerResponse.LedgerEntry row) {
+        return "WALLET".equals(row.getPaymentRail()) && "OUT".equals(row.getDirection());
     }
 
     private List<PlatformFinanceLedgerResponse.LedgerEntry> walletEntries(
@@ -526,8 +621,32 @@ public class PlatformFinanceLedgerService {
                 .build();
     }
 
+    /** Bank date for money the vendor sent. Statement day when set; otherwise the ack time, not admin confirm. */
+    static Instant cashInstant(Settlement settlement) {
+        if (settlement.getDirection() == SettlementDirection.COLLECTION) {
+            if (settlement.getBankPaidOn() != null) {
+                return settlement.getBankPaidOn().atStartOfDay(IST).toInstant();
+            }
+            if (settlement.getVendorPaidAt() != null) {
+                return settlement.getVendorPaidAt();
+            }
+        }
+        return settlement.getPaidAt() != null ? settlement.getPaidAt() : settlement.getCreatedAt();
+    }
+
+    /** When admin confirmed a vendor payment. Null when there is no separate confirmation. */
+    static Instant verifiedInstant(Settlement settlement) {
+        if (settlement.getDirection() == SettlementDirection.COLLECTION
+                && settlement.getVendorPaidAt() != null
+                && settlement.getPaidAt() != null) {
+            return settlement.getPaidAt();
+        }
+        return null;
+    }
+
     private PlatformFinanceLedgerResponse.LedgerEntry fromSettlement(Settlement settlement) {
-        Instant at = settlement.getPaidAt() != null ? settlement.getPaidAt() : settlement.getCreatedAt();
+        Instant at = cashInstant(settlement);
+        Instant verified = verifiedInstant(settlement);
         boolean collection = settlement.getDirection() == SettlementDirection.COLLECTION;
         boolean franchise = settlement.getLineItems() != null && settlement.getLineItems().stream()
                 .anyMatch(l -> "FRANCHISE".equalsIgnoreCase(l.getLineType()));
@@ -577,7 +696,6 @@ public class PlatformFinanceLedgerService {
             narrative = "Paid hub delivery commission for completed legs.";
         }
 
-        String orderNums = orderNumbersFromLines(settlement.getLineItems());
         String period = settlement.getPeriodStart() + " → " + settlement.getPeriodEnd();
 
         return PlatformFinanceLedgerResponse.LedgerEntry.builder()
@@ -585,6 +703,7 @@ public class PlatformFinanceLedgerService {
                 .sourceType("SETTLEMENT")
                 .bookDate(at.atZone(IST).toLocalDate())
                 .occurredAt(at)
+                .verifiedDate(verified == null ? null : verified.atZone(IST).toLocalDate())
                 .direction(direction)
                 .category(category)
                 .categoryLabel(categoryLabel)
@@ -598,7 +717,7 @@ public class PlatformFinanceLedgerService {
                 .paymentRail(settlement.getPayoutMethod())
                 .transactionReference(settlement.getTransactionReference())
                 .narrative(narrative)
-                .orderNumbers(orderNums)
+                .orderCount(orderCountFromLines(settlement.getLineItems()))
                 .periodLabel(period)
                 .settlementId(settlement.getId())
                 .build();
@@ -627,17 +746,20 @@ public class PlatformFinanceLedgerService {
                 .build();
     }
 
-    private static String orderNumbersFromLines(List<SettlementLineItem> lines) {
+    private static int orderCountFromLines(List<SettlementLineItem> lines) {
         if (lines == null || lines.isEmpty()) {
-            return null;
+            return 0;
         }
-        return lines.stream()
-                .map(SettlementLineItem::getOrderNumber)
+        return (int) lines.stream()
+                .map(line -> {
+                    if (line.getOrderNumber() != null && !line.getOrderNumber().isBlank()) {
+                        return line.getOrderNumber();
+                    }
+                    return line.getOrderId() == null ? null : line.getOrderId().toString();
+                })
                 .filter(Objects::nonNull)
-                .filter(s -> !s.isBlank())
                 .distinct()
-                .limit(5)
-                .collect(Collectors.joining(", "));
+                .count();
     }
 
     private static String maskPhone(String phone) {

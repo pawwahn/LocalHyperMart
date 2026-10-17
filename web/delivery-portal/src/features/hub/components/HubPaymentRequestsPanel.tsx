@@ -2,11 +2,16 @@ import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'r
 import { ApiError } from '@/shared/api/http';
 import {
   fetchHubPaymentRequests,
+  previewHubCodDue,
+  previewHubFranchiseDue,
   submitHubPaymentRequest,
+  type HubCodPreview,
+  type HubFranchiseDuePreview,
   type HubPaymentRequest,
 } from '../api/hubPaymentRequestApi';
 import { fetchHubPaymentSubmissions, type HubPaymentSubmission } from '../api/hubPaymentApi';
 import { formatIsoDateRange } from '../lib/codFormat';
+import { hubCodPaymentPeriodKind, type ReportDatePreset } from '@hlm-dates/istReportPresets';
 import { HubDateInput } from './HubDateInput';
 import { HubPaymentConfirmDialog } from './HubPaymentConfirmDialog';
 import { HubPendingPaymentEditDialog } from './HubPendingPaymentEditDialog';
@@ -14,6 +19,9 @@ import { HubPendingPaymentEditDialog } from './HubPendingPaymentEditDialog';
 type Props = {
   token: string;
   kind: 'COD' | 'FRANCHISE';
+  from?: string;
+  to?: string;
+  preset?: ReportDatePreset;
   onSubmitted: () => void;
 };
 
@@ -30,7 +38,7 @@ function mergeNotesPreview(method: string, bankName: string, notes: string): str
   return parts.join(' · ');
 }
 
-export function HubPaymentRequestsPanel({ token, kind, onSubmitted }: Props) {
+export function HubPaymentRequestsPanel({ token, kind, from, to, preset, onSubmitted }: Props) {
   const [rows, setRows] = useState<HubPaymentRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -45,6 +53,10 @@ export function HubPaymentRequestsPanel({ token, kind, onSubmitted }: Props) {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [editing, setEditing] = useState<HubPaymentSubmission | null>(null);
   const [editableIds, setEditableIds] = useState<Set<string>>(() => new Set());
+  const [periodPreview, setPeriodPreview] = useState<HubCodPreview | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewLinesOpen, setPreviewLinesOpen] = useState(true);
+  const [franchisePreview, setFranchisePreview] = useState<HubFranchiseDuePreview | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -71,6 +83,50 @@ export function HubPaymentRequestsPanel({ token, kind, onSubmitted }: Props) {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (kind !== 'COD' || !from || !to || !preset) {
+      setPeriodPreview(null);
+      return;
+    }
+    let cancelled = false;
+    setPreviewLoading(true);
+    void previewHubCodDue(token, {
+      periodKind: hubCodPaymentPeriodKind(preset),
+      periodStart: from,
+      periodEnd: hubCodPaymentPeriodKind(preset) === 'DAILY' ? from : to,
+    })
+      .then((next) => {
+        if (!cancelled) setPeriodPreview(next);
+      })
+      .catch(() => {
+        if (!cancelled) setPeriodPreview(null);
+      })
+      .finally(() => {
+        if (!cancelled) setPreviewLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [token, kind, from, to, preset]);
+
+  useEffect(() => {
+    if (kind !== 'FRANCHISE' || !from || !/^\d{4}-\d{2}/.test(from)) {
+      setFranchisePreview(null);
+      return;
+    }
+    let cancelled = false;
+    void previewHubFranchiseDue(token, Number(from.slice(0, 4)), Number(from.slice(5, 7)))
+      .then((next) => {
+        if (!cancelled) setFranchisePreview(next);
+      })
+      .catch(() => {
+        if (!cancelled) setFranchisePreview(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [token, kind, from]);
 
   const selected = useMemo(
     () => rows.find((r) => r.requestId === selectedId) ?? null,
@@ -135,20 +191,110 @@ export function HubPaymentRequestsPanel({ token, kind, onSubmitted }: Props) {
     return <p style={styles.muted}>Loading {title} bills…</p>;
   }
 
+  const billAmount = periodPreview ? Number(periodPreview.totalAmount) : 0;
+
   return (
     <div style={styles.root}>
-      <h2 style={styles.title}>{title}</h2>
-      <p style={styles.muted}>
-        {kind === 'COD'
-          ? 'Pay only against a KoyaKart COD statement (order list + total).'
-          : 'Pay franchise for the calendar month on the bill — including past months if still due.'}
-      </p>
+      <div style={styles.headRow}>
+        <h2 style={styles.title}>{title}</h2>
+        {periodPreview ? (
+          <span style={styles.rangeChip}>{formatIsoDateRange(periodPreview.periodStart, periodPreview.periodEnd)}</span>
+        ) : null}
+      </div>
+      {kind === 'COD' && previewLoading && !periodPreview ? <p style={styles.mutedSmall}>Checking this range…</p> : null}
+      {kind === 'COD' && periodPreview ? (
+        <div style={billAmount > 0 ? styles.previewCard : styles.previewQuiet}>
+          <div style={styles.previewTop}>
+            <div style={styles.previewCopy}>
+              <span style={styles.statLabel}>You pay KoyaKart</span>
+              <strong style={billAmount > 0 ? styles.previewAmt : styles.previewAmtZero}>{money(billAmount)}</strong>
+              <span style={styles.statMeta}>
+                {formatIsoDateRange(periodPreview.periodStart, periodPreview.periodEnd)} · {periodPreview.orderCount}{' '}
+                order{periodPreview.orderCount === 1 ? '' : 's'}
+                {openRows.length > 0 ? ` · ${openRows.length} bill${openRows.length === 1 ? '' : 's'} issued` : ''}
+              </span>
+            </div>
+            <span style={billAmount > 0 ? styles.previewPill : styles.previewPillQuiet}>
+              {billAmount > 0 ? 'Preview' : 'Nothing due'}
+            </span>
+          </div>
+          <p style={styles.mutedSmall}>
+            {billAmount > 0
+              ? 'Same total KoyaKart sees before issuing the statement. Pay here after the bill is issued.'
+              : 'No COD in this range is waiting to be billed.'}
+          </p>
+          {(periodPreview.codLines ?? []).length > 0 ? (
+            <div style={styles.linesShell}>
+              <button
+                type="button"
+                style={styles.linesToggle}
+                onClick={() => setPreviewLinesOpen((v) => !v)}
+                aria-expanded={previewLinesOpen}
+              >
+                <span>{previewLinesOpen ? '▾' : '▸'} Orders</span>
+                <span>{periodPreview.codLines.length}</span>
+              </button>
+              {previewLinesOpen ? (
+                <div style={styles.lineTable}>
+                  <div style={styles.lineHead}>
+                    <span>Order</span>
+                    <span>Close</span>
+                    <span style={styles.lineAmt}>Amount</span>
+                  </div>
+                  {periodPreview.codLines.map((l) => (
+                    <div key={l.orderId} style={styles.lineRow}>
+                      <span style={styles.lineOrder}>{l.orderNumber?.trim() || l.orderId.slice(0, 8)}</span>
+                      <span style={styles.lineDate}>{l.closeDate || '—'}</span>
+                      <strong style={styles.lineAmt}>{money(l.amount)}</strong>
+                    </div>
+                  ))}
+                  <div style={styles.lineTotal}>
+                    <span>Total</span>
+                    <span />
+                    <strong style={styles.lineAmt}>{money(billAmount)}</strong>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+      {kind === 'FRANCHISE' && franchisePreview?.enabled ? (
+        <div style={Number(franchisePreview.amount) > 0 && !franchisePreview.alreadyCollected ? styles.previewCard : styles.previewQuiet}>
+          <div style={styles.previewTop}>
+            <div style={styles.previewCopy}>
+              <span style={styles.statLabel}>Franchise this month</span>
+              <strong
+                style={
+                  franchisePreview.alreadyCollected || Number(franchisePreview.amount) <= 0
+                    ? styles.previewAmtZero
+                    : styles.previewAmt
+                }
+              >
+                {money(franchisePreview.amount)}
+              </strong>
+              <span style={styles.statMeta}>
+                {franchisePreview.periodStart && franchisePreview.periodEnd
+                  ? formatIsoDateRange(franchisePreview.periodStart, franchisePreview.periodEnd)
+                  : 'This month'}
+                {franchisePreview.label ? ` · ${franchisePreview.label}` : ''}
+              </span>
+            </div>
+            <span style={franchisePreview.alreadyCollected ? styles.previewPillQuiet : styles.previewPill}>
+              {franchisePreview.alreadyCollected ? 'Paid' : Number(franchisePreview.amount) > 0 ? 'Preview' : 'Nothing due'}
+            </span>
+          </div>
+          <p style={styles.mutedSmall}>
+            {franchisePreview.alreadyCollected
+              ? 'This month’s franchise is already collected.'
+              : 'Same amount KoyaKart uses when issuing the franchise bill. Pay here after it is issued.'}
+          </p>
+        </div>
+      ) : null}
       {error ? <p style={styles.error}>{error}</p> : null}
       {notice ? <p style={styles.notice}>{notice}</p> : null}
 
-      {openRows.length === 0 ? (
-        <p style={styles.muted}>No open bills. KoyaKart Accounts will issue a statement when payment is due.</p>
-      ) : (
+      {openRows.length === 0 ? null : (
         <div style={styles.openList}>
           {openRows.map((r) => (
             <button
@@ -244,25 +390,9 @@ export function HubPaymentRequestsPanel({ token, kind, onSubmitted }: Props) {
               setConfirmOpen(true);
             }}
           >
-            Save
+            Submit
           </button>
         </div>
-      ) : null}
-
-      {rows.some((r) => r.status === 'APPROVED') ? (
-        <>
-          <p style={styles.subHead}>Paid bills</p>
-          <ul style={styles.history}>
-            {rows
-              .filter((r) => r.status === 'APPROVED')
-              .slice(0, 5)
-              .map((r) => (
-                <li key={r.requestId}>
-                  {r.documentRef} · {money(r.totalAmount)} · {formatIsoDateRange(r.periodStart, r.periodEnd)}
-                </li>
-              ))}
-          </ul>
-        </>
       ) : null}
 
       <HubPaymentConfirmDialog
@@ -299,8 +429,142 @@ export function HubPaymentRequestsPanel({ token, kind, onSubmitted }: Props) {
 }
 
 const styles: Record<string, CSSProperties> = {
-  root: { display: 'grid', gap: '0.45rem' },
-  title: { margin: 0, fontSize: '1rem', fontWeight: 800 },
+  root: { display: 'grid', gap: '0.4rem' },
+  headRow: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.4rem', flexWrap: 'wrap' },
+  title: { margin: 0, fontSize: '0.92rem', fontWeight: 800 },
+  rangeChip: {
+    fontSize: '0.68rem',
+    fontWeight: 750,
+    color: '#9a3412',
+    background: '#fff7ed',
+    border: '1px solid #fed7aa',
+    borderRadius: 999,
+    padding: '0.15rem 0.45rem',
+  },
+  statGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(7.2rem, 1fr))',
+    gap: '0.35rem',
+  },
+  statBill: {
+    display: 'grid',
+    gap: '0.05rem',
+    padding: '0.4rem 0.5rem',
+    borderRadius: 10,
+    border: '1px solid #86efac',
+    background: '#f0fdf4',
+  },
+  statOut: {
+    display: 'grid',
+    gap: '0.05rem',
+    padding: '0.4rem 0.5rem',
+    borderRadius: 10,
+    border: '1px solid #fdba74',
+    background: '#fff7ed',
+  },
+  statQuiet: {
+    display: 'grid',
+    gap: '0.05rem',
+    padding: '0.4rem 0.5rem',
+    borderRadius: 10,
+    border: '1px solid var(--border)',
+    background: 'var(--bg)',
+  },
+  statLabel: { fontSize: '0.65rem', fontWeight: 800, letterSpacing: '0.02em', textTransform: 'uppercase', color: 'var(--text-muted)' },
+  statAmt: { fontSize: '1.05rem', fontWeight: 900, fontVariantNumeric: 'tabular-nums', color: 'var(--text)' },
+  statAmtBill: { fontSize: '1.05rem', fontWeight: 900, fontVariantNumeric: 'tabular-nums', color: '#15803d' },
+  statAmtOut: { fontSize: '1.05rem', fontWeight: 900, fontVariantNumeric: 'tabular-nums', color: '#c2410c' },
+  statMeta: { fontSize: '0.68rem', fontWeight: 650, color: 'var(--text-muted)' },
+  previewCard: {
+    display: 'grid',
+    gap: '0.35rem',
+    padding: '0.55rem 0.65rem',
+    borderRadius: 12,
+    border: '1px solid #fed7aa',
+    background: 'linear-gradient(180deg, #fff7ed 0%, var(--bg-elevated, #fff) 72%)',
+  },
+  previewQuiet: {
+    display: 'grid',
+    gap: '0.3rem',
+    padding: '0.5rem 0.6rem',
+    borderRadius: 12,
+    border: '1px solid var(--border)',
+    background: 'var(--bg)',
+  },
+  previewTop: { display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '0.5rem' },
+  previewCopy: { display: 'grid', gap: '0.05rem', minWidth: 0 },
+  previewAmt: { fontSize: '1.45rem', fontWeight: 900, lineHeight: 1.1, fontVariantNumeric: 'tabular-nums', color: '#9a3412' },
+  previewAmtZero: { fontSize: '1.2rem', fontWeight: 900, lineHeight: 1.1, fontVariantNumeric: 'tabular-nums', color: 'var(--text-muted)' },
+  previewPill: {
+    flexShrink: 0,
+    fontSize: '0.65rem',
+    fontWeight: 800,
+    letterSpacing: '0.03em',
+    textTransform: 'uppercase',
+    color: '#9a3412',
+    background: '#ffedd5',
+    border: '1px solid #fdba74',
+    borderRadius: 999,
+    padding: '0.15rem 0.45rem',
+  },
+  previewPillQuiet: {
+    flexShrink: 0,
+    fontSize: '0.65rem',
+    fontWeight: 800,
+    color: 'var(--text-muted)',
+    background: 'var(--bg-muted, #f4f4f5)',
+    border: '1px solid var(--border)',
+    borderRadius: 999,
+    padding: '0.15rem 0.45rem',
+  },
+  linesShell: { display: 'grid', gap: '0.25rem' },
+  linesToggle: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: '0.4rem',
+    padding: '0.28rem 0.15rem',
+    border: 'none',
+    background: 'transparent',
+    color: 'var(--text)',
+    fontWeight: 800,
+    fontSize: '0.72rem',
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+  },
+  lineTable: { display: 'grid', gap: 0 },
+  lineHead: {
+    display: 'grid',
+    gridTemplateColumns: 'minmax(0, 1.4fr) 5.5rem auto',
+    gap: '0.35rem',
+    padding: '0.2rem 0.15rem',
+    fontSize: '0.62rem',
+    fontWeight: 800,
+    letterSpacing: '0.03em',
+    textTransform: 'uppercase',
+    color: 'var(--text-muted)',
+    borderBottom: '1px solid #fed7aa',
+  },
+  lineRow: {
+    display: 'grid',
+    gridTemplateColumns: 'minmax(0, 1.4fr) 5.5rem auto',
+    gap: '0.35rem',
+    alignItems: 'center',
+    padding: '0.28rem 0.15rem',
+    fontSize: '0.75rem',
+    borderBottom: '1px dashed var(--border)',
+  },
+  lineTotal: {
+    display: 'grid',
+    gridTemplateColumns: 'minmax(0, 1.4fr) 5.5rem auto',
+    gap: '0.35rem',
+    alignItems: 'center',
+    padding: '0.32rem 0.15rem 0.05rem',
+    fontSize: '0.75rem',
+  },
+  lineOrder: { fontWeight: 750, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+  lineDate: { color: 'var(--text-muted)', fontSize: '0.7rem' },
+  lineAmt: { textAlign: 'right', fontVariantNumeric: 'tabular-nums' },
   muted: { margin: 0, fontSize: '0.82rem', color: 'var(--text-muted)' },
   mutedSmall: { margin: 0, fontSize: '0.75rem', color: 'var(--text-muted)' },
   error: { margin: 0, color: 'var(--danger)', fontSize: '0.82rem' },
@@ -372,7 +636,7 @@ const styles: Record<string, CSSProperties> = {
     padding: '0.45rem 0.85rem',
     borderRadius: 8,
     border: 'none',
-    background: '#059669',
+    background: 'var(--brand, #0C831F)',
     color: '#fff',
     fontWeight: 700,
     cursor: 'pointer',

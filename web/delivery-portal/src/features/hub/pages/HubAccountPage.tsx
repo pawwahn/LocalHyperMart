@@ -10,6 +10,7 @@ import { HubPaymentHistoryPanel } from '../components/HubPaymentHistoryPanel';
 import { HubPaymentRequestsPanel } from '../components/HubPaymentRequestsPanel';
 import { fetchHubPaymentRequests } from '../api/hubPaymentRequestApi';
 import { HubCodDuePanel } from '../components/HubCodDuePanel';
+import { HubPayoutHistory } from '../components/HubPayoutHistory';
 import { HubFranchiseDuePanel } from '../components/HubFranchiseDuePanel';
 import { DateRangePresetBar } from '@hlm-dates/DateRangePresetBar';
 import { formatIsoDateRange } from '../lib/codFormat';
@@ -225,6 +226,15 @@ export function HubAccountPage() {
                 {formatIsoDateRange(data.from, data.to)} · {data.deliveredOrdersInRange} trips
               </p>
 
+              {session ? (
+                <HubPayoutHistory
+                  token={session.accessToken}
+                  hubName={hubName}
+                  payouts={data.payoutsFromPlatform ?? []}
+                  onChanged={refreshAll}
+                />
+              ) : null}
+
               <Card style={styles.block}>
                 <div style={styles.statRow} role="tablist" aria-label="Commission trips">
                   <Stat
@@ -313,12 +323,27 @@ export function HubAccountPage() {
 
           {tab === 'pay' ? (
             <div style={styles.tabPanel}>
-              <div style={styles.scopePay}>
-                <p style={styles.scopeTitle}>You pay KoyaKart</p>
-                <strong style={styles.scopeAmountPay}>{money(youOwe)}</strong>
-                <p style={styles.scopeHint}>
-                  Pay issued bills, or pick a term on COD due / Franchise due to see what that period would cost.
-                </p>
+              <div style={styles.oweGrid}>
+                <div style={styles.oweCard}>
+                  <span style={styles.oweKind}>COD at hub</span>
+                  <strong style={styles.oweAmt}>{money(data.codOwedToCompany)}</strong>
+                  <span style={codStatusStyle(data)}>{codSummaryLine(data)}</span>
+                </div>
+                {data.franchiseEnabled ? (
+                  <div style={styles.oweCard}>
+                    <span style={styles.oweKind}>Franchise</span>
+                    <strong style={data.franchiseCollected ? styles.oweAmtMuted : styles.oweAmt}>
+                      {money(data.franchiseAmount)}
+                    </strong>
+                    <span style={franchiseStatusStyle(data)}>{franchiseSummaryLine(data)}</span>
+                  </div>
+                ) : (
+                  <div style={styles.oweCardMuted}>
+                    <span style={styles.oweKind}>Franchise</span>
+                    <strong style={styles.oweAmtMuted}>—</strong>
+                    <span style={styles.oweHint}>Not enrolled</span>
+                  </div>
+                )}
               </div>
 
               <div style={styles.payNavBlock}>
@@ -342,6 +367,23 @@ export function HubAccountPage() {
                     </button>
                   ))}
                 </nav>
+
+                {paySection === 'bills' || paySection === 'history' ? (
+                  <DateRangePresetBar
+                    preset={preset}
+                    from={from}
+                    to={to}
+                    onPresetChange={setPreset}
+                    onFromChange={setFrom}
+                    onToChange={setTo}
+                    maxDate={isoIstDate()}
+                    alwaysShowDateInputs
+                    dense
+                    ariaLabel={paySection === 'history' ? 'Transfer history period' : 'Bill period'}
+                  />
+                ) : (
+                  <p style={styles.periodNote}>Balances are all-time.</p>
+                )}
 
                 {paySection === 'bills' ? (
                   <div style={styles.paySubRow}>
@@ -370,17 +412,12 @@ export function HubAccountPage() {
               {paySection === 'bills' ? (
                 <>
 
-                  {hasPending && data.pendingPaymentStatusLabel ? (
+                  {hasPending && data.pendingPaymentTotal != null ? (
                     <p style={styles.pendingBanner}>
-                      {data.pendingPaymentStatusLabel}
-                      {data.pendingPaymentTotal != null ? ` · ${money(Number(data.pendingPaymentTotal))}` : ''}
+                      {money(Number(data.pendingPaymentTotal))} sent
                       {' · '}
-                      <button
-                        type="button"
-                        style={styles.inlineLinkBtn}
-                        onClick={() => setPaySection('history')}
-                      >
-                        View transfer history
+                      <button type="button" style={styles.inlineLinkBtn} onClick={() => setPaySection('history')}>
+                        Transfer history
                       </button>
                     </p>
                   ) : null}
@@ -391,6 +428,9 @@ export function HubAccountPage() {
                         <HubPaymentRequestsPanel
                           token={session.accessToken}
                           kind="COD"
+                          preset={preset}
+                          from={from}
+                          to={to}
                           onSubmitted={() => {
                             setHistoryRefresh((k) => k + 1);
                             void load();
@@ -398,11 +438,16 @@ export function HubAccountPage() {
                           }}
                         />
                       ) : null}
-                      {paySub === 'cod-due' ? <HubCodDuePanel token={session.accessToken} /> : null}
+                      {paySub === 'cod-due' ? (
+                        <HubCodDuePanel token={session.accessToken} preset={preset} from={from} to={to} />
+                      ) : null}
                       {paySub === 'franchise' ? (
                         <HubPaymentRequestsPanel
                           token={session.accessToken}
                           kind="FRANCHISE"
+                          preset={preset}
+                          from={from}
+                          to={to}
                           onSubmitted={() => {
                             setHistoryRefresh((k) => k + 1);
                             void load();
@@ -410,64 +455,38 @@ export function HubAccountPage() {
                           }}
                         />
                       ) : null}
-                      {paySub === 'franchise-due' ? <HubFranchiseDuePanel token={session.accessToken} /> : null}
+                      {paySub === 'franchise-due' ? (
+                        <HubFranchiseDuePanel token={session.accessToken} from={from} to={to} />
+                      ) : null}
                     </Card>
                   ) : null}
                 </>
               ) : null}
 
               {paySection === 'history' && session ? (
-                <HubPaymentHistoryPanel token={session.accessToken} refreshKey={historyRefresh} />
+                <HubPaymentHistoryPanel
+                  token={session.accessToken}
+                  refreshKey={historyRefresh}
+                  from={from}
+                  to={to}
+                />
               ) : null}
 
               {paySection === 'balances' ? (
                 <Card style={styles.block}>
-                  <p style={styles.listHead}>Pay KoyaKart</p>
-                  <div style={styles.oweGrid}>
-                    <div style={styles.oweCard}>
-                      <span style={styles.oweKind}>COD</span>
-                      <strong style={styles.oweAmt}>{money(data.codOwedToCompany)}</strong>
-                      <span style={codStatusStyle(data)}>
-                        {data.codPendingVerification ? 'Payment sent — waiting KoyaKart' : data.codOwedToCompany > 0 ? 'Due' : 'Cleared'}
-                      </span>
-                    </div>
-                    {data.franchiseEnabled ? (
-                      <div style={styles.oweCard}>
-                        <span style={styles.oweKind}>Franchise</span>
-                        <strong style={styles.oweAmt}>{money(data.franchiseAmount)}</strong>
-                        <span style={franchiseStatusStyle(data)}>
-                          {data.franchiseCollected
-                            ? 'Paid'
-                            : data.franchisePendingVerification
-                              ? 'Payment sent — waiting KoyaKart'
-                              : 'Due'}
-                        </span>
-                        {franchiseMonthHint(data.franchiseLabel) ? (
-                          <span style={styles.oweHint}>{franchiseMonthHint(data.franchiseLabel)}</span>
-                        ) : null}
-                      </div>
-                    ) : (
-                      <div style={styles.oweCardMuted}>
-                        <span style={styles.oweKind}>Franchise</span>
-                        <strong style={styles.oweAmtMuted}>—</strong>
-                        <span style={styles.oweHint}>Not enrolled</span>
-                      </div>
-                    )}
+                  <div style={styles.balanceHead}>
+                    <p style={{ ...styles.listHead, margin: 0 }}>COD cash</p>
+                    <Link to="/hub/cod?view=account" style={styles.link}>
+                      Ledger
+                    </Link>
                   </div>
-
-                  <p style={styles.listHead}>COD already at this hub</p>
-                  <p style={styles.mutedSmall}>Cash you confirmed from agents, minus what you already remitted.</p>
                   <div style={styles.trailRow}>
                     <MiniStat label="Confirmed" value={money(data.codConfirmedAtHubAllTime)} />
-                    <MiniStat label="Remitted" value={money(data.codRemittedToCompanyAllTime)} />
-                    <MiniStat label="Still to pay" value={money(data.codOwedToCompany)} />
+                    <MiniStat label="Sent" value={money(data.codRemittedToCompanyAllTime)} />
+                    <MiniStat label="Still here" value={money(data.codOwedToCompany)} />
                   </div>
-                  <Link to="/hub/cod?view=account" style={styles.link}>
-                    COD ledger →
-                  </Link>
 
-                  <p style={styles.listHead}>COD not at hub yet</p>
-                  <p style={styles.mutedSmall}>Does not add to “Pay KoyaKart” until you confirm the handover.</p>
+                  <p style={styles.listHead}>Not at hub yet</p>
                   <div style={styles.miniRow}>
                     <MiniStat label="Still with agents" value={money(data.codStillWithAgents)} />
                     <MiniStat label="Handovers to confirm" value={money(data.codDeclaredAwaitingConfirm)} />
@@ -486,6 +505,24 @@ export function HubAccountPage() {
       ) : null}
     </HubShell>
   );
+}
+
+function codSummaryLine(data: HubAccountSummary): string {
+  if (data.codPendingVerification && data.pendingPaymentTotal != null) {
+    return `${money(Number(data.pendingPaymentTotal))} sent · waiting`;
+  }
+  if (data.codOwedToCompany > 0) return 'Still with you';
+  return 'Clear';
+}
+
+function franchiseSummaryLine(data: HubAccountSummary): string {
+  const month = franchiseMonthHint(data.franchiseLabel);
+  const status = data.franchiseCollected
+    ? 'Paid'
+    : data.franchisePendingVerification
+      ? 'Sent · waiting'
+      : 'Due';
+  return month ? `${month} · ${status}` : status;
 }
 
 function franchiseMonthHint(label?: string | null): string | null {
@@ -582,6 +619,7 @@ const styles: Record<string, CSSProperties> = {
     fontFamily: 'inherit',
     position: 'relative',
   },
+  periodNote: { margin: 0, fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)' },
   payNavBlock: {
     display: 'grid',
     gap: '0.45rem',
@@ -801,7 +839,8 @@ const styles: Record<string, CSSProperties> = {
   statAccent: { borderColor: 'color-mix(in srgb, var(--accent) 40%, var(--border))', background: 'var(--accent-soft)' },
   statLabel: { fontSize: '0.62rem', fontWeight: 800, textTransform: 'uppercase', color: 'var(--text-muted)' },
   statValue: { fontSize: '0.88rem', fontVariantNumeric: 'tabular-nums' },
-  listHead: { margin: 0, fontSize: '0.72rem', fontWeight: 800, color: 'var(--text-muted)' },
+  balanceHead: { display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: '0.4rem' },
+  listHead: { margin: '0.55rem 0 0.25rem', fontSize: '0.72rem', fontWeight: 800, color: 'var(--text-muted)' },
   listWarn: { margin: 0, fontSize: '0.68rem', fontWeight: 650, color: 'var(--danger)' },
   orderTableWrap: {
     maxHeight: 'min(16rem, 42vh)',

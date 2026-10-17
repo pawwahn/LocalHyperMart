@@ -14,6 +14,8 @@ export type HubPaymentSubmission = {
   submittedAt?: string | null;
   verifiedAt?: string | null;
   rejectedAt?: string | null;
+  /** Issued bill number, for example CLX/COD/26-27/0006. */
+  documentRef?: string | null;
   lines: Array<{
     lineId: string;
     lineType: string;
@@ -23,6 +25,10 @@ export type HubPaymentSubmission = {
     franchiseLabel?: string | null;
   }>;
 };
+
+export function isFranchiseOnlySubmission(row: HubPaymentSubmission): boolean {
+  return row.lines.length > 0 && row.lines.every((l) => l.lineType === 'FRANCHISE_FEE');
+}
 
 export async function fetchHubPaymentSubmissions(
   token: string,

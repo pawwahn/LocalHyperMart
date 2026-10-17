@@ -30,6 +30,8 @@ type NavIcon =
   | 'listings'
   | 'payouts'
   | 'ledger'
+  | 'audit'
+  | 'dues'
   | 'settings';
 
 type NavItem = { to: string; label: string; icon: NavIcon };
@@ -68,9 +70,11 @@ const NAV_GROUPS: Array<{ label: string; items: NavItem[] }> = [
   {
     label: 'Money',
     items: [
+      { to: '/dues', label: 'Accounts', icon: 'dues' },
       { to: '/vendor-billing', label: 'Billing', icon: 'billing' },
       { to: '/settlements', label: 'Payouts', icon: 'payouts' },
       { to: '/finance-ledger', label: 'Finance ledger', icon: 'ledger' },
+      { to: '/audit-report', label: 'Audit report', icon: 'audit' },
     ],
   },
   {
@@ -312,6 +316,18 @@ const GLYPHS: Record<NavIcon, ReactNode> = {
       <path d="M8 8h8M8 12h8M8 16h5" {...stroke} />
     </>
   ),
+  dues: (
+    <>
+      <path d="M5 4h14v16H5z" {...stroke} />
+      <path d="M8 9h8M8 13h8M8 17h5" {...stroke} />
+    </>
+  ),
+  audit: (
+    <>
+      <path d="M7 3h8l4 4v14H7z" {...stroke} />
+      <path d="M15 3v4h4M9.5 13.5l1.8 1.8 3.4-3.6" {...stroke} />
+    </>
+  ),
   settings: (
     <>
       <circle cx="12" cy="12" r="3.2" {...stroke} />
@@ -338,7 +354,7 @@ const shellCss = `
   }
 
   .sa-sidebar {
-    width: 228px;
+    width: 196px;
     flex-shrink: 0;
     display: flex;
     flex-direction: column;
@@ -355,7 +371,7 @@ const shellCss = `
     display: flex;
     align-items: center;
     gap: 0.55rem;
-    padding: 0.85rem 0.85rem 0.7rem;
+    padding: 0.7rem 0.65rem 0.55rem;
     border-bottom: 1px solid var(--border);
   }
 
@@ -395,7 +411,7 @@ const shellCss = `
     flex: 1;
     overflow-y: auto;
     overflow-x: hidden;
-    padding: 0.45rem 0.5rem 0.7rem;
+    padding: 0.4rem 0.35rem 0.6rem;
     scrollbar-width: thin;
   }
 
@@ -451,7 +467,7 @@ const shellCss = `
 
   .sa-sidebar-foot {
     border-top: 1px solid var(--border);
-    padding: 0.65rem 0.9rem 0.8rem;
+    padding: 0.55rem 0.7rem 0.65rem;
     display: grid;
     gap: 0.08rem;
   }
@@ -463,9 +479,10 @@ const shellCss = `
     color: var(--text-muted);
   }
   .sa-sidebar-foot-v {
-    font-size: 0.78rem;
+    font-size: 0.74rem;
     font-weight: 700;
     color: var(--text);
+    white-space: nowrap;
   }
 
   .sa-workspace {

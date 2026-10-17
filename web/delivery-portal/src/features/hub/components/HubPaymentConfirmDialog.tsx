@@ -1,4 +1,5 @@
 import { useEffect, type CSSProperties, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 
 type Props = {
   open: boolean;
@@ -52,7 +53,7 @@ export function HubPaymentConfirmDialog({
 
   if (!open) return null;
 
-  return (
+  return createPortal(
     <div
       style={styles.overlay}
       role="presentation"
@@ -94,7 +95,8 @@ export function HubPaymentConfirmDialog({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -102,23 +104,25 @@ const styles: Record<string, CSSProperties> = {
   overlay: {
     position: 'fixed',
     inset: 0,
-    zIndex: 1200,
+    zIndex: 1300,
     display: 'grid',
     placeItems: 'center',
-    padding: '0.75rem',
-    background: 'rgba(12, 18, 24, 0.55)',
+    padding: '1rem',
+    background: 'rgba(15, 23, 20, 0.45)',
+    backdropFilter: 'blur(2px)',
   },
   dialog: {
     width: 'min(26rem, 100%)',
     background: 'var(--bg-elevated)',
     border: '1px solid var(--border)',
-    borderRadius: 12,
+    borderTop: '4px solid var(--brand, #0C831F)',
+    borderRadius: 'var(--radius-lg, 12px)',
     boxShadow: 'var(--shadow-elevated)',
-    padding: '0.85rem',
+    padding: '1.1rem 1.15rem',
     display: 'grid',
-    gap: '0.4rem',
+    gap: '0.55rem',
   },
-  title: { margin: 0, fontSize: '1rem', fontWeight: 800 },
+  title: { margin: 0, fontFamily: 'var(--font-display)', fontSize: '1.12rem', fontWeight: 800 },
   hint: { margin: 0, fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', lineHeight: 1.35 },
   dl: { margin: 0, display: 'grid', gap: '0.22rem' },
   row: { display: 'grid', gridTemplateColumns: '4.2rem 1fr', gap: '0.4rem', alignItems: 'baseline' },
@@ -147,7 +151,7 @@ const styles: Record<string, CSSProperties> = {
     borderRadius: 10,
     padding: '0.55rem 0.7rem',
     minHeight: 44,
-    background: '#059669',
+    background: 'var(--brand, #0C831F)',
     color: '#fff',
     fontWeight: 800,
     fontSize: '0.88rem',

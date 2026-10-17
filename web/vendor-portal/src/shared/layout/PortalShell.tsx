@@ -5,6 +5,8 @@ import { HeaderIconButton, ThemePicker } from '@hlm-theme';
 import { useAuth } from '@/shared/auth/AuthContext';
 import { useVendorShop } from '@/features/shop/hooks/useVendorShop';
 import { useOrderAlert } from '@/features/orders/OrderAlertContext';
+import { useCodConfirmPendingCount } from '@/features/cod/hooks/useCodConfirmPendingCount';
+import { usePayoutActionCount } from '@/features/payouts/hooks/usePayoutActionCount';
 import { Banner } from '@/shared/ui';
 import { useIsNarrow } from '@/shared/hooks/useIsNarrow';
 
@@ -40,6 +42,8 @@ export function PortalShell({ title, children, onRefresh, shopPause }: Props) {
   const navigate = useNavigate();
   const { alertMessage, pendingCount, agentAssignPendingCount, clearAlert, soundReady, enableSound } =
     useOrderAlert();
+  const codConfirmPending = useCodConfirmPendingCount();
+  const payoutActionCount = usePayoutActionCount();
   const narrow = useIsNarrow(767);
   const shopName = session?.shopName ?? 'Vendor shop';
   const phone = session?.phone;
@@ -83,7 +87,7 @@ export function PortalShell({ title, children, onRefresh, shopPause }: Props) {
                         : styles.navLink
                     }
                   >
-                    {item.label}
+                    {navItemLabel(item.to, item.label, codConfirmPending, payoutActionCount)}
                   </Link>
                 ))}
               </nav>
@@ -193,13 +197,19 @@ export function PortalShell({ title, children, onRefresh, shopPause }: Props) {
               <span style={styles.tabIcon} aria-hidden>
                 {item.icon}
               </span>
-              <span>{item.label}</span>
+              <span>{navItemLabel(item.to, item.label, codConfirmPending, payoutActionCount)}</span>
             </NavLink>
           ))}
         </nav>
       ) : null}
     </div>
   );
+}
+
+function navItemLabel(to: string, label: string, codConfirmPending: number, payoutActionCount: number): string {
+  if (to === '/cod-handover' && codConfirmPending > 0) return `${label} (${codConfirmPending})`;
+  if (to === '/payouts' && payoutActionCount > 0) return `${label} (${payoutActionCount})`;
+  return label;
 }
 
 function isNavActive(pathname: string, to: string, end: boolean): boolean {

@@ -206,8 +206,30 @@ export type AgentPaySummary = {
     transactionReference?: string | null;
     paidAt?: string | null;
     orderCount: number;
+    acknowledgedAt?: string | null;
+    notReceivedAt?: string | null;
+    notReceivedNote?: string | null;
   }>;
 };
+
+export async function acknowledgeMyPayout(token: string, settlementId: string): Promise<void> {
+  await apiRequest(`/api/v1/payments/settlements/agent/me/payouts/${settlementId}/acknowledge`, {
+    method: 'POST',
+    token,
+  });
+}
+
+export async function reportMyPayoutNotReceived(
+  token: string,
+  settlementId: string,
+  note: string,
+): Promise<void> {
+  await apiRequest(`/api/v1/payments/settlements/agent/me/payouts/${settlementId}/not-received`, {
+    method: 'POST',
+    token,
+    body: { note },
+  });
+}
 
 export async function fetchMyPay(
   token: string,

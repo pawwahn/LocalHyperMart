@@ -35,6 +35,8 @@ const EMPTY: PlatformSettingsVm = {
   supportPhone: '',
   deliveryFee: 40,
   vendorOrderAlertMessage: 'Order received',
+  vendorTdsRatePercent: 0.1,
+  vendorTdsExemptUpto: 500000,
   supplierLegalName: 'KoyaKart',
   supplierGstin: '',
   supplierAddress: '',
@@ -81,6 +83,16 @@ export function SettingsPage() {
     }
     if (stateCode && !/^[0-9]{2}$/.test(stateCode)) {
       setError('GST state code is 2 digits, for example 37 for Andhra Pradesh.');
+      return;
+    }
+    const tdsRate = Number(settings.vendorTdsRatePercent ?? 0);
+    const tdsExempt = Number(settings.vendorTdsExemptUpto ?? 0);
+    if (!Number.isFinite(tdsRate) || tdsRate < 0 || tdsRate > 100) {
+      setError('Vendor TDS % must be between 0 and 100.');
+      return;
+    }
+    if (!Number.isFinite(tdsExempt) || tdsExempt < 0) {
+      setError('Vendor TDS exempt amount must be zero or more.');
       return;
     }
     setBusy(true);
@@ -319,6 +331,48 @@ export function SettingsPage() {
                   Test audio
                 </Button>
               </div>
+            </div>
+          </div>
+        </Card>
+
+        <Card padding="sm" style={styles.card}>
+          <div style={styles.sectionHead}>
+            <h2 style={styles.sectionTitle}>Vendor TDS</h2>
+            <span style={styles.hintInline}>Audit estimate for every town. Not held back from the payout.</span>
+          </div>
+          <div style={styles.opsRow}>
+            <div style={styles.feeWrap}>
+              <TextField
+                label="TDS %"
+                type="number"
+                min={0}
+                max={100}
+                step="0.01"
+                inputMode="decimal"
+                value={String(settings.vendorTdsRatePercent ?? 0.1)}
+                onChange={(e) =>
+                  setSettings((s) => ({
+                    ...s,
+                    vendorTdsRatePercent: Math.max(0, Number(e.target.value) || 0),
+                  }))
+                }
+              />
+            </div>
+            <div style={{ ...styles.feeWrap, width: '11rem' }}>
+              <TextField
+                label="Exempt up to (₹)"
+                type="number"
+                min={0}
+                step="1"
+                inputMode="decimal"
+                value={String(settings.vendorTdsExemptUpto ?? 500000)}
+                onChange={(e) =>
+                  setSettings((s) => ({
+                    ...s,
+                    vendorTdsExemptUpto: Math.max(0, Number(e.target.value) || 0),
+                  }))
+                }
+              />
             </div>
           </div>
         </Card>
@@ -661,7 +715,7 @@ const styles: Record<string, CSSProperties> = {
     gap: '0.45rem 0.65rem',
     alignItems: 'end',
   },
-  feeWrap: { width: '8.5rem', flex: '0 0 auto' },
+  feeWrap: { width: '9.5rem', flex: '0 0 auto' },
   alertWrap: {
     display: 'grid',
     gridTemplateColumns: 'minmax(0, 1fr) auto',

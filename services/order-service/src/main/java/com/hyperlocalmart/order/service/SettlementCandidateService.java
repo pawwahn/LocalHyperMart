@@ -1,5 +1,6 @@
 package com.hyperlocalmart.order.service;
 
+import com.hyperlocalmart.order.dto.response.DeliveredVendorTown;
 import com.hyperlocalmart.order.dto.response.SettlementCandidateResponse;
 import com.hyperlocalmart.order.entity.VendorSubOrder;
 import com.hyperlocalmart.order.repository.VendorSubOrderRepository;
@@ -10,6 +11,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
@@ -42,6 +44,20 @@ public class SettlementCandidateService {
     }
 
     @Transactional(readOnly = true)
+    public List<DeliveredVendorTown> listDeliveredVendorTowns(LocalDate from, LocalDate to) {
+        Instant start = from.atStartOfDay(IST).toInstant();
+        Instant end = to.plusDays(1).atStartOfDay(IST).toInstant();
+        List<DeliveredVendorTown> out = new ArrayList<>();
+        for (Object[] row : vendorSubOrderRepository.findDeliveredVendorTowns(start, end)) {
+            if (row == null || row.length < 2 || row[0] == null || row[1] == null) {
+                continue;
+            }
+            out.add(new DeliveredVendorTown(UUID.fromString(row[0].toString()), UUID.fromString(row[1].toString())));
+        }
+        return out;
+    }
+
+    @Transactional(readOnly = true)
     public List<SettlementCandidateResponse.Item> resolveSubOrders(UUID vendorId, Collection<UUID> subOrderIds) {
         if (subOrderIds == null || subOrderIds.isEmpty()) {
             return List.of();
@@ -58,6 +74,7 @@ public class SettlementCandidateService {
                 .orderNumber(subOrder.getOrder().getOrderNumber())
                 .subOrderNumber(subOrder.getSubOrderNumber())
                 .placedAt(subOrder.getOrder().getPlacedAt())
+                .deliveredAt(subOrder.getOrder().getDeliveredAt())
                 .status(subOrder.getStatus())
                 .paymentStatus(subOrder.getOrder().getPaymentStatus())
                 .paymentMethod(subOrder.getOrder().getPaymentMethod())

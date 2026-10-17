@@ -1,9 +1,10 @@
 import { Link } from 'react-router-dom';
-import { useEffect, useState, type CSSProperties } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { AgentShell } from '../layout/AgentShell';
 import { useAgentWorkspace } from '../hooks/useAgentWorkspace';
 import { useAuth } from '@/shared/auth/AuthContext';
 import { fetchMyPay, type AgentPaySummary, type AgentPeriodStats } from '../api/agentApi';
+import { fetchAgentCodHandoverSummary } from '../api/codHandoverApi';
 
 type RangeKey = 'today' | 'week' | 'month' | 'all';
 
@@ -11,20 +12,90 @@ function money(n: number): string {
   return `₹${Number(n || 0).toFixed(0)}`;
 }
 
+function istToday(): string {
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+}
+
+function shiftIso(iso: string, days: number): string {
+  const [y, m, d] = iso.split('-').map(Number);
+  const date = new Date(Date.UTC(y, m - 1, d));
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function rangeBounds(key: RangeKey): { from: string; to: string } {
+  const to = istToday();
+  if (key === 'today') return { from: to, to };
+  if (key === 'week') {
+    const [y, m, d] = to.split('-').map(Number);
+    const weekday = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+    const back = weekday === 0 ? 6 : weekday - 1;
+    return { from: shiftIso(to, -back), to };
+  }
+  if (key === 'month') return { from: `${to.slice(0, 8)}01`, to };
+  return { from: '2020-01-01', to };
+}
+
 export function AgentHomePage() {
   const { session } = useAuth();
   const { workSummary, stats, loading, error, notice, reload } = useAgentWorkspace({ scope: 'active' });
   const [range, setRange] = useState<RangeKey>('today');
-  const [pay, setPay] = useState<AgentPaySummary | null>(null);
+  const [payByRange, setPayByRange] = useState<Partial<Record<RangeKey, AgentPaySummary>>>({});
+  const [payMiss, setPayMiss] = useState<Partial<Record<RangeKey, true>>>({});
+  const inflightRanges = useRef(new Set<RangeKey>());
+  const [cashWithYou, setCashWithYou] = useState<number | null>(null);
+  const [cashOrders, setCashOrders] = useState(0);
 
   const pickupCount = workSummary.pickupAtShop + workSummary.pickupToHub;
   const deliveryCount = workSummary.deliveryAtHub + workSummary.deliveryEnRoute;
 
   useEffect(() => {
     if (!session) return;
-    void fetchMyPay(session.accessToken)
-      .then(setPay)
-      .catch(() => setPay(null));
+    const keys = Array.from(new Set<RangeKey>([range, 'month']));
+    const pending = keys.filter(
+      (key) => payByRange[key] == null && !payMiss[key] && !inflightRanges.current.has(key),
+    );
+    if (pending.length === 0) return;
+    for (const key of pending) inflightRanges.current.add(key);
+    const token = session.accessToken;
+    void Promise.all(
+      pending.map(async (key) => {
+        const { from, to } = rangeBounds(key);
+        try {
+          const row = await fetchMyPay(token, from, to);
+          return [key, row] as const;
+        } catch {
+          return [key, null] as const;
+        }
+      }),
+    ).then((rows) => {
+      for (const key of pending) inflightRanges.current.delete(key);
+      setPayByRange((prev) => {
+        const next = { ...prev };
+        for (const [key, row] of rows) {
+          if (row) next[key] = row;
+        }
+        return next;
+      });
+      setPayMiss((prev) => {
+        const next = { ...prev };
+        for (const [key, row] of rows) {
+          if (row) delete next[key];
+          else next[key] = true;
+        }
+        return next;
+      });
+    });
+  }, [session, range, payByRange, payMiss]);
+
+  useEffect(() => {
+    if (!session) return;
+    void fetchAgentCodHandoverSummary(session.accessToken)
+      .then((row) => {
+        setCashWithYou(Number(row.pendingCollectTotal ?? 0));
+        setCashOrders(Number(row.pendingOrderCount ?? 0));
+      })
+      .catch(() => setCashWithYou(null));
   }, [session]);
 
   const period: AgentPeriodStats =
@@ -38,7 +109,15 @@ export function AgentHomePage() {
             ? stats.month
             : stats.allTime;
 
+  const pay = payByRange[range] ?? null;
+  const monthPay = payByRange.month ?? null;
+  const payBlank = payMiss[range] ? '—' : '…';
   const vendorShop = stats?.agentType === 'VENDOR';
+  const rate = pay
+    ? vendorShop
+      ? Number(pay.vendorDirectOrderRate || 0)
+      : Number(pay.completedOrderRate || pay.lastMileRate || 0)
+    : 0;
   const vendorOpenAtShop = workSummary.deliveryAtHub;
   const vendorEnRoute = workSummary.deliveryEnRoute;
   const vendorOpen = vendorOpenAtShop + vendorEnRoute;
@@ -74,19 +153,30 @@ export function AgentHomePage() {
               </button>
             ))}
           </div>
+          <div style={styles.metricsPay}>
+            <Metric
+              label="Earned"
+              value={pay ? money(pay.earned) : payBlank}
+              hint={rate > 0 ? `${money(rate)} each` : 'period'}
+              large
+            />
+            <Metric label="Orders" value={pay ? String(pay.payableOrders) : String(period.homeDelivered)} hint="paid for" large />
+            <Metric label="Paid" value={pay ? money(pay.paid) : payBlank} hint="sent" large />
+            <Metric label="Due" value={pay ? money(pay.due) : payBlank} hint="unpaid" large />
+          </div>
           <div style={{ ...styles.metrics, ...(vendorShop ? styles.metricsVendor : null) }}>
             {vendorShop ? (
               <>
-                <Metric label="From shop" value={period.shopPicked} hint="bag taken" />
-                <Metric label="Delivered" value={period.homeDelivered} hint="to customer" />
-                <Metric label="Returns" value={period.returnsToHub} hint="buyer refused" />
+                <Metric label="From shop" value={period.shopPicked} hint="taken" />
+                <Metric label="Delivered" value={period.homeDelivered} hint="customer" />
+                <Metric label="Return" value={period.returnsToHub} hint="refused" />
               </>
             ) : (
               <>
-                <Metric label="Picked" value={period.shopPicked} hint="from shop" />
-                <Metric label="At hub" value={period.droppedAtHub} hint="drop-off" />
-                <Metric label="Delivered" value={period.homeDelivered} hint="to home" />
-                <Metric label="Returns" value={period.returnsToHub} hint="buyer refused" />
+                <Metric label="Picked" value={period.shopPicked} hint="shop" />
+                <Metric label="At hub" value={period.droppedAtHub} hint="drop" />
+                <Metric label="Delivered" value={period.homeDelivered} hint="home" />
+                <Metric label="Return" value={period.returnsToHub} hint="refused" />
               </>
             )}
           </div>
@@ -98,8 +188,14 @@ export function AgentHomePage() {
 
       <Link to="/agent/cod-handover" style={styles.codStrip}>
         <div>
-          <p style={styles.payTitle}>Hand over COD cash</p>
-          <p style={styles.payMeta}>Declare cash given to hub or shop · IST day</p>
+          <p style={styles.payTitle}>
+            Cash with you {cashWithYou == null ? '' : money(cashWithYou)}
+          </p>
+          <p style={styles.payMeta}>
+            {cashOrders > 0
+              ? `${cashOrders} COD order${cashOrders === 1 ? '' : 's'} not handed over`
+              : 'No COD waiting to hand over'}
+          </p>
         </div>
         <span style={styles.chevron} aria-hidden>
           ›
@@ -110,9 +206,9 @@ export function AgentHomePage() {
         <div>
           <p style={styles.payTitle}>Your pay this month</p>
           <p style={styles.payMeta}>
-            {pay
-              ? `${money(pay.earned)} earned · ${money(pay.paid)} paid · ${money(pay.due)} due`
-              : 'Open for rates, unpaid orders, payouts'}
+            {monthPay
+              ? `${money(monthPay.earned)} earned · ${money(monthPay.paid)} paid · ${money(monthPay.due)} due`
+              : 'Rates, unpaid orders, payout history'}
           </p>
         </div>
         <span style={styles.chevron} aria-hidden>
@@ -166,10 +262,20 @@ export function AgentHomePage() {
   );
 }
 
-function Metric({ label, value, hint }: { label: string; value: number; hint: string }) {
+function Metric({
+  label,
+  value,
+  hint,
+  large,
+}: {
+  label: string;
+  value: number | string;
+  hint: string;
+  large?: boolean;
+}) {
   return (
     <div style={styles.metric}>
-      <span style={styles.metricVal}>{value}</span>
+      <span style={large ? styles.metricValLarge : styles.metricVal}>{value}</span>
       <span style={styles.metricLabel}>{label}</span>
       <span style={styles.metricHint}>{hint}</span>
     </div>
@@ -285,6 +391,11 @@ const styles: Record<string, CSSProperties> = {
     gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
     gap: '0.35rem',
   },
+  metricsPay: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+    gap: '0.35rem',
+  },
   metricsVendor: {
     gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
   },
@@ -292,19 +403,28 @@ const styles: Record<string, CSSProperties> = {
     display: 'grid',
     justifyItems: 'center',
     gap: 1,
-    padding: '0.3rem 0.15rem',
+    minWidth: 0,
+    padding: '0.28rem 0.05rem',
     borderRadius: 8,
     background: 'var(--bg)',
   },
   metricVal: {
     fontFamily: 'var(--font-display)',
     fontWeight: 800,
-    fontSize: '1.15rem',
+    fontSize: '0.95rem',
+    lineHeight: 1.1,
+    maxWidth: '100%',
+    fontVariantNumeric: 'tabular-nums',
+  },
+  metricValLarge: {
+    fontFamily: 'var(--font-display)',
+    fontWeight: 800,
+    fontSize: '1.2rem',
     lineHeight: 1.1,
     fontVariantNumeric: 'tabular-nums',
   },
-  metricLabel: { fontSize: '0.7rem', fontWeight: 800 },
-  metricHint: { fontSize: '0.62rem', fontWeight: 650, color: 'var(--text-muted)', textAlign: 'center' },
+  metricLabel: { fontSize: '0.62rem', fontWeight: 800, textAlign: 'center', lineHeight: 1.15 },
+  metricHint: { fontSize: '0.58rem', fontWeight: 650, color: 'var(--text-muted)', textAlign: 'center', lineHeight: 1.15 },
   note: { margin: 0, fontSize: '0.72rem', fontWeight: 650, color: 'var(--text-muted)' },
   codStrip: {
     display: 'flex',

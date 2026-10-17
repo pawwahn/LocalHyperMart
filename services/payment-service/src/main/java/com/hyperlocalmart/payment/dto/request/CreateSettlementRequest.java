@@ -53,6 +53,12 @@ public class CreateSettlementRequest {
     /** When true, settlement is created as PAID with payout details. */
     private boolean markPaid = true;
 
+    /**
+     * COLLECTION only: issue the bill to the vendor instead of recording payment.
+     * The vendor pays and submits the UTR; admin confirms or rejects. Ignored when markPaid is true.
+     */
+    private boolean sendBill;
+
     private String payoutMethod;
 
     private String transactionReference;

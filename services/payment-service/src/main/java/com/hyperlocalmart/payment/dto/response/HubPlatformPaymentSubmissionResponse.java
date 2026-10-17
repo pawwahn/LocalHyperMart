@@ -27,6 +27,8 @@ public class HubPlatformPaymentSubmissionResponse {
     Instant verifiedAt;
     Instant rejectedAt;
     boolean editable;
+    /** Issued bill number, for example CLX/COD/26-27/0006. */
+    String documentRef;
 
     @Builder.Default
     List<Line> lines = new ArrayList<>();

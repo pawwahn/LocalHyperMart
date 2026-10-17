@@ -342,7 +342,7 @@ export function OrderDetailPage() {
                   <p style={styles.meta}>
                     {order.scratchCard.status === 'REVEALED'
                       ? `₹${Number(order.scratchCard.revealedAmount ?? 0).toFixed(0)} added to wallet`
-                      : `Win ₹${Math.round(Number(order.scratchCard.rewardMin))}–₹${Math.round(Number(order.scratchCard.rewardMax))}`}
+                      : 'Scratch to reveal your surprise'}
                   </p>
                 </div>
                 {order.scratchCard.status === 'ISSUED' && session?.accessToken ? (

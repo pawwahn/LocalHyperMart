@@ -92,6 +92,23 @@ public class OrderClient {
         return response.getData();
     }
 
+    /** Shops with a delivered bag in the window. Empty when the order service has nothing. */
+    public List<VendorTown> deliveredVendorTowns(LocalDate from, LocalDate to) {
+        RestClient client = restClientBuilder.baseUrl(orderServiceProperties.getBaseUrl()).build();
+        ApiResponse<List<VendorTown>> response = client.get()
+                .uri(uriBuilder -> uriBuilder
+                        .path("/api/v1/internal/orders/settlement-candidates/vendor-towns")
+                        .queryParam("from", from)
+                        .queryParam("to", to)
+                        .build())
+                .retrieve()
+                .body(new ParameterizedTypeReference<ApiResponse<List<VendorTown>>>() {});
+        if (response == null || response.getData() == null) {
+            return List.of();
+        }
+        return response.getData();
+    }
+
     public List<SettlementCandidateItem> resolveSettlementSubOrders(UUID vendorId, Collection<UUID> subOrderIds) {
         RestClient client = restClientBuilder.baseUrl(orderServiceProperties.getBaseUrl()).build();
         ApiResponse<List<SettlementCandidateItem>> response = client.post()
@@ -220,6 +237,9 @@ public class OrderClient {
     ) {
     }
 
+    public record VendorTown(UUID vendorId, UUID townId) {
+    }
+
     public record SettlementCandidates(
             UUID vendorId,
             UUID townId,
@@ -239,7 +259,8 @@ public class OrderClient {
             String paymentStatus,
             String paymentMethod,
             boolean vendorAgentDelivery,
-            BigDecimal subtotal
+            BigDecimal subtotal,
+            Instant deliveredAt
     ) {
     }
 

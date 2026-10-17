@@ -1,0 +1,32 @@
+---
+description: Bills and invoices must stay audit-ready for shops, hubs, and KoyaKart accounts
+globs:
+  - "**/vendorBill.ts"
+  - "**/hubPayoutBill.ts"
+  - "**/*Bill*.tsx"
+  - "**/*Settlement*.java"
+  - "**/ServiceInvoiceNumberService.java"
+  - "**/HubAccount*.java"
+  - "**/HubPayoutHistory.tsx"
+  - "**/PayoutsPage.tsx"
+  - "**/DeliveryPayoutPanel.tsx"
+alwaysApply: false
+---
+
+# Bills and invoices (accounting and audit)
+
+KoyaKart must be able to produce a numbered document for every amount it charges or pays. A missing bill, a reused number, or a payment advice labeled as a tax invoice is an audit failure.
+
+## Which document
+
+- **Shop commission, subscription, and shop-held cash fee:** KoyaKart is the supplier. This is a tax invoice. Keep GST particulars (GSTIN, rate, tax amount) on the bill. Do not drop them.
+- **Money KoyaKart pays a hub or agent for deliveries:** this is a payout statement. KoyaKart is paying for the hub’s service. Do not print marketplace GST on it or call it a tax invoice. The bill number, period, trips, amount, payment date, mode, and reference must be on the statement. If a hub is GST-registered, their invoice to KoyaKart is the tax document; do not invent that tax on the payout.
+- **Money a hub pays KoyaKart (COD, franchise):** keep the existing downloadable bill on transfer history.
+
+## Rules
+
+1. Assign a stored bill number when the payment is recorded, not only when someone first clicks download.
+2. The same number, amount, period, and reference must appear for KoyaKart and for the shop or hub.
+3. Both sides must be able to download that document later. A screen that shows the number but cannot download it is incomplete.
+4. Do not renumber a bill that has already been issued.
+5. Paid, confirmed, and “not received” states never delete the bill.

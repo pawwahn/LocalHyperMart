@@ -528,8 +528,26 @@ public class HubPlatformPaymentSubmissionService {
                 .verifiedAt(row.getVerifiedAt())
                 .rejectedAt(row.getRejectedAt())
                 .editable(isHubEditable(row))
+                .documentRef(documentRefFor(row))
                 .lines(lines)
                 .build();
+    }
+
+    private String documentRefFor(HubPlatformPaymentSubmission row) {
+        if (row.getPaymentRequestId() == null) {
+            return null;
+        }
+        return hubPaymentRequestRepository.findById(row.getPaymentRequestId())
+                .map(HubPlatformPaymentSubmissionService::billNumber)
+                .orElse(null);
+    }
+
+    private static String billNumber(HubPaymentRequest row) {
+        if (row.getDocumentNumber() != null && !row.getDocumentNumber().isBlank()) {
+            return row.getDocumentNumber();
+        }
+        String prefix = row.getRequestType() == HubPaymentRequestType.COD ? "COD" : "FR";
+        return prefix + "-" + row.getPeriodStart() + "-" + row.getId().toString().substring(0, 8).toUpperCase();
     }
 
     private void relinkRejectedForResubmit(HubPlatformPaymentSubmission submission, UUID hubAdminUserId) {

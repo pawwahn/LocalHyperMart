@@ -13,14 +13,23 @@ import {
   gstStateCodeFromGstin,
   gstStateCodeFromTown,
   stateNameFor,
+  subscriptionBillAsSettlement,
   type BillParty,
 } from '@/features/payouts/vendorBill';
 import {
+  PAYOUT_ACKED_EVENT,
+  PAYOUT_ACTION_EVENT,
   acknowledgeSettlement,
+  fetchMySubscriptionBills,
+  isCollectionSettlement,
+  isSubscriptionSettlement,
   listMyClaimAdjustments,
   listMySettlements,
   lookupOrderCashHolders,
   lookupOrderPayouts,
+  paySubscriptionBill,
+  payVendorBill,
+  isOpenVendorBill,
   quoteMyFees,
   resolveCashHolder,
   settlementClaimAmount,
@@ -28,6 +37,7 @@ import {
   summarizeSettlements,
   type OrderCashHolder,
   type OrderPayout,
+  type SubscriptionBill,
   type VendorClaimAdjustment,
   type VendorFeeQuote,
   type VendorSettlement,
@@ -43,12 +53,12 @@ import {
 } from '@/shared/table';
 import { ClaimDeductionsDialog } from '@/features/payouts/components/ClaimDeductionsDialog';
 import { DateRangePresetBar } from '@hlm-dates/DateRangePresetBar';
-import { MoneyFlowSummary, aggregateVendorAwaitingHeld } from '@hlm-money-flow';
 import {
   isoIstDate,
   type TransferHistoryPreset,
 } from '@hlm-dates/istReportPresets';
 
+type PayoutPane = 'settlements' | 'awaiting' | 'orders' | 'subscription' | 'subscriptionHistory';
 type SortKey = 'period' | 'gross' | 'fee' | 'claims' | 'other' | 'net' | 'status' | 'paidAt';
 type AwaitingSortKey = 'placed' | 'order' | 'pay' | 'cash' | 'amount';
 
@@ -74,6 +84,42 @@ function isoDaysAgo(days: number): string {
   const d = new Date();
   d.setDate(d.getDate() - days);
   return isoIstDate(d);
+}
+
+/** Sales report allows 366 days. All time uses that full window so older paid bags stay in Total sales. */
+const SALES_LOOKBACK_DAYS = 365;
+
+function salesQueryRange(periodFrom: string, periodTo: string): { from: string; to: string } {
+  const today = isoIstDate();
+  const to = periodTo || today;
+  let from = periodFrom || isoDaysAgo(SALES_LOOKBACK_DAYS);
+  const fromDate = parseDay(from);
+  const toDate = parseDay(to);
+  if (fromDate && toDate) {
+    const earliest = new Date(toDate);
+    earliest.setDate(earliest.getDate() - SALES_LOOKBACK_DAYS);
+    if (fromDate < earliest) from = isoIstDate(earliest);
+    if (from > to) from = to;
+  }
+  return { from, to };
+}
+
+/** IST calendar day of an order timestamp — matches the admin date filter (a 12:53 am IST order is that day, not the UTC day before). */
+function istDayOf(iso?: string | null): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? iso.slice(0, 10) : isoIstDate(d);
+}
+
+/** Payout windows go by delivery (cash collected / goods handed over); placed time only if delivery time is missing. */
+function payoutAt(row: SalesReportRow): string | null | undefined {
+  return row.deliveredAt || row.placedAt;
+}
+
+function shortWhen(iso?: string | null): string {
+  return iso
+    ? new Date(iso).toLocaleString(undefined, { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
+    : '—';
 }
 
 /** Parse YYYY-MM-DD (or ISO datetime) as a local calendar day — avoid UTC day-shift. */
@@ -116,6 +162,16 @@ function formatPeriodRange(start?: string | null, end?: string | null): string {
     return `${left} – ${right}`;
   }
   return `${formatDay(start)} – ${formatDay(end)}`;
+}
+
+/** Month the money was sent, when it differs from the window's month (e.g. Sept orders paid in Oct). */
+function paidLaterMonth(s: VendorSettlement): string | null {
+  if (s.status !== 'PAID') return null;
+  const paidDay = istDayOf(s.paidAt);
+  const windowEnd = (s.periodEnd ?? s.periodStart ?? '').slice(0, 10);
+  if (!paidDay || !windowEnd || paidDay.slice(0, 7) <= windowEnd.slice(0, 7)) return null;
+  const d = parseDay(paidDay);
+  return d ? d.toLocaleDateString(undefined, { month: 'short' }) : null;
 }
 
 function formatPaidAt(iso?: string | null): string {
@@ -203,21 +259,24 @@ function holderChip(role?: string | null): CSSProperties {
   };
 }
 
-/** Settlement overlaps [from, to] when its payout period intersects the filter range. */
+/**
+ * Paid settlements belong to the IST day the money was sent (one period each — no double counting across months,
+ * matches the bank statement and the invoice month). Open ones have no paid day, so they match on delivery window.
+ */
 function settlementOverlapsRange(
   s: VendorSettlement,
   from: string,
   to: string,
 ): boolean {
-  const start = (s.periodStart ?? s.periodEnd ?? '').slice(0, 10);
-  const end = (s.periodEnd ?? s.periodStart ?? '').slice(0, 10);
-  if (!start && !end) {
-    const paidDay = (s.paidAt ?? '').slice(0, 10);
-    if (!paidDay) return true;
+  const paidDay = s.status === 'PAID' ? istDayOf(s.paidAt) : '';
+  if (paidDay) {
     if (from && paidDay < from) return false;
     if (to && paidDay > to) return false;
     return true;
   }
+  const start = (s.periodStart ?? s.periodEnd ?? '').slice(0, 10);
+  const end = (s.periodEnd ?? s.periodStart ?? '').slice(0, 10);
+  if (!start && !end) return true;
   if (from && end && end < from) return false;
   if (to && start && start > to) return false;
   return true;
@@ -229,13 +288,14 @@ export function PayoutsPage() {
   const [claimAdjustments, setClaimAdjustments] = useState<VendorClaimAdjustment[]>([]);
   const [awaitingRows, setAwaitingRows] = useState<SalesReportRow[]>([]);
   const [deliveredRows, setDeliveredRows] = useState<SalesReportRow[]>([]);
+  const [subscriptionBills, setSubscriptionBills] = useState<SubscriptionBill[]>([]);
   const [orderPayouts, setOrderPayouts] = useState<Record<string, OrderPayout>>({});
   const [expandedSettlementId, setExpandedSettlementId] = useState<string | null>(null);
   const [cashHolders, setCashHolders] = useState<Record<string, OrderCashHolder>>({});
   const [feeQuote, setFeeQuote] = useState<VendorFeeQuote | null>(null);
   const [rowFees, setRowFees] = useState<Record<string, number>>({});
   const [holdersReady, setHoldersReady] = useState(false);
-  const [pane, setPane] = useState<'settlements' | 'awaiting' | 'orders' | null>(null);
+  const [pane, setPane] = useState<PayoutPane | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<'all' | 'PAID' | 'OPEN'>('all');
@@ -249,6 +309,84 @@ export function PayoutsPage() {
   const [claimsOpen, setClaimsOpen] = useState(false);
   const [supplier, setSupplier] = useState<BillParty | null>(null);
   const [recipient, setRecipient] = useState<BillParty | null>(null);
+  useEffect(() => {
+    function onAcked(e: Event) {
+      const updated = (e as CustomEvent<VendorSettlement>).detail;
+      if (!updated?.id) return;
+      setSettlements((prev) =>
+        prev.map((x) =>
+          x.id === updated.id
+            ? {
+                ...x,
+                vendorAcknowledgedAt: updated.vendorAcknowledgedAt,
+                vendorNotReceivedAt: updated.vendorNotReceivedAt,
+                vendorNotReceivedNote: updated.vendorNotReceivedNote,
+              }
+            : x,
+        ),
+      );
+    }
+    window.addEventListener(PAYOUT_ACKED_EVENT, onAcked);
+    return () => window.removeEventListener(PAYOUT_ACKED_EVENT, onAcked);
+  }, []);
+
+  const [payTarget, setPayTarget] = useState<SubscriptionBill | null>(null);
+  const [payMethod, setPayMethod] = useState('UPI');
+  const [payRef, setPayRef] = useState('');
+  const [payNotes, setPayNotes] = useState('');
+  const [paying, setPaying] = useState(false);
+
+  const [payBill, setPayBill] = useState<VendorSettlement | null>(null);
+
+  function openPay(b: SubscriptionBill) {
+    setPayMethod('UPI');
+    setPayRef('');
+    setPayNotes('');
+    setPayBill(null);
+    setPayTarget(b);
+  }
+
+  function openPayBill(s: VendorSettlement) {
+    setPayMethod('UPI');
+    setPayRef('');
+    setPayNotes('');
+    setPayTarget(null);
+    setPayBill(s);
+  }
+
+  function closePay() {
+    setPayTarget(null);
+    setPayBill(null);
+  }
+
+  async function submitPay() {
+    if (!session?.accessToken || !session.vendorId || !payRef.trim()) return;
+    const input = {
+      payoutMethod: payMethod,
+      transactionReference: payRef.trim(),
+      transactionNotes: payNotes.trim() || undefined,
+    };
+    setPaying(true);
+    try {
+      if (payBill) {
+        const updated = await payVendorBill(session.accessToken, session.vendorId, payBill.id, input);
+        setSettlements((prev) => prev.map((x) => (x.id === updated.id ? { ...x, ...updated } : x)));
+      } else if (payTarget?.settlementId) {
+        const updated = await paySubscriptionBill(session.accessToken, session.vendorId, payTarget.settlementId, input);
+        setSubscriptionBills((prev) => prev.map((x) => (x.month === updated.month ? updated : x)));
+      }
+      closePay();
+      window.dispatchEvent(new CustomEvent(PAYOUT_ACTION_EVENT));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not submit payment');
+      closePay();
+    } finally {
+      setPaying(false);
+    }
+  }
+
+  const openBills = useMemo(() => settlements.filter(isOpenVendorBill), [settlements]);
+
   const [ackTarget, setAckTarget] = useState<VendorSettlement | null>(null);
   const [ackingId, setAckingId] = useState<string | null>(null);
 
@@ -259,6 +397,7 @@ export function PayoutsPage() {
     try {
       const updated = await acknowledgeSettlement(session.accessToken, session.vendorId, s.id);
       setSettlements((prev) => prev.map((x) => (x.id === s.id ? { ...x, vendorAcknowledgedAt: updated.vendorAcknowledgedAt } : x)));
+      window.dispatchEvent(new CustomEvent(PAYOUT_ACTION_EVENT));
       setAckTarget(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not confirm receipt');
@@ -338,8 +477,7 @@ export function PayoutsPage() {
       const [list, sales, adjustmentsResult] = await Promise.all([
         listMySettlements(session.accessToken, session.vendorId),
         fetchSalesReport(session.accessToken, session.vendorId, {
-          from: isoDaysAgo(60),
-          to: isoIstDate(),
+          ...salesQueryRange(periodFrom, periodTo),
           includeItems: false,
         }),
         listMyClaimAdjustments(session.accessToken, session.vendorId).catch(() => [] as VendorClaimAdjustment[]),
@@ -362,6 +500,9 @@ export function PayoutsPage() {
       setAwaitingRows(unpaid);
       setDeliveredRows(delivered);
       setOrderPayouts(payouts);
+      void fetchMySubscriptionBills(session.accessToken, session.vendorId)
+        .then(setSubscriptionBills)
+        .catch(() => setSubscriptionBills([]));
       const holders = unpaid.length
         ? await lookupOrderCashHolders(
             session.accessToken,
@@ -383,7 +524,7 @@ export function PayoutsPage() {
     } finally {
       setLoading(false);
     }
-  }, [session]);
+  }, [session, periodFrom, periodTo]);
 
   useEffect(() => {
     void reload();
@@ -391,9 +532,11 @@ export function PayoutsPage() {
 
   const periodSettlements = useMemo(
     () =>
-      periodFrom || periodTo
-        ? settlements.filter((s) => settlementOverlapsRange(s, periodFrom, periodTo))
-        : settlements,
+      settlements.filter(
+        (s) =>
+          !isSubscriptionSettlement(s) &&
+          (!(periodFrom || periodTo) || settlementOverlapsRange(s, periodFrom, periodTo)),
+      ),
     [settlements, periodFrom, periodTo],
   );
   const settlementSummary = useMemo(() => summarizeSettlements(periodSettlements), [periodSettlements]);
@@ -415,8 +558,13 @@ export function PayoutsPage() {
   );
 
   const usingSettlementAwaiting = settlementSummary.awaitingSettlementNet > 0;
-  const feeTermsLabel =
-    feeQuote?.appliedSlabLabel || feeQuote?.breakdownLines?.[0] || feeQuote?.feeModel || null;
+  const feeTermsLabel = useMemo(() => {
+    const raw = feeQuote?.appliedSlabLabel || feeQuote?.breakdownLines?.[0] || feeQuote?.feeModel || null;
+    if (!raw) return null;
+    const pct = raw.match(/(\d+(?:\.\d+)?)%/);
+    if (pct) return `Rate ${Number(pct[1])}% of bag total`;
+    return raw.replace(/\s*\[[^\]]*\]\s*/g, ' ').trim();
+  }, [feeQuote]);
 
   const filtered = useMemo(() => {
     return periodSettlements.filter((s) => {
@@ -472,7 +620,7 @@ export function PayoutsPage() {
           commission: acc.commission + Number(s.commissionAmount ?? 0),
           claims: acc.claims + settlementClaimAmount(s),
           other: acc.other + settlementOtherChargesAmount(s),
-          net: acc.net + Number(s.netAmount ?? 0),
+          net: acc.net + (isCollectionSettlement(s) ? 0 : Number(s.netAmount ?? 0)),
           paidCount: acc.paidCount + (s.status === 'PAID' ? 1 : 0),
         }),
         { gross: 0, commission: 0, claims: 0, other: 0, net: 0, paidCount: 0 },
@@ -484,11 +632,18 @@ export function PayoutsPage() {
     () => pageWindow(sorted, page, pageSize),
     [sorted, page, pageSize],
   );
+  const awaitingVendorAck = filtered.filter(
+    (s) =>
+      s.status === 'PAID' &&
+      !isCollectionSettlement(s) &&
+      !isOpenVendorBill(s) &&
+      !s.vendorAcknowledgedAt,
+  ).length;
 
   const visibleAwaiting = useMemo(() => {
     return awaitingRows.filter((row) => {
       if (!periodFrom && !periodTo) return true;
-      const day = (row.placedAt ?? '').slice(0, 10);
+      const day = istDayOf(payoutAt(row));
       if (!day) return true;
       if (periodFrom && day < periodFrom) return false;
       if (periodTo && day > periodTo) return false;
@@ -503,7 +658,7 @@ export function PayoutsPage() {
       let cmp = 0;
       switch (awaitingSort.key) {
         case 'placed':
-          cmp = compareText(a.placedAt ?? '', b.placedAt ?? '');
+          cmp = compareText(payoutAt(a) ?? '', payoutAt(b) ?? '');
           break;
         case 'order':
           cmp = compareText(a.orderNumber ?? '', b.orderNumber ?? '');
@@ -531,8 +686,14 @@ export function PayoutsPage() {
     return rows;
   }, [visibleAwaiting, awaitingSort, cashHolders]);
 
-  const activePane: 'settlements' | 'awaiting' | 'orders' =
-    pane ?? (settlements.length > 0 ? 'settlements' : 'awaiting');
+  const subscriptionPaidBills = subscriptionBills.filter((b) => b.status === 'PAID');
+  const activePane: PayoutPane = (() => {
+    const fallback: PayoutPane = settlements.length > 0 ? 'settlements' : 'awaiting';
+    if (pane === 'subscription' && subscriptionBills.length === 0) return fallback;
+    if (pane === 'subscriptionHistory' && subscriptionPaidBills.length === 0) return fallback;
+    return pane ?? fallback;
+  })();
+  const subscriptionPane = activePane === 'subscription' || activePane === 'subscriptionHistory';
 
   const awaitingPaged = useMemo(
     () => pageWindow(awaitingSorted, page, pageSize),
@@ -543,13 +704,13 @@ export function PayoutsPage() {
     return deliveredRows
       .filter((row) => {
         if (!periodFrom && !periodTo) return true;
-        const day = (row.placedAt ?? '').slice(0, 10);
+        const day = istDayOf(payoutAt(row));
         if (!day) return true;
         if (periodFrom && day < periodFrom) return false;
         if (periodTo && day > periodTo) return false;
         return true;
       })
-      .sort((a, b) => compareText(b.placedAt ?? '', a.placedAt ?? ''));
+      .sort((a, b) => compareText(payoutAt(b) ?? '', payoutAt(a) ?? ''));
   }, [deliveredRows, periodFrom, periodTo]);
 
   const ordersPaged = useMemo(
@@ -600,7 +761,8 @@ export function PayoutsPage() {
       : isShopHeld(resolveCashHolder(row, cashHolders[row.subOrderId]));
     const fee = paid ? settled?.fee : (rowFees[row.subOrderId] as number | undefined);
     const net = fee == null ? null : amount - fee - claim;
-    return { amount, paid, shopHeld, fee, estimated: !paid, claim, net };
+    const owed = !paid && shopHeld ? fee ?? 0 : 0;
+    return { amount, paid, shopHeld, fee, estimated: !paid, claim, net, owed };
   }
 
   const ordersTotals = useMemo(() => {
@@ -614,10 +776,14 @@ export function PayoutsPage() {
       unpaidFee: 0,
       unpaidNet: 0,
       claims: 0,
+      owed: 0,
+      owedCount: 0,
     };
     for (const row of visibleOrders) {
       const m = orderMoney(row);
       out.claims += m.claim;
+      out.owed += m.owed;
+      if (m.owed > 0) out.owedCount += 1;
       if (m.paid) {
         out.paidCount += 1;
         out.paidGross += m.amount;
@@ -636,17 +802,6 @@ export function PayoutsPage() {
 
   const periodFilterActive = Boolean(periodFrom || periodTo);
 
-  const periodAwaitingGross = useMemo(
-    () => visibleAwaiting.reduce((sum, row) => sum + Number(row.subtotal ?? 0), 0),
-    [visibleAwaiting],
-  );
-
-  const periodBuyerMoneyHeld = useMemo(
-    () =>
-      aggregateVendorAwaitingHeld(visibleAwaiting, cashHolders, (row: SalesReportRow) => row.subOrderId),
-    [visibleAwaiting, cashHolders],
-  );
-
   const periodSplit = useMemo(
     () => splitAwaiting(visibleAwaiting, cashHolders, rowFees),
     [visibleAwaiting, cashHolders, rowFees],
@@ -659,27 +814,58 @@ export function PayoutsPage() {
     ? Math.max(0, settlementSummary.awaitingSettlementNet - pendingClaimDebitTotal)
     : Math.max(0, periodSplit.payNet - pendingClaimDebitTotal);
 
+  const awaitingMonthsLabel = useMemo(() => {
+    const months = new Set<string>();
+    for (const row of visibleAwaiting) {
+      if (isShopHeld(resolveCashHolder(row, cashHolders[row.subOrderId]))) continue;
+      const at = payoutAt(row);
+      if (!at) continue;
+      months.add(
+        new Date(at).toLocaleDateString(undefined, { month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' }),
+      );
+    }
+    return [...months].join(', ');
+  }, [visibleAwaiting, cashHolders]);
+
   const awaitingDisplayHint = usingSettlementAwaiting
     ? pendingClaimDebitTotal > 0
       ? `${settlementSummary.awaitingCount} open · after ${formatMoney(pendingClaimDebitTotal)} claims`
       : `${settlementSummary.awaitingCount} open settlement${settlementSummary.awaitingCount === 1 ? '' : 's'}`
-    : [
-        `${periodSplit.payCount} bag${periodSplit.payCount === 1 ? '' : 's'} · ${formatMoney(periodSplit.payGross)}`,
-        periodSplit.payFee > 0 ? `− ${formatMoney(periodSplit.payFee)} fee` : null,
-        pendingClaimDebitTotal > 0 ? `− ${formatMoney(pendingClaimDebitTotal)} claims` : null,
-      ]
-        .filter(Boolean)
-        .join(' ');
+    : periodSplit.payCount === 0
+      ? 'Nothing pending'
+      : [
+          `${periodSplit.payCount} ${awaitingMonthsLabel ? `${awaitingMonthsLabel} ` : ''}bag${periodSplit.payCount === 1 ? '' : 's'} · ${formatMoney(periodSplit.payGross)}`,
+          periodSplit.payFee > 0 ? `− ${formatMoney(periodSplit.payFee)} fee` : null,
+          pendingClaimDebitTotal > 0 ? `− ${formatMoney(pendingClaimDebitTotal)} claims` : null,
+        ]
+          .filter(Boolean)
+          .join(' ') + ' · arrives in next payout';
 
   const shopFeeOwed = periodSplit.shopFee;
   const shopCashCount = periodSplit.shopCount;
+  const subscriptionDueBills = subscriptionBills.filter((b) => b.status !== 'PAID');
+  const subscriptionDueTotal = subscriptionDueBills.reduce((s, b) => s + Number(b.amount ?? 0), 0);
+  const subscriptionShown = [...(activePane === 'subscriptionHistory' ? subscriptionPaidBills : subscriptionDueBills)].sort(
+    (a, b) => b.month.localeCompare(a.month),
+  );
+  const subscriptionMonthName = (ym: string) => {
+    const [y, m] = ym.split('-').map(Number);
+    return new Date(Date.UTC(y, (m || 1) - 1, 1)).toLocaleDateString('en-IN', {
+      month: 'short',
+      year: 'numeric',
+      timeZone: 'UTC',
+    });
+  };
 
-  /** Quote app/hub bags and shop-cash bags as separate batches — same grouping admin uses. */
+  /**
+   * Quote app/hub bags and shop-cash bags as separate batches — same grouping admin uses.
+   * Quotes every unpaid bag (not just the date-filtered ones) so a bag's fee never depends on the filter.
+   */
   useEffect(() => {
     if (!session || !holdersReady) return;
     const payRows: SalesReportRow[] = [];
     const shopRows: SalesReportRow[] = [];
-    for (const row of visibleAwaiting) {
+    for (const row of awaitingRows) {
       (isShopHeld(resolveCashHolder(row, cashHolders[row.subOrderId])) ? shopRows : payRows).push(row);
     }
     let cancelled = false;
@@ -714,7 +900,7 @@ export function PayoutsPage() {
     return () => {
       cancelled = true;
     };
-  }, [session, holdersReady, visibleAwaiting, cashHolders]);
+  }, [session, holdersReady, awaitingRows, cashHolders]);
 
   useEffect(() => {
     setPage(0);
@@ -738,7 +924,27 @@ export function PayoutsPage() {
         <div style={styles.summary}>
           <button
             type="button"
-            style={activePane === 'settlements' ? styles.metricOn : { ...styles.metric, cursor: 'pointer' }}
+            style={{
+              ...(activePane === 'orders' ? styles.metricOn : { ...styles.metric, cursor: 'pointer' }),
+              borderTop: '3px solid #0f172a',
+            }}
+            onClick={() => setPane('orders')}
+          >
+            <span style={styles.metricLabel}>Total sales</span>
+            <strong style={{ ...styles.metricValue, color: 'var(--text)' }}>
+              {formatMoney(ordersTotals.paidGross + ordersTotals.unpaidGross)}
+            </strong>
+            <span style={styles.metricHint}>
+              {visibleOrders.length} bag{visibleOrders.length === 1 ? '' : 's'} delivered
+            </span>
+          </button>
+
+          <button
+            type="button"
+            style={{
+              ...(activePane === 'settlements' ? styles.metricOn : { ...styles.metric, cursor: 'pointer' }),
+              borderTop: '3px solid var(--metric-paid)',
+            }}
             onClick={() => setPane('settlements')}
           >
             <span style={styles.metricLabel}>Net paid</span>
@@ -746,55 +952,109 @@ export function PayoutsPage() {
               {formatMoney(settlementSummary.paidNet)}
             </strong>
             <span style={styles.metricHint}>
+              <span style={{ ...styles.flowTag, ...styles.flowIn }}>Received</span>{' '}
               {settlementSummary.paidCount > 0
                 ? `${settlementSummary.paidCount} settlement${settlementSummary.paidCount === 1 ? '' : 's'}`
                 : periodFilterActive
                   ? 'None paid for this period'
-                  : 'None marked paid yet'}
+                : 'None marked paid yet'}
             </span>
           </button>
 
           <button
             type="button"
-            style={activePane === 'awaiting' ? styles.metricOnAwaiting : { ...styles.metric, cursor: 'pointer' }}
+            style={{
+              ...(activePane === 'awaiting' ? styles.metricOnAwaiting : { ...styles.metric, cursor: 'pointer' }),
+              borderTop: '3px solid var(--metric-awaiting)',
+            }}
             onClick={() => setPane('awaiting')}
           >
             <span style={styles.metricLabel}>KoyaKart pays you</span>
             <strong style={{ ...styles.metricValue, color: 'var(--metric-awaiting)' }}>
               {formatMoney(awaitingDisplayAmount)}
             </strong>
-            <span style={styles.metricHint}>{awaitingDisplayHint}</span>
+            <span style={styles.metricHint} title={awaitingDisplayHint}>
+              <span style={{ ...styles.flowTag, ...styles.flowComing }}>Coming</span> {awaitingDisplayHint}
+            </span>
           </button>
 
-          {shopCashCount > 0 ? (
-            <div style={styles.metric}>
-              <span style={styles.metricLabel}>You owe KoyaKart</span>
+          {shopFeeOwed > 0 || openBills.length > 0 ? (
+            <div style={{ ...styles.metric, borderTop: '3px solid var(--metric-commission)' }}>
+              <span style={styles.metricLabel}>To KoyaKart</span>
               <strong style={styles.metricValueCommission}>{formatMoney(shopFeeOwed)}</strong>
-              <span style={styles.metricHint}>
-                Fee on {shopCashCount} shop-cash bag{shopCashCount === 1 ? '' : 's'} · pay on Vendor pays KoyaKart
+              <span
+                style={styles.metricHint}
+                title={`Commission on ${shopCashCount} bag${shopCashCount === 1 ? '' : 's'} where cash stayed in your shop`}
+              >
+                <span style={{ ...styles.flowTag, ...styles.flowOut }}>You pay</span> Fee on {shopCashCount} cash-in-shop bag
+                {shopCashCount === 1 ? '' : 's'}
               </span>
-            </div>
+              {openBills.map((s) => (
+                <span
+                  key={s.id}
+                  style={styles.subRow}
+                  title={
+                    s.vendorPaymentRejectedAt
+                      ? `KoyaKart: ${s.vendorPaymentRejectReason ?? 'Payment rejected'}`
+                      : `${s.serviceInvoiceNumber ?? 'Bill'} · ${formatMoney(s.netAmount)}`
+                  }
+                >
+                  <span style={styles.subMonth}>
+                    {formatMoney(s.netAmount)}
+                    <span
+                      style={{
+                        ...styles.subPill,
+                        ...(s.vendorPaidAt
+                          ? { color: '#1d4ed8', background: '#dbeafe' }
+                          : s.vendorPaymentRejectedAt
+                            ? { color: '#991b1b', background: '#fee2e2' }
+                            : { color: '#9a3412', background: '#ffedd5' }),
+                      }}
+                    >
+                      {s.vendorPaidAt ? 'Checking' : s.vendorPaymentRejectedAt ? 'Rejected' : 'Bill due'}
+                    </span>
+                  </span>
+                  <span style={styles.subActions}>
+                    <button
+                      type="button"
+                      style={styles.linkBtn}
+                      onClick={() => downloadVendorServiceBill(s, supplierParty(), recipientParty())}
+                    >
+                      Bill
+                    </button>
+                    {!s.vendorPaidAt ? (
+                      <button type="button" style={styles.payBtn} onClick={() => openPayBill(s)}>
+                        Pay
+                      </button>
+                    ) : null}
+                  </span>
+                </span>
+              ))}
+          </div>
           ) : null}
 
-          <div style={styles.metric} title={feeTermsLabel ?? undefined}>
+          <div style={{ ...styles.metric, borderTop: '3px solid var(--border)' }} title={feeTermsLabel ?? undefined}>
             <span style={styles.metricLabel}>Commission</span>
             <strong style={styles.metricValueCommission}>
               {formatMoney(estUnpaidFee > 0 ? estUnpaidFee : settlementSummary.paidCommission)}
             </strong>
             <span style={styles.metricHint}>
               {estUnpaidFee > 0
-                ? `Est. on ${visibleAwaiting.length} unsettled · ${formatMoney(settlementSummary.paidCommission)} on paid`
+                ? `Est. on ${visibleAwaiting.length} unpaid${
+                    settlementSummary.paidCommission > 0
+                      ? ` · ${formatMoney(settlementSummary.paidCommission)} on paid`
+                      : ''
+                  }`
                 : settlementSummary.paidCount > 0
                   ? 'On paid settlements'
                   : feeQuote
                     ? 'No fee on unpaid orders'
                     : 'No unpaid orders'}
             </span>
-            {feeTermsLabel ? <span style={styles.metricHint}>{feeTermsLabel}</span> : null}
           </div>
 
-          <div style={styles.metric}>
-            <span style={styles.metricLabel}>Claim deductions</span>
+          <div style={{ ...styles.metric, borderTop: '3px solid var(--border)' }}>
+            <span style={styles.metricLabel}>Claims</span>
             <strong style={{ ...styles.metricValueClaim, color: 'var(--metric-claim)' }}>
               {formatMoney(pendingClaimDebitTotal > 0 ? pendingClaimDebitTotal : settlementSummary.paidClaims)}
             </strong>
@@ -820,7 +1080,7 @@ export function PayoutsPage() {
             ) : null}
           </div>
 
-          <div style={styles.metric}>
+          <div style={{ ...styles.metric, borderTop: '3px solid var(--border)' }}>
             <span style={styles.metricLabel}>Other charges</span>
             <strong style={{ ...styles.metricValueClaim, color: 'var(--metric-other)' }}>
               {formatMoney(settlementSummary.paidOtherCharges)}
@@ -837,6 +1097,111 @@ export function PayoutsPage() {
           open={claimsOpen}
           items={claimAdjustments}
           onClose={() => setClaimsOpen(false)}
+        />
+
+        <ConfirmDialog
+          open={payTarget != null || payBill != null}
+          title={payBill ? 'Pay KoyaKart bill' : 'Pay subscription bill'}
+          description={
+            payBill ? (
+              <div style={styles.ackBody}>
+                <div style={styles.ackAmount}>{formatMoney(Number(payBill.netAmount ?? 0))}</div>
+                <div>
+                  {payBill.serviceInvoiceNumber ?? 'Bill'} · fee on cash kept in your shop ·{' '}
+                  {formatPeriodRange(payBill.periodStart, payBill.periodEnd)}
+                </div>
+                {payBill.vendorPaymentRejectedAt ? (
+                  <div style={styles.rejectWhy}>
+                    KoyaKart rejected your last payment ({payBill.vendorPaymentReference ?? '—'}):{' '}
+                    {payBill.vendorPaymentRejectReason || '—'}
+                  </div>
+                ) : null}
+                <div style={styles.sub}>Pay KoyaKart first, then enter the reference so KoyaKart can confirm it.</div>
+                <div style={styles.payGrid}>
+                  <label style={styles.payField}>
+                    <span style={styles.payLabel}>Mode</span>
+                    <select style={styles.payInput} value={payMethod} onChange={(e) => setPayMethod(e.target.value)}>
+                      <option value="UPI">UPI</option>
+                      <option value="BANK_TRANSFER">Bank transfer</option>
+                      <option value="CASH">Cash</option>
+                      <option value="CHEQUE">Cheque</option>
+              </select>
+                  </label>
+                  <label style={styles.payField}>
+                    <span style={styles.payLabel}>UTR / UPI ref *</span>
+                <input
+                      style={styles.payInput}
+                      value={payRef}
+                      maxLength={128}
+                      autoFocus
+                      placeholder="e.g. 427812345678"
+                      onChange={(e) => setPayRef(e.target.value)}
+                />
+              </label>
+                </div>
+                <label style={styles.payField}>
+                  <span style={styles.payLabel}>Note (optional)</span>
+                <input
+                    style={styles.payInput}
+                    value={payNotes}
+                    maxLength={500}
+                    onChange={(e) => setPayNotes(e.target.value)}
+                />
+              </label>
+              </div>
+            ) : payTarget ? (
+              <div style={styles.ackBody}>
+                <div style={styles.ackAmount}>{formatMoney(Number(payTarget.amount ?? 0))}</div>
+                <div>
+                  {subscriptionMonthName(payTarget.month)} · {payTarget.invoiceNumber ?? 'Subscription'}
+                </div>
+                {payTarget.status === 'REJECTED' ? (
+                  <div style={styles.rejectWhy}>
+                    Last payment ({payTarget.vendorPaymentReference ?? '—'}) was rejected: {payTarget.rejectReason || '—'}
+                  </div>
+                ) : null}
+                <div style={styles.sub}>Pay KoyaKart first, then enter the reference so KoyaKart can confirm it.</div>
+                <div style={styles.payGrid}>
+                  <label style={styles.payField}>
+                    <span style={styles.payLabel}>Mode</span>
+                    <select style={styles.payInput} value={payMethod} onChange={(e) => setPayMethod(e.target.value)}>
+                      <option value="UPI">UPI</option>
+                      <option value="BANK_TRANSFER">Bank transfer</option>
+                      <option value="CASH">Cash</option>
+                      <option value="CHEQUE">Cheque</option>
+                    </select>
+                  </label>
+                  <label style={styles.payField}>
+                    <span style={styles.payLabel}>UTR / UPI ref *</span>
+                    <input
+                      style={styles.payInput}
+                      value={payRef}
+                      maxLength={128}
+                      autoFocus
+                      placeholder="e.g. 427812345678"
+                      onChange={(e) => setPayRef(e.target.value)}
+                    />
+                  </label>
+                </div>
+                <label style={styles.payField}>
+                  <span style={styles.payLabel}>Note (optional)</span>
+                  <input
+                    style={styles.payInput}
+                    value={payNotes}
+                    maxLength={500}
+                    onChange={(e) => setPayNotes(e.target.value)}
+                  />
+                </label>
+              </div>
+            ) : null
+          }
+          confirmLabel={payRef.trim() ? 'Submit payment' : 'Enter UTR to submit'}
+          cancelLabel="Cancel"
+          busy={paying}
+          onConfirm={() => {
+            if (payRef.trim()) void submitPay();
+          }}
+          onClose={closePay}
         />
 
         <ConfirmDialog
@@ -871,14 +1236,32 @@ export function PayoutsPage() {
                 [
                   ['orders', `All orders (${visibleOrders.length})`],
                   ['awaiting', `Unpaid (${awaitingPaged.total})`],
-                  ['settlements', `Settlements (${total})`],
-                ] as const
+                  ['settlements', total > 0 ? `Settlements (${awaitingVendorAck}/${total})` : 'Settlements'],
+                  ...(subscriptionBills.length > 0
+                    ? ([
+                        [
+                          'subscription',
+                          subscriptionDueBills.length > 0
+                            ? `Subscription (${subscriptionDueBills.length} due)`
+                            : 'Subscription',
+                        ],
+                      ] as const)
+                    : []),
+                  ...(subscriptionPaidBills.length > 0
+                    ? ([['subscriptionHistory', 'Subscription Payment History']] as const)
+                    : []),
+                ] as ReadonlyArray<readonly [PayoutPane, string]>
               ).map(([key, label]) => (
                 <button
                   key={key}
                   type="button"
                   role="tab"
                   aria-selected={activePane === key}
+                  title={
+                    key === 'settlements' && total > 0
+                      ? `${awaitingVendorAck} of ${total} not confirmed yet`
+                      : undefined
+                  }
                   style={activePane === key ? styles.paneTabOn : styles.paneTab}
                   onClick={() => setPane(key)}
                 >
@@ -888,17 +1271,18 @@ export function PayoutsPage() {
             </div>
             <div style={styles.toolbar}>
               {activePane === 'settlements' ? (
-                <select
-                  style={styles.select}
-                  value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value as 'all' | 'PAID' | 'OPEN')}
-                  aria-label="Settlement status"
-                >
-                  <option value="all">All status</option>
-                  <option value="PAID">Paid</option>
-                  <option value="OPEN">Open</option>
-                </select>
+              <select
+                style={styles.select}
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value as 'all' | 'PAID' | 'OPEN')}
+                aria-label="Settlement status"
+              >
+                <option value="all">All status</option>
+                <option value="PAID">Paid</option>
+                <option value="OPEN">Open</option>
+              </select>
               ) : null}
+              {!subscriptionPane ? (
               <select
                 style={styles.select}
                 value={pageSize}
@@ -911,42 +1295,37 @@ export function PayoutsPage() {
                   </option>
                 ))}
               </select>
+              ) : null}
             </div>
           </div>
-          <DateRangePresetBar
-            dense
-            alwaysShowDateInputs
-            preset={datePreset}
-            from={periodFrom}
-            to={periodTo}
-            onPresetChange={setDatePreset}
-            onFromChange={setPeriodFrom}
-            onToChange={setPeriodTo}
-            options={PAYOUT_DATE_OPTIONS}
-            ariaLabel="Period"
-          />
+          {!subscriptionPane ? (
+            <DateRangePresetBar
+              dense
+              alwaysShowDateInputs
+              preset={datePreset}
+              from={periodFrom}
+              to={periodTo}
+              onPresetChange={setDatePreset}
+              onFromChange={setPeriodFrom}
+              onToChange={setPeriodTo}
+              options={PAYOUT_DATE_OPTIONS}
+              ariaLabel="Period"
+            />
+          ) : null}
           <p style={styles.formulaHint}>
-            {activePane === 'orders'
-              ? 'Every delivered bag (by order date) with its payout status — paid orders stay visible here.'
+            {activePane === 'subscription'
+              ? 'Only the plan bill that is still open. Paid months are under Subscription Payment History, and this fee is never taken from your order payout.'
+              : activePane === 'subscriptionHistory'
+                ? 'Plan bills you have already settled. They are not added to anything you owe now.'
+              : activePane === 'orders'
+              ? 'Every delivered bag (by delivery date) with its payout status. Commission on online / rider-cash bags is cut from your payout; you pay KoyaKart only "To KoyaKart" (commission on cash your shop kept).'
               : activePane === 'awaiting'
-                ? 'Unsettled delivered bags. Hub / online money: KoyaKart pays you Bag total − fee. Cash with your shop: you keep it and pay only the fee to KoyaKart.'
-                : 'Net = Gross − fees − claims − other. Tap a settlement\'s orders to see which bags it paid. Filter matches the orders window.'}
-            {periodFrom || periodTo
+                ? 'Delivered bags not paid yet. Online / hub cash: KoyaKart pays you bag total − fee. Cash in shop: you keep it and pay only the fee.'
+                : 'Each row is one payout from KoyaKart: Net = Gross − commission − claims − other. Listed by the day the money was sent (open ones by delivery window). Tap "Show orders" to see the bags.'}
+            {!subscriptionPane && (periodFrom || periodTo)
               ? ` · ${formatDay(periodFrom || null)} → ${formatDay(periodTo || null)}`
               : ''}
           </p>
-
-          {activePane === 'awaiting' && visibleAwaiting.length > 0 ? (
-            <MoneyFlowSummary
-              title={periodFilterActive ? 'This period' : 'All shown bags'}
-              held={periodBuyerMoneyHeld}
-              gross={periodAwaitingGross}
-              fees={periodAwaitingFee}
-              netToVendor={periodSplit.payNet}
-              showSettleSteps={false}
-              footnote="KoyaKart pays you after a payout batch (gross − fees). Hub COD must be remitted hub → KoyaKart (COD bill). Shop-held COD is settled on Vendor pays KoyaKart."
-            />
-          ) : null}
 
           {activePane === 'orders' ? (
             loading && deliveredRows.length === 0 ? (
@@ -959,15 +1338,24 @@ export function PayoutsPage() {
                   <table style={styles.table}>
                     <thead>
                       <tr>
-                        <th style={styles.thPlain}>Placed</th>
-                        <th style={styles.thPlain}>Order</th>
-                        <th style={styles.thPlain}>Pay</th>
-                        <th style={{ ...styles.thPlain, textAlign: 'right' }}>Bag total</th>
-                        <th style={{ ...styles.thPlain, textAlign: 'right' }}>Commission</th>
-                        <th style={{ ...styles.thPlain, textAlign: 'right' }}>Claims</th>
-                        <th style={{ ...styles.thPlain, textAlign: 'right' }}>You get</th>
-                        <th style={styles.thPlain}>Payout</th>
-                        <th style={styles.thPlain}>Settlement</th>
+                        <th style={styles.thFit}>Delivered</th>
+                        <th style={styles.thFit}>Order</th>
+                        <th style={styles.thFit}>Pay</th>
+                        <th style={styles.thFitRight}>Bag total</th>
+                        <th
+                          style={styles.thFitRight}
+                          title="KoyaKart's fee on every bag. For online and rider-cash bags it is taken out of your payout — you don't pay it separately."
+                        >
+                          Commission
+                        </th>
+                        <th style={styles.thFitRight}>Net Earnings</th>
+                        <th
+                          style={{ ...styles.thFit, textAlign: 'center' }}
+                          title="Commission on bags where your shop kept the cash. KoyaKart received nothing, so this is the only commission you pay."
+                        >
+                          To KoyaKart
+                        </th>
+                        <th style={{ ...styles.thPlain, paddingLeft: '1.4rem' }}>Payout</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -979,59 +1367,82 @@ export function PayoutsPage() {
                         return (
                           <tr key={row.subOrderId}>
                             <td style={styles.tdMuted}>
-                              {row.placedAt
-                                ? new Date(row.placedAt).toLocaleString(undefined, {
-                                    day: '2-digit',
-                                    month: 'short',
-                                    hour: '2-digit',
-                                    minute: '2-digit',
-                                  })
-                                : '—'}
+                              {shortWhen(payoutAt(row))}
+                              <div style={styles.subOrderNo}>Placed {shortWhen(row.placedAt)}</div>
                             </td>
                             <td style={styles.td}>
-                              <strong>{row.orderNumber}</strong>
-                              <div style={styles.sub}>{row.subOrderNumber}</div>
+                              <div style={styles.orderNo}>{row.orderNumber}</div>
+                              <div style={styles.subOrderNo}>{row.subOrderNumber}</div>
                             </td>
                             <td style={styles.tdMuted}>{row.paymentMethod || '—'}</td>
                             <td style={styles.tdRight}>{formatMoney(row.subtotal)}</td>
                             <td style={{ ...styles.tdRight, color: 'var(--metric-commission)' }}>
                               {m.fee == null ? '—' : `− ${formatMoney(m.fee)}`}
                               {m.fee != null && m.estimated ? <div style={styles.sub}>est.</div> : null}
+                              {m.claim > 0 ? (
+                                <div style={{ ...styles.sub, color: 'var(--metric-claim)' }}>
+                                  Claim − {formatMoney(m.claim)}
+                                </div>
+                              ) : null}
                             </td>
-                            <td style={{ ...styles.tdRight, color: m.claim > 0 ? 'var(--metric-claim)' : 'var(--text-muted)' }}>
-                              {m.claim > 0 ? `− ${formatMoney(m.claim)}` : '—'}
-                            </td>
-                            <td style={{ ...styles.tdRight, color: 'var(--metric-paid)' }}>
+                            <td
+                              style={{
+                                ...styles.tdRight,
+                                color: paid || shopHeld ? 'var(--metric-paid)' : 'var(--metric-awaiting)',
+                              }}
+                            >
                               {m.net == null ? '—' : formatMoney(m.net)}
-                              <div style={styles.sub}>
+                              <div
+                                style={{
+                                  ...styles.netNote,
+                                  color: paid
+                                    ? 'var(--metric-paid)'
+                                    : shopHeld
+                                      ? 'var(--text-muted)'
+                                      : 'var(--metric-awaiting)',
+                                }}
+                              >
                                 {shopHeld
                                   ? paid
-                                    ? 'Kept cash · fee paid'
-                                    : 'Kept cash · fee owed'
+                                    ? '✓ Cash in shop · fee paid'
+                                    : 'Cash in shop'
                                   : paid
-                                    ? 'From KoyaKart'
-                                    : 'KoyaKart to pay'}
+                                    ? '✓ Received'
+                                    : 'KoyaKart yet to pay'}
                               </div>
                             </td>
-                            <td style={styles.td}>
+                            {m.owed > 0 ? (
+                              <td style={{ ...styles.tdRight, textAlign: 'center', color: 'var(--metric-commission)' }}>
+                                {formatMoney(m.owed)}
+                                <div style={styles.sub}>Fee to pay</div>
+                              </td>
+                            ) : paid && m.fee != null && m.fee > 0 ? (
+                              <td
+                                style={{ ...styles.tdRight, textAlign: 'center', color: 'var(--text-muted)' }}
+                                title={shopHeld ? 'You paid this fee to KoyaKart' : 'KoyaKart kept this fee from your payout'}
+                              >
+                                {formatMoney(m.fee)}
+                                <div style={{ ...styles.netNote, color: 'var(--metric-paid)' }}>✓ Paid to KoyaKart</div>
+                              </td>
+                            ) : (
+                              <td style={{ ...styles.tdRight, textAlign: 'center', color: 'var(--text-muted)' }}>—</td>
+                            )}
+                            <td style={{ ...styles.td, paddingLeft: '1.4rem' }}>
                               <span style={paid ? styles.paid : shopHeld ? styles.feeDue : styles.open}>
                                 {paid ? 'PAID' : shopHeld ? 'Fee due' : 'Unpaid'}
                               </span>
                               {paid && payout?.paidAt ? (
-                                <div style={styles.sub}>{formatPaidAt(payout.paidAt)}</div>
+                                <span style={styles.payoutWhen}> {shortWhen(payout.paidAt)}</span>
                               ) : null}
-                            </td>
-                            <td style={styles.tdMuted}>
                               {paid ? (
-                                <>
-                                  <div>{formatPeriodRange(payout?.periodStart, payout?.periodEnd)}</div>
-                                  <div style={styles.sub}>
-                                    {payout?.payoutMethod ?? '—'} · {payout?.transactionReference || 'No txn ref'}
-                                  </div>
-                                </>
-                              ) : (
-                                '—'
-                              )}
+                                <div
+                                  style={styles.payoutRef}
+                                  title={`${formatPeriodRange(payout?.periodStart, payout?.periodEnd)} · ${payout?.payoutMethod ?? '—'} · ${payout?.transactionReference || 'No txn ref'}`}
+                                >
+                                  {formatPeriodRange(payout?.periodStart, payout?.periodEnd)} · {payout?.payoutMethod ?? '—'}
+                                  {payout?.transactionReference ? ` · ${payout.transactionReference}` : ''}
+                                </div>
+                              ) : null}
                             </td>
                           </tr>
                         );
@@ -1047,9 +1458,14 @@ export function PayoutsPage() {
                         <td style={{ ...styles.tfRight, color: 'var(--metric-commission)' }}>
                           − {formatMoney(ordersTotals.paidFee)}
                         </td>
-                        <td style={styles.tf} />
                         <td style={{ ...styles.tfRight, color: 'var(--metric-paid)' }}>{formatMoney(ordersTotals.paidNet)}</td>
-                        <td style={styles.tf} colSpan={2} />
+                        <td style={{ ...styles.tfRight, textAlign: 'center', color: 'var(--text-muted)' }}>
+                          {ordersTotals.paidFee > 0 ? formatMoney(ordersTotals.paidFee) : '—'}
+                          {ordersTotals.paidFee > 0 ? (
+                            <div style={{ ...styles.netNote, color: 'var(--metric-paid)' }}>✓ Paid to KoyaKart</div>
+                          ) : null}
+                        </td>
+                        <td style={styles.tf} />
                       </tr>
                       <tr>
                         <td style={styles.tfLabel} colSpan={3}>
@@ -1060,9 +1476,16 @@ export function PayoutsPage() {
                         <td style={{ ...styles.tfRight, color: 'var(--metric-commission)' }}>
                           − {formatMoney(ordersTotals.unpaidFee)}
                         </td>
-                        <td style={styles.tf} />
                         <td style={{ ...styles.tfRight, color: 'var(--metric-paid)' }}>{formatMoney(ordersTotals.unpaidNet)}</td>
-                        <td style={styles.tf} colSpan={2} />
+                        <td style={{ ...styles.tfRight, textAlign: 'center', color: ordersTotals.owed > 0 ? 'var(--metric-commission)' : 'var(--text-muted)' }}>
+                          {ordersTotals.owed > 0 ? formatMoney(ordersTotals.owed) : '—'}
+                          {ordersTotals.owedCount > 0 ? (
+                            <div style={styles.sub}>
+                              Fee on {ordersTotals.owedCount} cash-in-shop bag{ordersTotals.owedCount === 1 ? '' : 's'}
+                            </div>
+                          ) : null}
+                        </td>
+                        <td style={styles.tf} />
                       </tr>
                       <tr>
                         <td style={styles.tfFinalLabel} colSpan={3}>
@@ -1073,14 +1496,23 @@ export function PayoutsPage() {
                         </td>
                         <td style={{ ...styles.tfFinalValue, color: 'var(--metric-commission)' }}>
                           − {formatMoney(ordersTotals.paidFee + ordersTotals.unpaidFee)}
-                        </td>
-                        <td style={{ ...styles.tfFinalValue, color: 'var(--metric-claim)' }}>
-                          {ordersTotals.claims > 0 ? `− ${formatMoney(ordersTotals.claims)}` : '—'}
+                          {ordersTotals.claims > 0 ? (
+                            <div style={{ ...styles.tfNote, color: 'var(--metric-claim)' }}>
+                              Claims − {formatMoney(ordersTotals.claims)}
+                            </div>
+                          ) : null}
+                          <div style={styles.tfNote}>A small share that brought you these orders</div>
                         </td>
                         <td style={styles.tfFinalValue}>
                           {formatMoney(ordersTotals.paidNet + ordersTotals.unpaidNet)}
                         </td>
-                        <td style={styles.tfFinal} colSpan={2} />
+                        <td style={{ ...styles.tfFinalValue, textAlign: 'center', color: 'var(--metric-commission)' }}>
+                          {ordersTotals.owed > 0 ? formatMoney(ordersTotals.owed) : '—'}
+                          <div style={{ ...styles.tfNote, marginRight: 'auto' }}>
+                            {ordersTotals.owed > 0 ? 'Only amount you pay' : 'Nothing to pay'}
+                          </div>
+                        </td>
+                        <td style={styles.tfFinal} />
                       </tr>
                     </tfoot>
                   </table>
@@ -1105,36 +1537,46 @@ export function PayoutsPage() {
             ) : (
               <>
                 <div style={styles.tableWrap}>
-                  <table style={styles.table}>
+                  <table style={{ ...styles.table, tableLayout: 'fixed' }}>
+                    <colgroup>
+                      <col style={{ width: '15%' }} />
+                      <col style={{ width: '20%' }} />
+                      <col style={{ width: '8%' }} />
+                      <col style={{ width: '9%' }} />
+                      <col style={{ width: '11%' }} />
+                      <col style={{ width: '10%' }} />
+                      <col style={{ width: '15%' }} />
+                      <col style={{ width: '12%' }} />
+                    </colgroup>
                     <thead>
                       <tr>
                         <SortableTh
-                          label="Placed"
+                          label="Delivered"
                           column="placed"
                           sort={awaitingSort}
                           onSort={(c) => setAwaitingSort((p) => toggleSort(p, c))}
-                          style={styles.th}
+                          style={styles.thSortFit}
                         />
                         <SortableTh
                           label="Order"
                           column="order"
                           sort={awaitingSort}
                           onSort={(c) => setAwaitingSort((p) => toggleSort(p, c))}
-                          style={styles.th}
+                          style={styles.thSortFit}
                         />
                         <SortableTh
                           label="Pay"
                           column="pay"
                           sort={awaitingSort}
                           onSort={(c) => setAwaitingSort((p) => toggleSort(p, c))}
-                          style={styles.th}
+                          style={styles.thSortFit}
                         />
                         <SortableTh
-                          label="Buyer cash with"
+                          label="Cash with"
                           column="cash"
                           sort={awaitingSort}
                           onSort={(c) => setAwaitingSort((p) => toggleSort(p, c))}
-                          style={styles.th}
+                          style={styles.thSortFit}
                         />
                         <SortableTh
                           label="Bag total"
@@ -1142,11 +1584,11 @@ export function PayoutsPage() {
                           sort={awaitingSort}
                           onSort={(c) => setAwaitingSort((p) => toggleSort(p, c))}
                           align="right"
-                          style={styles.th}
+                          style={{ ...styles.thSortFit, paddingLeft: '1.4rem' }}
                         />
-                        <th style={{ ...styles.thPlain, textAlign: 'right' }}>Est. fee</th>
-                        <th style={{ ...styles.thPlain, textAlign: 'right' }}>KoyaKart pays you</th>
-                        <th style={styles.thPlain}>Status</th>
+                        <th style={styles.thFitRight}>Est. fee</th>
+                        <th style={styles.thFitRight}>KoyaKart pays you</th>
+                        <th style={{ ...styles.thPlain, paddingLeft: '1.4rem' }}>Status</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1157,46 +1599,36 @@ export function PayoutsPage() {
                         return (
                         <tr key={row.subOrderId}>
                           <td style={styles.tdMuted}>
-                            {row.placedAt
-                              ? new Date(row.placedAt).toLocaleString(undefined, {
-                                  day: '2-digit',
-                                  month: 'short',
-                                  hour: '2-digit',
-                                  minute: '2-digit',
-                                })
-                              : '—'}
+                            {shortWhen(payoutAt(row))}
+                            <div style={styles.subOrderNo}>Placed {shortWhen(row.placedAt)}</div>
                           </td>
                           <td style={styles.td}>
-                            <strong>{row.orderNumber}</strong>
-                            <div style={styles.sub}>{row.subOrderNumber}</div>
+                            <div style={styles.orderNo}>{row.orderNumber}</div>
+                              <div style={styles.subOrderNo}>{row.subOrderNumber}</div>
                           </td>
                           <td style={styles.tdMuted}>{row.paymentMethod || '—'}</td>
-                          <td style={styles.td}>
+                          <td style={styles.td} title={holder.holderDetail || undefined}>
                             <span style={holderChip(holder.holderRole)}>{holder.holderLabel}</span>
-                            {holder.holderDetail ? (
-                              <div style={styles.sub}>{holder.holderDetail}</div>
-                            ) : null}
                           </td>
                           <td style={styles.tdRight}>{formatMoney(row.subtotal)}</td>
                           <td style={{ ...styles.tdRight, color: 'var(--metric-commission)' }}>
                             {fee == null ? '—' : `− ${formatMoney(fee)}`}
                           </td>
                           {shopHeld ? (
-                            <td style={{ ...styles.tdRight, color: 'var(--text-muted)' }}>
-                              {formatMoney(0)}
-                              <div style={styles.sub}>
-                                You hold {formatMoney(row.subtotal)}
-                                {fee != null ? ` · owe ${formatMoney(fee)} fee` : ''}
-                              </div>
+                            <td
+                              style={{ ...styles.tdRight, color: 'var(--text-muted)' }}
+                              title="You already have this cash — only the fee goes to KoyaKart"
+                            >
+                              —
                             </td>
                           ) : (
-                            <td style={{ ...styles.tdRight, color: 'var(--metric-paid)' }}>
+                            <td style={{ ...styles.tdRight, color: 'var(--metric-awaiting)', fontWeight: 800 }}>
                               {fee == null ? '—' : formatMoney(Number(row.subtotal ?? 0) - fee)}
                             </td>
                           )}
-                          <td style={styles.td}>
+                          <td style={{ ...styles.td, paddingLeft: '1.4rem' }}>
                             <span style={shopHeld ? styles.feeDue : styles.open}>
-                              {shopHeld ? 'Fee due' : 'Unpaid'}
+                              {shopHeld ? 'Pay fee' : 'Coming'}
                             </span>
                           </td>
                         </tr>
@@ -1206,54 +1638,43 @@ export function PayoutsPage() {
                     <tfoot>
                       <tr>
                         <td style={styles.tfLabel} colSpan={4}>
-                          App / hub money · {periodSplit.payCount} bag{periodSplit.payCount === 1 ? '' : 's'}
-                          <div style={styles.sub}>KoyaKart holds this money and pays you</div>
+                          Online / hub · {periodSplit.payCount} bag{periodSplit.payCount === 1 ? '' : 's'}
+                          {pendingClaimDebitTotal > 0 ? (
+                            <span style={{ ...styles.tfInline, color: 'var(--metric-claim)' }}>
+                              {' '}· − {formatMoney(pendingClaimDebitTotal)} claims
+                            </span>
+                          ) : null}
                         </td>
                         <td style={styles.tfRight}>{formatMoney(periodSplit.payGross)}</td>
                         <td style={{ ...styles.tfRight, color: 'var(--metric-commission)' }}>
                           {feeQuote ? `− ${formatMoney(periodSplit.payFee)}` : '—'}
                         </td>
-                        <td style={{ ...styles.tfRight, color: 'var(--metric-paid)' }}>
-                          {feeQuote ? formatMoney(periodSplit.payNet) : '—'}
+                        <td style={{ ...styles.tfRight, color: 'var(--metric-awaiting)' }}>
+                          {feeQuote ? formatMoney(Math.max(0, periodSplit.payNet - pendingClaimDebitTotal)) : '—'}
                         </td>
-                        <td style={styles.tf} />
+                        <td style={{ ...styles.tf, paddingLeft: '1.4rem' }}>
+                          <span style={styles.tfInline}>KoyaKart pays you</span>
+                        </td>
                       </tr>
                       {periodSplit.shopCount > 0 ? (
                         <tr>
                           <td style={styles.tfLabel} colSpan={4}>
-                            Cash with your shop · {periodSplit.shopCount} bag{periodSplit.shopCount === 1 ? '' : 's'}
-                            <div style={styles.sub}>You already have this cash — only the fee goes to KoyaKart</div>
+                            Cash in shop · {periodSplit.shopCount} bag{periodSplit.shopCount === 1 ? '' : 's'}
                           </td>
                           <td style={styles.tfRight}>{formatMoney(periodSplit.shopGross)}</td>
                           <td style={{ ...styles.tfRight, color: 'var(--metric-commission)' }}>
                             {feeQuote ? `− ${formatMoney(periodSplit.shopFee)}` : '—'}
                           </td>
-                          <td style={{ ...styles.tfRight, color: 'var(--text-muted)' }}>{formatMoney(0)}</td>
-                          <td style={styles.tf}>
-                            <span style={styles.feeDue}>Fee due</span>
+                          <td style={{ ...styles.tfRight, color: 'var(--text-muted)' }}>—</td>
+                          <td style={{ ...styles.tf, paddingLeft: '1.4rem' }}>
+                            <span style={styles.tfInline}>You pay {feeQuote ? formatMoney(periodSplit.shopFee) : '—'} fee</span>
                           </td>
-                        </tr>
-                      ) : null}
-                      {pendingClaimDebitTotal > 0 ? (
-                        <tr>
-                          <td style={styles.tfLabel} colSpan={6}>
-                            Pending claim deductions
-                            <div style={styles.sub}>Taken from your next payout</div>
-                          </td>
-                          <td style={{ ...styles.tfRight, color: 'var(--metric-claim)' }}>
-                            − {formatMoney(pendingClaimDebitTotal)}
-                          </td>
-                          <td style={styles.tf} />
                         </tr>
                       ) : null}
                       <tr>
                         <td style={styles.tfFinalLabel} colSpan={6}>
-                          Final amount KoyaKart pays you
+                          KoyaKart pays you
                           {awaitingPaged.totalPages > 1 ? ' (all pages)' : ''}
-                          <div style={styles.sub}>
-                            {formatMoney(periodSplit.payGross)} − {formatMoney(periodSplit.payFee)} fee
-                            {pendingClaimDebitTotal > 0 ? ` − ${formatMoney(pendingClaimDebitTotal)} claims` : ''}
-                          </div>
                         </td>
                         <td style={styles.tfFinalValue}>
                           {feeQuote ? formatMoney(Math.max(0, periodSplit.payNet - pendingClaimDebitTotal)) : '—'}
@@ -1262,34 +1683,14 @@ export function PayoutsPage() {
                       </tr>
                       {periodSplit.shopCount > 0 ? (
                         <tr>
-                          <td style={styles.tfLabel} colSpan={6}>
-                            You pay KoyaKart (fee on shop cash)
-                            <div style={styles.sub}>Separate payment on Vendor pays KoyaKart — not deducted above</div>
+                          <td style={styles.tfOweLabel} colSpan={6}>
+                            You pay KoyaKart
+                            <span style={styles.tfInline}> · fee on cash kept in your shop</span>
                           </td>
-                          <td style={{ ...styles.tfRight, color: 'var(--metric-commission)' }}>
-                            {feeQuote ? formatMoney(periodSplit.shopFee) : '—'}
-                          </td>
-                          <td style={styles.tf} />
+                          <td style={styles.tfOweValue}>{feeQuote ? formatMoney(periodSplit.shopFee) : '—'}</td>
+                          <td style={styles.tfOwe} />
                         </tr>
                       ) : null}
-                      <tr>
-                        <td style={styles.tfLabel} colSpan={6}>
-                          Your total earning · {visibleAwaiting.length} bag{visibleAwaiting.length === 1 ? '' : 's'}
-                          <div style={styles.sub}>
-                            {formatMoney(periodAwaitingGross)} sales − {formatMoney(periodAwaitingFee)} fees
-                            {pendingClaimDebitTotal > 0 ? ` − ${formatMoney(pendingClaimDebitTotal)} claims` : ''}
-                            {periodSplit.shopCount > 0
-                              ? ` (= KoyaKart payout + ${formatMoney(periodSplit.shopGross - periodSplit.shopFee)} kept from shop cash)`
-                              : ''}
-                          </div>
-                        </td>
-                        <td style={styles.tfRight}>
-                          {feeQuote
-                            ? formatMoney(Math.max(0, periodAwaitingGross - periodAwaitingFee - pendingClaimDebitTotal))
-                            : '—'}
-                        </td>
-                        <td style={styles.tf} />
-                      </tr>
                     </tfoot>
                   </table>
                 </div>
@@ -1304,6 +1705,92 @@ export function PayoutsPage() {
                   />
                 </div>
               </>
+            )
+          ) : subscriptionPane ? (
+            subscriptionShown.length === 0 ? (
+              <p style={styles.empty}>
+                {activePane === 'subscriptionHistory' ? 'No subscription payment history yet.' : 'No plan bill due right now.'}
+              </p>
+            ) : (
+            <div style={styles.tableWrap}>
+              <table style={styles.table}>
+                <thead>
+                  <tr>
+                    <th style={styles.thPlain}>Month</th>
+                    <th style={{ ...styles.thPlain, textAlign: 'right' }}>Amount</th>
+                    <th style={styles.thPlain}>Status</th>
+                    <th style={styles.thPlain}>Your payment</th>
+                    <th style={styles.thPlain}>Bill</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {subscriptionShown.map((b, rowIndex) => {
+                      const tone =
+                        b.status === 'PAID'
+                          ? { label: 'Paid', color: '#047857', background: '#dcfce7' }
+                          : b.status === 'PAYMENT_SUBMITTED'
+                            ? { label: 'KoyaKart checking', color: '#1d4ed8', background: '#dbeafe' }
+                            : b.status === 'REJECTED'
+                              ? { label: 'Rejected', color: '#991b1b', background: '#fee2e2' }
+                              : { label: 'Due', color: '#9a3412', background: '#ffedd5' };
+                      return (
+                        <tr key={b.month} style={rowIndex % 2 === 1 ? styles.zebra : undefined}>
+                          <td style={styles.td}>
+                            <div style={styles.periodMain}>{subscriptionMonthName(b.month)}</div>
+                            {b.invoiceNumber ? <div style={styles.sub}>{b.invoiceNumber}</div> : null}
+                          </td>
+                          <td style={{ ...styles.tdRight, fontWeight: 800 }}>{formatMoney(Number(b.amount ?? 0))}</td>
+                          <td style={styles.td}>
+                            <span style={{ ...styles.subPill, color: tone.color, background: tone.background }}>
+                              {tone.label}
+                            </span>
+                            {b.status === 'REJECTED' && b.rejectReason ? (
+                              <div style={styles.rejectWhy}>{b.rejectReason}</div>
+                            ) : null}
+                          </td>
+                          <td style={styles.td}>
+                            {b.status === 'SENT' || b.status === 'REJECTED' ? (
+                              <button type="button" style={styles.payBtn} onClick={() => openPay(b)}>
+                                {b.status === 'REJECTED' ? 'Pay again' : `Pay ${formatMoney(Number(b.amount ?? 0))}`}
+                              </button>
+                            ) : b.vendorPaymentReference ? (
+                              <>
+                                <div>{b.vendorPaymentMethod ?? '—'}</div>
+                                <div style={styles.sub}>
+                                  UTR {b.vendorPaymentReference}
+                                  {b.vendorPaidAt ? ` · ${formatPaidAt(b.vendorPaidAt)}` : ''}
+                                </div>
+                              </>
+                            ) : (
+                              <span style={styles.sub}>—</span>
+                            )}
+                          </td>
+                          <td style={styles.td}>
+                            <button
+                              type="button"
+                              style={styles.billBtn}
+                              onClick={() =>
+                                downloadVendorServiceBill(subscriptionBillAsSettlement(b), supplierParty(), recipientParty())
+                              }
+                            >
+                              Bill
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                </tbody>
+                {activePane === 'subscription' && subscriptionShown.length > 1 ? (
+                  <tfoot style={styles.tfoot}>
+                    <tr>
+                      <td style={styles.tfLabel}>Due now</td>
+                      <td style={styles.tfRight}>{formatMoney(subscriptionDueTotal)}</td>
+                      <td style={styles.tf} colSpan={3} />
+                    </tr>
+                  </tfoot>
+                ) : null}
+              </table>
+            </div>
             )
           ) : loading && settlements.length === 0 ? (
             <p style={styles.muted}>Loading…</p>
@@ -1329,21 +1816,21 @@ export function PayoutsPage() {
                 <table style={styles.table}>
                   <thead>
                     <tr>
-                      <SortableTh label="Orders window" column="period" sort={sort} onSort={(c) => setSort((p) => toggleSort(p, c))} style={styles.th} />
+                      <SortableTh label="Delivery window" column="period" sort={sort} onSort={(c) => setSort((p) => toggleSort(p, c))} style={styles.th} />
                       <SortableTh label="Gross" column="gross" sort={sort} onSort={(c) => setSort((p) => toggleSort(p, c))} align="right" style={styles.th} />
                       <SortableTh label="Commission" column="fee" sort={sort} onSort={(c) => setSort((p) => toggleSort(p, c))} align="right" style={styles.th} />
                       <SortableTh label="Claims" column="claims" sort={sort} onSort={(c) => setSort((p) => toggleSort(p, c))} align="right" style={styles.th} />
                       <SortableTh label="Other" column="other" sort={sort} onSort={(c) => setSort((p) => toggleSort(p, c))} align="right" style={styles.th} />
                       <SortableTh label="Net" column="net" sort={sort} onSort={(c) => setSort((p) => toggleSort(p, c))} align="right" style={styles.th} />
                       <SortableTh label="Status" column="status" sort={sort} onSort={(c) => setSort((p) => toggleSort(p, c))} style={styles.th} />
-                      <SortableTh label="Paid on" column="paidAt" sort={sort} onSort={(c) => setSort((p) => toggleSort(p, c))} style={styles.th} />
+                      <SortableTh label="Money sent on" column="paidAt" sort={sort} onSort={(c) => setSort((p) => toggleSort(p, c))} style={styles.th} />
                       <th style={styles.thPlain}>Mode / txn</th>
                       <th style={styles.thPlain}>Received</th>
                       <th style={styles.thPlain}>Bill</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {pageItems.map((s) => {
+                    {pageItems.map((s, rowIndex) => {
                       const claims = settlementClaimAmount(s);
                       const other = settlementOtherChargesAmount(s);
                       const claimLines = (s.lines ?? []).filter(
@@ -1360,10 +1847,13 @@ export function PayoutsPage() {
                       const expanded = expandedSettlementId === s.id;
                       return (
                       <Fragment key={s.id}>
-                      <tr>
+                      <tr style={rowIndex % 2 === 1 ? styles.zebra : undefined}>
                         <td style={styles.td}>
                           <div style={styles.periodMain}>
                             {formatPeriodRange(s.periodStart, s.periodEnd)}
+                            {paidLaterMonth(s) ? (
+                              <span style={styles.paidLater}> · paid in {paidLaterMonth(s)}</span>
+                            ) : null}
                           </div>
                           <div style={styles.sub}>
                             {s.periodType ? `${s.periodType} · ` : ''}
@@ -1390,9 +1880,11 @@ export function PayoutsPage() {
                           ) : null}
                         </td>
                         <td style={styles.tdRight}>{formatMoney(s.grossAmount)}</td>
-                        <td style={styles.tdRight}>{formatMoney(s.commissionAmount)}</td>
-                        <td style={{ ...styles.tdRight, color: claims > 0 ? 'var(--metric-claim)' : undefined }}>
-                          {formatMoney(claims)}
+                        <td style={{ ...styles.tdRight, color: 'var(--metric-commission)' }}>
+                          − {formatMoney(s.commissionAmount)}
+                        </td>
+                        <td style={{ ...styles.tdRight, color: claims > 0 ? 'var(--metric-claim)' : 'var(--text-muted)' }}>
+                          {claims > 0 ? `− ${formatMoney(claims)}` : '—'}
                           {claimLines.length > 0 ? (
                             <div style={styles.sub}>
                               {claimLines.length} chargeback{claimLines.length === 1 ? '' : 's'}
@@ -1401,28 +1893,23 @@ export function PayoutsPage() {
                             <div style={styles.sub}>Buyer credit clawback</div>
                           ) : null}
                         </td>
-                        <td style={{ ...styles.tdRight, color: other > 0 ? 'var(--metric-other)' : undefined }}>
-                          {formatMoney(other)}
+                        <td style={{ ...styles.tdRight, color: other > 0 ? 'var(--metric-other)' : 'var(--text-muted)' }}>
+                          {other > 0 ? `− ${formatMoney(other)}` : '—'}
                           {otherLines.length > 0 ? (
                             <div style={styles.sub}>
                               {otherLines.map((l) => l.description || 'Charge').join(' · ')}
                             </div>
                           ) : null}
                         </td>
-                        <td style={styles.tdRight}>{formatMoney(s.netAmount)}</td>
+                        <td style={{ ...styles.tdRight, color: 'var(--metric-paid)', fontWeight: 800 }}>
+                          {formatMoney(s.netAmount)}
+                        </td>
                         <td style={styles.td}>
-                          <span style={s.status === 'PAID' ? styles.paid : styles.open}>{s.status}</span>
+                          <span style={s.status === 'PAID' ? styles.paid : styles.open}>
+                            {s.status === 'PAID' ? 'PAID' : 'OPEN'}
+                          </span>
                         </td>
-                        <td style={styles.tdMuted}>
-                          {s.paidAt ? (
-                            <>
-                              <div>{formatPaidAt(s.paidAt)}</div>
-                              <div style={styles.sub}>Money sent</div>
-                            </>
-                          ) : (
-                            '—'
-                          )}
-                        </td>
+                        <td style={styles.tdMuted}>{s.paidAt ? formatPaidAt(s.paidAt) : '—'}</td>
                         <td style={styles.td}>
                           {s.status === 'PAID' ? (
                             <>
@@ -1434,12 +1921,50 @@ export function PayoutsPage() {
                           )}
                         </td>
                         <td style={styles.td}>
-                          {s.status !== 'PAID' ? (
+                          {isOpenVendorBill(s) ? (
+                            s.vendorPaidAt ? (
+                            <>
+                                <span style={styles.open}>KoyaKart checking</span>
+                                <div style={styles.sub}>UTR {s.vendorPaymentReference ?? '—'}</div>
+                            </>
+                          ) : (
+                              <>
+                                {s.vendorPaymentRejectedAt ? (
+                                  <div style={styles.rejectWhy} title={s.vendorPaymentRejectReason ?? undefined}>
+                                    KoyaKart: {s.vendorPaymentRejectReason || 'Payment rejected'}
+                                  </div>
+                                ) : null}
+                                <button type="button" style={styles.payBtn} onClick={() => openPayBill(s)}>
+                                  {s.vendorPaymentRejectedAt ? 'Pay again' : `Pay ${formatMoney(s.netAmount)}`}
+                                </button>
+                              </>
+                            )
+                          ) : s.status !== 'PAID' ? (
                             <span style={styles.sub}>—</span>
+                          ) : isCollectionSettlement(s) ? (
+                            <>
+                              <span style={styles.paid}>✓ Paid to KoyaKart</span>
+                              {s.transactionNotes ? <div style={styles.sub}>KoyaKart: {s.transactionNotes}</div> : null}
+                            </>
                           ) : s.vendorAcknowledgedAt ? (
                             <>
                               <span style={styles.paid}>RECEIVED</span>
                               <div style={styles.sub}>{formatPaidAt(s.vendorAcknowledgedAt)}</div>
+                            </>
+                          ) : s.vendorNotReceivedAt ? (
+                            <>
+                              <span style={styles.notReceived}>Not received · told KoyaKart</span>
+                              {s.vendorNotReceivedNote ? (
+                                <div style={styles.sub}>{s.vendorNotReceivedNote}</div>
+                              ) : null}
+                              <button
+                                type="button"
+                                style={styles.ackBtn}
+                                disabled={ackingId === s.id}
+                                onClick={() => setAckTarget(s)}
+                              >
+                                {ackingId === s.id ? 'Saving…' : 'I got it'}
+                              </button>
                             </>
                           ) : (
                             <button
@@ -1448,12 +1973,12 @@ export function PayoutsPage() {
                               disabled={ackingId === s.id}
                               onClick={() => setAckTarget(s)}
                             >
-                              {ackingId === s.id ? 'Saving…' : 'Ack receipt'}
+                              {ackingId === s.id ? 'Saving…' : 'I got it'}
                             </button>
                           )}
                         </td>
                         <td style={styles.td}>
-                          {s.status === 'PAID' ? (
+                          {s.status === 'PAID' || isOpenVendorBill(s) ? (
                             <button
                               type="button"
                               style={styles.billBtn}
@@ -1473,11 +1998,11 @@ export function PayoutsPage() {
                               <thead>
                                 <tr>
                                   <th style={styles.thPlain}>Order</th>
-                                  <th style={styles.thPlain}>Placed</th>
+                                  <th style={styles.thPlain}>Delivered</th>
                                   <th style={styles.thPlain}>Pay</th>
                                   <th style={{ ...styles.thPlain, textAlign: 'right' }}>Bag total</th>
                                   <th style={{ ...styles.thPlain, textAlign: 'right' }}>Commission</th>
-                                  <th style={{ ...styles.thPlain, textAlign: 'right' }}>You get</th>
+                                  <th style={{ ...styles.thPlain, textAlign: 'right' }}>Net Earnings</th>
                                 </tr>
                               </thead>
                               <tbody>
@@ -1491,18 +2016,11 @@ export function PayoutsPage() {
                                   return (
                                     <tr key={l.id}>
                                       <td style={styles.td}>
-                                        <strong>{l.orderNumber ?? sale?.orderNumber ?? 'Order'}</strong>
-                                        <div style={styles.sub}>{l.subOrderNumber ?? sale?.subOrderNumber ?? ''}</div>
+                                        <div style={styles.orderNo}>{l.orderNumber ?? sale?.orderNumber ?? 'Order'}</div>
+                                        <div style={styles.subOrderNo}>{l.subOrderNumber ?? sale?.subOrderNumber ?? ''}</div>
                                       </td>
                                       <td style={styles.tdMuted}>
-                                        {sale?.placedAt
-                                          ? new Date(sale.placedAt).toLocaleString(undefined, {
-                                              day: '2-digit',
-                                              month: 'short',
-                                              hour: '2-digit',
-                                              minute: '2-digit',
-                                            })
-                                          : '—'}
+                                        {sale ? shortWhen(payoutAt(sale)) : '—'}
                                       </td>
                                       <td style={styles.tdMuted}>{sale?.paymentMethod || '—'}</td>
                                       <td style={styles.tdRight}>{formatMoney(l.amount)}</td>
@@ -1511,11 +2029,11 @@ export function PayoutsPage() {
                                       </td>
                                       <td style={{ ...styles.tdRight, color: 'var(--metric-paid)' }}>
                                         {lineFee == null ? '—' : formatMoney(Number(l.amount ?? 0) - lineFee)}
-                                      </td>
-                                    </tr>
-                                  );
-                                })}
-                              </tbody>
+                        </td>
+                      </tr>
+                      );
+                    })}
+                  </tbody>
                             </table>
                           </td>
                         </tr>
@@ -1531,14 +2049,18 @@ export function PayoutsPage() {
                         {totalPages > 1 ? ' (all pages)' : ''}
                       </td>
                       <td style={styles.tfRight}>{formatMoney(settlementTotals.gross)}</td>
-                      <td style={styles.tfRight}>{formatMoney(settlementTotals.commission)}</td>
-                      <td style={{ ...styles.tfRight, color: settlementTotals.claims > 0 ? 'var(--metric-claim)' : undefined }}>
-                        {formatMoney(settlementTotals.claims)}
+                      <td style={{ ...styles.tfRight, color: 'var(--metric-commission)' }}>
+                        − {formatMoney(settlementTotals.commission)}
                       </td>
-                      <td style={{ ...styles.tfRight, color: settlementTotals.other > 0 ? 'var(--metric-other)' : undefined }}>
-                        {formatMoney(settlementTotals.other)}
+                      <td style={{ ...styles.tfRight, color: settlementTotals.claims > 0 ? 'var(--metric-claim)' : 'var(--text-muted)' }}>
+                        {settlementTotals.claims > 0 ? `− ${formatMoney(settlementTotals.claims)}` : '—'}
                       </td>
-                      <td style={styles.tfRight}>{formatMoney(settlementTotals.net)}</td>
+                      <td style={{ ...styles.tfRight, color: settlementTotals.other > 0 ? 'var(--metric-other)' : 'var(--text-muted)' }}>
+                        {settlementTotals.other > 0 ? `− ${formatMoney(settlementTotals.other)}` : '—'}
+                      </td>
+                      <td style={{ ...styles.tfRight, color: 'var(--metric-paid)', fontSize: '0.95rem' }}>
+                        {formatMoney(settlementTotals.net)}
+                      </td>
                       <td style={styles.tf} colSpan={5}>
                         <span style={styles.sub}>
                           {settlementTotals.paidCount} paid · {filtered.length - settlementTotals.paidCount} open
@@ -1575,7 +2097,7 @@ const styles: Record<string, CSSProperties> = {
   },
   summary: {
     display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 8.8rem), 1fr))',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 6.6rem), 1fr))',
     gap: '0.4rem',
     flexShrink: 0,
   },
@@ -1583,7 +2105,7 @@ const styles: Record<string, CSSProperties> = {
     display: 'grid',
     gap: '0.06rem',
     alignContent: 'start',
-    padding: '0.4rem 0.5rem',
+    padding: '0.3rem 0.45rem',
     borderRadius: 'var(--radius-md)',
     border: '1px solid var(--border)',
     background: 'var(--bg-elevated)',
@@ -1598,7 +2120,7 @@ const styles: Record<string, CSSProperties> = {
     display: 'grid',
     gap: '0.06rem',
     alignContent: 'start',
-    padding: '0.4rem 0.5rem',
+    padding: '0.3rem 0.45rem',
     borderRadius: 'var(--radius-md)',
     border: '1.5px solid var(--accent)',
     background: 'var(--accent-soft)',
@@ -1613,7 +2135,7 @@ const styles: Record<string, CSSProperties> = {
     display: 'grid',
     gap: '0.06rem',
     alignContent: 'start',
-    padding: '0.4rem 0.5rem',
+    padding: '0.3rem 0.45rem',
     borderRadius: 'var(--radius-md)',
     border: '1.5px solid #fdba74',
     background: '#fff7ed',
@@ -1625,27 +2147,93 @@ const styles: Record<string, CSSProperties> = {
     boxSizing: 'border-box',
   },
   metricLabel: {
-    fontSize: '0.68rem',
+    fontSize: '0.62rem',
     fontWeight: 700,
     color: 'var(--text-muted)',
     textTransform: 'uppercase',
     letterSpacing: '0.02em',
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
   },
-  metricValue: { fontFamily: 'var(--font-display)', fontSize: '1.28rem', fontWeight: 800, lineHeight: 1.1 },
+  metricValue: { fontFamily: 'var(--font-display)', fontSize: '1.08rem', fontWeight: 800, lineHeight: 1.15 },
   metricValueCommission: {
     fontFamily: 'var(--font-display)',
-    fontSize: '0.78rem',
-    fontWeight: 700,
-    lineHeight: 1.2,
+    fontSize: '1.08rem',
+    fontWeight: 800,
+    lineHeight: 1.15,
     color: 'var(--metric-commission)',
   },
   metricValueClaim: {
     fontFamily: 'var(--font-display)',
-    fontSize: '1.15rem',
+    fontSize: '1.08rem',
     fontWeight: 800,
     lineHeight: 1.15,
   },
-  metricHint: { fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 600 },
+  metricHint: {
+    fontSize: '0.64rem',
+    color: 'var(--text-muted)',
+    fontWeight: 600,
+    lineHeight: 1.3,
+    display: '-webkit-box',
+    WebkitLineClamp: 2,
+    WebkitBoxOrient: 'vertical',
+    overflow: 'hidden',
+  },
+  flowTag: {
+    fontSize: '0.58rem',
+    fontWeight: 800,
+    borderRadius: 'var(--radius-full)',
+    padding: '0 0.3rem',
+    whiteSpace: 'nowrap',
+    letterSpacing: '0.02em',
+  },
+  flowIn: { color: '#047857', background: '#dcfce7' },
+  flowComing: { color: '#9a3412', background: '#ffedd5' },
+  flowOut: { color: '#991b1b', background: '#fee2e2' },
+  flowSub: { color: '#6d28d9', background: '#ede9fe' },
+  subRow: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: '0.25rem',
+    fontSize: '0.66rem',
+    color: 'var(--text)',
+    fontWeight: 600,
+    padding: '0.1rem 0 0',
+  },
+  subMonth: { display: 'inline-flex', alignItems: 'center', gap: '0.3rem', flexWrap: 'wrap' },
+  subPill: {
+    fontSize: '0.62rem',
+    fontWeight: 800,
+    borderRadius: 'var(--radius-full)',
+    padding: '0.05rem 0.4rem',
+    whiteSpace: 'nowrap',
+  },
+  rejectWhy: { color: 'var(--danger, #dc2626)', fontWeight: 700 },
+  subActions: { display: 'inline-flex', gap: '0.35rem', alignItems: 'center', flexShrink: 0 },
+  payBtn: {
+    padding: '0.1rem 0.5rem',
+    borderRadius: 6,
+    border: '1px solid #7c3aed',
+    background: '#7c3aed',
+    color: '#fff',
+    fontWeight: 800,
+    fontSize: '0.7rem',
+    cursor: 'pointer',
+  },
+  payGrid: { display: 'grid', gridTemplateColumns: '8rem 1fr', gap: '0.45rem' },
+  payField: { display: 'grid', gap: '0.15rem' },
+  payLabel: { fontSize: '0.7rem', fontWeight: 800, color: 'var(--text-muted)' },
+  payInput: {
+    minHeight: 34,
+    padding: '0.3rem 0.5rem',
+    borderRadius: 8,
+    border: '1px solid var(--border)',
+    background: 'var(--bg-elevated)',
+    color: 'var(--text)',
+    fontSize: '0.85rem',
+  },
   formulaHint: {
     margin: 0,
     fontSize: '0.7rem',
@@ -1837,6 +2425,76 @@ const styles: Record<string, CSSProperties> = {
     verticalAlign: 'top',
   },
   sub: { color: 'var(--text-muted)', fontSize: '0.75rem', fontWeight: 500 },
+  orderNo: { fontWeight: 800, fontSize: '0.74rem', whiteSpace: 'nowrap', letterSpacing: '-0.01em' },
+  subOrderNo: { color: 'var(--text-muted)', fontSize: '0.66rem', fontWeight: 500, whiteSpace: 'nowrap' },
+  tfNote: {
+    color: 'var(--text-muted)',
+    fontSize: '0.68rem',
+    fontWeight: 500,
+    whiteSpace: 'normal',
+    lineHeight: 1.2,
+    maxWidth: 140,
+    marginLeft: 'auto',
+  },
+  thSortFit: { position: 'sticky', top: 0, background: 'var(--bg-muted)', zIndex: 1, whiteSpace: 'nowrap' },
+  tfOwe: { background: '#fef2f2', padding: '0.4rem 0.45rem', borderBottom: '2px solid #fca5a5' },
+  tfOweLabel: {
+    background: '#fef2f2',
+    padding: '0.4rem 0.45rem',
+    borderBottom: '2px solid #fca5a5',
+    fontWeight: 800,
+    fontSize: '0.9rem',
+    color: '#991b1b',
+  },
+  tfOweValue: {
+    background: '#fef2f2',
+    padding: '0.4rem 0.45rem',
+    borderBottom: '2px solid #fca5a5',
+    textAlign: 'right',
+    fontWeight: 900,
+    fontSize: '1rem',
+    color: 'var(--metric-commission)',
+    whiteSpace: 'nowrap',
+  },
+  tfInline: { fontSize: '0.72rem', fontWeight: 600, color: 'var(--text-muted)', whiteSpace: 'nowrap' },
+  thFit: {
+    position: 'sticky',
+    top: 0,
+    background: 'var(--bg-muted)',
+    padding: '0.4rem 0.45rem',
+    textAlign: 'left',
+    fontWeight: 700,
+    color: 'var(--text-muted)',
+    zIndex: 1,
+    borderBottom: '1px solid var(--border)',
+    width: '1%',
+    whiteSpace: 'nowrap',
+  },
+  thFitRight: {
+    position: 'sticky',
+    top: 0,
+    background: 'var(--bg-muted)',
+    padding: '0.4rem 0.45rem 0.4rem 1.4rem',
+    textAlign: 'right',
+    fontWeight: 700,
+    color: 'var(--text-muted)',
+    zIndex: 1,
+    borderBottom: '1px solid var(--border)',
+    width: '1%',
+    whiteSpace: 'nowrap',
+  },
+  netNote: { fontSize: '0.7rem', fontWeight: 700, whiteSpace: 'nowrap' },
+  zebra: { background: 'var(--bg-subtle, #f8faf9)' },
+  paidLater: { color: 'var(--text-muted)', fontSize: '0.72rem', fontWeight: 500 },
+  payoutWhen: { color: 'var(--text-muted)', fontSize: '0.7rem', whiteSpace: 'nowrap' },
+  payoutRef: {
+    color: 'var(--text-muted)',
+    fontSize: '0.68rem',
+    maxWidth: 280,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  },
   ackBody: { display: 'grid', gap: '0.3rem', color: 'var(--text)' },
   ackAmount: { fontSize: '1.5rem', fontWeight: 800, color: 'var(--metric-paid, #15803d)' },
   ackBtn: {
@@ -1870,6 +2528,7 @@ const styles: Record<string, CSSProperties> = {
     padding: '0.1rem 0.4rem',
     fontWeight: 700,
   },
+  notReceived: { color: '#9a3412', fontWeight: 800, fontSize: '0.72rem' },
   open: {
     fontSize: '0.68rem',
     color: '#92400e',
