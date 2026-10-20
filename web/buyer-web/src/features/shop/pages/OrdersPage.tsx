@@ -222,8 +222,8 @@ export function OrdersPage() {
                       onClick={() => openOrder(o)}
                     >
                       <div style={styles.rowMain}>
-                        <p style={styles.name}>{o.orderNumber}</p>
                         <div style={styles.metaRow}>
+                          <span style={styles.orderNo}>{o.orderNumber}</span>
                           <p style={styles.meta}>
                             {formatWhen(o.placedAt)}
                             {' · '}
@@ -326,16 +326,14 @@ const styles: Record<string, CSSProperties> = {
     gap: '0.4rem',
     minWidth: 0,
   },
-  name: {
-    margin: 0,
-    fontWeight: 800,
+  orderNo: {
+    flexShrink: 0,
     fontFamily: 'var(--font-display)',
-    fontSize: '0.8rem',
+    fontWeight: 800,
+    fontSize: '0.78rem',
+    letterSpacing: '-0.02em',
+    color: 'var(--text)',
     lineHeight: 1.2,
-    whiteSpace: 'nowrap',
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    minWidth: 0,
   },
   meta: {
     margin: 0,

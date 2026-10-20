@@ -112,7 +112,7 @@ export function HubPendingPaymentEditDialog({ open, token, row, onSaved, onClose
           <h2 style={styles.title}>{rejected ? 'Correct and resubmit' : 'Edit pending payment'}</h2>
           <p style={styles.amt}>{money(row.totalAmount)}</p>
         </div>
-        {rejected && rejectWhy ? <p style={styles.reject}>Rejected: {rejectWhy}</p> : null}
+        {rejected && rejectWhy ? <p style={styles.reject}>Not received: {rejectWhy}</p> : null}
         <p style={styles.hint}>
           {rejected
             ? 'Fix UTR, date, or note, then Save and Submit for KoyaKart to confirm again.'

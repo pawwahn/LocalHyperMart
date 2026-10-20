@@ -22,6 +22,7 @@ public final class CatalogAuditSnapshots {
         map.put("categoryName", item.getCategory() != null ? item.getCategory().getName() : null);
         map.put("unitCode", item.getUnit() != null ? item.getUnit().getCode() : null);
         map.put("mrp", decimal(item.getMrp()));
+        map.put("barcode", item.getBarcode());
         map.put("hsnCode", item.getHsnCode());
         map.put("gstPercent", decimal(item.getGstPercent()));
         map.put("cessPercent", decimal(item.getCessPercent()));

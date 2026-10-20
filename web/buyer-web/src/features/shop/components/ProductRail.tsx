@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, type CSSProperties } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type PointerEvent } from 'react';
 import type { CatalogItemView } from '../api/shopApi';
 import { ProductCard } from './ProductCard';
 
@@ -10,15 +10,9 @@ type Props = {
   onOpen: (item: CatalogItemView) => void;
   onIncrease: (listingId: string) => void;
   onDecrease: (listingId: string) => void;
+  /** Keep the row creeping so more products come into view. */
+  autoMove?: boolean;
 };
-
-const RAIL_TILE_W = 118;
-const RAIL_GAP = 8;
-const RAIL_STEP = RAIL_TILE_W + RAIL_GAP;
-/** Pixels per second — lower = slower scroll. */
-const MARQUEE_SPEED = 27;
-/** How long auto-scroll stays still after an arrow press. */
-const MANUAL_HOLD_MS = 6000;
 
 const RAIL_CSS = `
   .product-rail-viewport {
@@ -27,7 +21,15 @@ const RAIL_CSS = `
     margin: 0 -0.15rem;
     padding: 0 0.15rem 0.15rem;
     scrollbar-width: none;
+    scroll-snap-type: x mandatory;
+    scroll-behavior: smooth;
+  }
+  .product-rail-viewport.product-rail-viewport--auto {
+    scroll-snap-type: none;
     scroll-behavior: auto;
+  }
+  .product-rail-track > * {
+    scroll-snap-align: start;
   }
   .product-rail-viewport::-webkit-scrollbar { display: none; }
   .product-rail-track {
@@ -42,6 +44,12 @@ const RAIL_CSS = `
     }
     .product-rail-track {
       gap: 0.65rem;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .product-rail-viewport.product-rail-viewport--auto {
+      scroll-snap-type: x mandatory;
+      scroll-behavior: smooth;
     }
   }
 `;
@@ -85,7 +93,11 @@ function RailCard({
   );
 }
 
-/** Horizontal bestsellers strip. Auto-scrolls, with arrows to jump either way. */
+function prefersReducedMotion(): boolean {
+  return typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+
+/** Horizontal product strip. Swipe or use the arrows. Auto rails keep creeping. */
 export function ProductRail({
   title,
   items,
@@ -94,50 +106,76 @@ export function ProductRail({
   onOpen,
   onIncrease,
   onDecrease,
+  autoMove = false,
 }: Props) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const pausedRef = useRef(false);
-  const holdUntilRef = useRef(0);
+  const resumeTimer = useRef<number | null>(null);
+  const [hold, setHold] = useState(false);
 
-  const marqueeItems = useMemo(
-    () => (items.length > 1 ? [...items, ...items] : items),
-    [items],
-  );
+  function pauseAuto(ms?: number) {
+    pausedRef.current = true;
+    setHold(true);
+    if (resumeTimer.current != null) window.clearTimeout(resumeTimer.current);
+    if (ms != null) {
+      resumeTimer.current = window.setTimeout(() => {
+        pausedRef.current = false;
+        setHold(false);
+      }, ms);
+    }
+  }
+
+  function resumeAuto() {
+    if (resumeTimer.current != null) window.clearTimeout(resumeTimer.current);
+    pausedRef.current = false;
+    setHold(false);
+  }
 
   useEffect(() => {
-    if (items.length <= 1) return;
-    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    if (reduceMotion) return;
-
-    let raf = 0;
+    if (!autoMove || items.length < 3 || prefersReducedMotion()) return;
+    const el = viewportRef.current;
+    if (!el) return;
+    let frame = 0;
     let last = performance.now();
-    const tick = (now: number) => {
-      const el = viewportRef.current;
+    const step = (now: number) => {
       const dt = Math.min(now - last, 48);
       last = now;
-      if (el && !pausedRef.current && now >= holdUntilRef.current) {
-        el.scrollLeft += (MARQUEE_SPEED * dt) / 1000;
-        const half = el.scrollWidth / 2;
-        if (half > 0 && el.scrollLeft >= half) el.scrollLeft -= half;
+      if (!pausedRef.current && el.scrollWidth > el.clientWidth + 8) {
+        el.scrollLeft += dt * 0.038;
+        const loopAt = el.scrollWidth / 2;
+        if (loopAt > 0 && el.scrollLeft >= loopAt) {
+          el.scrollLeft -= loopAt;
+        }
       }
-      raf = requestAnimationFrame(tick);
+      frame = window.requestAnimationFrame(step);
     };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [items.length]);
+    frame = window.requestAnimationFrame(step);
+    return () => window.cancelAnimationFrame(frame);
+  }, [autoMove, items]);
+
+  useEffect(() => {
+    return () => {
+      if (resumeTimer.current != null) window.clearTimeout(resumeTimer.current);
+    };
+  }, []);
 
   function nudge(dir: -1 | 1) {
     const el = viewportRef.current;
     if (!el || items.length <= 1) return;
-    holdUntilRef.current = performance.now() + MANUAL_HOLD_MS;
-    const half = el.scrollWidth / 2;
-    const distance = Math.max(Math.round(el.clientWidth * 0.82), RAIL_STEP);
-    if (dir < 0 && el.scrollLeft < distance) {
-      el.scrollLeft += half;
-    } else if (dir > 0 && half > 0 && el.scrollLeft + distance > half) {
-      el.scrollLeft -= half;
-    }
-    el.scrollBy({ left: dir * distance, behavior: 'smooth' });
+    pauseAuto(4000);
+    const distance = Math.max(Math.round(el.clientWidth * 0.82), 126);
+    el.scrollBy({ left: dir * distance, behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
+  }
+
+  function onPointerEnter() {
+    if (autoMove) pauseAuto();
+  }
+
+  function onPointerLeave(event: PointerEvent<HTMLDivElement>) {
+    if (!autoMove) return;
+    const next = event.relatedTarget;
+    if (next instanceof Node && event.currentTarget.contains(next)) return;
+    resumeAuto();
   }
 
   if (items.length === 0) return null;
@@ -150,6 +188,8 @@ export function ProductRail({
     onDecrease,
   };
   const canMove = items.length > 1;
+  const loop = autoMove && items.length >= 3 && !prefersReducedMotion();
+  const shown = loop ? [...items, ...items] : items;
 
   return (
     <section style={styles.section} aria-label={title}>
@@ -179,20 +219,24 @@ export function ProductRail({
       </div>
       <div
         ref={viewportRef}
-        className="product-rail-viewport"
-        onMouseEnter={() => {
-          pausedRef.current = true;
+        className={`product-rail-viewport${loop ? ' product-rail-viewport--auto' : ''}`}
+        data-paused={hold ? 'true' : 'false'}
+        onPointerEnter={onPointerEnter}
+        onPointerLeave={onPointerLeave}
+        onPointerDown={() => {
+          if (autoMove) pauseAuto();
         }}
-        onMouseLeave={() => {
-          pausedRef.current = false;
-        }}
-        onTouchStart={() => {
-          holdUntilRef.current = performance.now() + MANUAL_HOLD_MS;
+        onPointerUp={() => {
+          if (autoMove) pauseAuto(2400);
         }}
       >
         <div className="product-rail-track">
-          {(canMove ? marqueeItems : items).map((item, i) => (
-            <RailCard key={`${item.listingId}-${i}`} item={item} {...cardProps} />
+          {shown.map((item, index) => (
+            <RailCard
+              key={`${item.listingId}:${index < items.length ? 'a' : 'b'}`}
+              item={item}
+              {...cardProps}
+            />
           ))}
         </div>
       </div>

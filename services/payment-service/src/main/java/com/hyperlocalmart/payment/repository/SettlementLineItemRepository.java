@@ -42,6 +42,15 @@ public interface SettlementLineItemRepository extends JpaRepository<SettlementLi
             @Param("statuses") Collection<SettlementStatus> statuses);
 
     @Query("""
+            SELECT li FROM SettlementLineItem li
+            JOIN FETCH li.settlement s
+            WHERE li.orderId IN :orderIds
+              AND li.lineType = 'ORDER'
+              AND s.payeeType = com.hyperlocalmart.payment.entity.SettlementPayeeType.VENDOR
+            """)
+    List<SettlementLineItem> findVendorOrderLinesByOrderIds(@Param("orderIds") Collection<UUID> orderIds);
+
+    @Query("""
             SELECT li.subOrderId FROM SettlementLineItem li
             JOIN li.settlement s
             WHERE li.subOrderId IN :subOrderIds

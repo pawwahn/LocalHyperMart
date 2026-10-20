@@ -167,6 +167,35 @@ export function injectGlobalStyles(): void {
     button, input, select, textarea { font: inherit; }
     button:disabled { opacity: 0.55; cursor: not-allowed; }
     button, a, [role="button"] { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+    html.hlm-native {
+      height: 100%;
+      height: 100dvh;
+      overscroll-behavior: none;
+    }
+    html.hlm-native body {
+      height: 100%;
+      overflow: hidden;
+      overscroll-behavior: none;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    html.hlm-native #root {
+      height: 100%;
+      overflow-x: hidden;
+      overflow-y: auto;
+      overscroll-behavior: none;
+      -webkit-overflow-scrolling: touch;
+    }
+    html.hlm-native input,
+    html.hlm-native textarea,
+    html.hlm-native [contenteditable="true"] {
+      user-select: text;
+      -webkit-user-select: text;
+    }
+    html.hlm-native .hlm-product-card:hover {
+      transform: none;
+      box-shadow: var(--shadow-card);
+    }
     a { color: var(--accent); }
     @media (max-width: 767px) {
       :root {

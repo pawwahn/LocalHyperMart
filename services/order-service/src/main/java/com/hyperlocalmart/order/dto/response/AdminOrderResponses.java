@@ -33,8 +33,10 @@ public final class AdminOrderResponses {
         Instant placedAt;
         /** Active shop bags (excludes shop-rejected). */
         int subOrderCount;
-        /** Shop bags rejected by vendor (still on the order, not for pickup). */
+        /** Shop bags rejected by the vendor (still on the order, not for pickup). */
         int rejectedSubOrderCount;
+        /** Shop bags the buyer cancelled before pickup. */
+        int buyerCancelledSubOrderCount;
         int readySubOrderCount;
         /** Sub-orders already brought to hub (vendor leg complete). */
         int atHubSubOrderCount;

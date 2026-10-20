@@ -1,7 +1,8 @@
 import type { CSSProperties, FormEvent, InputHTMLAttributes, ReactNode } from 'react';
 import { useEffect, useRef, useState } from 'react';
+import { useAuth } from '@/shared/auth/AuthContext';
 import { useTown } from '@/shared/town/TownContext';
-import type { TownVm } from '@/features/towns/api/townsApi';
+import { getTown, type TownVm } from '@/features/towns/api/townsApi';
 import { Button } from '@/shared/ui';
 
 export type AddressFormValues = {
@@ -54,6 +55,7 @@ export function AddressForm({
   onCancel,
   onSubmit,
 }: Props) {
+  const { session } = useAuth();
   const { towns, townId, townLabel, hasTown, selectTown, loading: townsLoading } = useTown();
   const formRef = useRef<HTMLFormElement | null>(null);
   const [values, setValues] = useState<AddressFormValues>({
@@ -68,10 +70,30 @@ export function AddressForm({
   const [localError, setLocalError] = useState<string | null>(null);
   const [pendingTown, setPendingTown] = useState<TownVm | null>(null);
   const [townBusy, setTownBusy] = useState(false);
+  const [servedPins, setServedPins] = useState<string[] | null>(null);
 
   useEffect(() => {
     formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }, []);
+
+  useEffect(() => {
+    if (!townId) {
+      setServedPins(null);
+      return;
+    }
+    let cancelled = false;
+    void getTown(townId, session?.accessToken)
+      .then((town) => {
+        if (cancelled) return;
+        setServedPins((town.pincodes ?? []).map((pin) => pin.trim()).filter(Boolean));
+      })
+      .catch(() => {
+        if (!cancelled) setServedPins(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [townId, session?.accessToken]);
 
   function update<K extends keyof AddressFormValues>(key: K, value: AddressFormValues[K]) {
     setValues((prev) => ({ ...prev, [key]: value }));
@@ -131,7 +153,17 @@ export function AddressForm({
       return;
     }
     const pin = values.pincode.trim();
-    if (pin && !/^\d{6}$/.test(pin)) {
+    const listed = servedPins ?? [];
+    if (listed.length > 0) {
+      if (!/^\d{6}$/.test(pin) || !listed.includes(pin)) {
+        setLocalError(
+          pin
+            ? `${townLabel} does not deliver to ${pin}.`
+            : `Enter a pincode ${townLabel} delivers to.`,
+        );
+        return;
+      }
+    } else if (pin && !/^\d{6}$/.test(pin)) {
       setLocalError('Enter a valid 6-digit pincode, or leave it blank');
       return;
     }
@@ -229,14 +261,20 @@ export function AddressForm({
           disabled={formLocked}
         />
         <CompactField
-          label="Pincode"
+          label={servedPins && servedPins.length > 0 ? 'Pincode *' : 'Pincode'}
           value={values.pincode}
-          onChange={(e) => update('pincode', e.target.value)}
-          placeholder="Optional"
+          onChange={(e) => update('pincode', e.target.value.replace(/\D/g, '').slice(0, 6))}
+          placeholder={servedPins && servedPins.length > 0 ? servedPins[0] : 'Optional'}
           inputMode="numeric"
           disabled={formLocked}
         />
       </div>
+      {servedPins && servedPins.length > 0 ? (
+        <p style={styles.pinHint}>
+          Delivers to {servedPins.slice(0, 4).join(', ')}
+          {servedPins.length > 4 ? ` +${servedPins.length - 4}` : ''}
+        </p>
+      ) : null}
 
       <div style={styles.actions}>
         <Button type="submit" disabled={formLocked || !hasTown} style={styles.primaryBtn}>
@@ -285,6 +323,7 @@ export function AddressForm({
 }
 
 const styles: Record<string, CSSProperties> = {
+  pinHint: { margin: '-0.1rem 0 0', color: 'var(--text-muted)', fontSize: '0.72rem', lineHeight: 1.3 },
   form: {
     display: 'grid',
     gap: '0.45rem',

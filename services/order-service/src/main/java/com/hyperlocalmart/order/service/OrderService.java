@@ -218,7 +218,7 @@ public class OrderService {
         List<DeliveryManifestLineResponse> lines = new ArrayList<>();
         BigDecimal subtotal = BigDecimal.ZERO;
         for (VendorSubOrder subOrder : subOrders) {
-            if (subOrder.getStatus() == VendorSubOrderStatus.VENDOR_REJECTED) {
+            if (subOrder.getStatus().isClosed()) {
                 continue;
             }
             String shopName = subOrder.getItems().isEmpty()
@@ -255,9 +255,11 @@ public class OrderService {
 
     @Transactional(readOnly = true)
     public OrderDeliveryInfoResponse getDeliveryInfo(UUID orderId) {
-        Order order = orderRepository.findById(orderId)
+        Order order = orderRepository.findWithSubOrdersById(orderId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Order not found"));
         Map<String, Object> addr = order.getDeliveryAddressSnapshot();
+        boolean stillPacking = order.getVendorSubOrders() != null && order.getVendorSubOrders().stream()
+                .anyMatch(sub -> sub.getStatus() == VendorSubOrderStatus.PLACED);
         return OrderDeliveryInfoResponse.builder()
                 .orderId(order.getId())
                 .buyerId(order.getBuyerId())
@@ -273,6 +275,7 @@ public class OrderService {
                 .pincode(stringVal(addr, "pincode"))
                 .addressLabel(stringVal(addr, "label"))
                 .vendorAgentDelivery(order.isVendorAgentDelivery())
+                .stillPacking(stillPacking)
                 .paymentMethod(order.getPaymentMethod())
                 .collectCashAmount(
                         order.getPaymentMethod() == PaymentMethod.COD ? buyerPayableTotal(order) : null)
@@ -287,6 +290,49 @@ public class OrderService {
             throw new BusinessException(ErrorCode.CONFLICT, "Order cannot be marked delivered");
         }
 
+        List<VendorSubOrder> subs = order.getVendorSubOrders() == null ? List.of() : order.getVendorSubOrders();
+        if (request.getVendorSubOrderId() != null) {
+            VendorSubOrder bag = subs.stream()
+                    .filter(sub -> request.getVendorSubOrderId().equals(sub.getId()))
+                    .findFirst()
+                    .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Shop bag not found"));
+            if (bag.getStatus().isClosed() || bag.getStatus() == VendorSubOrderStatus.DELIVERED) {
+                // Already finished. Fall through so a retry can close the order.
+            } else if (bag.getStatus() != VendorSubOrderStatus.DELIVERY_BY_VENDOR_AGENT
+                    && bag.getStatus() != VendorSubOrderStatus.READY_FOR_PICKUP) {
+                throw new BusinessException(ErrorCode.CONFLICT, "This shop is still packing");
+            } else {
+                bag.setStatus(VendorSubOrderStatus.DELIVERED);
+            }
+        } else {
+            boolean stillPacking = subs.stream().anyMatch(sub -> sub.getStatus() == VendorSubOrderStatus.PLACED);
+            if (stillPacking) {
+                throw new BusinessException(ErrorCode.CONFLICT,
+                        "A shop is still packing. Deliver after every bag is ready or cancelled.");
+            }
+            for (VendorSubOrder subOrder : subs) {
+                if (!subOrder.getStatus().isClosed() && subOrder.getStatus() != VendorSubOrderStatus.DELIVERED) {
+                    subOrder.setStatus(VendorSubOrderStatus.DELIVERED);
+                }
+            }
+        }
+
+        boolean complete = subs.stream().allMatch(sub ->
+                sub.getStatus().isClosed() || sub.getStatus() == VendorSubOrderStatus.DELIVERED);
+        if (!complete) {
+            orderRepository.save(order);
+            orderStatusHistoryRepository.save(OrderStatusHistory.builder()
+                    .orderId(order.getId())
+                    .vendorSubOrderId(request.getVendorSubOrderId())
+                    .fromStatus(OrderStatus.PLACED.name())
+                    .toStatus(OrderStatus.PLACED.name())
+                    .changedBy(request.getAgentUserId())
+                    .changedByRole("DELIVERY_AGENT")
+                    .note("Shop bag delivered. Other shops are still open.")
+                    .build());
+            return;
+        }
+
         OrderStatus priorStatus = order.getStatus();
         order.setStatus(OrderStatus.DELIVERED);
         order.setDeliveredAt(Instant.now());
@@ -294,11 +340,6 @@ public class OrderService {
         if (order.getPaymentMethod() == PaymentMethod.COD
                 && order.getPaymentStatus() == PaymentStatus.PENDING) {
             order.setPaymentStatus(PaymentStatus.PAID);
-        }
-        for (VendorSubOrder subOrder : order.getVendorSubOrders()) {
-            if (subOrder.getStatus() != VendorSubOrderStatus.VENDOR_REJECTED) {
-                subOrder.setStatus(VendorSubOrderStatus.DELIVERED);
-            }
         }
         orderRepository.save(order);
 
@@ -336,6 +377,7 @@ public class OrderService {
 
         boolean priceChanged = false;
         List<CartClient.ReorderLine> lines = new ArrayList<>();
+        List<String> skipped = new ArrayList<>();
 
         for (VendorSubOrder subOrder : order.getVendorSubOrders()) {
             for (OrderItem item : subOrder.getItems()) {
@@ -343,8 +385,12 @@ public class OrderService {
                 try {
                     listing = catalogClient.getListing(item.getListingId(), order.getTownId());
                 } catch (Exception ex) {
-                    throw new BusinessException(ErrorCode.NOT_FOUND,
-                            "Item no longer available: " + item.getItemNameSnapshot());
+                    skipped.add(item.getItemNameSnapshot());
+                    continue;
+                }
+                if (listing == null || !listing.active()) {
+                    skipped.add(item.getItemNameSnapshot());
+                    continue;
                 }
                 BigDecimal snapshotPrice = effectivePrice(item.getUnitPrice(), item.getDiscountPrice());
                 BigDecimal currentPrice = listing.effectivePrice() != null
@@ -358,7 +404,7 @@ public class OrderService {
         }
 
         if (lines.isEmpty()) {
-            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Order has no items to reorder");
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Nothing from this order is still for sale");
         }
 
         CartClient.ReorderCartResult cart = cartClient.replaceCartItems(buyerId, order.getTownId(), lines);
@@ -369,6 +415,7 @@ public class OrderService {
                 .itemCount(cart.itemCount())
                 .minOrderMet(cart.minOrderMet())
                 .priceChanged(priceChanged)
+                .skippedItemNames(skipped)
                 .build();
     }
 
@@ -449,6 +496,7 @@ public class OrderService {
         CartClient.CartSnapshot cart = cartClient.getCart(request.getCartId(), buyerId, request.getTownId());
         Map<String, Object> addressSnapshot = addressClient.getAddressSnapshot(request.getAddressId(), buyerId, request.getTownId());
         TownClient.TownSummary town = townClient.getTownSummary(request.getTownId());
+        ServiceAreaCheck.requireServed(town.displayName(), town.pincodes(), stringVal(addressSnapshot, "pincode"));
 
         String orderNumber = orderNumberGenerator.nextOrderNumber(request.getTownId(), town.townCode(), town.stateCode());
         BigDecimal promoDiscount = cart.promoDiscount() == null ? BigDecimal.ZERO : cart.promoDiscount();
@@ -792,7 +840,7 @@ public class OrderService {
                 || order.getStatus() == OrderStatus.PAYMENT_FAILED;
         boolean anyShopPastPlaced = order.getVendorSubOrders() != null && order.getVendorSubOrders().stream()
                 .anyMatch(s -> s.getStatus() != VendorSubOrderStatus.PLACED
-                        && s.getStatus() != VendorSubOrderStatus.VENDOR_REJECTED);
+                        && !s.getStatus().isClosed());
         boolean hasActiveItems = false;
 
         List<UUID> itemIds = order.getVendorSubOrders() == null ? List.of() : order.getVendorSubOrders().stream()
@@ -876,7 +924,7 @@ public class OrderService {
         OrderStatus status = order.getStatus();
         List<VendorSubOrder> subs = order.getVendorSubOrders() == null ? List.of() : order.getVendorSubOrders();
         List<VendorSubOrder> activeSubs = subs.stream()
-                .filter(s -> s.getStatus() != VendorSubOrderStatus.VENDOR_REJECTED)
+                .filter(s -> !s.getStatus().isClosed())
                 .toList();
 
         Instant placedAt = order.getPlacedAt();
@@ -908,7 +956,7 @@ public class OrderService {
         boolean atHub = atHubAt != null || hasCompletedPickupLeg(assignments);
         boolean agentAssigned = lastMileAssignedAt != null;
         boolean leftHub = leftHubAt != null || hasInProgressOrCompletedLastMile(assignments);
-        boolean delivered = status == OrderStatus.DELIVERED || deliveredEventAt != null;
+        boolean delivered = status == OrderStatus.DELIVERED;
 
         List<OrderTimelineStepResponse> steps = new ArrayList<>();
 
@@ -938,10 +986,11 @@ public class OrderService {
         steps.add(step("ORDER_PLACED", "Order placed", "DONE", placedAt, null));
 
         String preparingState = stateAfter(true, delivered || allReady || anyReady || pickedFromShop || atHub);
-        steps.add(step("SHOP_PREPARING", "Shop is preparing", preparingState, placedAt,
-                "CURRENT".equals(preparingState)
-                        ? (subs.size() > 1 ? "Waiting for shops to confirm" : "Waiting for the shop to confirm")
-                        : null));
+        String preparingNote = "CURRENT".equals(preparingState)
+                ? (subs.size() > 1 ? "Waiting for shops to confirm" : "Waiting for the shop to confirm")
+                : null;
+        preparingNote = joinNotes(preparingNote, closedBagNote(subs));
+        steps.add(step("SHOP_PREPARING", "Shop is preparing", preparingState, placedAt, preparingNote));
 
         String readyState = stateAfter(
                 "DONE".equals(preparingState),
@@ -1021,7 +1070,7 @@ public class OrderService {
         if (deliveredAt == null) {
             deliveredAt = deliveredEventAt;
         }
-        boolean delivered = status == OrderStatus.DELIVERED || deliveredEventAt != null;
+        boolean delivered = status == OrderStatus.DELIVERED;
         boolean agentAssigned = assignedAt != null
                 || (assignments != null && assignments.stream()
                         .anyMatch(a -> "VENDOR_DIRECT".equalsIgnoreCase(a.legType())));
@@ -1031,8 +1080,9 @@ public class OrderService {
         steps.add(step("ORDER_PLACED", "Order placed", "DONE", placedAt, null));
 
         String preparingState = stateAfter(true, vendorModeAt != null || agentAssigned || outForDelivery || delivered);
-        steps.add(step("SHOP_PREPARING", "Shop is preparing", preparingState, placedAt,
-                "CURRENT".equals(preparingState) ? "The shop is getting your order ready" : null));
+        String preparingNote = "CURRENT".equals(preparingState) ? "The shop is getting your order ready" : null;
+        preparingNote = joinNotes(preparingNote, closedBagNote(order.getVendorSubOrders()));
+        steps.add(step("SHOP_PREPARING", "Shop is preparing", preparingState, placedAt, preparingNote));
 
         String assignedState = stateAfter(
                 "DONE".equals(preparingState), agentAssigned || outForDelivery || delivered);
@@ -1063,6 +1113,50 @@ public class OrderService {
         steps.add(step("AGENT_ASSIGNED", "Delivery agent assigned", "UPCOMING", null, null));
         steps.add(step("OUT_FOR_DELIVERY", "Out for delivery", "UPCOMING", null, null));
         steps.add(step("DELIVERED", "Delivered", "UPCOMING", null, null));
+    }
+
+    private static String closedBagNote(List<VendorSubOrder> subs) {
+        if (subs == null || subs.isEmpty()) {
+            return null;
+        }
+        List<String> buyer = new ArrayList<>();
+        List<String> shop = new ArrayList<>();
+        for (VendorSubOrder sub : subs) {
+            if (sub.getStatus() == VendorSubOrderStatus.BUYER_CANCELLED) {
+                buyer.add(shopLabel(sub));
+            } else if (sub.getStatus() == VendorSubOrderStatus.VENDOR_REJECTED) {
+                shop.add(shopLabel(sub));
+            }
+        }
+        List<String> parts = new ArrayList<>();
+        if (!buyer.isEmpty()) {
+            parts.add("You cancelled " + String.join(", ", buyer));
+        }
+        if (!shop.isEmpty()) {
+            parts.add(String.join(", ", shop) + " did not pack this bag");
+        }
+        return parts.isEmpty() ? null : String.join(". ", parts);
+    }
+
+    private static String shopLabel(VendorSubOrder sub) {
+        if (sub.getItems() != null) {
+            for (OrderItem item : sub.getItems()) {
+                if (item.getShopNameSnapshot() != null && !item.getShopNameSnapshot().isBlank()) {
+                    return item.getShopNameSnapshot();
+                }
+            }
+        }
+        return "A shop";
+    }
+
+    private static String joinNotes(String first, String second) {
+        if (first == null || first.isBlank()) {
+            return second;
+        }
+        if (second == null || second.isBlank()) {
+            return first;
+        }
+        return first + ". " + second;
     }
 
     /** DONE if done; else CURRENT if previousDone; else UPCOMING. */
@@ -1132,7 +1226,7 @@ public class OrderService {
         if (status == OrderStatus.PAYMENT_FAILED) return "Payment Failed";
         if (status == OrderStatus.CANCELLED) return "Cancelled";
         if (order.isVendorAgentDelivery()) {
-            if (status == OrderStatus.DELIVERED || firstEventAt(assignments, "DELIVERED") != null) {
+            if (status == OrderStatus.DELIVERED) {
                 return "Delivered";
             }
             if (firstEventAt(assignments, "VENDOR_DIRECT_PICKED_FROM_SHOP") != null
@@ -1146,7 +1240,7 @@ public class OrderService {
             }
             return "Shop Preparing";
         }
-        if (status == OrderStatus.DELIVERED || firstEventAt(assignments, "DELIVERED") != null) {
+        if (status == OrderStatus.DELIVERED) {
             return "Delivered";
         }
         if (firstEventAt(assignments, "PICKED_FROM_HUB") != null
@@ -1165,7 +1259,7 @@ public class OrderService {
         List<VendorSubOrder> activeSubs = order.getVendorSubOrders() == null
                 ? List.of()
                 : order.getVendorSubOrders().stream()
-                .filter(s -> s.getStatus() != VendorSubOrderStatus.VENDOR_REJECTED)
+                .filter(s -> !s.getStatus().isClosed())
                 .toList();
         boolean allReady = !activeSubs.isEmpty() && activeSubs.stream()
                 .allMatch(s -> s.getStatus() == VendorSubOrderStatus.READY_FOR_PICKUP

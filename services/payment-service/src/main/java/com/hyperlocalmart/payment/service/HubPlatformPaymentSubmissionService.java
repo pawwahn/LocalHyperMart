@@ -542,6 +542,19 @@ public class HubPlatformPaymentSubmissionService {
                 .orElse(null);
     }
 
+    /** Comment KoyaKart sent when it did not receive this bill's last payment. */
+    public String latestPayerNotice(UUID paymentRequestId) {
+        if (paymentRequestId == null) {
+            return null;
+        }
+        return submissionRepository
+                .findFirstByPaymentRequestIdAndStatusOrderByRejectedAtDesc(
+                        paymentRequestId, HubPlatformPaymentSubmissionStatus.REJECTED)
+                .map(HubPlatformPaymentSubmission::getAdminNotes)
+                .filter(note -> note != null && !note.isBlank())
+                .orElse(null);
+    }
+
     private static String billNumber(HubPaymentRequest row) {
         if (row.getDocumentNumber() != null && !row.getDocumentNumber().isBlank()) {
             return row.getDocumentNumber();

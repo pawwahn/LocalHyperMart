@@ -27,6 +27,8 @@ export type DateRangePresetBarProps<P extends TransferHistoryPreset = ReportDate
   trailing?: ReactNode;
   /** Tighter chips / date fields for toolbars. */
   dense?: boolean;
+  /** Lay preset chips in two rows. No horizontal scrollbar. */
+  twoRows?: boolean;
 };
 
 export function DateRangePresetBar<P extends TransferHistoryPreset = ReportDatePreset>({
@@ -45,6 +47,7 @@ export function DateRangePresetBar<P extends TransferHistoryPreset = ReportDateP
   ariaLabel = 'Date range',
   trailing,
   dense = false,
+  twoRows = false,
 }: DateRangePresetBarProps<P>) {
   const pills = options ?? (REPORT_DATE_PRESET_OPTIONS as { id: P; label: string }[]);
   const chip = dense ? (presetId: P) => (preset === presetId ? styles.chipOnDense : styles.chipDense) : (presetId: P) =>
@@ -62,7 +65,7 @@ export function DateRangePresetBar<P extends TransferHistoryPreset = ReportDateP
 
   const showDates = showDateInputs && (alwaysShowDateInputs || preset === 'custom');
   const wrapStyle = dense ? styles.wrapDense : styles.wrap;
-  const pillsStyle = dense ? styles.pillsScroll : styles.pills;
+  const pillsStyle = twoRows ? styles.pillsTwoRows : dense ? styles.pillsScroll : styles.pills;
 
   return (
     <div style={wrapStyle}>
@@ -71,7 +74,7 @@ export function DateRangePresetBar<P extends TransferHistoryPreset = ReportDateP
           <button
             key={id}
             type="button"
-            style={chip(id)}
+            style={twoRows ? { ...chip(id), width: '100%', boxSizing: 'border-box', textAlign: 'center' } : chip(id)}
             aria-pressed={preset === id}
             onClick={() => pick(id)}
           >
@@ -137,6 +140,14 @@ const styles: Record<string, CSSProperties> = {
     flex: '1 1 12rem',
     paddingBottom: 2,
     scrollbarWidth: 'thin',
+  },
+  pillsTwoRows: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(7, minmax(0, 1fr))',
+    gap: '0.32rem 0.28rem',
+    width: '100%',
+    minWidth: 0,
+    overflow: 'hidden',
   },
   chip: {
     border: '1px solid var(--border)',

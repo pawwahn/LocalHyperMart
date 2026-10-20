@@ -10,8 +10,14 @@ type Props = {
   cancelLabel?: string;
   danger?: boolean;
   busy?: boolean;
+  /** Keeps the confirm button off until the form is ready. */
+  confirmDisabled?: boolean;
   /** Single OK button — use for errors after a failed action. */
   alertOnly?: boolean;
+  /** Extra action, shown before Cancel. Used for Not received. */
+  extraLabel?: string;
+  extraDisabled?: boolean;
+  onExtra?: () => void;
   onConfirm: () => void;
   onClose: () => void;
 };
@@ -24,7 +30,11 @@ export function ConfirmDialog({
   cancelLabel = 'Cancel',
   danger = true,
   busy,
+  confirmDisabled,
   alertOnly,
+  extraLabel,
+  extraDisabled,
+  onExtra,
   onConfirm,
   onClose,
 }: Props) {
@@ -65,6 +75,11 @@ export function ConfirmDialog({
           <div style={styles.descriptionBox}>{description}</div>
         )}
         <div style={styles.actions}>
+          {extraLabel && onExtra ? (
+            <Button type="button" variant="danger" disabled={busy || extraDisabled} onClick={onExtra}>
+              {extraLabel}
+            </Button>
+          ) : null}
           {alertOnly ? null : (
             <Button type="button" variant="ghost" disabled={busy} onClick={onClose}>
               {cancelLabel}
@@ -73,7 +88,7 @@ export function ConfirmDialog({
           <Button
             type="button"
             variant={alertOnly ? 'primary' : danger ? 'danger' : 'primary'}
-            disabled={busy}
+            disabled={busy || (!alertOnly && confirmDisabled)}
             onClick={alertOnly ? onClose : onConfirm}
           >
             {busy ? `${(confirmLabel ?? 'Confirm').replace(/\?+$/, '')}…` : alertOnly ? confirmLabel || 'OK' : confirmLabel}

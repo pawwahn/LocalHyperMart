@@ -134,6 +134,7 @@ const FIELD_LABELS: Record<string, string> = {
   categoryName: 'Category',
   unitCode: 'Unit',
   mrp: 'MRP',
+  barcode: 'Barcode',
   hsnCode: 'HSN',
   gstPercent: 'GST %',
   cessPercent: 'Cess %',

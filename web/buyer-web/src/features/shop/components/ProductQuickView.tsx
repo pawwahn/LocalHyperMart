@@ -1,5 +1,6 @@
 import type { CSSProperties } from 'react';
 import { useEffect, useRef, useState } from 'react';
+import { fetchCatalogPage, type CatalogItemView } from '../api/shopApi';
 import { productVisual } from '../lib/productVisual';
 import { QuantityStepper } from './QuantityStepper';
 
@@ -17,25 +18,38 @@ export type QuickViewProduct = {
   ratingCount?: number;
   imageUrl?: string | null;
   imageUrls?: string[];
+  categoryId?: string | null;
 };
 
 type Props = {
   product: QuickViewProduct;
+  townId?: string | null;
   quantity: number;
   busy?: boolean;
+  busyKey?: string | null;
+  quantityFor?: (listingId: string) => number;
   onClose: () => void;
   onIncrease: () => void;
   onDecrease: () => void;
+  onOpenRelated?: (item: CatalogItemView) => void;
+  onIncreaseListing?: (listingId: string) => void;
+  onDecreaseListing?: (listingId: string) => void;
 };
 
 /** Bottom-sheet product quick view with swipeable image gallery (no vertical scroll). */
 export function ProductQuickView({
   product,
+  townId,
   quantity,
   busy,
+  busyKey,
+  quantityFor,
   onClose,
   onIncrease,
   onDecrease,
+  onOpenRelated,
+  onIncreaseListing,
+  onDecreaseListing,
 }: Props) {
   const visual = productVisual(product.name);
   const images =
@@ -45,7 +59,34 @@ export function ProductQuickView({
         ? [product.imageUrl]
         : [];
   const [active, setActive] = useState(0);
+  const [related, setRelated] = useState<CatalogItemView[]>([]);
   const scrollerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!townId || !product.categoryId) {
+      setRelated([]);
+      return;
+    }
+    let cancelled = false;
+    void fetchCatalogPage({
+      townId,
+      categoryId: product.categoryId,
+      page: 0,
+      size: 8,
+      sort: 'rating',
+      dir: 'desc',
+    })
+      .then((data) => {
+        if (cancelled) return;
+        setRelated(data.items.filter((item) => item.listingId !== product.listingId).slice(0, 6));
+      })
+      .catch(() => {
+        if (!cancelled) setRelated([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [townId, product.categoryId, product.listingId]);
 
   useEffect(() => {
     setActive(0);
@@ -152,6 +193,43 @@ export function ProductQuickView({
           </p>
         </div>
 
+        {related.length > 0 && onOpenRelated && onIncreaseListing && onDecreaseListing && quantityFor ? (
+          <div style={styles.pairs}>
+            <p style={styles.pairsLabel}>Pairs with this</p>
+            <div className="hlm-hide-scrollbar" style={styles.pairsRow}>
+              {related.map((item) => {
+                const visual = productVisual(item.name);
+                const qty = quantityFor(item.listingId);
+                return (
+                  <div key={item.listingId} style={styles.pair}>
+                    <button type="button" style={styles.pairHit} onClick={() => onOpenRelated(item)}>
+                      <span style={{ ...styles.pairThumb, background: visual.tint }} aria-hidden>
+                        {item.imageUrl ? (
+                          <img src={item.imageUrl} alt="" style={styles.pairPhoto} />
+                        ) : (
+                          visual.emoji
+                        )}
+                      </span>
+                      <span style={styles.pairCopy}>
+                        <span style={styles.pairName}>{item.name}</span>
+                        <span style={styles.pairPrice}>{item.priceLabel}</span>
+                      </span>
+                    </button>
+                    <QuantityStepper
+                      size="xs"
+                      addMode="icon"
+                      quantity={qty}
+                      disabled={busyKey === item.listingId}
+                      onIncrease={() => onIncreaseListing(item.listingId)}
+                      onDecrease={() => onDecreaseListing(item.listingId)}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ) : null}
+
         <div style={styles.footer}>
           <div style={styles.priceBlock}>
             <span style={styles.price}>{product.priceLabel}</span>
@@ -187,11 +265,10 @@ const styles: Record<string, CSSProperties> = {
     borderRadius: 16,
     padding: '0.55rem 0.7rem 0.7rem',
     display: 'grid',
-    gridTemplateRows: 'auto auto auto',
     gap: '0.4rem',
     boxShadow: 'var(--shadow-elevated)',
-    maxHeight: 'min(72vh, 480px)',
-    overflow: 'hidden',
+    maxHeight: 'min(86vh, 640px)',
+    overflow: 'auto',
   },
   handle: {
     display: 'none',
@@ -346,6 +423,81 @@ const styles: Record<string, CSSProperties> = {
     background: '#FEF3C7',
     borderRadius: 6,
     padding: '0.1rem 0.3rem',
+  },
+  pairs: {
+    display: 'grid',
+    gap: '0.28rem',
+    minWidth: 0,
+  },
+  pairsLabel: {
+    margin: 0,
+    fontSize: '0.72rem',
+    fontWeight: 800,
+    letterSpacing: '-0.01em',
+    color: 'var(--text)',
+  },
+  pairsRow: {
+    display: 'flex',
+    gap: '0.4rem',
+    overflowX: 'auto',
+    paddingBottom: '0.1rem',
+  },
+  pair: {
+    flex: '0 0 168px',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.35rem',
+    minHeight: 52,
+    padding: '0.28rem 0.35rem',
+    border: '1px solid var(--border)',
+    borderRadius: 10,
+    background: 'var(--bg-muted)',
+  },
+  pairHit: {
+    flex: 1,
+    minWidth: 0,
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.35rem',
+    border: 'none',
+    background: 'transparent',
+    padding: 0,
+    textAlign: 'left',
+    cursor: 'pointer',
+    color: 'inherit',
+  },
+  pairThumb: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    display: 'grid',
+    placeItems: 'center',
+    overflow: 'hidden',
+    flexShrink: 0,
+    fontSize: '1rem',
+  },
+  pairPhoto: {
+    width: '100%',
+    height: '100%',
+    objectFit: 'cover',
+  },
+  pairCopy: {
+    display: 'grid',
+    minWidth: 0,
+    gap: '0.05rem',
+  },
+  pairName: {
+    fontSize: '0.68rem',
+    fontWeight: 700,
+    lineHeight: 1.2,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  },
+  pairPrice: {
+    fontSize: '0.68rem',
+    fontWeight: 800,
+    color: 'var(--accent)',
   },
   footer: {
     display: 'flex',

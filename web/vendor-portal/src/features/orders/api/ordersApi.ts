@@ -1,4 +1,5 @@
 import { apiRequest, type PageData } from '@/shared/api/http';
+import type { SiblingShop } from '../orderStatusCopy';
 
 export type SubOrderStatus =
   | 'PLACED'
@@ -40,6 +41,7 @@ export type SubOrderDto = {
   readyForPickupAt?: string | null;
   wholeOrderForShop?: boolean;
   vendorAgentDeliveryEnabled?: boolean;
+  townHubEnabled?: boolean;
   vendorAgentDelivery?: boolean;
   vendorDirectAgentName?: string | null;
   vendorDirectAgentPhone?: string | null;
@@ -47,6 +49,9 @@ export type SubOrderDto = {
   canAssignVendorAgent?: boolean;
   vendorAgentAlertStatus?: string | null;
   vendorAgentAlertAcknowledgedAt?: string | null;
+  paymentMethod?: string | null;
+  paymentStatus?: string | null;
+  siblingShops?: SiblingShop[];
   items?: SubOrderItemDto[];
 };
 
@@ -103,6 +108,7 @@ export type SubOrderView = {
   items: SubOrderItemView[];
   wholeOrderForShop: boolean;
   vendorAgentDeliveryEnabled: boolean;
+  townHubEnabled: boolean;
   vendorAgentDelivery: boolean;
   vendorDirectAgentName?: string | null;
   vendorDirectAgentPhone?: string | null;
@@ -111,6 +117,9 @@ export type SubOrderView = {
   vendorAgentAlertStatus?: string | null;
   vendorAgentAlertAcknowledgedAt?: string | null;
   shopId: string;
+  paymentMethod?: string | null;
+  paymentStatus?: string | null;
+  siblingShops: SiblingShop[];
 };
 
 export type DashboardView = {
@@ -216,6 +225,7 @@ export function toSubOrderView(dto: SubOrderDto): SubOrderView {
     items,
     wholeOrderForShop: Boolean(dto.wholeOrderForShop),
     vendorAgentDeliveryEnabled: Boolean(dto.vendorAgentDeliveryEnabled),
+    townHubEnabled: dto.townHubEnabled !== false,
     vendorAgentDelivery: Boolean(dto.vendorAgentDelivery),
     vendorDirectAgentName: dto.vendorDirectAgentName ?? null,
     vendorDirectAgentPhone: dto.vendorDirectAgentPhone ?? null,
@@ -224,6 +234,9 @@ export function toSubOrderView(dto: SubOrderDto): SubOrderView {
     vendorAgentAlertStatus: dto.vendorAgentAlertStatus ?? null,
     vendorAgentAlertAcknowledgedAt: dto.vendorAgentAlertAcknowledgedAt ?? null,
     shopId: dto.shopId,
+    paymentMethod: dto.paymentMethod ?? null,
+    paymentStatus: dto.paymentStatus ?? null,
+    siblingShops: dto.siblingShops ?? [],
   };
 }
 
@@ -246,9 +259,13 @@ export function toDashboardView(dto: DashboardDto): DashboardView {
     items: [] as SubOrderItemView[],
     wholeOrderForShop: false,
     vendorAgentDeliveryEnabled: false,
+    townHubEnabled: true,
     vendorAgentDelivery: false,
     canAssignVendorAgent: false,
     shopId: '',
+    paymentMethod: r.paymentMethod ?? null,
+    paymentStatus: r.paymentStatus ?? null,
+    siblingShops: [],
   }));
   return {
     ordersToday: dto.orderCountToday ?? 0,

@@ -109,11 +109,12 @@ public class VendorSubOrderService {
     @Transactional
     public VendorSubOrderResponse chooseDeliveryByVendorAgent(UUID vendorId, UUID subOrderId, UUID actorUserId) {
         VendorSubOrder subOrder = loadForVendorAction(vendorId, subOrderId);
-        if (subOrder.getStatus() != VendorSubOrderStatus.PLACED) {
+        VendorSubOrderStatus fromStatus = subOrder.getStatus();
+        if (fromStatus != VendorSubOrderStatus.PLACED && fromStatus != VendorSubOrderStatus.READY_FOR_PICKUP) {
             throw new BusinessException(ErrorCode.CONFLICT, "Sub-order cannot switch to vendor-agent delivery");
         }
         Order order = subOrder.getOrder();
-        if (!isWholeOrderForShop(order)) {
+        if (!isWholeOrderForShop(order) && deliveryClient.isTownHubEnabled(order.getTownId())) {
             throw new BusinessException(
                     ErrorCode.CONFLICT, "Vendor-agent delivery is only allowed when the full order is from your shop");
         }
@@ -130,14 +131,14 @@ public class VendorSubOrderService {
         Instant now = Instant.now();
         subOrder.setStatus(VendorSubOrderStatus.DELIVERY_BY_VENDOR_AGENT);
         subOrder.setVendorAgentDeliveryAt(now);
-        order.setVendorAgentDelivery(true);
+        order.setVendorAgentDelivery(allActiveBagsUseVendorAgent(order, subOrder));
         vendorSubOrderRepository.save(subOrder);
         orderRepository.save(order);
 
         orderStatusHistoryRepository.save(OrderStatusHistory.builder()
                 .orderId(order.getId())
                 .vendorSubOrderId(subOrder.getId())
-                .fromStatus(VendorSubOrderStatus.PLACED.name())
+                .fromStatus(fromStatus.name())
                 .toStatus(VendorSubOrderStatus.DELIVERY_BY_VENDOR_AGENT.name())
                 .changedBy(actorUserId)
                 .changedByRole("VENDOR")
@@ -741,12 +742,16 @@ public class VendorSubOrderService {
                 .vendorId(subOrder.getVendorId())
                 .shopId(subOrder.getShopId())
                 .status(subOrder.getStatus())
+                .paymentMethod(order.getPaymentMethod())
+                .paymentStatus(order.getPaymentStatus())
+                .siblingShops(siblingShopsFor(order, subOrder.getId()))
                 .subtotal(subOrder.getSubtotal())
                 .placedAt(orderClock(order))
                 .readyForPickupAt(subOrder.getReadyForPickupAt())
                 .vendorAgentDeliveryAt(subOrder.getVendorAgentDeliveryAt())
                 .wholeOrderForShop(isWholeOrderForShop(order))
                 .vendorAgentDeliveryEnabled(townDelivery.enabled())
+                .townHubEnabled(deliveryClient.isTownHubEnabled(order.getTownId()))
                 .vendorAgentDelivery(order.isVendorAgentDelivery())
                 .items(items);
         applyVendorDirectAssignment(builder, subOrder);
@@ -802,14 +807,50 @@ public class VendorSubOrderService {
         };
     }
 
+    /** Parent flag stays false until every remaining shop bag has chosen shop-agent delivery. */
+    private static boolean allActiveBagsUseVendorAgent(Order order, VendorSubOrder current) {
+        if (order.getVendorSubOrders() == null) {
+            return true;
+        }
+        return order.getVendorSubOrders().stream()
+                .filter(bag -> !bag.getStatus().isClosed())
+                .allMatch(bag -> bag.getId().equals(current.getId())
+                        || bag.getStatus() == VendorSubOrderStatus.DELIVERY_BY_VENDOR_AGENT);
+    }
+
     private static boolean isWholeOrderForShop(Order order) {
         if (order.getVendorSubOrders() == null) {
             return false;
         }
         long activeBags = order.getVendorSubOrders().stream()
-                .filter(s -> s.getStatus() != VendorSubOrderStatus.VENDOR_REJECTED)
+                .filter(s -> !s.getStatus().isClosed())
                 .count();
         return activeBags == 1;
+    }
+
+    /** Other shops on this parent order — shop name + bag status, no line items or amounts. */
+    static List<VendorSubOrderResponse.SiblingShop> siblingShopsFor(Order order, UUID currentSubOrderId) {
+        if (order == null || order.getVendorSubOrders() == null || currentSubOrderId == null) {
+            return List.of();
+        }
+        return order.getVendorSubOrders().stream()
+                .filter(bag -> bag.getId() != null && !currentSubOrderId.equals(bag.getId()))
+                .map(bag -> VendorSubOrderResponse.SiblingShop.builder()
+                        .shopName(shopNameOf(bag))
+                        .status(bag.getStatus())
+                        .build())
+                .toList();
+    }
+
+    static String shopNameOf(VendorSubOrder bag) {
+        if (bag.getItems() == null || bag.getItems().isEmpty()) {
+            return "Another shop";
+        }
+        return bag.getItems().stream()
+                .map(OrderItem::getShopNameSnapshot)
+                .filter(name -> name != null && !name.isBlank())
+                .findFirst()
+                .orElse("Another shop");
     }
 
     private OrderItemDetailResponse toItemDetail(

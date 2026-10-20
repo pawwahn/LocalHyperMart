@@ -16,6 +16,8 @@ public interface TownAdRepository extends JpaRepository<TownAd, UUID> {
 
     Optional<TownAd> findByTownIdAndSlotAndSlotIndex(UUID townId, TownAdSlot slot, int slotIndex);
 
+    List<TownAd> findBySlotAndSlotIndex(TownAdSlot slot, int slotIndex);
+
     List<TownAd> findByAllTownsTrueAndEnabledTrueOrderByUpdatedAtDesc();
 
     List<TownAd> findByCampaignIdAndSlotAndSlotIndex(UUID campaignId, TownAdSlot slot, int slotIndex);

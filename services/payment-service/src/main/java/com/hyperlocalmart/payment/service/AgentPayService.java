@@ -115,12 +115,24 @@ public class AgentPayService {
             }
         }
 
-        List<AgentPaySummaryResponse.Payout> payouts = settlementService
-                .list(agent.townId(), SettlementPayeeType.AGENT, agent.agentId(), null)
-                .stream()
+        List<SettlementResponse> settlements = settlementService
+                .list(agent.townId(), SettlementPayeeType.AGENT, agent.agentId(), null);
+        List<AgentPaySummaryResponse.Payout> payouts = settlements.stream()
+                .filter(row -> row.getDirection() != com.hyperlocalmart.payment.entity.SettlementDirection.COLLECTION)
                 .filter(row -> overlaps(row, start, end))
                 .sorted(Comparator.comparing(SettlementResponse::getCreatedAt, Comparator.nullsLast(Comparator.reverseOrder())))
                 .map(this::toPayout)
+                .toList();
+        List<AgentPaySummaryResponse.PayerNotice> payerNotices = settlements.stream()
+                .filter(row -> row.getDirection() == com.hyperlocalmart.payment.entity.SettlementDirection.COLLECTION)
+                .filter(row -> row.getStatus() != com.hyperlocalmart.payment.entity.SettlementStatus.PAID)
+                .filter(row -> row.getVendorPaymentRejectReason() != null && !row.getVendorPaymentRejectReason().isBlank())
+                .map(row -> AgentPaySummaryResponse.PayerNotice.builder()
+                        .settlementId(row.getId())
+                        .reference(row.getServiceInvoiceNumber())
+                        .amount(row.getNetAmount())
+                        .comment(row.getVendorPaymentRejectReason())
+                        .build())
                 .toList();
 
         BigDecimal due = earned.subtract(paid).max(BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP);
@@ -145,6 +157,7 @@ public class AgentPayService {
                 .due(due)
                 .unpaidOrders(unpaid)
                 .payouts(payouts)
+                .payerNotices(payerNotices)
                 .build();
     }
 

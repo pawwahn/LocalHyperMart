@@ -28,10 +28,9 @@ type Props = {
 
 export function HubPayoutHistory({ token, hubName, payouts, onChanged }: Props) {
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [noteFor, setNoteFor] = useState<string | null>(null);
-  const [note, setNote] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [ask, setAsk] = useState<HubPayout | null>(null);
+  const [askMissing, setAskMissing] = useState(false);
 
   async function openBill(settlementId: string) {
     setError(null);
@@ -52,7 +51,6 @@ export function HubPayoutHistory({ token, hubName, payouts, onChanged }: Props) 
     setBusyId(settlementId);
     try {
       await acknowledgeHubPayout(token, settlementId);
-      setNoteFor(null);
       setAsk(null);
       onChanged();
     } catch (err) {
@@ -62,13 +60,14 @@ export function HubPayoutHistory({ token, hubName, payouts, onChanged }: Props) 
     }
   }
 
-  async function sendMissing(settlementId: string) {
+  async function sendMissing(settlementId: string, comment: string) {
+    const trimmed = comment.trim();
+    if (!trimmed) return;
     setError(null);
     setBusyId(settlementId);
     try {
-      await reportHubPayoutNotReceived(token, settlementId, note);
-      setNoteFor(null);
-      setNote('');
+      await reportHubPayoutNotReceived(token, settlementId, trimmed);
+      setAsk(null);
       onChanged();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not report');
@@ -143,6 +142,7 @@ export function HubPayoutHistory({ token, hubName, payouts, onChanged }: Props) 
                             disabled={busyId === row.settlementId || missing}
                             onClick={() => {
                               setError(null);
+                              setAskMissing(false);
                               setAsk(row);
                             }}
                             style={missing ? styles.gotItOff : styles.gotIt}
@@ -153,31 +153,17 @@ export function HubPayoutHistory({ token, hubName, payouts, onChanged }: Props) 
                             type="button"
                             style={missing ? styles.told : styles.miss}
                             onClick={() => {
-                              setNoteFor(noteFor === row.settlementId ? null : row.settlementId);
-                              setNote('');
+                              setError(null);
+                              setAskMissing(true);
+                              setAsk(row);
                             }}
                           >
                             {missing ? 'Told KoyaKart' : 'Not received'}
                           </button>
                         </div>
                       )}
-                      {noteFor === row.settlementId ? (
-                        <div style={styles.noteRow}>
-                          <input
-                            value={note}
-                            onChange={(e) => setNote(e.target.value)}
-                            placeholder="What is missing"
-                            style={styles.note}
-                          />
-                          <button
-                            type="button"
-                            disabled={busyId === row.settlementId}
-                            onClick={() => void sendMissing(row.settlementId)}
-                            style={styles.gotIt}
-                          >
-                            Send
-                          </button>
-                        </div>
+                      {missing && row.notReceivedNote ? (
+                        <div style={styles.sub}>{row.notReceivedNote}</div>
                       ) : null}
                     </td>
                   </tr>
@@ -204,6 +190,10 @@ export function HubPayoutHistory({ token, hubName, payouts, onChanged }: Props) 
         }}
         onConfirm={() => {
           if (ask) void confirm(ask.settlementId);
+        }}
+        commentOnly={askMissing}
+        onMissing={(comment) => {
+          if (ask) void sendMissing(ask.settlementId, comment);
         }}
       />
     </section>
@@ -303,15 +293,4 @@ const styles: Record<string, CSSProperties> = {
     fontFamily: 'inherit',
   },
   ok: { fontSize: '0.68rem', fontWeight: 700, color: '#15803d' },
-  noteRow: { display: 'flex', gap: '0.28rem', alignItems: 'center', marginTop: '0.28rem' },
-  note: {
-    flex: 1,
-    minWidth: 0,
-    height: 26,
-    borderRadius: 8,
-    border: '1px solid #bbf7d0',
-    padding: '0 0.45rem',
-    font: 'inherit',
-    fontSize: '0.72rem',
-  },
 };

@@ -46,3 +46,5 @@ hyperlocalmart:
     base-url: ${HLM_TOWN_SERVICE_URI:http://localhost:8082}
   vendor-service:
     base-url: ${HLM_VENDOR_SERVICE_URI:http://localhost:8083}
+  order-service:
+    base-url: ${HLM_ORDER_SERVICE_URI:http://localhost:8086}

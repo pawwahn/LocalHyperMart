@@ -36,9 +36,9 @@ export const SHOP_HOME_AISLES_CSS = `
 
     display: grid;
 
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
 
-    gap: 0.75rem 0.4rem;
+    gap: 0.55rem 0.4rem;
 
     align-content: start;
 
@@ -72,9 +72,9 @@ export const SHOP_HOME_AISLES_CSS = `
 
     display: grid;
 
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
 
-    gap: 0.75rem 0.4rem;
+    gap: 0.55rem 0.4rem;
 
     align-content: start;
 

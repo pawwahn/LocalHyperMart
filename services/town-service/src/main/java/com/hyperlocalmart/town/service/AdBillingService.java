@@ -67,6 +67,7 @@ import java.util.stream.Collectors;
 public class AdBillingService {
 
     public static final int MID_GRID_SLOTS = 5;
+    public static final int CAT_UPSELL_SLOTS = 4;
     public static final int MAX_TOWNS = 200;
     public static final int MAX_DAYS = 1096;
     private static final ZoneId IST = ZoneId.of("Asia/Kolkata");
@@ -100,7 +101,7 @@ public class AdBillingService {
         AdRatesDocument doc = AdRatesDocument.builder()
                 .homeHero(requireSlotRates("Main ad (home strip)", request.getHomeHero()))
                 .homeMidGrid(requireSlotRates("Mid-grid ad", request.getHomeMidGrid()))
-                .cartUpsell(requireSlotRates("Cart ad", request.getCartUpsell()))
+                .cartUpsell(requireSlotRates("Categories Upsell", request.getCartUpsell()))
                 .build();
         card.setTaxPercent(tax);
         card.setNotes(trimTo(request.getNotes(), 500));
@@ -124,7 +125,7 @@ public class AdBillingService {
     @Transactional(readOnly = true)
     public AdQuoteResponse quote(AdQuoteRequest request) {
         return buildQuote(request.getSlot(), request.getSlotIndex(), request.getPeriod(), request.getTownScope(),
-                request.getTownIds(), request.getFromDate(), request.getToDate(), null);
+                request.getTownIds(), request.getFromDate(), request.getToDate(), request.getIgnoreInvoiceId());
     }
 
     @Transactional(readOnly = true)
@@ -281,6 +282,59 @@ public class AdBillingService {
         return toInvoiceResponse(invoice);
     }
 
+    @Transactional
+    public AdInvoiceResponse updateDates(UUID id, LocalDate fromDate, LocalDate toDate, UUID actorId) {
+        AdInvoice invoice = requireInvoice(id);
+        if (invoice.getStatus() == AdInvoiceStatus.VOID) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, invoice.getInvoiceNumber() + " is void");
+        }
+        AdQuoteResponse quote = buildQuote(
+                invoice.getSlot(),
+                invoice.getSlotIndex(),
+                invoice.getPeriod(),
+                invoice.getTownScope(),
+                readTownIds(invoice),
+                fromDate,
+                toDate,
+                invoice.getId());
+        if (quote.getConflicts() != null && !quote.getConflicts().isEmpty()) {
+            AdInvoiceConflictDto first = quote.getConflicts().get(0);
+            throw new BusinessException(ErrorCode.CONFLICT,
+                    "Those dates are already booked by " + first.getInvoiceNumber() + " (" + first.getAdvertiserName()
+                            + ") " + first.getFromDate() + " → " + first.getToDate() + ".");
+        }
+        String beforeFrom = invoice.getFromDate().toString();
+        String beforeTo = invoice.getToDate().toString();
+        invoice.setFromDate(quote.getFromDate());
+        invoice.setToDate(quote.getToDate());
+        invoice.setCalendarDays(quote.getCalendarDays());
+        invoice.setBillableUnits(quote.getBillableUnits());
+        invoice.setUnitOneTown(quote.getUnitOneTown());
+        invoice.setUnitExtraTown(quote.getUnitExtraTown());
+        invoice.setUnitAllTowns(quote.getUnitAllTowns());
+        invoice.setTaxPercent(quote.getTaxPercent());
+        invoice.setSubtotal(quote.getSubtotal());
+        invoice.setTaxAmount(quote.getTaxAmount());
+        invoice.setTotal(quote.getTotal());
+        invoice.setUpdatedBy(actorId);
+        invoiceRepository.save(invoice);
+        adminAuditService.record(
+                "ads-bills",
+                "UPDATE_AD_INVOICE_DATES",
+                invoice.getInvoiceNumber() + " dates " + beforeFrom + " → " + beforeTo
+                        + " moved to " + quote.getFromDate() + " → " + quote.getToDate()
+                        + " · ₹" + invoice.getTotal().toPlainString(),
+                actorId,
+                "SUPER_ADMIN",
+                primaryTownId(readTownIds(invoice)),
+                "AD_INVOICE",
+                invoice.getId(),
+                Map.of("fromDate", beforeFrom, "toDate", beforeTo),
+                Map.of("fromDate", quote.getFromDate().toString(), "toDate", quote.getToDate().toString(),
+                        "total", invoice.getTotal(), "invoiceNumber", invoice.getInvoiceNumber()));
+        return toInvoiceResponse(invoice);
+    }
+
     @Transactional(readOnly = true)
     public PageResponse<AdInvoiceResponse> listInvoices(
             AdInvoiceStatus status,
@@ -415,9 +469,9 @@ public class AdBillingService {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Ad run must be between 1 and " + MAX_DAYS + " days");
         }
         int slotIndex = normalizeSlotIndex(slot, slotIndexRaw);
-        if (!townAdRepository.existsBySlotAndEnabledTrue(slot)) {
-            throw new BusinessException(ErrorCode.VALIDATION_ERROR,
-                    slotLabel(slot, slotIndex) + " is hidden on Creatives. Turn it on before billing.");
+        List<UUID> townIds = normalizeTownIds(scope, townIdsRaw);
+        if (ignoreInvoiceId == null) {
+            assertSlotOpen(slot, slotIndex, scope, townIds);
         }
         int units = switch (period) {
             case DAY -> (int) days;
@@ -425,7 +479,6 @@ public class AdBillingService {
             case MONTH -> (int) Math.ceil(days / 30.0d);
             case YEAR -> (int) Math.ceil(days / 365.0d);
         };
-        List<UUID> townIds = normalizeTownIds(scope, townIdsRaw);
         int enabledTownCount = (int) townRepository.findByStatusOrderByDisplayNameAsc(TownStatus.ENABLED).size();
         int townCount = scope == AdTownScope.ALL_TOWNS ? Math.max(enabledTownCount, 1) : townIds.size();
         AdRateCard card = loadOrCreateCard();
@@ -928,6 +981,14 @@ public class AdBillingService {
             }
             return idx;
         }
+        if (slot == TownAdSlot.CART_UPSELL) {
+            int idx = slotIndex == null ? 1 : slotIndex;
+            if (idx < 1 || idx > CAT_UPSELL_SLOTS) {
+                throw new BusinessException(ErrorCode.VALIDATION_ERROR,
+                        "Categories Upsell must be between 1 and " + CAT_UPSELL_SLOTS);
+            }
+            return idx;
+        }
         return 0;
     }
 
@@ -976,6 +1037,8 @@ public class AdBillingService {
                 .slot(row.getSlot())
                 .slotIndex(row.getSlotIndex())
                 .slotLabel(slotLabel(row.getSlot(), row.getSlotIndex()))
+                .period(row.getPeriod())
+                .townScope(row.getTownScope())
                 .fromDate(row.getFromDate())
                 .toDate(row.getToDate())
                 .allTowns(row.isAllTowns())
@@ -995,11 +1058,21 @@ public class AdBillingService {
         return "LIVE";
     }
 
+    private void assertSlotOpen(TownAdSlot slot, int slotIndex, AdTownScope scope, List<UUID> townIds) {
+        boolean closed = townAdRepository.findBySlotAndSlotIndex(slot, slotIndex).stream()
+                .anyMatch(ad -> !ad.isBookable()
+                        && (scope == AdTownScope.ALL_TOWNS || townIds.contains(ad.getTownId())));
+        if (closed) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR,
+                    slotLabel(slot, slotIndex) + " is disabled. Enable it in Creatives before booking.");
+        }
+    }
+
     static String slotLabel(TownAdSlot slot, int slotIndex) {
         return switch (slot) {
             case HOME_HERO -> "Main ad (home strip)";
-            case HOME_MID_GRID -> "Mid-grid slide " + slotIndex;
-            case CART_UPSELL -> "Cart ad";
+            case HOME_MID_GRID -> "Mid " + slotIndex;
+            case CART_UPSELL -> "Cat " + slotIndex;
         };
     }
 

@@ -26,6 +26,8 @@ public class HubPaymentRequestResponse {
     private String documentRef;
     private UUID submissionId;
     private Instant issuedAt;
+    /** Comment from KoyaKart when the last payment was not received. */
+    private String payerNotice;
     private Integer orderCount;
     private List<CodLine> codLines;
 

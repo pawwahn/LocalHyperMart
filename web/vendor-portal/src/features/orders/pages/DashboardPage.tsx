@@ -10,13 +10,15 @@ import { SubOrderList } from '../components/SubOrderList';
 import { ReasonDialog } from '../components/ReasonDialog';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { AssignVendorAgentDialog } from '@/features/delivery/components/AssignVendorAgentDialog';
-import { vendorBagDisplayNumber, vendorBagLabelHint } from '../orderBagLabel';
+import { vendorBagDisplayNumber } from '../orderBagLabel';
+import { siblingStatusLine } from '../orderStatusCopy';
 
 const FILTERS: Array<{ value: string; label: string }> = [
   { value: 'PLACED', label: 'New' },
   { value: 'READY_FOR_PICKUP', label: 'Ready' },
   { value: 'DELIVERY_BY_VENDOR_AGENT', label: 'My agent' },
   { value: 'VENDOR_REJECTED', label: 'Rejected' },
+  { value: 'BUYER_CANCELLED', label: 'Buyer cancelled' },
   { value: '', label: 'All' },
 ];
 
@@ -105,7 +107,7 @@ export function DashboardPage({ active = true }: { active?: boolean }) {
   const promptBagHint = useMemo(() => {
     if (!prompt || !('subOrderId' in prompt)) return null;
     const o = orders.find((x) => x.id === prompt.subOrderId);
-    return o ? vendorBagLabelHint(o) : null;
+    return o ? siblingStatusLine(o) : null;
   }, [orders, prompt]);
 
   const dialogBusy = Boolean(

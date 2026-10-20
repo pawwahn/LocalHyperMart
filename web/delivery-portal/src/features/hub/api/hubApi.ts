@@ -29,6 +29,7 @@ export type AdminOrderDto = {
   placedAt?: string;
   subOrderCount: number;
   rejectedSubOrderCount?: number;
+  buyerCancelledSubOrderCount?: number;
   readySubOrderCount: number;
   atHubSubOrderCount?: number;
   assignments?: Array<{
@@ -152,6 +153,7 @@ export type OrderRowView = {
   totalLabel: string;
   subOrderCount: number;
   rejectedSubOrderCount: number;
+  buyerCancelledSubOrderCount: number;
   readySubOrderCount: number;
   atHubSubOrderCount: number;
   pickupReadiness: 'none' | 'partial' | 'all';
@@ -209,6 +211,7 @@ export function toOrderRow(dto: AdminOrderDto): OrderRowView {
   const ready = dto.readySubOrderCount ?? 0;
   const total = dto.subOrderCount ?? 0;
   const rejected = dto.rejectedSubOrderCount ?? 0;
+  const buyerCancelled = dto.buyerCancelledSubOrderCount ?? 0;
   const assignments = dto.assignments ?? [];
   const atHubFromAssignments = assignments.filter(
     (a) => a.legType === 'PICKUP' && a.status === 'COMPLETED',
@@ -231,6 +234,7 @@ export function toOrderRow(dto: AdminOrderDto): OrderRowView {
     totalLabel: money(dto.totalAmount),
     subOrderCount: total,
     rejectedSubOrderCount: rejected,
+    buyerCancelledSubOrderCount: buyerCancelled,
     readySubOrderCount: readyForShop,
     atHubSubOrderCount: atHub,
     pickupReadiness,
@@ -250,8 +254,9 @@ export function orderRowFromDetail(
     subOrderNumber: a.subOrderNumber,
   }));
   const allSubs = d.subOrders ?? [];
-  const activeSubs = allSubs.filter((s) => s.status !== 'VENDOR_REJECTED');
-  const rejected = allSubs.length - activeSubs.length;
+  const activeSubs = allSubs.filter((s) => s.status !== 'VENDOR_REJECTED' && s.status !== 'BUYER_CANCELLED');
+  const rejected = allSubs.filter((s) => s.status === 'VENDOR_REJECTED').length;
+  const buyerCancelled = allSubs.filter((s) => s.status === 'BUYER_CANCELLED').length;
   const total = activeSubs.length;
   const atHub = activeSubs.filter(
     (s) =>
@@ -281,6 +286,7 @@ export function orderRowFromDetail(
     totalLabel: money(d.totalAmount),
     subOrderCount: total,
     rejectedSubOrderCount: rejected,
+    buyerCancelledSubOrderCount: buyerCancelled,
     readySubOrderCount: readyForShop,
     atHubSubOrderCount: atHub,
     pickupReadiness,

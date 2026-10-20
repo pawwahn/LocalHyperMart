@@ -21,7 +21,8 @@ public interface MasterItemRepository extends JpaRepository<MasterItem, UUID> {
               AND (:#{#unitId == null} = true OR m.unit.id = :unitId)
               AND (:gstPercent IS NULL OR m.gstPercent = :gstPercent)
               AND (:#{#q == null || #q.isBlank()} = true OR LOWER(m.name) LIKE LOWER(CONCAT('%', :q, '%'))
-                   OR LOWER(COALESCE(m.searchNames, '')) LIKE LOWER(CONCAT('%', :q, '%')))
+                   OR LOWER(COALESCE(m.searchNames, '')) LIKE LOWER(CONCAT('%', :q, '%'))
+                   OR COALESCE(m.barcode, '') LIKE CONCAT('%', :q, '%'))
             """)
     Page<MasterItem> searchActive(
             @Param("status") CatalogItemStatus status,
@@ -30,6 +31,8 @@ public interface MasterItemRepository extends JpaRepository<MasterItem, UUID> {
             @Param("gstPercent") BigDecimal gstPercent,
             @Param("q") String q,
             Pageable pageable);
+
+    Optional<MasterItem> findByBarcode(String barcode);
 
     Optional<MasterItem> findByIdAndStatus(UUID id, CatalogItemStatus status);
 

@@ -67,15 +67,20 @@ public class CartClient {
                         "listingId", line.listingId(),
                         "quantity", line.quantity()))
                 .toList();
-        ApiResponse<ReorderCartResult> response = client.post()
-                .uri(uriBuilder -> uriBuilder
-                        .path("/api/v1/internal/carts/replace-items")
-                        .queryParam("userId", userId)
-                        .queryParam("townId", townId)
-                        .build())
-                .body(java.util.Map.of("items", bodyItems))
-                .retrieve()
-                .body(new ParameterizedTypeReference<ApiResponse<ReorderCartResult>>() {});
+        ApiResponse<ReorderCartResult> response;
+        try {
+            response = client.post()
+                    .uri(uriBuilder -> uriBuilder
+                            .path("/api/v1/internal/carts/replace-items")
+                            .queryParam("userId", userId)
+                            .queryParam("townId", townId)
+                            .build())
+                    .body(java.util.Map.of("items", bodyItems))
+                    .retrieve()
+                    .body(new ParameterizedTypeReference<ApiResponse<ReorderCartResult>>() {});
+        } catch (RestClientResponseException ex) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Could not update the basket. Try again.");
+        }
         if (response == null || response.getData() == null) {
             throw new IllegalStateException("Cart reorder failed");
         }

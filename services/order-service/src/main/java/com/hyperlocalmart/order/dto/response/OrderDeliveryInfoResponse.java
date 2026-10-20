@@ -26,6 +26,8 @@ public class OrderDeliveryInfoResponse {
     String pincode;
     String addressLabel;
     boolean vendorAgentDelivery;
+    /** True while any shop bag is still PLACED. Last-mile must wait. */
+    boolean stillPacking;
     PaymentMethod paymentMethod;
     /** Cash to collect at door when {@link #paymentMethod} is COD. */
     BigDecimal collectCashAmount;

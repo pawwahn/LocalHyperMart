@@ -15,6 +15,7 @@ import com.hyperlocalmart.order.dto.response.HubTownReportStatsResponse;
 import com.hyperlocalmart.order.dto.response.OrderDeliveryInfoResponse;
 import com.hyperlocalmart.order.dto.response.OrderDeliveryManifestResponse;
 import com.hyperlocalmart.order.dto.response.OrderInternalSnapshotResponse;
+import com.hyperlocalmart.order.dto.response.SettlementBagKey;
 import com.hyperlocalmart.order.dto.response.SettlementCandidateResponse;
 import com.hyperlocalmart.order.dto.response.SubOrderInternalSnapshotResponse;
 import com.hyperlocalmart.order.dto.response.SubOrderPickupManifestResponse;
@@ -68,6 +69,15 @@ public class OrderInternalController {
             HttpServletRequest httpRequest) {
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
                 orderHistorySuggestionService.recentListingIds(buyerId, townId, limit)));
+    }
+
+    @GetMapping("/api/v1/internal/towns/{townId}/top-listings")
+    public ResponseEntity<ApiResponse<Map<String, List<UUID>>>> townTopListings(
+            @PathVariable UUID townId,
+            @RequestParam(defaultValue = "24") int limit,
+            HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(ApiResponses.ok(
+                httpRequest, Map.of("listingIds", orderHistorySuggestionService.townTopListingIds(townId, limit))));
     }
 
     @GetMapping("/api/v1/internal/orders/{orderId}")
@@ -185,6 +195,15 @@ public class OrderInternalController {
             HttpServletRequest httpRequest) {
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
                 hubOrderStatsService.getTownQualityReport(townId, from, to)));
+    }
+
+    @GetMapping("/api/v1/internal/orders/settlement-candidates/bag-keys")
+    public ResponseEntity<ApiResponse<List<SettlementBagKey>>> settlementBagKeys(
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                settlementCandidateService.listBagKeys(from, to)));
     }
 
     @GetMapping("/api/v1/internal/orders/settlement-candidates/vendor-towns")

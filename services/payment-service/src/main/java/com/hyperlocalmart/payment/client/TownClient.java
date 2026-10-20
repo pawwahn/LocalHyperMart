@@ -20,6 +20,18 @@ public class TownClient {
 
     private final RestClient.Builder restClientBuilder;
     private final TownServiceProperties townServiceProperties;
+    private final ShortCallCache<DeliveryPayoutConfig> payoutConfigCache = new ShortCallCache<>();
+    private final ShortCallCache<VendorAgentDeliveryConfig> vendorAgentConfigCache = new ShortCallCache<>();
+
+    public void beginReplay() {
+        payoutConfigCache.begin();
+        vendorAgentConfigCache.begin();
+    }
+
+    public void endReplay() {
+        payoutConfigCache.end();
+        vendorAgentConfigCache.end();
+    }
 
     public TdsConfig tdsConfig() {
         try {
@@ -55,6 +67,10 @@ public class TownClient {
     }
 
     public DeliveryPayoutConfig deliveryPayoutConfig(UUID townId) {
+        return payoutConfigCache.get(townId.toString(), () -> loadDeliveryPayoutConfig(townId));
+    }
+
+    private DeliveryPayoutConfig loadDeliveryPayoutConfig(UUID townId) {
         RestClient client = restClientBuilder.baseUrl(townServiceProperties.getBaseUrl()).build();
         ApiResponse<DeliveryPayoutConfig> response = client.get()
                 .uri("/api/v1/internal/towns/{townId}/delivery-payout-config", townId)
@@ -67,6 +83,10 @@ public class TownClient {
     }
 
     public VendorAgentDeliveryConfig vendorAgentDeliveryConfig(UUID townId) {
+        return vendorAgentConfigCache.get(townId.toString(), () -> loadVendorAgentDeliveryConfig(townId));
+    }
+
+    private VendorAgentDeliveryConfig loadVendorAgentDeliveryConfig(UUID townId) {
         RestClient client = restClientBuilder.baseUrl(townServiceProperties.getBaseUrl()).build();
         ApiResponse<VendorAgentDeliveryConfig> response = client.get()
                 .uri("/api/v1/internal/towns/{townId}/vendor-agent-delivery-config", townId)

@@ -29,6 +29,7 @@ import {
   placeOrder,
   removeCartItem,
   removePromo,
+  switchCartLine,
   updateAddress,
   updateCartItem,
   type AddressDto,
@@ -386,6 +387,10 @@ function useShopState() {
           shopName: catalog?.shopName ?? '',
           quantity: nextQty,
           lineLabel: moneyLabel((catalog?.price ?? 0) * nextQty),
+          available: true,
+          alternateListingId: null,
+          alternateShopName: null,
+          alternateUnitPrice: null,
         },
       ];
     }
@@ -804,6 +809,15 @@ function useShopState() {
     });
   }
 
+  async function doSwitchShop(itemId: string, listingId: string) {
+    const next = await withCartBusy(itemId, async () => {
+      const cart = await switchCartLine(session!.accessToken, itemId, listingId);
+      applyServerCart(cart);
+      return cart;
+    });
+    if (next) setNotice('Switched to the other shop. Same quantity.');
+  }
+
   async function doApplyPromo(code: string): Promise<{ ok: true } | { ok: false; message: string }> {
     const trimmed = code.trim();
     if (!session) {
@@ -1185,6 +1199,7 @@ function useShopState() {
     doDecrease,
     doSetLineQuantity,
     doRemove,
+    doSwitchShop,
     doApplyPromo,
     doRemovePromo,
     doCreateAddress,

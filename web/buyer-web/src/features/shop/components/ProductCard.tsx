@@ -17,8 +17,10 @@ type Props = {
   imageCount?: number;
   quantity: number;
   busy?: boolean;
-  /** rail = Instamart-style horizontal scroller card */
-  layout?: 'grid' | 'rail';
+  /** rail = compact scroller card. store = home merchandising card. */
+  layout?: 'grid' | 'rail' | 'store';
+  /** Short delivery line on store cards, such as "In 2-4 hrs". */
+  etaLabel?: string | null;
   onOpen: () => void;
   onIncrease: () => void;
   onDecrease: () => void;
@@ -41,6 +43,7 @@ export function ProductCard({
   quantity,
   busy,
   layout = 'grid',
+  etaLabel,
   onOpen,
   onIncrease,
   onDecrease,
@@ -49,6 +52,49 @@ export function ProductCard({
   const badge = specialOfferActive ? 'SALE' : discountPercent && discountPercent > 0 ? `${discountPercent}% OFF` : null;
   const showRating = ratingCount > 0 && avgRating > 0;
   const rail = layout === 'rail';
+  const store = layout === 'store';
+  const offerLine = discountPercent && discountPercent > 0 ? `${discountPercent}% OFF` : specialOfferActive ? 'OFFER' : null;
+
+  if (store) {
+    return (
+      <article className="hlm-product-card" style={styles.cardStore}>
+        <div style={{ ...styles.mediaStore, background: imageUrl ? '#fff' : visual.tint }}>
+          <button type="button" style={styles.mediaHit} onClick={onOpen} aria-label={`View ${name}`} />
+          {imageUrl ? (
+            <img src={imageUrl} alt="" style={styles.photoStore} />
+          ) : (
+            <span style={styles.emoji} aria-hidden>
+              {visual.emoji}
+            </span>
+          )}
+          <div style={styles.stepperWrapStore}>
+            <QuantityStepper
+              quantity={quantity}
+              disabled={busy}
+              onIncrease={onIncrease}
+              onDecrease={onDecrease}
+              size="xs"
+              addMode="icon"
+              chrome="circle"
+            />
+          </div>
+        </div>
+        <button type="button" style={styles.bodyHit} onClick={onOpen} aria-label={`View ${name} details`}>
+          <div style={styles.bodyStore}>
+            {etaLabel ? <p style={styles.eta}>{etaLabel}</p> : null}
+            <h3 style={styles.nameStore}>{name}</h3>
+            <p style={styles.unitStore}>{unit}</p>
+            {shopName ? <p style={styles.shopStore}>{shopName}</p> : null}
+            {offerLine ? <p style={styles.offerLine}>{offerLine}</p> : null}
+            <div style={styles.priceRowStore}>
+              <span style={styles.priceStore}>{priceLabel}</span>
+              {mrpLabel ? <span style={styles.mrpStore}>{mrpLabel}</span> : null}
+            </div>
+          </div>
+        </button>
+      </article>
+    );
+  }
 
   return (
     <article className="hlm-product-card" style={rail ? styles.cardRail : styles.card}>
@@ -377,6 +423,114 @@ const styles: Record<string, CSSProperties> = {
   mrp: {
     fontSize: '0.72rem',
     color: 'var(--danger)',
+    textDecoration: 'line-through',
+  },
+  cardStore: {
+    background: '#fff',
+    border: 'none',
+    borderRadius: 12,
+    overflow: 'hidden',
+    display: 'grid',
+    gridTemplateRows: 'auto 1fr',
+    width: '100%',
+    minWidth: 0,
+  },
+  mediaStore: {
+    position: 'relative',
+    aspectRatio: '1 / 0.92',
+    display: 'grid',
+    placeItems: 'center',
+    overflow: 'hidden',
+    borderRadius: 12,
+    border: '1px solid color-mix(in srgb, var(--border) 80%, transparent)',
+  },
+  photoStore: {
+    width: '88%',
+    height: '88%',
+    objectFit: 'contain',
+    display: 'block',
+  },
+  stepperWrapStore: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    zIndex: 3,
+  },
+  bodyStore: {
+    padding: '0.38rem 0.1rem 0.15rem',
+    display: 'grid',
+    gap: '0.08rem',
+    alignContent: 'start',
+    minWidth: 0,
+  },
+  eta: {
+    margin: 0,
+    fontSize: '0.58rem',
+    fontWeight: 800,
+    letterSpacing: '0.01em',
+    color: 'var(--text-muted)',
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+  },
+  nameStore: {
+    margin: 0,
+    fontFamily: 'var(--font-display)',
+    fontSize: '0.78rem',
+    fontWeight: 700,
+    lineHeight: 1.2,
+    letterSpacing: '-0.02em',
+    color: 'var(--text)',
+    overflow: 'hidden',
+    display: '-webkit-box',
+    WebkitLineClamp: 2,
+    WebkitBoxOrient: 'vertical',
+    minHeight: '1.9em',
+  },
+  unitStore: {
+    margin: 0,
+    fontSize: '0.68rem',
+    color: 'var(--text-muted)',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  },
+  shopStore: {
+    margin: 0,
+    fontSize: '0.6rem',
+    fontWeight: 700,
+    letterSpacing: '0.03em',
+    textTransform: 'uppercase',
+    color: 'var(--text-muted)',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  },
+  offerLine: {
+    margin: '0.12rem 0 0',
+    paddingTop: '0.18rem',
+    borderTop: '1px dashed color-mix(in srgb, var(--border) 85%, transparent)',
+    fontSize: '0.68rem',
+    fontWeight: 800,
+    letterSpacing: '0.01em',
+    color: 'var(--accent)',
+  },
+  priceRowStore: {
+    display: 'flex',
+    alignItems: 'baseline',
+    gap: '0.28rem',
+    minWidth: 0,
+  },
+  priceStore: {
+    fontFamily: 'var(--font-display)',
+    fontWeight: 800,
+    fontSize: '0.92rem',
+    letterSpacing: '-0.03em',
+    color: 'var(--text)',
+  },
+  mrpStore: {
+    fontSize: '0.68rem',
+    color: 'var(--text-muted)',
     textDecoration: 'line-through',
   },
 };

@@ -70,7 +70,7 @@ function statusStyle(status: string): CSSProperties {
 
 function shortStatus(status: string, statusLabel: string): string {
   if (status === 'VERIFIED') return 'Confirmed';
-  if (status === 'REJECTED') return 'Rejected';
+  if (status === 'REJECTED') return 'Not received';
   if (status === 'PENDING_VERIFICATION') return 'Pending';
   return statusLabel;
 }
@@ -126,9 +126,9 @@ function PaymentHistoryRow({
         {row.status === 'REJECTED' ? formatWhen(row.rejectedAt) : null}
         {row.status === 'PENDING_VERIFICATION' ? '—' : null}
       </td>
-      <td style={styles.tdNote} title={[note, rejectWhy ? `Rejected: ${rejectWhy}` : ''].filter(Boolean).join(' · ') || undefined}>
+      <td style={styles.tdNote} title={[note, rejectWhy ? `Not received: ${rejectWhy}` : ''].filter(Boolean).join(' · ') || undefined}>
         {note || '—'}
-        {rejectWhy ? <div style={styles.rejectWhy}>Rejected: {rejectWhy}</div> : null}
+        {rejectWhy ? <div style={styles.rejectWhy}>Not received: {rejectWhy}</div> : null}
       </td>
       <td style={styles.tdAction}>
         {canEdit ? (

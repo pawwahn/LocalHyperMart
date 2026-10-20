@@ -10,7 +10,7 @@ import {
 } from '../api/agentApi';
 import { DateRangePresetBar } from '@hlm-dates/DateRangePresetBar';
 import { formatIsoDateRange } from '@hlm-dates/formatDateRange';
-import { isoIstDate, rangeForReportPreset, type ReportDatePreset } from '@hlm-dates/istReportPresets';
+import { DEFAULT_REPORT_DATE_PRESET, isoIstDate, rangeForReportPreset, type ReportDatePreset } from '@hlm-dates/istReportPresets';
 import { downloadAgentPayoutStatement } from '../agentPayoutStatement';
 
 function money(n: number): string {
@@ -33,8 +33,8 @@ function statusLabel(status: string): string {
 
 export function AgentPayPage() {
   const { session } = useAuth();
-  const initial = rangeForReportPreset('month');
-  const [preset, setPreset] = useState<ReportDatePreset>('month');
+  const initial = rangeForReportPreset(DEFAULT_REPORT_DATE_PRESET);
+  const [preset, setPreset] = useState<ReportDatePreset>(DEFAULT_REPORT_DATE_PRESET);
   const [from, setFrom] = useState(initial.from);
   const [to, setTo] = useState(initial.to);
   const [data, setData] = useState<AgentPaySummary | null>(null);
@@ -79,7 +79,7 @@ export function AgentPayPage() {
   }
 
   async function rejectPayout(settlementId: string) {
-    if (!session) return;
+    if (!session || !rejectNote.trim()) return;
     setBusyId(settlementId);
     setError(null);
     try {
@@ -160,6 +160,16 @@ export function AgentPayPage() {
           ) : (
             <p style={styles.muted}>No unpaid trips in this period.</p>
           )}
+
+          {(data.payerNotices ?? []).length > 0 ? (
+            <div style={styles.notice}>
+              {(data.payerNotices ?? []).map((n) => (
+                <p key={n.settlementId} style={styles.noticeLine}>
+                  Not received{n.reference ? ` · ${n.reference}` : ''}: {n.comment}
+                </p>
+              ))}
+            </div>
+          ) : null}
 
           <h2 style={styles.sectionTitle}>Payment history ({data.payouts.length})</h2>
           <div style={styles.tableWrap}>
@@ -262,13 +272,13 @@ export function AgentPayPage() {
                               <input
                                 value={rejectNote}
                                 onChange={(e) => setRejectNote(e.target.value)}
-                                placeholder="What to recheck"
+                                placeholder="Comment for KoyaKart"
                                 maxLength={500}
                                 style={styles.note}
                                 aria-label="What to recheck"
                               />
-                              <button type="button" style={styles.primary} disabled={busyId === p.settlementId} onClick={() => void rejectPayout(p.settlementId)}>
-                                {busyId === p.settlementId ? 'Sending…' : 'Send back'}
+                              <button type="button" style={styles.primary} disabled={busyId === p.settlementId || !rejectNote.trim()} onClick={() => void rejectPayout(p.settlementId)}>
+                                {busyId === p.settlementId ? 'Sending…' : 'Send comment'}
                               </button>
                               <button type="button" style={styles.ghost} disabled={busyId === p.settlementId} onClick={() => setRejectId(null)}>
                                 Back
@@ -320,6 +330,16 @@ const styles: Record<string, CSSProperties> = {
   moneyValue: { fontSize: '0.95rem', fontVariantNumeric: 'tabular-nums' },
   rateLine: { margin: '0.45rem 0 0', fontSize: '0.72rem', fontWeight: 600, color: 'var(--text-muted)', lineHeight: 1.35 },
   sectionTitle: { margin: '0.75rem 0 0.35rem', fontSize: '0.82rem', fontWeight: 800 },
+  notice: {
+    display: 'grid',
+    gap: '0.2rem',
+    marginTop: '0.55rem',
+    padding: '0.4rem 0.55rem',
+    borderRadius: 8,
+    background: '#fee2e2',
+    border: '1px solid #fecaca',
+  },
+  noticeLine: { margin: 0, fontSize: '0.78rem', fontWeight: 700, color: '#991b1b' },
   list: { margin: 0, padding: 0, listStyle: 'none', display: 'grid', gap: '0.35rem' },
   item: {
     display: 'flex',

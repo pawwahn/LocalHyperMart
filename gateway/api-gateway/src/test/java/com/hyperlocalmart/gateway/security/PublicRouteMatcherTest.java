@@ -18,6 +18,12 @@ class PublicRouteMatcherTest {
     }
 
     @Test
+    void corsPreflight_isPublic() {
+        assertThat(PublicRouteMatcher.isPublic(HttpMethod.OPTIONS, "/api/v1/towns")).isTrue();
+        assertThat(PublicRouteMatcher.isPublic(HttpMethod.OPTIONS, "/api/v1/cart")).isTrue();
+    }
+
+    @Test
     void platformPublicSettings_isPublic() {
         assertThat(PublicRouteMatcher.isPublic(HttpMethod.GET, "/api/v1/platform/settings/public")).isTrue();
     }

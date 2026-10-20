@@ -3,9 +3,11 @@ import { createRoot } from 'react-dom/client';
 import { applyTheme } from '@hlm-theme';
 import { injectGlobalStyles } from '@/shared/theme/globalStyles';
 import { AppRouter } from '@/app/AppRouter';
+import { bootstrapNativeApp } from '@/shared/native/bootstrapNativeApp';
 
 applyTheme({ mode: 'light', accent: 'forest' });
 injectGlobalStyles();
+void bootstrapNativeApp();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

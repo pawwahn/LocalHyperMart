@@ -2,6 +2,7 @@ package com.hyperlocalmart.payment.service;
 
 import com.hyperlocalmart.payment.client.DeliveryClient;
 import com.hyperlocalmart.payment.client.OrderClient;
+import com.hyperlocalmart.payment.client.TownClient;
 import com.hyperlocalmart.payment.client.VendorClient;
 import com.hyperlocalmart.payment.dto.response.SettlementCandidateView;
 import com.hyperlocalmart.payment.repository.CodCloseDayLineItemRepository;
@@ -36,6 +37,7 @@ class OpenAccountsServiceTest {
     @Mock private DeliverySettlementService deliverySettlementService;
     @Mock private VendorClient vendorClient;
     @Mock private DeliveryClient deliveryClient;
+    @Mock private TownClient townClient;
     @Mock private CodCloseDayLineItemRepository closeLineRepository;
 
     @InjectMocks

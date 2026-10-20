@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">KoyaKart</string>
+    <string name="title_activity_main">KoyaKart</string>
+    <string name="package_name">com.koyakart.buyer</string>
+    <string name="custom_url_scheme">com.koyakart.buyer</string>
+</resources>

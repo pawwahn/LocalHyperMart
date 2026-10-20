@@ -5,8 +5,12 @@ import { PortalShell } from '@/shared/layout/PortalShell';
 import { useTown } from '@/shared/town/TownContext';
 import { Banner, EmptyState, LoadingBlock } from '@/shared/ui';
 import {
+  fetchCartSuggestions,
   fetchCatalogPage,
   fetchCategories,
+  fetchDiscountedItems,
+  fetchTownBestsellers,
+  mergeCatalogItems,
   type CatalogItemView,
   type CategoryView,
 } from '../api/shopApi';
@@ -20,18 +24,60 @@ import { MembershipPlansSheet } from '../components/MembershipPlansSheet';
 import { ProductCard } from '../components/ProductCard';
 import { ProductQuickView } from '../components/ProductQuickView';
 import { ProductRail } from '../components/ProductRail';
+import { StoreRail } from '../components/StoreRail';
 import { ShopSpecialOffersBanner } from '../components/ShopSpecialOffersBanner';
 import { ensureShopHomeAislesCss } from '../components/shopHomeAisles.css';
 import { BestDealsSheet } from '../components/BestDealsSheet';
 import { groupCategoriesIntoAisles } from '../lib/aisles';
 import { useBrowserVoiceSearch } from '../hooks/useBrowserVoiceSearch';
 import { useShop } from '../hooks/useShop';
+import { BuyAgainBar } from '../components/BuyAgainBar';
 
 const SEARCH_HINTS = ['Egg', 'Bread', 'Milk', 'Rice', 'Maggi', 'Tomato'];
+const RECENT_SEARCHES_KEY = 'koyakart-recent-searches';
+
+function readRecentSearches(): string[] {
+  try {
+    const raw = localStorage.getItem(RECENT_SEARCHES_KEY);
+    const parsed = raw ? (JSON.parse(raw) as unknown) : [];
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((term): term is string => typeof term === 'string' && term.trim().length > 0).slice(0, 8);
+  } catch {
+    return [];
+  }
+}
+
+function writeRecentSearches(terms: string[]) {
+  localStorage.setItem(RECENT_SEARCHES_KEY, JSON.stringify(terms.slice(0, 8)));
+}
+
+type StoreRailSpec = { id: string; title: string; names: string[]; maxPrice?: number };
+
+const STORE_RAIL_SPECS: StoreRailSpec[] = [
+  { id: 'fresh', title: 'Fresh Store', names: ['dairy, bread and eggs', 'dairy'] },
+  { id: 'farm', title: 'Farm to Door', names: ['fresh vegetables', 'vegetables', 'fresh fruits', 'fruits'] },
+  {
+    id: 'pantry',
+    title: 'Regional pantry picks',
+    names: ['atta, rice and dal', 'oils and ghee', 'masalas', 'cereals and breakfast'],
+  },
+  { id: 'skin', title: 'Best in skincare', names: ['skin care'] },
+  { id: 'health', title: 'Health under ₹999', names: ['health and nutrition'], maxPrice: 999 },
+];
+
+function shortEta(label: string): string {
+  const trimmed = label.trim();
+  if (!trimmed) return '';
+  const tomorrow = /^tomorrow/i.test(trimmed);
+  const time = trimmed.replace(/^(today|tomorrow),\s*/i, '');
+  return tomorrow ? `Tmrw ${time}` : time;
+}
 const PAGE_SIZE = 24;
 const CATEGORY_COLS = 4;
 /** Insert sponsored mid-grid ad after this many full category rows on home. */
 const MID_AD_AFTER_ROW = 4;
+/** Cat 1–4 sit after these category rows on the Categories screen. */
+const CATEGORY_AD_ROWS = [2, 4, 6, 8];
 
 type ItemSort = 'name-az' | 'name-za' | 'price-asc' | 'price-desc' | 'rating';
 
@@ -50,8 +96,8 @@ function sortParams(sort: ItemSort): { sort: string; dir: string } {
 
 export function ShopPage({ browseOnly = false }: Props) {
   const navigate = useNavigate();
-  const { isAuthenticated } = useAuth();
-  const { townId, townLabel, bestDealsEnabled } = useTown();
+  const { isAuthenticated, session } = useAuth();
+  const { townId, townLabel, bestDealsEnabled, deliveryWindowLabel } = useTown();
   const {
     cart,
     busy,
@@ -64,6 +110,8 @@ export function ShopPage({ browseOnly = false }: Props) {
     doAdd,
     doIncrease,
     doDecrease,
+    setError,
+    setNotice,
   } = useShop();
   const [categoryId, setCategoryId] = useState<string | null>(null);
   const [categoryName, setCategoryName] = useState<string>('');
@@ -71,6 +119,8 @@ export function ShopPage({ browseOnly = false }: Props) {
   const [itemSort, setItemSort] = useState<ItemSort>('name-az');
   const [query, setQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
+  const [recentSearches, setRecentSearches] = useState<string[]>(readRecentSearches);
+  const [offersOnly, setOffersOnly] = useState(false);
   const [products, setProducts] = useState<CatalogItemView[]>([]);
   const [page, setPage] = useState(0);
   const [total, setTotal] = useState(0);
@@ -84,6 +134,12 @@ export function ShopPage({ browseOnly = false }: Props) {
   const [dealsOpen, setDealsOpen] = useState(false);
   const [membershipOnSale, setMembershipOnSale] = useState(false);
   const [featured, setFeatured] = useState<CatalogItemView[]>([]);
+  const [discountPool, setDiscountPool] = useState<CatalogItemView[]>([]);
+  const [bestsellerPool, setBestsellerPool] = useState<CatalogItemView[]>([]);
+  const [picks, setPicks] = useState<CatalogItemView[]>([]);
+  const [storeRails, setStoreRails] = useState<
+    Array<{ id: string; title: string; items: CatalogItemView[]; categoryId: string | null }>
+  >([]);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const loadingMoreRef = useRef(false);
   const fetchGenRef = useRef(0);
@@ -126,6 +182,19 @@ export function ShopPage({ browseOnly = false }: Props) {
   }, [query]);
 
   useEffect(() => {
+    if (debouncedQuery.length < 2) return;
+    setRecentSearches((prev) => {
+      const next = [debouncedQuery, ...prev.filter((term) => term.toLowerCase() !== debouncedQuery.toLowerCase())].slice(0, 8);
+      writeRecentSearches(next);
+      return next;
+    });
+  }, [debouncedQuery]);
+
+  useEffect(() => {
+    setOffersOnly(false);
+  }, [categoryId, debouncedQuery]);
+
+  useEffect(() => {
     let cancelled = false;
     if (!townId) {
       setCategories([]);
@@ -156,6 +225,13 @@ export function ShopPage({ browseOnly = false }: Props) {
   }, [townId]);
 
   const searching = debouncedQuery.length > 0;
+  const visibleProducts = useMemo(
+    () =>
+      offersOnly
+        ? products.filter((item) => (item.discountPercent ?? 0) > 0 || item.specialOfferActive)
+        : products,
+    [offersOnly, products],
+  );
   const selected = categories.find((c) => c.id === categoryId) ?? null;
   const inCategory = Boolean(categoryId);
   const showFeed = inCategory || searching;
@@ -172,10 +248,12 @@ export function ShopPage({ browseOnly = false }: Props) {
   useEffect(() => {
     if (!townId || browseOnly) {
       setFeatured([]);
+      setDiscountPool([]);
+      setBestsellerPool([]);
       return;
     }
     let cancelled = false;
-    void fetchCatalogPage({ townId, page: 0, size: 12, sort: 'rating', dir: 'desc' })
+    void fetchCatalogPage({ townId, page: 0, size: 48, sort: 'rating', dir: 'desc' })
       .then((data) => {
         if (cancelled) return;
         setFeatured(data.items);
@@ -184,10 +262,151 @@ export function ShopPage({ browseOnly = false }: Props) {
       .catch(() => {
         if (!cancelled) setFeatured([]);
       });
+    void fetchDiscountedItems(townId, 28)
+      .then((items) => {
+        if (cancelled) return;
+        setDiscountPool(items);
+        rememberItems(items, 'append');
+      })
+      .catch(() => {
+        if (!cancelled) setDiscountPool([]);
+      });
+    void fetchTownBestsellers(townId, 24)
+      .then((items) => {
+        if (cancelled) return;
+        setBestsellerPool(items);
+        rememberItems(items, 'append');
+      })
+      .catch(() => {
+        if (!cancelled) setBestsellerPool([]);
+      });
     return () => {
       cancelled = true;
     };
   }, [townId, browseOnly, rememberItems]);
+
+  useEffect(() => {
+    if (!townId || browseOnly || !isAuthenticated || !session?.accessToken) {
+      setPicks([]);
+      return;
+    }
+    let cancelled = false;
+    void fetchCartSuggestions(session.accessToken, townId, 20)
+      .then((items) => {
+        if (cancelled) return;
+        setPicks(items);
+        rememberItems(items, 'append');
+      })
+      .catch(() => {
+        if (!cancelled) setPicks([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [townId, browseOnly, isAuthenticated, session?.accessToken, rememberItems]);
+
+  useEffect(() => {
+    if (!townId || browseOnly || categories.length === 0) {
+      setStoreRails([]);
+      return;
+    }
+    let cancelled = false;
+    const byName = new Map(categories.map((category) => [category.name.toLowerCase().trim(), category]));
+    const jobs = STORE_RAIL_SPECS.map((spec) => ({
+      spec,
+      cats: spec.names
+        .map((name) => byName.get(name))
+        .filter((category): category is CategoryView => Boolean(category)),
+    })).filter((job) => job.cats.length > 0);
+
+    void Promise.all(
+      jobs.map(async (job) => {
+        const pages = await Promise.all(
+          job.cats.map((category) =>
+            fetchCatalogPage({
+              townId,
+              categoryId: category.id,
+              page: 0,
+              size: 12,
+              sort: 'rating',
+              dir: 'desc',
+            })
+              .then((data) => ({ category, items: data.items }))
+              .catch(() => ({ category, items: [] as CatalogItemView[] })),
+          ),
+        );
+        return { job, pages };
+      }),
+    ).then((results) => {
+      if (cancelled) return;
+      const used = new Set<string>();
+      const rails: Array<{ id: string; title: string; items: CatalogItemView[]; categoryId: string | null }> = [];
+      for (const { job, pages } of results) {
+        const ranked = [...pages].sort((a, b) => b.items.length - a.items.length);
+        const items: CatalogItemView[] = [];
+        for (const page of ranked) {
+          for (const item of page.items) {
+            if (used.has(item.listingId)) continue;
+            if (job.spec.maxPrice != null && item.price > job.spec.maxPrice) continue;
+            items.push(item);
+            if (items.length >= 12) break;
+          }
+          if (items.length >= 12) break;
+        }
+        if (items.length < 3) continue;
+        for (const item of items) used.add(item.listingId);
+        rails.push({
+          id: job.spec.id,
+          title: job.spec.title,
+          items,
+          categoryId: ranked.find((page) => page.items.some((item) => items.includes(item)))?.category.id ?? null,
+        });
+      }
+      setStoreRails(rails);
+      rememberItems(rails.flatMap((rail) => rail.items), 'append');
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [townId, browseOnly, categories, rememberItems]);
+
+  const buyAgainItems = useMemo(
+    () => picks.filter((item) => item.fromPreviousOrder),
+    [picks],
+  );
+  const buyAgainIds = useMemo(
+    () => new Set(buyAgainItems.map((item) => item.listingId)),
+    [buyAgainItems],
+  );
+  const featuredDiscounted = useMemo(
+    () =>
+      featured.filter((item) => (item.discountPercent ?? 0) > 0 || item.specialOfferActive),
+    [featured],
+  );
+  const popularFallback = useMemo(
+    () => [...featured].sort((a, b) => (b.ratingCount ?? 0) - (a.ratingCount ?? 0)),
+    [featured],
+  );
+  const forYouItems = useMemo(
+    () =>
+      mergeCatalogItems(
+        picks.filter((item) => !item.fromPreviousOrder && !buyAgainIds.has(item.listingId)),
+        discountPool,
+        featuredDiscounted,
+      )
+        .filter((item) => !buyAgainIds.has(item.listingId))
+        .slice(0, 28),
+    [picks, buyAgainIds, discountPool, featuredDiscounted],
+  );
+  const offerItems = useMemo(
+    () =>
+      mergeCatalogItems(discountPool, bestsellerPool, featuredDiscounted, popularFallback)
+        .filter((item) => !buyAgainIds.has(item.listingId))
+        .slice(0, 28),
+    [discountPool, bestsellerPool, featuredDiscounted, popularFallback, buyAgainIds],
+  );
+  const showOffers = offerItems.length >= 2;
 
   const loadPage = useCallback(
     async (nextPage: number, append: boolean) => {
@@ -263,6 +482,19 @@ export function ShopPage({ browseOnly = false }: Props) {
     return products.find((i) => i.listingId === quickView.listingId) ?? quickView;
   }, [products, quickView]);
 
+  function clearSearch() {
+    setQuery('');
+    setDebouncedQuery('');
+  }
+
+  function forgetRecent(term: string) {
+    setRecentSearches((prev) => {
+      const next = prev.filter((item) => item !== term);
+      writeRecentSearches(next);
+      return next;
+    });
+  }
+
   function goHome() {
     fetchGenRef.current += 1;
     setCategoryId(null);
@@ -328,6 +560,11 @@ export function ShopPage({ browseOnly = false }: Props) {
           onChange={(e) => setQuery(e.target.value)}
           style={styles.search}
         />
+        {query ? (
+          <button type="button" style={styles.clearSearch} onClick={clearSearch} aria-label="Clear search">
+            ×
+          </button>
+        ) : null}
         {supported ? (
           <button
             type="button"
@@ -340,6 +577,50 @@ export function ShopPage({ browseOnly = false }: Props) {
           </button>
         ) : null}
       </div>
+      {!inCategory && !searching && recentSearches.length > 0 ? (
+        <div style={styles.recentBlock}>
+          <span style={styles.recentLabel}>Recent</span>
+          <div style={styles.hints} aria-label="Recent searches">
+            {recentSearches.map((term) => (
+              <span key={term} style={styles.recentChip}>
+                <button type="button" style={styles.recentTerm} onClick={() => setQuery(term)}>
+                  {term}
+                </button>
+                <button type="button" style={styles.recentForget} aria-label={`Remove ${term}`} onClick={() => forgetRecent(term)}>
+                  ×
+                </button>
+              </span>
+            ))}
+          </div>
+        </div>
+      ) : null}
+      {!inCategory && !searching ? (
+        <div style={styles.hints} aria-label="Popular searches">
+          {SEARCH_HINTS.map((hint) => (
+            <button
+              key={hint}
+              type="button"
+              style={styles.hint}
+              onClick={() => setQuery(hint)}
+            >
+              {hint}
+            </button>
+          ))}
+        </div>
+      ) : null}
+      {!browseOnly && !inCategory && !searching && isAuthenticated && session?.accessToken && townId ? (
+        <BuyAgainBar
+          townId={townId}
+          token={session.accessToken}
+          busy={busy}
+          onMessage={async (message) => {
+            setNotice(message);
+            await reload();
+          }}
+          onError={(message) => setError(message || null)}
+        />
+      ) : null}
+
       {voiceError ? <Banner tone="warning">{voiceError}</Banner> : null}
       {listening ? <Banner tone="info">Listening… say something like “milk” or “rice”</Banner> : null}
 
@@ -360,8 +641,8 @@ export function ShopPage({ browseOnly = false }: Props) {
           )}
           {browseOnly || searching ? null : (
             <ProductRail
-              title="Bestsellers in your town"
-              items={featured}
+              title="Buy again"
+              items={buyAgainItems}
               quantityFor={quantityFor}
               busyKey={busyKey}
               onOpen={setQuickView}
@@ -369,6 +650,53 @@ export function ShopPage({ browseOnly = false }: Props) {
               onDecrease={(id) => void doDecrease(id)}
             />
           )}
+          {browseOnly || searching ? null : (
+            <ProductRail
+              title="Picked for you"
+              items={forYouItems}
+              autoMove
+              quantityFor={quantityFor}
+              busyKey={busyKey}
+              onOpen={setQuickView}
+              onIncrease={(id) => void doIncrease(id)}
+              onDecrease={(id) => void doDecrease(id)}
+            />
+          )}
+          {browseOnly || searching || !showOffers ? null : (
+            <ProductRail
+              title="Offers in your town"
+              items={offerItems}
+              autoMove
+              quantityFor={quantityFor}
+              busyKey={busyKey}
+              onOpen={setQuickView}
+              onIncrease={(id) => void doIncrease(id)}
+              onDecrease={(id) => void doDecrease(id)}
+            />
+          )}
+          {browseOnly || searching
+            ? null
+            : storeRails.map((rail) => (
+                <StoreRail
+                  key={rail.id}
+                  title={rail.title}
+                  items={rail.items}
+                  etaLabel={shortEta(deliveryWindowLabel)}
+                  quantityFor={quantityFor}
+                  busyKey={busyKey}
+                  onOpen={setQuickView}
+                  onIncrease={(id) => void doIncrease(id)}
+                  onDecrease={(id) => void doDecrease(id)}
+                  onSeeAll={
+                    rail.categoryId
+                      ? () => {
+                          const category = categories.find((item) => item.id === rail.categoryId);
+                          if (category) openCategory(category);
+                        }
+                      : undefined
+                  }
+                />
+              ))}
           {browseOnly || searching ? null : (
             <div style={styles.homeHeroAd}>
               <AdSlot slot="home_hero" variant="strip" />
@@ -383,12 +711,23 @@ export function ShopPage({ browseOnly = false }: Props) {
               />
             ) : (
               <div className="hlm-shop-home-sections">
+                {browseOnly || searching ? null : (
+                  <ShopSpecialOffersBanner
+                    dealsEnabled={bestDealsEnabled}
+                    showPlans={membershipOnSale}
+                    onOpenDeals={() => setDealsOpen(true)}
+                    onOpenPlans={() => {
+                      if (isAuthenticated) setPlansOpen(true);
+                      else navigate('/membership');
+                    }}
+                  />
+                )}
                 {(() => {
                   let tileIndex = 0;
                   let midAdInserted = false;
-                  return aisles.map((aisle, aisleIndex) => {
+                  const categoryAdsInserted = new Set<number>();
+                  return aisles.map((aisle) => {
                     if (aisle.categories.length === 0) return null;
-                    const showPromoRail = aisleIndex === 0 && !browseOnly;
                     const tiles: ReactNode[] = [];
                     for (const cat of aisle.categories) {
                       tileIndex += 1;
@@ -413,6 +752,18 @@ export function ShopPage({ browseOnly = false }: Props) {
                           </div>,
                         );
                       }
+                      if (browseOnly && tileIndex % CATEGORY_COLS === 0) {
+                        const row = tileIndex / CATEGORY_COLS;
+                        const catRoom = CATEGORY_AD_ROWS.indexOf(row);
+                        if (catRoom >= 0 && !categoryAdsInserted.has(row)) {
+                          categoryAdsInserted.add(row);
+                          tiles.push(
+                            <div key={`category-upsell-${catRoom + 1}`} className="hlm-mid-ad-full">
+                              <AdSlot slot="cart_upsell" slotIndex={catRoom + 1} variant="strip" />
+                            </div>,
+                          );
+                        }
+                      }
                     }
                     const heading = (
                       <h2
@@ -423,25 +774,6 @@ export function ShopPage({ browseOnly = false }: Props) {
                         {aisle.title}
                       </h2>
                     );
-                    if (showPromoRail) {
-                      return (
-                        <div key={aisle.title} className="hlm-shop-home-aisles">
-                          <ShopSpecialOffersBanner
-                            dealsEnabled={bestDealsEnabled}
-                            showPlans={membershipOnSale}
-                            onOpenDeals={() => setDealsOpen(true)}
-                            onOpenPlans={() => {
-                              if (isAuthenticated) setPlansOpen(true);
-                              else navigate('/membership');
-                            }}
-                          />
-                          <div className="hlm-shop-home-directory">
-                            {heading}
-                            {tiles}
-                          </div>
-                        </div>
-                      );
-                    }
                     return (
                       <div key={aisle.title} className="hlm-shop-home-aisle-full">
                         <div className="hlm-shop-home-directory hlm-shop-home-directory--full">
@@ -485,29 +817,47 @@ export function ShopPage({ browseOnly = false }: Props) {
               />
             </div>
           </div>
+          <div style={styles.feedChips} role="group" aria-label="Filter items">
+            <button type="button" style={offersOnly ? styles.feedChip : styles.feedChipOn} onClick={() => setOffersOnly(false)}>
+              All
+            </button>
+            <button type="button" style={offersOnly ? styles.feedChipOn : styles.feedChip} onClick={() => setOffersOnly(true)}>
+              Offers
+            </button>
+          </div>
 
           {inCategory ? <AdSlot slot="home_hero" variant="strip" /> : null}
 
           {catalogLoading && products.length === 0 ? (
             <LoadingBlock label="Loading items…" />
-          ) : products.length === 0 ? (
-            <EmptyState
-              icon="🥬"
-              title="No items here"
-              description={
-                inCategory
-                  ? 'Nothing listed in this category yet.'
-                  : 'Try another search or pick a category.'
-              }
-              actionLabel="Back to categories"
-              onAction={goHome}
-            />
+          ) : visibleProducts.length === 0 ? (
+            <>
+              <EmptyState
+                icon="🥬"
+                title={offersOnly ? 'No offers here' : 'No items here'}
+                description={
+                  offersOnly
+                    ? hasMore
+                      ? 'None of the items loaded so far are on offer.'
+                      : 'Nothing in this list is on offer.'
+                    : inCategory
+                      ? 'Nothing listed in this category yet.'
+                      : 'Try another search or pick a category.'
+                }
+                actionLabel={offersOnly ? 'Show all items' : 'Back to categories'}
+                onAction={offersOnly ? () => setOffersOnly(false) : goHome}
+              />
+              {hasMore ? <div ref={sentinelRef} style={styles.sentinel} /> : null}
+              {loadingMore ? <p style={styles.moreHint}>Loading more…</p> : null}
+            </>
           ) : (
             <>
               <div className="hlm-shop-product-grid">
-                {products.map((item) => (
+                {visibleProducts.map((item) => (
                   <ProductCard
                     key={item.listingId}
+                    layout="store"
+                    etaLabel={shortEta(deliveryWindowLabel)}
                     name={item.name}
                     shopName={item.shopName}
                     unit={item.unit}
@@ -541,11 +891,20 @@ export function ShopPage({ browseOnly = false }: Props) {
       {quickViewLive ? (
         <ProductQuickView
           product={quickViewLive}
+          townId={townId}
           quantity={quantityFor(quickViewLive.listingId)}
           busy={busyKey === quickViewLive.listingId}
+          busyKey={busyKey}
+          quantityFor={quantityFor}
           onClose={() => setQuickView(null)}
           onIncrease={() => void doIncrease(quickViewLive.listingId)}
           onDecrease={() => void doDecrease(quickViewLive.listingId)}
+          onOpenRelated={(item) => {
+            rememberItems([item], 'append');
+            setQuickView(item);
+          }}
+          onIncreaseListing={(id) => void doIncrease(id)}
+          onDecreaseListing={(id) => void doDecrease(id)}
         />
       ) : null}
       <MembershipPlansSheet open={plansOpen} onClose={() => setPlansOpen(false)} />
@@ -606,6 +965,84 @@ const styles: Record<string, CSSProperties> = {
     boxShadow: '0 8px 22px rgba(16, 24, 40, 0.08)',
   },
   searchIcon: { color: 'var(--accent)', fontSize: '1.15rem', fontWeight: 700 },
+  clearSearch: {
+    border: 'none',
+    background: 'var(--bg-muted)',
+    color: 'var(--text)',
+    width: 28,
+    height: 28,
+    borderRadius: 999,
+    cursor: 'pointer',
+    fontSize: '1rem',
+    lineHeight: 1,
+    fontWeight: 700,
+    flexShrink: 0,
+  },
+  recentBlock: {
+    display: 'grid',
+    gap: '0.28rem',
+  },
+  recentLabel: {
+    fontSize: '0.68rem',
+    fontWeight: 800,
+    letterSpacing: '0.04em',
+    textTransform: 'uppercase',
+    color: 'var(--text-muted)',
+  },
+  recentChip: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    border: '1px solid var(--border)',
+    background: 'var(--bg-elevated)',
+    borderRadius: 999,
+    minHeight: 28,
+    overflow: 'hidden',
+  },
+  recentTerm: {
+    border: 'none',
+    background: 'transparent',
+    color: 'var(--text)',
+    padding: '0.15rem 0.15rem 0.15rem 0.55rem',
+    fontSize: '0.72rem',
+    fontWeight: 700,
+    cursor: 'pointer',
+  },
+  recentForget: {
+    border: 'none',
+    background: 'transparent',
+    color: 'var(--text-muted)',
+    width: 26,
+    height: 26,
+    cursor: 'pointer',
+    fontSize: '0.9rem',
+    lineHeight: 1,
+  },
+  feedChips: {
+    display: 'flex',
+    gap: '0.35rem',
+  },
+  feedChip: {
+    border: '1px solid var(--border)',
+    background: 'var(--bg-elevated)',
+    color: 'var(--text)',
+    borderRadius: 999,
+    minHeight: 28,
+    padding: '0.1rem 0.7rem',
+    fontSize: '0.74rem',
+    fontWeight: 700,
+    cursor: 'pointer',
+  },
+  feedChipOn: {
+    border: '1px solid var(--accent)',
+    background: 'var(--accent-soft)',
+    color: 'var(--accent)',
+    borderRadius: 999,
+    minHeight: 28,
+    padding: '0.1rem 0.7rem',
+    fontSize: '0.74rem',
+    fontWeight: 800,
+    cursor: 'pointer',
+  },
   search: {
     flex: 1,
     border: 'none',
@@ -626,6 +1063,22 @@ const styles: Record<string, CSSProperties> = {
     fontSize: '0.9rem',
     lineHeight: 1,
     color: 'var(--text)',
+  },
+  hints: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: '0.35rem',
+  },
+  hint: {
+    border: '1px solid var(--border)',
+    background: 'var(--bg-elevated)',
+    color: 'var(--text)',
+    borderRadius: 999,
+    minHeight: 28,
+    padding: '0.15rem 0.55rem',
+    fontSize: '0.72rem',
+    fontWeight: 700,
+    cursor: 'pointer',
   },
   micActive: {
     border: 'none',

@@ -162,6 +162,10 @@ public class AssignmentService {
         if (!ORDER_PLACED.equals(order.status())) {
             throw new BusinessException(ErrorCode.CONFLICT, "Order is not ready for last-mile delivery");
         }
+        if (order.stillPacking()) {
+            throw new BusinessException(ErrorCode.CONFLICT,
+                    "A shop is still packing. Send the order home after every bag is ready or cancelled.");
+        }
         if (deliveryAssignmentRepository.existsByOrderIdAndLegTypeAndStatusIn(
                 request.getOrderId(), AssignmentLegType.LAST_MILE, ACTIVE_STATUSES)) {
             throw new BusinessException(ErrorCode.CONFLICT, "Active last-mile assignment already exists for order");
@@ -545,7 +549,10 @@ public class AssignmentService {
         }
         logEvent(assignment.getId(), "DELIVERED", agentUserId, metadata);
 
-        orderClient.markDelivered(assignment.getOrderId(), agentUserId, request.getRecipientName());
+        UUID bagId = assignment.getLegType() == AssignmentLegType.VENDOR_DIRECT
+                ? assignment.getVendorSubOrderId()
+                : null;
+        orderClient.markDelivered(assignment.getOrderId(), agentUserId, request.getRecipientName(), bagId);
         return toResponse(assignment);
     }
 

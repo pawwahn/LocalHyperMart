@@ -11,6 +11,10 @@ export type ConfirmDialogProps = {
   busy?: boolean;
   /** Single OK button for post-action alerts (not yes/no). */
   alertOnly?: boolean;
+  /** Shown before Cancel. Used when the payer says the money did not arrive. */
+  extraLabel?: string;
+  extraDisabled?: boolean;
+  onExtra?: () => void;
   onConfirm: () => void;
   onClose: () => void;
 };
@@ -25,6 +29,9 @@ export function ConfirmDialog({
   danger,
   busy,
   alertOnly,
+  extraLabel,
+  extraDisabled,
+  onExtra,
   onConfirm,
   onClose,
 }: ConfirmDialogProps) {
@@ -62,20 +69,39 @@ export function ConfirmDialog({
         <div style={styles.description}>
           {typeof description === 'string' ? <p style={styles.descriptionP}>{description}</p> : description}
         </div>
-        <div style={styles.actions}>
+        <div style={extraLabel && onExtra ? styles.actionsSpread : styles.actions}>
+          {extraLabel && onExtra ? (
+            <Button type="button" size="sm" variant="ghost" disabled={busy || extraDisabled} onClick={onExtra} style={styles.slot}>
+              {extraLabel}
+            </Button>
+          ) : null}
+          {extraLabel && onExtra ? (
+            <Button
+              type="button"
+              size="sm"
+              variant={danger ? 'danger' : 'primary'}
+              disabled={busy}
+              onClick={onConfirm}
+              style={styles.slot}
+            >
+              {busy ? '…' : confirmLabel}
+            </Button>
+          ) : null}
           {alertOnly ? null : (
-            <Button type="button" variant="ghost" disabled={busy} onClick={onClose}>
+            <Button type="button" size={extraLabel && onExtra ? 'sm' : 'md'} variant="ghost" disabled={busy} onClick={onClose} style={extraLabel && onExtra ? styles.slot : undefined}>
               {cancelLabel}
             </Button>
           )}
-          <Button
-            type="button"
-            variant={danger ? 'danger' : 'primary'}
-            disabled={busy}
-            onClick={onConfirm}
-          >
-            {busy ? '…' : alertOnly ? confirmLabel || 'OK' : confirmLabel}
-          </Button>
+          {extraLabel && onExtra ? null : (
+            <Button
+              type="button"
+              variant={danger ? 'danger' : 'primary'}
+              disabled={busy}
+              onClick={onConfirm}
+            >
+              {busy ? '…' : alertOnly ? confirmLabel || 'OK' : confirmLabel}
+            </Button>
+          )}
         </div>
       </div>
     </div>
@@ -121,5 +147,23 @@ const styles: Record<string, CSSProperties> = {
     justifyContent: 'flex-end',
     gap: '0.55rem',
     flexWrap: 'wrap',
+  },
+  actionsSpread: {
+    display: 'grid',
+    gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr)',
+    alignItems: 'stretch',
+    gap: '0.4rem',
+  },
+  slot: {
+    width: '100%',
+    height: 44,
+    minHeight: 44,
+    maxHeight: 44,
+    padding: '0 0.4rem',
+    fontSize: '0.78rem',
+    lineHeight: 1,
+    whiteSpace: 'nowrap',
+    minWidth: 0,
+    boxSizing: 'border-box',
   },
 };

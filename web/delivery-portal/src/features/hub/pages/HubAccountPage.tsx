@@ -14,7 +14,7 @@ import { HubPayoutHistory } from '../components/HubPayoutHistory';
 import { HubFranchiseDuePanel } from '../components/HubFranchiseDuePanel';
 import { DateRangePresetBar } from '@hlm-dates/DateRangePresetBar';
 import { formatIsoDateRange } from '../lib/codFormat';
-import { isoIstDate, rangeForReportPreset, type ReportDatePreset } from '@hlm-dates/istReportPresets';
+import { DEFAULT_REPORT_DATE_PRESET, isoIstDate, rangeForReportPreset, type ReportDatePreset } from '@hlm-dates/istReportPresets';
 /** KoyaKart → hub vs hub → KoyaKart — separate screens. */
 type AccountTab = 'receive' | 'pay';
 type OrderBucket = 'earned' | 'paid' | 'due';
@@ -73,8 +73,8 @@ export function HubAccountPage() {
   const [tab, setTab] = useState<AccountTab>('receive');
   const [paySub, setPaySub] = useState<PaySubTab>('cod');
   const [paySection, setPaySection] = useState<PaySectionTab>('bills');
-  const initialCommissionRange = rangeForReportPreset('month');
-  const [preset, setPreset] = useState<ReportDatePreset>('month');
+  const initialCommissionRange = rangeForReportPreset(DEFAULT_REPORT_DATE_PRESET);
+  const [preset, setPreset] = useState<ReportDatePreset>(DEFAULT_REPORT_DATE_PRESET);
   const [from, setFrom] = useState(initialCommissionRange.from);
   const [to, setTo] = useState(initialCommissionRange.to);
   const [data, setData] = useState<HubAccountSummary | null>(null);

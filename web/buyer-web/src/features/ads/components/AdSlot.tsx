@@ -6,11 +6,13 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from 'react';
 import { useTown } from '@/shared/town/TownContext';
-import { resolveCreative, resolveCreatives, fetchTownAds, type TownAdDto } from '../api/townAdsApi';
+import { resolveCreatives, fetchTownAds, type TownAdDto } from '../api/townAdsApi';
 import { ADS_ENABLED, type AdCreative, type AdSlotId } from '../adsInventory';
 
 type Props = {
   slot: AdSlotId;
+  /** Cat 1–4 and any future indexed room. */
+  slotIndex?: number;
   /** home_mid_grid: span full product grid width */
   variant?: 'hero' | 'strip' | 'card';
   onCta?: () => void;
@@ -26,7 +28,7 @@ const AD_FRAME_H = 108;
  * Config ownership: **super admin only** (no hub / vendor edit).
  * Live ads from town-service; pilot inventory is fallback.
  */
-export function AdSlot({ slot, variant = 'strip', onCta }: Props) {
+export function AdSlot({ slot, slotIndex, variant = 'strip', onCta }: Props) {
   const { townId, hasTown } = useTown();
   const tid = hasTown ? townId : null;
   const [live, setLive] = useState<TownAdDto[] | null>(() =>
@@ -62,7 +64,10 @@ export function AdSlot({ slot, variant = 'strip', onCta }: Props) {
     return <MidGridAdCarousel ads={ads} townId={tid} onCta={onCta} />;
   }
 
-  const ad = resolveCreative(slot, tid, live);
+  const matches = resolveCreatives(slot, tid, live).filter((ad) =>
+    slotIndex == null ? true : (ad.slotIndex ?? 0) === slotIndex,
+  );
+  const ad = matches[0];
   if (!ad) return null;
 
   return <SoftAd ad={ad} townId={tid} onCta={onCta} />;
@@ -315,9 +320,6 @@ function MidGridAdCarousel({
         </div>
         {count > 1 ? (
           <div style={styles.midCarouselMeta}>
-            <span style={styles.midCarouselCount}>
-              {activeDot + 1}/{count}
-            </span>
             <div style={styles.dots}>
               {ads.map((item, i) => (
                 <button
@@ -602,15 +604,5 @@ const styles: Record<string, CSSProperties> = {
     gap: '0.35rem',
     pointerEvents: 'none',
     zIndex: 2,
-  },
-  midCarouselCount: {
-    fontSize: '0.56rem',
-    fontWeight: 800,
-    color: '#fff',
-    letterSpacing: '0.04em',
-    background: 'rgba(16, 24, 16, 0.55)',
-    borderRadius: 999,
-    padding: '0.08rem 0.38rem',
-    pointerEvents: 'none',
   },
 };

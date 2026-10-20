@@ -149,7 +149,7 @@ public class PlatformReportService {
                 if (bag.getStatus() == VendorSubOrderStatus.VENDOR_REJECTED) {
                     bagsRejected++;
                     vendor.rejected++;
-                } else {
+                } else if (bag.getStatus() != VendorSubOrderStatus.BUYER_CANCELLED) {
                     vendor.sales = vendor.sales.add(nz(bag.getSubtotal()));
                 }
                 if (bag.getStatus() == VendorSubOrderStatus.READY_FOR_PICKUP

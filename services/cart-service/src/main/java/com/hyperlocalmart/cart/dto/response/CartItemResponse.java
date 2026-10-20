@@ -19,4 +19,9 @@ public class CartItemResponse {
     private BigDecimal unitPrice;
     private BigDecimal lineTotal;
     private String imageUrl;
+    /** False only when this shop's listing is confirmed gone. Null/true means it can still be ordered. */
+    private Boolean available;
+    private UUID alternateListingId;
+    private String alternateShopName;
+    private BigDecimal alternateUnitPrice;
 }

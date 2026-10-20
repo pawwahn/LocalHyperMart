@@ -31,4 +31,10 @@ public class TownShopSettingsResponse {
 
     @Builder.Default
     private BigDecimal codCharge = BigDecimal.ZERO;
+
+    @Builder.Default
+    private String deliveryWindowStart = "17:00";
+
+    @Builder.Default
+    private String deliveryWindowEnd = "19:00";
 }

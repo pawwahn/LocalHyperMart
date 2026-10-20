@@ -43,7 +43,11 @@ public class UpsertTownAdRequest {
 
     private UUID imageMediaId;
 
+    /** Shown in the town. Separate from whether the room can be booked. */
     private Boolean enabled;
+
+    /** When false, the room is closed and cannot be booked. Null keeps it open. */
+    private Boolean bookable;
 
     /** When true, this live ad is shown in every town that has no local ad in this slot. */
     private Boolean allTowns;

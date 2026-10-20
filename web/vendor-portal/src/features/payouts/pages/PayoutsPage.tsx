@@ -20,6 +20,7 @@ import {
   PAYOUT_ACKED_EVENT,
   PAYOUT_ACTION_EVENT,
   acknowledgeSettlement,
+  reportPayoutNotReceived,
   fetchMySubscriptionBills,
   isCollectionSettlement,
   isSubscriptionSettlement,
@@ -42,6 +43,7 @@ import {
   type VendorFeeQuote,
   type VendorSettlement,
 } from '@/features/reports/api/payoutsApi';
+import { awaitingDeliveredRows, isShopHeldCash } from '@/features/payouts/vendorPayable';
 import {
   PAGE_SIZES,
   SortableTh,
@@ -54,7 +56,9 @@ import {
 import { ClaimDeductionsDialog } from '@/features/payouts/components/ClaimDeductionsDialog';
 import { DateRangePresetBar } from '@hlm-dates/DateRangePresetBar';
 import {
+  DEFAULT_REPORT_DATE_PRESET,
   isoIstDate,
+  rangeForReportPreset,
   type TransferHistoryPreset,
 } from '@hlm-dates/istReportPresets';
 
@@ -187,13 +191,8 @@ function formatPaidAt(iso?: string | null): string {
   });
 }
 
-/** Mirrors payment-service SettlementService.vendorHoldsBuyerCash: shop keeps the cash and pays fees instead. */
 function isShopHeld(holder: OrderCashHolder): boolean {
-  if ((holder.paymentMethod ?? '').toUpperCase() !== 'COD') return false;
-  const loc = holder.codCashLocation || 'WITH_AGENT';
-  if (loc === 'WITH_VENDOR' || loc === 'DECLARED_TO_VENDOR') return true;
-  if (holder.vendorAgentDelivery) return loc !== 'AT_HUB' && loc !== 'DECLARED_TO_HUB';
-  return false;
+  return isShopHeldCash(holder);
 }
 
 type AwaitingSplit = {
@@ -299,9 +298,10 @@ export function PayoutsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<'all' | 'PAID' | 'OPEN'>('all');
-  const [datePreset, setDatePreset] = useState<TransferHistoryPreset>('all');
-  const [periodFrom, setPeriodFrom] = useState('');
-  const [periodTo, setPeriodTo] = useState('');
+  const openingPeriod = rangeForReportPreset(DEFAULT_REPORT_DATE_PRESET);
+  const [datePreset, setDatePreset] = useState<TransferHistoryPreset>(DEFAULT_REPORT_DATE_PRESET);
+  const [periodFrom, setPeriodFrom] = useState(openingPeriod.from);
+  const [periodTo, setPeriodTo] = useState(openingPeriod.to);
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(25);
   const [sort, setSort] = useState<SortState<SortKey>>({ key: 'period', dir: 'asc' });
@@ -337,19 +337,41 @@ export function PayoutsPage() {
   const [paying, setPaying] = useState(false);
 
   const [payBill, setPayBill] = useState<VendorSettlement | null>(null);
+  const [payIntent, setPayIntent] = useState<'pay' | 'again' | 'correct'>('pay');
 
-  function openPay(b: SubscriptionBill) {
-    setPayMethod('UPI');
-    setPayRef('');
-    setPayNotes('');
+  function knownPayMethod(raw?: string | null): string {
+    const method = (raw || '').toUpperCase();
+    if (method === 'UPI' || method === 'BANK_TRANSFER' || method === 'CASH' || method === 'CHEQUE') return method;
+    if (method === 'BANK' || method === 'NEFT' || method === 'IMPS' || method === 'RTGS') return 'BANK_TRANSFER';
+    return 'UPI';
+  }
+
+  function openPay(b: SubscriptionBill, intent: 'pay' | 'again' | 'correct' = 'pay') {
+    setPayIntent(intent);
+    if (intent === 'correct') {
+      setPayMethod(knownPayMethod(b.vendorPaymentMethod));
+      setPayRef(b.vendorPaymentReference ?? '');
+      setPayNotes(b.vendorPaymentNotes ?? '');
+    } else {
+      setPayMethod('UPI');
+      setPayRef('');
+      setPayNotes('');
+    }
     setPayBill(null);
     setPayTarget(b);
   }
 
-  function openPayBill(s: VendorSettlement) {
-    setPayMethod('UPI');
-    setPayRef('');
-    setPayNotes('');
+  function openPayBill(s: VendorSettlement, intent: 'pay' | 'again' | 'correct' = 'pay') {
+    setPayIntent(intent);
+    if (intent === 'correct') {
+      setPayMethod(knownPayMethod(s.vendorPaymentMethod));
+      setPayRef(s.vendorPaymentReference ?? '');
+      setPayNotes(s.vendorPaymentNotes ?? '');
+    } else {
+      setPayMethod('UPI');
+      setPayRef('');
+      setPayNotes('');
+    }
     setPayTarget(null);
     setPayBill(s);
   }
@@ -389,6 +411,14 @@ export function PayoutsPage() {
 
   const [ackTarget, setAckTarget] = useState<VendorSettlement | null>(null);
   const [ackingId, setAckingId] = useState<string | null>(null);
+  const [ackNote, setAckNote] = useState('');
+  const [ackDispute, setAckDispute] = useState(false);
+
+  function closeAck() {
+    setAckTarget(null);
+    setAckNote('');
+    setAckDispute(false);
+  }
 
   async function confirmAcknowledge() {
     const s = ackTarget;
@@ -398,10 +428,37 @@ export function PayoutsPage() {
       const updated = await acknowledgeSettlement(session.accessToken, session.vendorId, s.id);
       setSettlements((prev) => prev.map((x) => (x.id === s.id ? { ...x, vendorAcknowledgedAt: updated.vendorAcknowledgedAt } : x)));
       window.dispatchEvent(new CustomEvent(PAYOUT_ACTION_EVENT));
-      setAckTarget(null);
+      closeAck();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not confirm receipt');
-      setAckTarget(null);
+      closeAck();
+    } finally {
+      setAckingId(null);
+    }
+  }
+
+  async function sendAckMissing() {
+    const s = ackTarget;
+    const note = ackNote.trim();
+    if (!s || !note || !session?.accessToken || !session.vendorId) return;
+    setAckingId(s.id);
+    try {
+      const updated = await reportPayoutNotReceived(session.accessToken, session.vendorId, s.id, note);
+      setSettlements((prev) =>
+        prev.map((x) =>
+          x.id === s.id
+            ? {
+                ...x,
+                vendorNotReceivedAt: updated.vendorNotReceivedAt,
+                vendorNotReceivedNote: updated.vendorNotReceivedNote,
+              }
+            : x,
+        ),
+      );
+      window.dispatchEvent(new CustomEvent(PAYOUT_ACTION_EVENT));
+      closeAck();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not send the comment');
     } finally {
       setAckingId(null);
     }
@@ -490,13 +547,12 @@ export function PayoutsPage() {
         session.vendorId,
         (sales.rows ?? []).map((r) => r.subOrderId),
       );
-      const unpaid: SalesReportRow[] = [];
       const delivered: SalesReportRow[] = [];
       for (const row of sales.rows ?? []) {
         if (row.status !== 'DELIVERED') continue;
         delivered.push(row);
-        if (!payouts[row.subOrderId]?.paid) unpaid.push(row);
       }
+      const unpaid = awaitingDeliveredRows(sales.rows ?? [], payouts);
       setAwaitingRows(unpaid);
       setDeliveredRows(delivered);
       setOrderPayouts(payouts);
@@ -979,42 +1035,39 @@ export function PayoutsPage() {
           </button>
 
           {shopFeeOwed > 0 || openBills.length > 0 ? (
-            <div style={{ ...styles.metric, borderTop: '3px solid var(--metric-commission)' }}>
+            <div style={{ ...styles.metric, borderTop: '3px solid var(--metric-commission)', gridColumn: 'span 2' }}>
               <span style={styles.metricLabel}>To KoyaKart</span>
               <strong style={styles.metricValueCommission}>{formatMoney(shopFeeOwed)}</strong>
               <span
                 style={styles.metricHint}
                 title={`Commission on ${shopCashCount} bag${shopCashCount === 1 ? '' : 's'} where cash stayed in your shop`}
               >
-                <span style={{ ...styles.flowTag, ...styles.flowOut }}>You pay</span> Fee on {shopCashCount} cash-in-shop bag
-                {shopCashCount === 1 ? '' : 's'}
+                <span style={{ ...styles.flowTag, ...styles.flowOut }}>You pay</span>{' '}
+                {shopCashCount} cash bag{shopCashCount === 1 ? '' : 's'}
               </span>
               {openBills.map((s) => (
                 <span
                   key={s.id}
-                  style={styles.subRow}
+                  style={styles.billLine}
                   title={
                     s.vendorPaymentRejectedAt
-                      ? `KoyaKart: ${s.vendorPaymentRejectReason ?? 'Payment rejected'}`
+                      ? `Not received: ${s.vendorPaymentRejectReason ?? 'KoyaKart did not receive this payment'}`
                       : `${s.serviceInvoiceNumber ?? 'Bill'} · ${formatMoney(s.netAmount)}`
                   }
                 >
-                  <span style={styles.subMonth}>
-                    {formatMoney(s.netAmount)}
-                    <span
-                      style={{
-                        ...styles.subPill,
-                        ...(s.vendorPaidAt
-                          ? { color: '#1d4ed8', background: '#dbeafe' }
-                          : s.vendorPaymentRejectedAt
-                            ? { color: '#991b1b', background: '#fee2e2' }
-                            : { color: '#9a3412', background: '#ffedd5' }),
-                      }}
-                    >
-                      {s.vendorPaidAt ? 'Checking' : s.vendorPaymentRejectedAt ? 'Rejected' : 'Bill due'}
-                    </span>
+                  <span
+                    style={{
+                      ...styles.subPill,
+                      ...(s.vendorPaidAt
+                        ? { color: '#1d4ed8', background: '#dbeafe' }
+                        : s.vendorPaymentRejectedAt
+                          ? { color: '#991b1b', background: '#fee2e2' }
+                          : { color: '#9a3412', background: '#ffedd5' }),
+                    }}
+                  >
+                    {s.vendorPaidAt ? 'Checking' : s.vendorPaymentRejectedAt ? 'Not received' : 'Bill due'}
                   </span>
-                  <span style={styles.subActions}>
+                  <span style={styles.billActs}>
                     <button
                       type="button"
                       style={styles.linkBtn}
@@ -1023,9 +1076,20 @@ export function PayoutsPage() {
                       Bill
                     </button>
                     {!s.vendorPaidAt ? (
-                      <button type="button" style={styles.payBtn} onClick={() => openPayBill(s)}>
-                        Pay
-                      </button>
+                      s.vendorPaymentRejectedAt ? (
+                        <>
+                          <button type="button" style={styles.payBtn} onClick={() => openPayBill(s, 'again')}>
+                            Pay again
+                          </button>
+                          <button type="button" style={styles.correctBtn} onClick={() => openPayBill(s, 'correct')}>
+                            Correct
+                          </button>
+                        </>
+                      ) : (
+                        <button type="button" style={styles.payBtn} onClick={() => openPayBill(s)}>
+                          Pay
+                        </button>
+                      )
                     ) : null}
                   </span>
                 </span>
@@ -1101,7 +1165,17 @@ export function PayoutsPage() {
 
         <ConfirmDialog
           open={payTarget != null || payBill != null}
-          title={payBill ? 'Pay KoyaKart bill' : 'Pay subscription bill'}
+          title={
+            payIntent === 'correct'
+              ? 'Correct this payment'
+              : payIntent === 'again'
+                ? payBill
+                  ? 'Pay KoyaKart again'
+                  : 'Pay subscription again'
+                : payBill
+                  ? 'Pay KoyaKart bill'
+                  : 'Pay subscription bill'
+          }
           description={
             payBill ? (
               <div style={styles.ackBody}>
@@ -1112,11 +1186,16 @@ export function PayoutsPage() {
                 </div>
                 {payBill.vendorPaymentRejectedAt ? (
                   <div style={styles.rejectWhy}>
-                    KoyaKart rejected your last payment ({payBill.vendorPaymentReference ?? '—'}):{' '}
-                    {payBill.vendorPaymentRejectReason || '—'}
+                    Not received ({payBill.vendorPaymentReference ?? '—'}): {payBill.vendorPaymentRejectReason || '—'}
                   </div>
                 ) : null}
-                <div style={styles.sub}>Pay KoyaKart first, then enter the reference so KoyaKart can confirm it.</div>
+                <div style={styles.sub}>
+                  {payIntent === 'correct'
+                    ? 'Correct the mode, UTR, or note. KoyaKart checks this payment again.'
+                    : payIntent === 'again'
+                      ? 'Pay again, then enter the new reference so KoyaKart can confirm it.'
+                      : 'Pay KoyaKart first, then enter the reference so KoyaKart can confirm it.'}
+                </div>
                 <div style={styles.payGrid}>
                   <label style={styles.payField}>
                     <span style={styles.payLabel}>Mode</span>
@@ -1157,10 +1236,16 @@ export function PayoutsPage() {
                 </div>
                 {payTarget.status === 'REJECTED' ? (
                   <div style={styles.rejectWhy}>
-                    Last payment ({payTarget.vendorPaymentReference ?? '—'}) was rejected: {payTarget.rejectReason || '—'}
+                    Not received ({payTarget.vendorPaymentReference ?? '—'}): {payTarget.rejectReason || '—'}
                   </div>
                 ) : null}
-                <div style={styles.sub}>Pay KoyaKart first, then enter the reference so KoyaKart can confirm it.</div>
+                <div style={styles.sub}>
+                  {payIntent === 'correct'
+                    ? 'Correct the mode, UTR, or note. KoyaKart checks this payment again.'
+                    : payIntent === 'again'
+                      ? 'Pay again, then enter the new reference so KoyaKart can confirm it.'
+                      : 'Pay KoyaKart first, then enter the reference so KoyaKart can confirm it.'}
+                </div>
                 <div style={styles.payGrid}>
                   <label style={styles.payField}>
                     <span style={styles.payLabel}>Mode</span>
@@ -1214,19 +1299,51 @@ export function PayoutsPage() {
                 <div>
                   {ackTarget.payoutMethod ?? 'Payout'} · Txn {ackTarget.transactionReference || 'no ref'}
                 </div>
+                {ackTarget.transactionNotes?.trim() ? (
+                  <div style={styles.ackAdminNote}>{ackTarget.transactionNotes.trim()}</div>
+                ) : null}
                 <div>
                   Orders {formatPeriodRange(ackTarget.periodStart, ackTarget.periodEnd)}
                   {ackTarget.paidAt ? ` · sent ${formatPaidAt(ackTarget.paidAt)}` : ''}
                 </div>
                 <div style={styles.sub}>Check your bank / UPI app first. This can't be undone.</div>
+                {ackDispute ? (
+                  <label style={styles.payField}>
+                    <span style={styles.payLabel}>Comment for KoyaKart *</span>
+                    <textarea
+                      style={styles.ackNote}
+                      value={ackNote}
+                      maxLength={500}
+                      rows={2}
+                      autoFocus
+                      placeholder="What should they recheck?"
+                      onChange={(e) => setAckNote(e.target.value)}
+                />
+              </label>
+                ) : null}
               </div>
             ) : null
           }
-          confirmLabel="Yes, I received it"
-          cancelLabel="Not yet"
+          confirmLabel={ackDispute ? (ackNote.trim() ? 'Send comment' : 'Write a comment') : 'Yes, I received it'}
+          cancelLabel={ackDispute ? 'Go back' : 'Close'}
+          extraLabel={ackDispute ? undefined : 'Not received'}
+          onExtra={ackDispute ? undefined : () => setAckDispute(true)}
           busy={ackTarget != null && ackingId === ackTarget.id}
-          onConfirm={() => void confirmAcknowledge()}
-          onClose={() => setAckTarget(null)}
+          onConfirm={() => {
+            if (ackDispute) {
+              if (ackNote.trim()) void sendAckMissing();
+              return;
+            }
+            void confirmAcknowledge();
+          }}
+          onClose={() => {
+            if (ackingId) return;
+            if (ackDispute) {
+              setAckDispute(false);
+              return;
+            }
+            closeAck();
+          }}
         />
 
         <Card padding="sm" style={styles.settlementsCard}>
@@ -1731,7 +1848,7 @@ export function PayoutsPage() {
                           : b.status === 'PAYMENT_SUBMITTED'
                             ? { label: 'KoyaKart checking', color: '#1d4ed8', background: '#dbeafe' }
                             : b.status === 'REJECTED'
-                              ? { label: 'Rejected', color: '#991b1b', background: '#fee2e2' }
+                              ? { label: 'Not received', color: '#991b1b', background: '#fee2e2' }
                               : { label: 'Due', color: '#9a3412', background: '#ffedd5' };
                       return (
                         <tr key={b.month} style={rowIndex % 2 === 1 ? styles.zebra : undefined}>
@@ -1750,9 +1867,20 @@ export function PayoutsPage() {
                           </td>
                           <td style={styles.td}>
                             {b.status === 'SENT' || b.status === 'REJECTED' ? (
-                              <button type="button" style={styles.payBtn} onClick={() => openPay(b)}>
-                                {b.status === 'REJECTED' ? 'Pay again' : `Pay ${formatMoney(Number(b.amount ?? 0))}`}
-                              </button>
+                              b.status === 'REJECTED' ? (
+                                <span style={styles.payPair}>
+                                  <button type="button" style={styles.payBtn} onClick={() => openPay(b, 'again')}>
+                                    Pay again
+                                  </button>
+                                  <button type="button" style={styles.correctBtn} onClick={() => openPay(b, 'correct')}>
+                                    Correct
+                                  </button>
+                                </span>
+                              ) : (
+                                <button type="button" style={styles.payBtn} onClick={() => openPay(b)}>
+                                  {`Pay ${formatMoney(Number(b.amount ?? 0))}`}
+                                </button>
+                              )
                             ) : b.vendorPaymentReference ? (
                               <>
                                 <div>{b.vendorPaymentMethod ?? '—'}</div>
@@ -1915,6 +2043,9 @@ export function PayoutsPage() {
                             <>
                               <div>{s.payoutMethod ?? '—'}</div>
                               <div style={styles.sub}>{s.transactionReference || 'No txn ref'}</div>
+                              {s.transactionNotes?.trim() ? (
+                                <div style={styles.sub}>{s.transactionNotes.trim()}</div>
+                              ) : null}
                             </>
                           ) : (
                             <span style={styles.sub}>Not paid yet</span>
@@ -1931,12 +2062,23 @@ export function PayoutsPage() {
                               <>
                                 {s.vendorPaymentRejectedAt ? (
                                   <div style={styles.rejectWhy} title={s.vendorPaymentRejectReason ?? undefined}>
-                                    KoyaKart: {s.vendorPaymentRejectReason || 'Payment rejected'}
+                                    Not received: {s.vendorPaymentRejectReason || 'KoyaKart did not receive this payment'}
                                   </div>
                                 ) : null}
-                                <button type="button" style={styles.payBtn} onClick={() => openPayBill(s)}>
-                                  {s.vendorPaymentRejectedAt ? 'Pay again' : `Pay ${formatMoney(s.netAmount)}`}
-                                </button>
+                                {s.vendorPaymentRejectedAt ? (
+                                  <span style={styles.payPair}>
+                                    <button type="button" style={styles.payBtn} onClick={() => openPayBill(s, 'again')}>
+                                      Pay again
+                                    </button>
+                                    <button type="button" style={styles.correctBtn} onClick={() => openPayBill(s, 'correct')}>
+                                      Correct
+                                    </button>
+                                  </span>
+                                ) : (
+                                  <button type="button" style={styles.payBtn} onClick={() => openPayBill(s)}>
+                                    {`Pay ${formatMoney(s.netAmount)}`}
+                                  </button>
+                                )}
                               </>
                             )
                           ) : s.status !== 'PAID' ? (
@@ -1961,7 +2103,11 @@ export function PayoutsPage() {
                                 type="button"
                                 style={styles.ackBtn}
                                 disabled={ackingId === s.id}
-                                onClick={() => setAckTarget(s)}
+                                onClick={() => {
+                                  setAckNote('');
+                                  setAckDispute(false);
+                                  setAckTarget(s);
+                                }}
                               >
                                 {ackingId === s.id ? 'Saving…' : 'I got it'}
                               </button>
@@ -1971,7 +2117,11 @@ export function PayoutsPage() {
                               type="button"
                               style={styles.ackBtn}
                               disabled={ackingId === s.id}
-                              onClick={() => setAckTarget(s)}
+                              onClick={() => {
+                                setAckNote('');
+                                setAckDispute(false);
+                                setAckTarget(s);
+                              }}
                             >
                               {ackingId === s.id ? 'Saving…' : 'I got it'}
                             </button>
@@ -2114,7 +2264,9 @@ const styles: Record<string, CSSProperties> = {
     color: 'inherit',
     cursor: 'default',
     width: '100%',
+    minWidth: 0,
     boxSizing: 'border-box',
+    overflow: 'hidden',
   },
   metricOn: {
     display: 'grid',
@@ -2211,17 +2363,41 @@ const styles: Record<string, CSSProperties> = {
     whiteSpace: 'nowrap',
   },
   rejectWhy: { color: 'var(--danger, #dc2626)', fontWeight: 700 },
+  billLine: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: '0.28rem 0.4rem',
+    marginTop: '0.12rem',
+    maxWidth: '100%',
+  },
+  billActs: { display: 'inline-flex', alignItems: 'center', gap: '0.28rem', flexWrap: 'nowrap' },
   subActions: { display: 'inline-flex', gap: '0.35rem', alignItems: 'center', flexShrink: 0 },
   payBtn: {
-    padding: '0.1rem 0.5rem',
+    padding: '0.12rem 0.45rem',
     borderRadius: 6,
     border: '1px solid #7c3aed',
     background: '#7c3aed',
     color: '#fff',
     fontWeight: 800,
-    fontSize: '0.7rem',
+    fontSize: '0.68rem',
+    lineHeight: 1.2,
     cursor: 'pointer',
+    whiteSpace: 'nowrap',
   },
+  correctBtn: {
+    padding: '0.12rem 0.45rem',
+    borderRadius: 6,
+    border: '1px solid #7c3aed',
+    background: 'transparent',
+    color: '#7c3aed',
+    fontWeight: 800,
+    fontSize: '0.68rem',
+    lineHeight: 1.2,
+    cursor: 'pointer',
+    whiteSpace: 'nowrap',
+  },
+  payPair: { display: 'inline-flex', flexWrap: 'wrap', gap: '0.25rem', alignItems: 'center' },
   payGrid: { display: 'grid', gridTemplateColumns: '8rem 1fr', gap: '0.45rem' },
   payField: { display: 'grid', gap: '0.15rem' },
   payLabel: { fontSize: '0.7rem', fontWeight: 800, color: 'var(--text-muted)' },
@@ -2497,6 +2673,19 @@ const styles: Record<string, CSSProperties> = {
   },
   ackBody: { display: 'grid', gap: '0.3rem', color: 'var(--text)' },
   ackAmount: { fontSize: '1.5rem', fontWeight: 800, color: 'var(--metric-paid, #15803d)' },
+  ackAdminNote: { fontSize: '0.88rem', fontWeight: 650, color: 'var(--text)', lineHeight: 1.35 },
+  ackNote: {
+    width: '100%',
+    minHeight: 52,
+    resize: 'vertical',
+    padding: '0.35rem 0.45rem',
+    borderRadius: 8,
+    border: '1px solid var(--border)',
+    background: 'var(--bg)',
+    color: 'var(--text)',
+    font: 'inherit',
+    fontSize: '0.82rem',
+  },
   ackBtn: {
     minHeight: 32,
     padding: '0.2rem 0.55rem',

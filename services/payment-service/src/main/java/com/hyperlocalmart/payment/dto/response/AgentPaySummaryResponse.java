@@ -40,6 +40,9 @@ public class AgentPaySummaryResponse {
     List<UnpaidOrder> unpaidOrders = new ArrayList<>();
     @Builder.Default
     List<Payout> payouts = new ArrayList<>();
+    /** Payments this agent reported that KoyaKart did not receive. */
+    @Builder.Default
+    List<PayerNotice> payerNotices = new ArrayList<>();
 
     @Value
     @Builder
@@ -67,5 +70,14 @@ public class AgentPaySummaryResponse {
         Instant acknowledgedAt;
         Instant notReceivedAt;
         String notReceivedNote;
+    }
+
+    @Value
+    @Builder
+    public static class PayerNotice {
+        UUID settlementId;
+        String reference;
+        BigDecimal amount;
+        String comment;
     }
 }

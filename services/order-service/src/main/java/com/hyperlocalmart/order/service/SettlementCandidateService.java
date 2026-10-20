@@ -1,8 +1,11 @@
 package com.hyperlocalmart.order.service;
 
 import com.hyperlocalmart.order.dto.response.DeliveredVendorTown;
+import com.hyperlocalmart.order.dto.response.SettlementBagKey;
 import com.hyperlocalmart.order.dto.response.SettlementCandidateResponse;
+import com.hyperlocalmart.order.entity.Order;
 import com.hyperlocalmart.order.entity.VendorSubOrder;
+import com.hyperlocalmart.order.entity.VendorSubOrderStatus;
 import com.hyperlocalmart.order.repository.VendorSubOrderRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -44,6 +47,26 @@ public class SettlementCandidateService {
     }
 
     @Transactional(readOnly = true)
+    public List<SettlementBagKey> listBagKeys(LocalDate from, LocalDate to) {
+        Instant start = from.atStartOfDay(IST).toInstant();
+        Instant end = to.plusDays(1).atStartOfDay(IST).toInstant();
+        List<SettlementBagKey> out = new ArrayList<>();
+        for (Object[] row : vendorSubOrderRepository.findSettlementBagKeys(start, end)) {
+            if (row == null || row.length < 3) {
+                continue;
+            }
+            UUID vendorId = uuid(row[0]);
+            UUID townId = uuid(row[1]);
+            UUID subOrderId = uuid(row[2]);
+            if (vendorId == null || townId == null || subOrderId == null) {
+                continue;
+            }
+            out.add(new SettlementBagKey(vendorId, townId, subOrderId));
+        }
+        return out;
+    }
+
+    @Transactional(readOnly = true)
     public List<DeliveredVendorTown> listDeliveredVendorTowns(LocalDate from, LocalDate to) {
         Instant start = from.atStartOfDay(IST).toInstant();
         Instant end = to.plusDays(1).atStartOfDay(IST).toInstant();
@@ -67,6 +90,31 @@ public class SettlementCandidateService {
                 .toList();
     }
 
+    private static UUID uuid(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof UUID id) {
+            return id;
+        }
+        return UUID.fromString(value.toString());
+    }
+
+    /** Shop-agent money follows this bag. A sibling bag on the same order can still be a hub bag. */
+    private static boolean isShopAgentBag(VendorSubOrder subOrder) {
+        if (subOrder.getVendorAgentDeliveryAt() != null) {
+            return true;
+        }
+        Order order = subOrder.getOrder();
+        if (order == null || !order.isVendorAgentDelivery() || order.getVendorSubOrders() == null) {
+            return false;
+        }
+        long activeBags = order.getVendorSubOrders().stream()
+                .filter(bag -> !bag.getStatus().isClosed())
+                .count();
+        return activeBags <= 1;
+    }
+
     private SettlementCandidateResponse.Item toItem(VendorSubOrder subOrder) {
         return SettlementCandidateResponse.Item.builder()
                 .subOrderId(subOrder.getId())
@@ -78,7 +126,7 @@ public class SettlementCandidateService {
                 .status(subOrder.getStatus())
                 .paymentStatus(subOrder.getOrder().getPaymentStatus())
                 .paymentMethod(subOrder.getOrder().getPaymentMethod())
-                .vendorAgentDelivery(subOrder.getOrder().isVendorAgentDelivery())
+                .vendorAgentDelivery(isShopAgentBag(subOrder))
                 .subtotal(subOrder.getSubtotal())
                 .build();
     }

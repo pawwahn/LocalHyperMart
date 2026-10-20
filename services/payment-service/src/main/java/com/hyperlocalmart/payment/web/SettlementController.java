@@ -16,6 +16,7 @@ import com.hyperlocalmart.payment.dto.request.CreateSettlementRequest;
 import com.hyperlocalmart.payment.dto.request.ReportNotReceivedRequest;
 import com.hyperlocalmart.payment.dto.request.MarkSettlementPaidRequest;
 import com.hyperlocalmart.payment.dto.request.VendorPayoutLookupRequest;
+import com.hyperlocalmart.payment.dto.response.AdminOrderSettlementResponse;
 import com.hyperlocalmart.payment.dto.response.AgentPaySummaryResponse;
 import com.hyperlocalmart.payment.dto.response.DeliverySettlementCandidateView;
 import com.hyperlocalmart.payment.dto.response.SettlementCandidateView;
@@ -402,6 +403,17 @@ public class SettlementController {
         requireVendor(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
                 settlementService.lookupVendorPayouts(vendorId, request.getSubOrderIds())));
+    }
+
+    /** Super-admin: shop commission collected, or shop share paid, for these orders. */
+    @PostMapping("/admin/order-settlements")
+    public ResponseEntity<ApiResponse<AdminOrderSettlementResponse>> lookupAdminOrderSettlements(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @Valid @RequestBody AdminCodCashHolderLookupRequest request,
+            HttpServletRequest httpRequest) {
+        requireSuperAdmin(principal);
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                settlementService.lookupAdminOrderSettlements(request.getOrderIds())));
     }
 
     /** Super-admin: who holds buyer COD cash for these orders (shop agent, hub agent, hub desk, shop). */

@@ -28,10 +28,11 @@ type PickupUiState =
   | 'agent_assigned'
   | 'agent_collecting'
   | 'at_hub'
-  | 'rejected';
+  | 'rejected'
+  | 'buyer_cancelled';
 
 function isActiveSubOrder(status: string): boolean {
-  return status !== 'VENDOR_REJECTED';
+  return status !== 'VENDOR_REJECTED' && status !== 'BUYER_CANCELLED';
 }
 
 function vendorLegState(
@@ -39,6 +40,7 @@ function vendorLegState(
   assignment?: { status: string },
 ): PickupUiState {
   if (status === 'VENDOR_REJECTED') return 'rejected';
+  if (status === 'BUYER_CANCELLED') return 'buyer_cancelled';
   if (status === 'DELIVERED') return 'at_hub';
   if (status === 'PLACED') return 'awaiting_vendor';
   if (assignment?.status === 'COMPLETED') return 'at_hub';
@@ -52,7 +54,7 @@ function subOrderCardStyle(state: PickupUiState): CSSProperties {
   if (state === 'ready') return { ...styles.card, ...styles.cardReady };
   if (state === 'awaiting_vendor') return { ...styles.card, ...styles.cardWaiting };
   if (state === 'at_hub') return { ...styles.card, ...styles.cardAtHub };
-  if (state === 'rejected') return { ...styles.card, ...styles.cardRejected };
+  if (state === 'rejected' || state === 'buyer_cancelled') return { ...styles.card, ...styles.cardRejected };
   return { ...styles.card, ...styles.cardInProgress };
 }
 
@@ -225,6 +227,8 @@ function vendorLegStatusLabel(state: PickupUiState): string {
       return 'Bag at hub';
     case 'rejected':
       return 'Shop cancelled';
+    case 'buyer_cancelled':
+      return 'Buyer cancelled';
   }
 }
 
@@ -251,6 +255,7 @@ function vendorLegHint(state: PickupUiState): string | null {
     case 'agent_assigned':
       return 'wait — agent going to shop';
     case 'rejected':
+    case 'buyer_cancelled':
       return 'not needed';
     default:
       return null;
@@ -563,6 +568,9 @@ export function HubDashboardPage() {
                         {o.rejectedSubOrderCount > 0
                           ? ` · ${o.rejectedSubOrderCount} shop rejected`
                           : ''}
+                        {o.buyerCancelledSubOrderCount > 0
+                          ? ` · ${o.buyerCancelledSubOrderCount} buyer cancelled`
+                          : ''}
                         {o.atHubSubOrderCount > 0
                           ? ` · ${o.atHubSubOrderCount}/${o.subOrderCount} at hub`
                           : ''}
@@ -687,7 +695,7 @@ export function HubDashboardPage() {
                   const pillStyle =
                     legState === 'at_hub'
                       ? styles.statusPillDone
-                      : legState === 'rejected'
+                      : legState === 'rejected' || legState === 'buyer_cancelled'
                         ? styles.statusPillRejected
                         : legState === 'agent_assigned'
                           ? styles.statusPillGoing

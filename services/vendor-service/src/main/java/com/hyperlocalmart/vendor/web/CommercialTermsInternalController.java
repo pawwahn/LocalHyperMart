@@ -3,6 +3,7 @@ package com.hyperlocalmart.vendor.web;
 import com.hyperlocalmart.common.api.ApiResponse;
 import com.hyperlocalmart.vendor.dto.request.CommercialTermsQuoteRequest;
 import com.hyperlocalmart.vendor.dto.response.CommercialTermsQuoteResponse;
+import com.hyperlocalmart.vendor.dto.response.MonthSubscriptionAmount;
 import com.hyperlocalmart.vendor.service.VendorCommercialTermsService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -11,6 +12,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -26,6 +29,23 @@ public class CommercialTermsInternalController {
             @Valid @RequestBody CommercialTermsQuoteRequest request,
             HttpServletRequest httpRequest) {
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, vendorCommercialTermsService.quote(vendorId, request)));
+    }
+
+    @PostMapping("/api/v1/internal/vendors/{vendorId}/commercial-terms/subscription-months")
+    public ResponseEntity<ApiResponse<List<MonthSubscriptionAmount>>> subscriptionMonths(
+            @PathVariable UUID vendorId,
+            @RequestBody(required = false) Map<String, List<String>> body,
+            HttpServletRequest httpRequest) {
+        List<LocalDate> ends = new ArrayList<>();
+        if (body != null && body.get("periodEnds") != null) {
+            for (String raw : body.get("periodEnds")) {
+                if (raw != null && !raw.isBlank()) {
+                    ends.add(LocalDate.parse(raw));
+                }
+            }
+        }
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                vendorCommercialTermsService.subscriptionAmounts(vendorId, ends)));
     }
 
     @PostMapping("/api/v1/internal/vendors/{vendorId}/commercial-terms/mark-subscription-charged")

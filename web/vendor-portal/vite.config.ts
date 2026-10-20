@@ -1,11 +1,15 @@
 import { fileURLToPath, URL } from 'node:url';
-import { defineConfig } from 'vite';
+import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 
 // Dev server proxies /api to the Spring Gateway so the browser stays same-origin (no CORS hassle).
 export default defineConfig({
   plugins: [react()],
   base: process.env.VITE_BASE || '/',
+  test: {
+    environment: 'node',
+    include: ['src/**/*.test.ts'],
+  },
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),

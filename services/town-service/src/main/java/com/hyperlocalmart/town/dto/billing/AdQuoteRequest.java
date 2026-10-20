@@ -31,4 +31,7 @@ public class AdQuoteRequest {
 
     @NotNull
     private LocalDate toDate;
+
+    /** Existing bill being moved. Its own dates are not treated as a clash. */
+    private UUID ignoreInvoiceId;
 }

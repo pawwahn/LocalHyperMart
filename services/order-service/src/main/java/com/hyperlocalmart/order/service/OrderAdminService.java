@@ -16,6 +16,7 @@ import com.hyperlocalmart.order.entity.Order;
 import com.hyperlocalmart.order.entity.OrderItem;
 import com.hyperlocalmart.order.entity.OrderItemStatus;
 import com.hyperlocalmart.order.entity.OrderStatus;
+import com.hyperlocalmart.order.entity.PaymentMethod;
 import com.hyperlocalmart.order.entity.VendorOrderAlert;
 import com.hyperlocalmart.order.entity.VendorSubOrder;
 import com.hyperlocalmart.order.entity.VendorSubOrderStatus;
@@ -27,6 +28,9 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -36,6 +40,8 @@ import java.util.UUID;
 @Service
 @RequiredArgsConstructor
 public class OrderAdminService {
+
+    private static final ZoneId IST = ZoneId.of("Asia/Kolkata");
 
     private final OrderRepository orderRepository;
     private final DeliveryClient deliveryClient;
@@ -49,6 +55,22 @@ public class OrderAdminService {
             UUID buyerId,
             OrderStatus status,
             String q,
+            int page,
+            int size) {
+        return listAdminOrders(actorUserId, roles, townId, buyerId, status, q, null, null, null, page, size);
+    }
+
+    @Transactional(readOnly = true)
+    public PageResponse<AdminOrderSummaryResponse> listAdminOrders(
+            UUID actorUserId,
+            List<String> roles,
+            UUID townId,
+            UUID buyerId,
+            OrderStatus status,
+            String q,
+            LocalDate from,
+            LocalDate to,
+            String paymentMethod,
             int page,
             int size) {
         if (buyerId != null) {
@@ -70,7 +92,18 @@ public class OrderAdminService {
         PageRequest pageable = PageRequest.of(page, Math.min(Math.max(size, 1), 50));
         String query = q == null ? null : q.trim();
         Page<Order> orders;
-        if (buyerId != null) {
+        if (from != null || to != null) {
+            if (to != null && from != null && to.isBefore(from)) {
+                throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Invalid date range");
+            }
+            LocalDate startDay = from != null ? from : LocalDate.of(2020, 1, 1);
+            LocalDate endDay = to != null ? to : LocalDate.now(IST);
+            Instant start = startDay.atStartOfDay(IST).toInstant();
+            Instant end = endDay.plusDays(1).atStartOfDay(IST).toInstant();
+            PaymentMethod method = parsePaymentMethod(paymentMethod);
+            orders = orderRepository.searchAdminByTownPlacedBetween(
+                    townId, status, method, query == null ? "" : query, start, end, pageable);
+        } else if (buyerId != null) {
             // Customer console: full buyer history (optional town scope). Status/q ignored here.
             orders = townId == null
                     ? orderRepository.findByBuyerIdOrderByCreatedAtDesc(buyerId, pageable)
@@ -188,6 +221,17 @@ public class OrderAdminService {
         return parts.isEmpty() ? null : String.join(", ", parts);
     }
 
+    private static PaymentMethod parsePaymentMethod(String paymentMethod) {
+        if (paymentMethod == null || paymentMethod.isBlank()) {
+            return null;
+        }
+        try {
+            return PaymentMethod.valueOf(paymentMethod.trim().toUpperCase());
+        } catch (IllegalArgumentException ex) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Unknown payment method");
+        }
+    }
+
     private void validateTownAccess(UUID actorUserId, List<String> roles, UUID townId) {
         if (roles.contains("SUPER_ADMIN")) {
             return;
@@ -206,9 +250,14 @@ public class OrderAdminService {
                 ? List.of()
                 : order.getVendorSubOrders();
         List<VendorSubOrder> activeSubs = allSubs.stream()
-                .filter(sub -> sub.getStatus() != VendorSubOrderStatus.VENDOR_REJECTED)
+                .filter(sub -> !sub.getStatus().isClosed())
                 .toList();
-        int rejectedSubOrderCount = allSubs.size() - activeSubs.size();
+        int rejectedSubOrderCount = (int) allSubs.stream()
+                .filter(sub -> sub.getStatus() == VendorSubOrderStatus.VENDOR_REJECTED)
+                .count();
+        int buyerCancelledSubOrderCount = (int) allSubs.stream()
+                .filter(sub -> sub.getStatus() == VendorSubOrderStatus.BUYER_CANCELLED)
+                .count();
         int readySubOrderCount = (int) activeSubs.stream()
                 .filter(sub -> sub.getStatus() == VendorSubOrderStatus.READY_FOR_PICKUP)
                 .count();
@@ -253,6 +302,7 @@ public class OrderAdminService {
                 .placedAt(order.getPlacedAt())
                 .subOrderCount(activeSubs.size())
                 .rejectedSubOrderCount(rejectedSubOrderCount)
+                .buyerCancelledSubOrderCount(buyerCancelledSubOrderCount)
                 .readySubOrderCount(readySubOrderCount)
                 .atHubSubOrderCount(atHubSubOrderCount)
                 .assignments(assignmentHints)

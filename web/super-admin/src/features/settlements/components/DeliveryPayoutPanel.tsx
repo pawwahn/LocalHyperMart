@@ -24,6 +24,7 @@ import { downloadHubPayoutStatement } from '../hubPayoutStatement';
 import { ListPager } from './ListPager';
 import { HubPayoutWorkspace, type HubPayoutTab, type HubPaysSubTab } from './HubPayoutWorkspace';
 import {
+  DEFAULT_REPORT_DATE_PRESET,
   rangeForReportPreset,
   REPORT_DATE_PRESET_OPTIONS,
   settlementPeriodKind,
@@ -80,13 +81,13 @@ export function DeliveryPayoutPanel({
   codRefreshTick = 0,
 }: Props) {
   const isHub = payeeType === 'HUB';
-  const initial = rangeForReportPreset('week');
+  const initial = rangeForReportPreset(DEFAULT_REPORT_DATE_PRESET);
   const [towns, setTowns] = useState<TownVm[]>([]);
   const [hubs, setHubs] = useState<AdminHubVm[]>([]);
   const [agents, setAgents] = useState<AdminAgentVm[]>([]);
   const [townId, setTownId] = useState('');
   const [payeeId, setPayeeId] = useState('');
-  const [preset, setPreset] = useState<ReportDatePreset>('week');
+  const [preset, setPreset] = useState<ReportDatePreset>(DEFAULT_REPORT_DATE_PRESET);
   const [from, setFrom] = useState(initial.from);
   const [to, setTo] = useState(initial.to);
   const [periodType, setPeriodType] = useState<SettlementPeriodKind>(settlementPeriodKind('week'));

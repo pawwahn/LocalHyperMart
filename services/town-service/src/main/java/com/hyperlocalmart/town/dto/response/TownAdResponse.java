@@ -29,6 +29,8 @@ public class TownAdResponse {
     private String imageUrl;
     private UUID imageMediaId;
     private boolean enabled;
+    /** Room is open for booking. */
+    private boolean bookable;
     private boolean allTowns;
     /** Towns that share this ad creative (includes townId when part of a multi-town campaign). */
     private List<UUID> targetTownIds;

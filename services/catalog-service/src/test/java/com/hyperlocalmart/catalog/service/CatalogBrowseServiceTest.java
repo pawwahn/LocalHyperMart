@@ -1,5 +1,6 @@
 package com.hyperlocalmart.catalog.service;
 
+import com.hyperlocalmart.catalog.client.OrderClient;
 import com.hyperlocalmart.catalog.client.VendorShopClient;
 import com.hyperlocalmart.catalog.dto.response.CatalogItemResponse;
 import com.hyperlocalmart.catalog.entity.*;
@@ -31,6 +32,7 @@ class CatalogBrowseServiceTest {
     @Mock private MasterItemImageRepository masterItemImageRepository;
     @Mock private VendorListingImageRepository vendorListingImageRepository;
     @Mock private VendorShopClient vendorShopClient;
+    @Mock private OrderClient orderClient;
 
     @InjectMocks
     private CatalogBrowseService catalogBrowseService;

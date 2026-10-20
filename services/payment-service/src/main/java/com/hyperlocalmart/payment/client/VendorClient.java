@@ -15,6 +15,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -67,6 +68,43 @@ public class VendorClient {
             throw new BusinessException(ErrorCode.INTERNAL_ERROR,
                     "Could not calculate billing fees from vendor service");
         }
+    }
+
+    /**
+     * Subscription due on each period end. One call instead of one quote per month.
+     * Throws when the vendor service is unavailable so the caller can fall back.
+     */
+    public Map<LocalDate, BigDecimal> subscriptionForMonths(UUID vendorId, List<LocalDate> periodEnds) {
+        if (periodEnds == null || periodEnds.isEmpty()) {
+            return Map.of();
+        }
+        RestClient client = restClientBuilder.baseUrl(vendorServiceProperties.getBaseUrl()).build();
+        List<String> ends = periodEnds.stream().map(LocalDate::toString).toList();
+        try {
+            ApiResponse<List<MonthSubscription>> response = client.post()
+                    .uri("/api/v1/internal/vendors/{vendorId}/commercial-terms/subscription-months", vendorId)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(Map.of("periodEnds", ends))
+                    .retrieve()
+                    .body(new ParameterizedTypeReference<ApiResponse<List<MonthSubscription>>>() {});
+            Map<LocalDate, BigDecimal> out = new LinkedHashMap<>();
+            if (response != null && response.getData() != null) {
+                for (MonthSubscription row : response.getData()) {
+                    if (row != null && row.periodEnd() != null && row.amount() != null) {
+                        out.put(row.periodEnd(), row.amount());
+                    }
+                }
+            }
+            return out;
+        } catch (RestClientResponseException ex) {
+            if (ex.getStatusCode().value() == 404) {
+                throw new BusinessException(ErrorCode.NOT_FOUND, "Subscription months unavailable");
+            }
+            throw new BusinessException(ErrorCode.INTERNAL_ERROR, "Could not load subscription terms from vendor service");
+        }
+    }
+
+    public record MonthSubscription(LocalDate periodEnd, BigDecimal amount) {
     }
 
     /** Monthly subscription amount under the terms active on {@code refDate}; 0 when none or not yet due. */

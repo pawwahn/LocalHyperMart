@@ -22,6 +22,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.regex.Pattern;
 
 @Service
 @RequiredArgsConstructor
@@ -32,6 +33,9 @@ public class TownConfigService {
     private static final String DEFAULT_THEME_COLOR = "#0C831F";
     private static final String MODE_DEFAULT = "DEFAULT";
     private static final String MODE_SLAB = "SLAB";
+    private static final String DEFAULT_WINDOW_START = "17:00";
+    private static final String DEFAULT_WINDOW_END = "19:00";
+    private static final Pattern WINDOW_HHMM = Pattern.compile("^([01]\\d|2[0-3]):[0-5]\\d$");
     private static final BigDecimal DEFAULT_SCRATCH_MIN = new BigDecimal("10.00");
     private static final BigDecimal DEFAULT_SCRATCH_MAX = new BigDecimal("50.00");
     private static final BigDecimal DEFAULT_SCRATCH_Z = new BigDecimal("499.00");
@@ -130,6 +134,7 @@ public class TownConfigService {
             value.put("buyerMembershipEnabled", request.getBuyerMembershipEnabled());
         }
         applyPaymentSettings(value, request);
+        applyDeliveryWindow(value, request);
 
         config.setConfigValue(value);
         config.setUpdatedAt(Instant.now());
@@ -196,7 +201,7 @@ public class TownConfigService {
     }
 
     /**
-     * Buyer nudge: how much more cart value to reach the cheapest cheaper slab (₹0 / ₹1 when configured).
+     * Buyer nudge: nearest slab whose fee is strictly lower than the current fee.
      */
     private static void putCheaperDeliveryHint(
             Map<String, Object> result,
@@ -208,9 +213,6 @@ public class TownConfigService {
         for (TownOperationalConfigResponse.DeliverySlabResponse slab : slabs) {
             BigDecimal min = slab.getMinOrderValue() == null ? BigDecimal.ZERO : slab.getMinOrderValue();
             BigDecimal fee = slab.getDeliveryFee() == null ? platformDeliveryFee : slab.getDeliveryFee();
-            if (fee.compareTo(BigDecimal.ONE) > 0) {
-                continue;
-            }
             if (fee.compareTo(currentFee) >= 0) {
                 continue;
             }
@@ -309,6 +311,8 @@ public class TownConfigService {
                 .codEnabled(true)
                 .upiEnabled(true)
                 .codCharge(BigDecimal.ZERO)
+                .deliveryWindowStart(DEFAULT_WINDOW_START)
+                .deliveryWindowEnd(DEFAULT_WINDOW_END)
                 .build();
     }
 
@@ -333,7 +337,41 @@ public class TownConfigService {
         value.put("codEnabled", true);
         value.put("upiEnabled", true);
         value.put("codCharge", BigDecimal.ZERO);
+        value.put("deliveryWindowStart", DEFAULT_WINDOW_START);
+        value.put("deliveryWindowEnd", DEFAULT_WINDOW_END);
         return value;
+    }
+
+    private static void applyDeliveryWindow(Map<String, Object> value, UpdateTownConfigRequest request) {
+        if (request.getDeliveryWindowStart() == null && request.getDeliveryWindowEnd() == null) {
+            return;
+        }
+        String start = requireWindow(request.getDeliveryWindowStart(), "Delivery window start");
+        String end = requireWindow(request.getDeliveryWindowEnd(), "Delivery window end");
+        if (start.compareTo(end) >= 0) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Delivery window start must be before the end");
+        }
+        value.put("deliveryWindowStart", start);
+        value.put("deliveryWindowEnd", end);
+    }
+
+    private static String requireWindow(String raw, String label) {
+        String value = raw == null ? "" : raw.trim();
+        if (value.length() >= 5) {
+            value = value.substring(0, 5);
+        }
+        if (!WINDOW_HHMM.matcher(value).matches()) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, label + " must be a time like 17:00");
+        }
+        return value;
+    }
+
+    private static String readWindow(Map<String, Object> value, String key, String fallback) {
+        if (value == null || value.get(key) == null) {
+            return fallback;
+        }
+        String raw = String.valueOf(value.get(key)).trim();
+        return WINDOW_HHMM.matcher(raw).matches() ? raw : fallback;
     }
 
     private TownOperationalConfigResponse toOperational(TownConfig config) {
@@ -379,6 +417,8 @@ public class TownConfigService {
                 .codEnabled(readCodEnabled(value))
                 .upiEnabled(readUpiEnabled(value))
                 .codCharge(readCodCharge(value))
+                .deliveryWindowStart(readWindow(value, "deliveryWindowStart", DEFAULT_WINDOW_START))
+                .deliveryWindowEnd(readWindow(value, "deliveryWindowEnd", DEFAULT_WINDOW_END))
                 .build();
     }
 
@@ -395,6 +435,8 @@ public class TownConfigService {
                 .codEnabled(cfg.isCodEnabled())
                 .upiEnabled(cfg.isUpiEnabled())
                 .codCharge(cfg.getCodCharge())
+                .deliveryWindowStart(cfg.getDeliveryWindowStart())
+                .deliveryWindowEnd(cfg.getDeliveryWindowEnd())
                 .build();
     }
 
@@ -633,6 +675,8 @@ public class TownConfigService {
         addMoneyChange(parts, "Min order", left.get("minOrderValue"), right.get("minOrderValue"));
         addMoneyChange(parts, "Platform fee", left.get("platformFee"), right.get("platformFee"));
         addPlainChange(parts, "Delivery mode", left.get("deliveryMode"), right.get("deliveryMode"));
+        addPlainChange(parts, "Delivery window start", left.get("deliveryWindowStart"), right.get("deliveryWindowStart"));
+        addPlainChange(parts, "Delivery window end", left.get("deliveryWindowEnd"), right.get("deliveryWindowEnd"));
         addPlainChange(parts, "Theme color", left.get("themeColor"), right.get("themeColor"));
         addBoolChange(parts, "Best deals", left.get("bestDealsEnabled"), right.get("bestDealsEnabled"));
         addBoolChange(parts, "Buyer membership", left.get("buyerMembershipEnabled"), right.get("buyerMembershipEnabled"));

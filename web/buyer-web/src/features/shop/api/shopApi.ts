@@ -40,6 +40,10 @@ export type CartDto = {
     quantity: number;
     unitPrice: number;
     lineTotal: number;
+    available?: boolean | null;
+    alternateListingId?: string | null;
+    alternateShopName?: string | null;
+    alternateUnitPrice?: number | null;
   }>;
   minOrderValue?: number;
   minOrderMet?: boolean;
@@ -239,6 +243,10 @@ export type CartLineView = {
   shopName: string;
   quantity: number;
   lineLabel: string;
+  available: boolean;
+  alternateListingId: string | null;
+  alternateShopName: string | null;
+  alternateUnitPrice: number | null;
 };
 
 export type CartView = {
@@ -317,6 +325,10 @@ export function toCartView(dto: CartDto): CartView {
       shopName: i.shopName,
       quantity: i.quantity,
       lineLabel: money(i.lineTotal),
+      available: i.available !== false,
+      alternateListingId: i.alternateListingId ?? null,
+      alternateShopName: i.alternateShopName ?? null,
+      alternateUnitPrice: i.alternateUnitPrice == null ? null : Number(i.alternateUnitPrice),
     })),
   };
 }
@@ -337,6 +349,7 @@ export async function fetchCatalogPage(opts: {
   size?: number;
   sort?: string;
   dir?: string;
+  lane?: 'discounted' | 'popular';
 }): Promise<CatalogPage> {
   const params = new URLSearchParams({
     townId: opts.townId,
@@ -347,6 +360,7 @@ export async function fetchCatalogPage(opts: {
   });
   if (opts.q?.trim()) params.set('q', opts.q.trim());
   if (opts.categoryId) params.set('categoryId', opts.categoryId);
+  if (opts.lane) params.set('lane', opts.lane);
   const data = await apiRequest<PageData<CatalogItemDto>>(`/api/v1/catalog/items?${params}`, {
     timeoutMs: 8_000,
   });
@@ -387,6 +401,33 @@ export async function fetchCartSuggestions(
     { token, timeoutMs: 8_000 },
   );
   return (data.items ?? []).map(toCatalogItem);
+}
+
+export function mergeCatalogItems(...groups: CatalogItemView[][]): CatalogItemView[] {
+  const seen = new Set<string>();
+  const out: CatalogItemView[] = [];
+  for (const group of groups) {
+    for (const item of group) {
+      if (!item?.listingId || seen.has(item.listingId)) continue;
+      seen.add(item.listingId);
+      out.push(item);
+    }
+  }
+  return out;
+}
+
+export async function fetchDiscountedItems(townId: string, limit = 24): Promise<CatalogItemView[]> {
+  const data = await fetchCatalogPage({ townId, page: 0, size: limit, lane: 'discounted' });
+  return data.items;
+}
+
+export async function fetchTownBestsellers(townId: string, limit = 24): Promise<CatalogItemView[]> {
+  try {
+    const data = await fetchCatalogPage({ townId, page: 0, size: limit, lane: 'popular' });
+    return data.items;
+  } catch {
+    return [];
+  }
 }
 
 export const PLACEHOLDER_DEAL_PREFIX = 'placeholder:deal:';
@@ -496,6 +537,35 @@ export async function addToCart(
     body: { townId, listingId, quantity },
   });
   return toCartView(data);
+}
+
+export async function switchCartLine(
+  token: string,
+  itemId: string,
+  listingId: string,
+): Promise<CartView> {
+  const data = await apiRequest<CartDto>(`/api/v1/cart/items/${itemId}/switch`, {
+    method: 'POST',
+    token,
+    body: { listingId },
+  });
+  return toCartView(data);
+}
+
+export type ReorderResult = {
+  cartId: string;
+  townId: string;
+  itemCount: number;
+  priceChanged: boolean;
+  skippedItemNames?: string[];
+};
+
+export async function reorderOrder(token: string, orderId: string): Promise<ReorderResult> {
+  return apiRequest<ReorderResult>(`/api/v1/orders/${orderId}/reorder`, {
+    method: 'POST',
+    token,
+    body: {},
+  });
 }
 
 export async function updateCartItem(

@@ -50,7 +50,7 @@ class VendorSubOrderServiceTest {
 
     @BeforeEach
     void stubTownVendorAgentSettings() {
-        when(townClient.getVendorAgentDeliverySettings(any()))
+        lenient().when(townClient.getVendorAgentDeliverySettings(any()))
                 .thenReturn(new TownClient.VendorAgentDeliverySettings(false, BigDecimal.ZERO, BigDecimal.ZERO));
     }
 
@@ -69,6 +69,9 @@ class VendorSubOrderServiceTest {
 
         assertThat(response.getStatus()).isEqualTo(VendorSubOrderStatus.READY_FOR_PICKUP);
         assertThat(response.getReadyForPickupAt()).isNotNull();
+        assertThat(response.getPaymentMethod()).isEqualTo(PaymentMethod.COD);
+        assertThat(response.getPaymentStatus()).isEqualTo(PaymentStatus.PENDING);
+        assertThat(response.getSiblingShops()).isEmpty();
         verify(orderStatusHistoryRepository).save(any());
     }
 
@@ -94,6 +97,177 @@ class VendorSubOrderServiceTest {
         assertThat(response.isVendorAgentDelivery()).isTrue();
         assertThat(subOrder.getOrder().isVendorAgentDelivery()).isTrue();
         verify(orderStatusHistoryRepository).save(any());
+    }
+
+    @Test
+    void chooseDeliveryByVendorAgent_readyWholeOrder_switchesStatus() {
+        UUID vendorId = UUID.randomUUID();
+        UUID subOrderId = UUID.randomUUID();
+        VendorSubOrder subOrder = placedSubOrder(vendorId, subOrderId);
+        subOrder.setStatus(VendorSubOrderStatus.READY_FOR_PICKUP);
+        UUID townId = subOrder.getOrder().getTownId();
+
+        when(vendorSubOrderRepository.findDetailedByIdAndVendorId(subOrderId, vendorId))
+                .thenReturn(Optional.of(subOrder));
+        when(townClient.getVendorAgentDeliverySettings(townId))
+                .thenReturn(new TownClient.VendorAgentDeliverySettings(true, BigDecimal.TEN, BigDecimal.ONE));
+        when(vendorSubOrderRepository.save(subOrder)).thenReturn(subOrder);
+        when(orderRepository.save(subOrder.getOrder())).thenReturn(subOrder.getOrder());
+
+        VendorSubOrderResponse response =
+                vendorSubOrderService.chooseDeliveryByVendorAgent(vendorId, subOrderId, UUID.randomUUID());
+
+        assertThat(response.getStatus()).isEqualTo(VendorSubOrderStatus.DELIVERY_BY_VENDOR_AGENT);
+        assertThat(subOrder.getOrder().isVendorAgentDelivery()).isTrue();
+    }
+
+    @Test
+    void chooseDeliveryByVendorAgent_readyAfterSiblingReject_switchesStatus() {
+        UUID vendorId = UUID.randomUUID();
+        UUID subOrderId = UUID.randomUUID();
+        VendorSubOrder subOrder = placedSubOrder(vendorId, subOrderId);
+        subOrder.setStatus(VendorSubOrderStatus.READY_FOR_PICKUP);
+        subOrder.setSubOrderNumber("CLX/AP-031026-0001-1/2");
+        Order order = subOrder.getOrder();
+        order.getVendorSubOrders().add(VendorSubOrder.builder()
+                .id(UUID.randomUUID())
+                .order(order)
+                .vendorId(UUID.randomUUID())
+                .shopId(UUID.randomUUID())
+                .subOrderNumber("CLX/AP-031026-0001-2/2")
+                .status(VendorSubOrderStatus.VENDOR_REJECTED)
+                .subtotal(BigDecimal.ZERO)
+                .items(new ArrayList<>(List.of(OrderItem.builder()
+                        .itemNameSnapshot("Wheat atta")
+                        .shopNameSnapshot("R K Fancacy")
+                        .quantity(1)
+                        .lineTotal(BigDecimal.ZERO)
+                        .status(OrderItemStatus.CANCELLED)
+                        .build())))
+                .build());
+
+        when(vendorSubOrderRepository.findDetailedByIdAndVendorId(subOrderId, vendorId))
+                .thenReturn(Optional.of(subOrder));
+        when(townClient.getVendorAgentDeliverySettings(order.getTownId()))
+                .thenReturn(new TownClient.VendorAgentDeliverySettings(true, BigDecimal.TEN, BigDecimal.ONE));
+        when(vendorSubOrderRepository.save(subOrder)).thenReturn(subOrder);
+        when(orderRepository.save(order)).thenReturn(order);
+
+        VendorSubOrderResponse response =
+                vendorSubOrderService.chooseDeliveryByVendorAgent(vendorId, subOrderId, UUID.randomUUID());
+
+        assertThat(response.getStatus()).isEqualTo(VendorSubOrderStatus.DELIVERY_BY_VENDOR_AGENT);
+        assertThat(response.getPaymentMethod()).isEqualTo(PaymentMethod.COD);
+        assertThat(response.getPaymentStatus()).isEqualTo(PaymentStatus.PENDING);
+        assertThat(response.getSiblingShops()).hasSize(1);
+        assertThat(response.getSiblingShops().getFirst().getShopName()).isEqualTo("R K Fancacy");
+        assertThat(response.getSiblingShops().getFirst().getStatus()).isEqualTo(VendorSubOrderStatus.VENDOR_REJECTED);
+        assertThat(response.isWholeOrderForShop()).isTrue();
+    }
+
+    @Test
+    void chooseDeliveryByVendorAgent_readySplitWithHub_rejects() {
+        UUID vendorId = UUID.randomUUID();
+        UUID subOrderId = UUID.randomUUID();
+        VendorSubOrder subOrder = placedSubOrder(vendorId, subOrderId);
+        subOrder.setStatus(VendorSubOrderStatus.READY_FOR_PICKUP);
+        Order order = subOrder.getOrder();
+        order.getVendorSubOrders().add(VendorSubOrder.builder()
+                .id(UUID.randomUUID())
+                .order(order)
+                .vendorId(UUID.randomUUID())
+                .shopId(UUID.randomUUID())
+                .subOrderNumber("CLX/AP-031026-0001-2/2")
+                .status(VendorSubOrderStatus.PLACED)
+                .subtotal(new BigDecimal("40.00"))
+                .items(new ArrayList<>())
+                .build());
+
+        when(vendorSubOrderRepository.findDetailedByIdAndVendorId(subOrderId, vendorId))
+                .thenReturn(Optional.of(subOrder));
+        when(deliveryClient.isTownHubEnabled(order.getTownId())).thenReturn(true);
+
+        assertThatThrownBy(() -> vendorSubOrderService.chooseDeliveryByVendorAgent(
+                        vendorId, subOrderId, UUID.randomUUID()))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("full order");
+    }
+
+    @Test
+    void chooseDeliveryByVendorAgent_delivered_rejects() {
+        UUID vendorId = UUID.randomUUID();
+        UUID subOrderId = UUID.randomUUID();
+        VendorSubOrder subOrder = placedSubOrder(vendorId, subOrderId);
+        subOrder.setStatus(VendorSubOrderStatus.DELIVERED);
+
+        when(vendorSubOrderRepository.findDetailedByIdAndVendorId(subOrderId, vendorId))
+                .thenReturn(Optional.of(subOrder));
+
+        assertThatThrownBy(() -> vendorSubOrderService.chooseDeliveryByVendorAgent(
+                        vendorId, subOrderId, UUID.randomUUID()))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("cannot switch");
+    }
+
+    @Test
+    void chooseDeliveryByVendorAgent_splitOrderWithoutHub_allowsThisShopBag() {
+        UUID vendorId = UUID.randomUUID();
+        UUID subOrderId = UUID.randomUUID();
+        VendorSubOrder subOrder = placedSubOrder(vendorId, subOrderId);
+        Order order = subOrder.getOrder();
+        VendorSubOrder sibling = VendorSubOrder.builder()
+                .id(UUID.randomUUID())
+                .order(order)
+                .vendorId(UUID.randomUUID())
+                .shopId(UUID.randomUUID())
+                .subOrderNumber("NRPT-00001-2/2")
+                .status(VendorSubOrderStatus.PLACED)
+                .subtotal(new BigDecimal("40.00"))
+                .items(new ArrayList<>())
+                .build();
+        order.getVendorSubOrders().add(sibling);
+        subOrder.setSubOrderNumber("NRPT-00001-1/2");
+
+        when(vendorSubOrderRepository.findDetailedByIdAndVendorId(subOrderId, vendorId))
+                .thenReturn(Optional.of(subOrder));
+        when(deliveryClient.isTownHubEnabled(order.getTownId())).thenReturn(false);
+        when(townClient.getVendorAgentDeliverySettings(order.getTownId()))
+                .thenReturn(new TownClient.VendorAgentDeliverySettings(true, BigDecimal.TEN, BigDecimal.ONE));
+        when(vendorSubOrderRepository.save(subOrder)).thenReturn(subOrder);
+        when(orderRepository.save(order)).thenReturn(order);
+
+        VendorSubOrderResponse response =
+                vendorSubOrderService.chooseDeliveryByVendorAgent(vendorId, subOrderId, UUID.randomUUID());
+
+        assertThat(response.getStatus()).isEqualTo(VendorSubOrderStatus.DELIVERY_BY_VENDOR_AGENT);
+        assertThat(order.isVendorAgentDelivery()).isFalse();
+    }
+
+    @Test
+    void chooseDeliveryByVendorAgent_splitOrderWithHub_rejects() {
+        UUID vendorId = UUID.randomUUID();
+        UUID subOrderId = UUID.randomUUID();
+        VendorSubOrder subOrder = placedSubOrder(vendorId, subOrderId);
+        Order order = subOrder.getOrder();
+        order.getVendorSubOrders().add(VendorSubOrder.builder()
+                .id(UUID.randomUUID())
+                .order(order)
+                .vendorId(UUID.randomUUID())
+                .shopId(UUID.randomUUID())
+                .subOrderNumber("NRPT-00001-2/2")
+                .status(VendorSubOrderStatus.PLACED)
+                .subtotal(new BigDecimal("40.00"))
+                .items(new ArrayList<>())
+                .build());
+
+        when(vendorSubOrderRepository.findDetailedByIdAndVendorId(subOrderId, vendorId))
+                .thenReturn(Optional.of(subOrder));
+        when(deliveryClient.isTownHubEnabled(order.getTownId())).thenReturn(true);
+
+        assertThatThrownBy(() -> vendorSubOrderService.chooseDeliveryByVendorAgent(
+                        vendorId, subOrderId, UUID.randomUUID()))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("full order");
     }
 
     @Test
@@ -153,7 +327,7 @@ class VendorSubOrderServiceTest {
         when(orderRepository.saveAndFlush(order)).thenReturn(order);
         when(vendorSubOrderRepository.save(subOrder)).thenReturn(subOrder);
         when(vendorSubOrderRepository.saveAndFlush(subOrder)).thenReturn(subOrder);
-        when(orderItemRepository.sumActiveLineTotalsForSubOrder(subOrderId)).thenReturn(BigDecimal.ZERO);
+        lenient().when(orderItemRepository.sumActiveLineTotalsForSubOrder(subOrderId)).thenReturn(BigDecimal.ZERO);
         when(orderItemRepository.sumActiveLineTotalsForOrder(order.getId())).thenReturn(BigDecimal.ZERO);
         when(deliveryClient.listHubContactsForTown(order.getTownId())).thenReturn(List.of());
         when(orderMoneyUnwindService.unwindCancelledOrder(eq(order), eq("Out of stock today")))
@@ -470,7 +644,7 @@ class VendorSubOrderServiceTest {
         when(orderRepository.saveAndFlush(order)).thenReturn(order);
         when(vendorSubOrderRepository.save(subOrder)).thenReturn(subOrder);
         when(vendorSubOrderRepository.saveAndFlush(subOrder)).thenReturn(subOrder);
-        when(orderItemRepository.sumActiveLineTotalsForSubOrder(subOrderId))
+        lenient().when(orderItemRepository.sumActiveLineTotalsForSubOrder(subOrderId))
                 .thenReturn(new BigDecimal("200.00"));
         when(orderItemRepository.sumActiveLineTotalsForOrder(order.getId()))
                 .thenReturn(new BigDecimal("500.00"));
@@ -574,7 +748,7 @@ class VendorSubOrderServiceTest {
         when(orderRepository.saveAndFlush(order)).thenReturn(order);
         when(vendorSubOrderRepository.save(subOrder)).thenReturn(subOrder);
         when(vendorSubOrderRepository.saveAndFlush(subOrder)).thenReturn(subOrder);
-        when(orderItemRepository.sumActiveLineTotalsForSubOrder(subOrderId))
+        lenient().when(orderItemRepository.sumActiveLineTotalsForSubOrder(subOrderId))
                 .thenReturn(new BigDecimal("160.00"));
         when(orderItemRepository.sumActiveLineTotalsForOrder(order.getId()))
                 .thenReturn(new BigDecimal("160.00"));

@@ -127,6 +127,8 @@ export type AdOccupancyBooking = {
   slot: TownAdSlot;
   slotIndex: number;
   slotLabel: string;
+  period: AdBillPeriod;
+  townScope: AdTownScope;
   fromDate: string;
   toDate: string;
   allTowns: boolean;
@@ -150,6 +152,7 @@ export type QuoteInput = {
   townIds?: string[];
   fromDate: string;
   toDate: string;
+  ignoreInvoiceId?: string;
 };
 
 export type CreateInvoiceInput = QuoteInput & {
@@ -211,7 +214,10 @@ export const AD_SLOT_ROWS: { slot: TownAdSlot; slotIndex: number; label: string 
   { slot: 'HOME_MID_GRID', slotIndex: 3, label: 'Mid 3' },
   { slot: 'HOME_MID_GRID', slotIndex: 4, label: 'Mid 4' },
   { slot: 'HOME_MID_GRID', slotIndex: 5, label: 'Mid 5' },
-  { slot: 'CART_UPSELL', slotIndex: 0, label: 'Cart ad' },
+  { slot: 'CART_UPSELL', slotIndex: 1, label: 'Cat 1' },
+  { slot: 'CART_UPSELL', slotIndex: 2, label: 'Cat 2' },
+  { slot: 'CART_UPSELL', slotIndex: 3, label: 'Cat 3' },
+  { slot: 'CART_UPSELL', slotIndex: 4, label: 'Cat 4' },
 ];
 
 export async function fetchAdRates(token: string): Promise<AdRateCard> {
@@ -268,6 +274,14 @@ export async function listAdInvoices(
     totalElements: data.totalElements ?? items.length,
     totalPages: Math.max(data.totalPages ?? 1, 1),
   };
+}
+
+export async function updateAdInvoiceDates(
+  token: string,
+  id: string,
+  body: { fromDate: string; toDate: string },
+): Promise<AdInvoice> {
+  return apiRequest<AdInvoice>(`/api/v1/platform/ads/invoices/${id}/dates`, { token, method: 'PUT', body });
 }
 
 export async function createAdInvoice(token: string, body: CreateInvoiceInput): Promise<AdInvoice> {

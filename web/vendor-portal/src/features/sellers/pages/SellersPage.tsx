@@ -6,12 +6,12 @@ import { ApiError } from '@/shared/api/http';
 import { fetchSalesReport, type ItemPerformance } from '@/features/reports/api/reportsApi';
 import { ItemRankTable } from '@/features/reports/components/ItemRankTable';
 import { DateRangePresetBar } from '@hlm-dates/DateRangePresetBar';
-import { rangeForReportPreset, type ReportDatePreset } from '@hlm-dates/istReportPresets';
+import { DEFAULT_REPORT_DATE_PRESET, rangeForReportPreset, type ReportDatePreset } from '@hlm-dates/istReportPresets';
 
 export function SellersPage() {
   const { session } = useAuth();
-  const initial = rangeForReportPreset('week');
-  const [preset, setPreset] = useState<ReportDatePreset>('week');
+  const initial = rangeForReportPreset(DEFAULT_REPORT_DATE_PRESET);
+  const [preset, setPreset] = useState<ReportDatePreset>(DEFAULT_REPORT_DATE_PRESET);
   const [from, setFrom] = useState(initial.from);
   const [to, setTo] = useState(initial.to);
   const [productTab, setProductTab] = useState<'top' | 'least'>('top');

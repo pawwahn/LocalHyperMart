@@ -26,6 +26,7 @@ export function DeliveryUnlockChip({ addMore, nextFee, progress, layout = 'stack
       : `${title} · delivery ₹${formatRupees(nextFee)}`;
   const compact = layout === 'compact';
   const inline = layout === 'inline' || compact;
+  const compactLine = title;
   const ringSize = compact ? 22 : layout === 'inline' ? 28 : 32;
   return (
     <div
@@ -51,7 +52,7 @@ export function DeliveryUnlockChip({ addMore, nextFee, progress, layout = 'stack
         <span style={styles.scooter}>🛵</span>
       </div>
       {inline ? (
-        <span className="cart-unlock-inline">{inlineLine}</span>
+        <span className="cart-unlock-inline">{compact ? compactLine : inlineLine}</span>
       ) : (
         <span style={styles.copy}>
           <strong style={styles.title}>{title}</strong>
@@ -86,13 +87,13 @@ const CHIP_CSS = `
     overflow: hidden;
   }
   .cart-unlock--compact .cart-unlock-inline {
-    font-size: 0.62rem;
-    font-weight: 700;
-    line-height: 1.15;
-    -webkit-line-clamp: 1;
+    font-size: 0.78rem;
+    font-weight: 800;
+    line-height: 1.2;
+    letter-spacing: -0.01em;
     white-space: nowrap;
-    text-overflow: ellipsis;
-    overflow: hidden;
+    overflow: visible;
+    text-overflow: clip;
     display: block;
   }
 `;

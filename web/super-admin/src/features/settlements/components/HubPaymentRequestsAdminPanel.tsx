@@ -20,6 +20,7 @@ import {
   type CodStatementLine,
 } from '../lib/hubCodStatementExport';
 import {
+  DEFAULT_REPORT_DATE_PRESET,
   hubCodPaymentPeriodKind,
   rangeForReportPreset,
   REPORT_DATE_PRESET_OPTIONS,
@@ -98,8 +99,8 @@ export function HubPaymentRequestsAdminPanel({
   const [billPage, setBillPage] = useState(0);
   const [billPageSize, setBillPageSize] = useState(25);
 
-  const initialCodRange = rangeForReportPreset('financialYear');
-  const [codPreset, setCodPreset] = useState<ReportDatePreset>('financialYear');
+  const initialCodRange = rangeForReportPreset(DEFAULT_REPORT_DATE_PRESET);
+  const [codPreset, setCodPreset] = useState<ReportDatePreset>(DEFAULT_REPORT_DATE_PRESET);
   const [codStart, setCodStart] = useState(initialCodRange.from);
   const [codEnd, setCodEnd] = useState(initialCodRange.to);
   const datesControlled = periodFrom != null && periodTo != null && periodPreset != null;

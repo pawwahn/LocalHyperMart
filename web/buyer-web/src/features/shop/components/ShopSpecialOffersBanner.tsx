@@ -133,6 +133,42 @@ const OFFERS_CSS = `
     text-transform: uppercase;
     opacity: 0.95;
   }
+  .hlm-shop-deals-rail--bar {
+    height: auto;
+    min-height: 0;
+  }
+  .hlm-shop-deals-rail--bar .hlm-shop-deals-rail-btn {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-start;
+    text-align: left;
+    gap: 0.35rem 0.65rem;
+    padding: 0.5rem 0.7rem;
+  }
+  .hlm-shop-deals-rail--bar .hlm-shop-deals-rail-hero {
+    margin: 0;
+    font-size: 0.84rem;
+  }
+  .hlm-shop-deals-rail--bar .hlm-shop-deals-rail-rotator {
+    min-height: 0;
+    justify-items: start;
+    padding: 0;
+  }
+  .hlm-shop-deals-rail--bar .hlm-shop-deals-rail-chips {
+    flex-direction: row;
+    flex-wrap: wrap;
+    padding-top: 0;
+  }
+  .hlm-shop-deals-rail--bar .hlm-shop-deals-rail-chip {
+    font-size: 0.62rem;
+    padding: 0.22rem 0.4rem;
+  }
+  .hlm-shop-deals-rail--bar .hlm-shop-deals-rail-cta {
+    margin-top: 0;
+    margin-left: auto;
+    font-size: 0.62rem;
+  }
   .hlm-shop-deals-rail-plans {
     position: relative;
     z-index: 1;
@@ -204,7 +240,7 @@ export function ShopSpecialOffersBanner({
   }
 
   return (
-    <aside className="hlm-shop-deals-rail" aria-label="Special offers">
+    <aside className="hlm-shop-deals-rail hlm-shop-deals-rail--bar" aria-label="Special offers">
       <button type="button" className="hlm-shop-deals-rail-btn" onClick={handleMainClick}>
         <span className="hlm-shop-deals-rail-badge">Live</span>
         <p className="hlm-shop-deals-rail-hero">Special offers</p>

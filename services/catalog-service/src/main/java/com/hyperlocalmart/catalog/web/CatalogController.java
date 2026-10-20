@@ -17,6 +17,8 @@ import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 @RestController
@@ -45,9 +47,29 @@ public class CatalogController {
             @RequestParam(defaultValue = "24") @Min(1) @Max(48) int size,
             @RequestParam(defaultValue = "name") String sort,
             @RequestParam(defaultValue = "asc") String dir,
+            @RequestParam(required = false) String lane,
             HttpServletRequest httpRequest) {
         PageResponse<CatalogItemResponse> result =
-                catalogBrowseService.browse(townId, categoryId, q, page, size, sort, dir);
+                catalogBrowseService.browse(townId, categoryId, q, page, size, sort, dir, lane);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, result));
+    }
+
+    @GetMapping("/items/discounted")
+    public ResponseEntity<ApiResponse<Map<String, List<CatalogItemResponse>>>> discountedItems(
+            @RequestParam UUID townId,
+            @RequestParam(defaultValue = "24") @Min(1) @Max(40) int limit,
+            HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(ApiResponses.ok(
+                httpRequest, Map.of("items", catalogBrowseService.topDiscountedInTown(townId, Set.of(), limit))));
+    }
+
+    @GetMapping("/items/by-ids")
+    public ResponseEntity<ApiResponse<Map<String, List<CatalogItemResponse>>>> itemsByIds(
+            @RequestParam UUID townId,
+            @RequestParam List<UUID> ids,
+            HttpServletRequest httpRequest) {
+        List<UUID> capped = ids == null ? List.of() : ids.stream().filter(id -> id != null).distinct().limit(40).toList();
+        return ResponseEntity.ok(ApiResponses.ok(
+                httpRequest, Map.of("items", catalogBrowseService.activeByIdsInTown(townId, capped))));
     }
 }

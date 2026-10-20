@@ -259,6 +259,7 @@ public class HubAccountSummaryService {
                 .invoiceNumber(row.getServiceInvoiceNumber())
                 .acknowledgedAt(row.getVendorAcknowledgedAt())
                 .notReceivedAt(row.getVendorNotReceivedAt())
+                .notReceivedNote(row.getVendorNotReceivedNote())
                 .build();
     }
 

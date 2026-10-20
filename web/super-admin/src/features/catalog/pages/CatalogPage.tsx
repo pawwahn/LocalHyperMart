@@ -40,6 +40,11 @@ function isValidHsn(value: string): boolean {
   return /^[0-9]{4,8}$/.test(value.trim());
 }
 
+function isValidBarcode(value: string): boolean {
+  const barcode = value.trim();
+  return barcode.length === 0 || /^[0-9]{4,14}$/.test(barcode);
+}
+
 function enrichMasterItemRow(
   item: MasterItemVm,
   categories: CategoryVm[],
@@ -94,6 +99,7 @@ function patchMasterItemRow(
   next[idx] = {
     ...next[idx],
     ...row,
+    barcode: row.barcode ?? next[idx].barcode,
     hsnCode: row.hsnCode ?? next[idx].hsnCode,
     gstPercent: row.gstPercent ?? next[idx].gstPercent,
     cessPercent: row.cessPercent ?? next[idx].cessPercent,
@@ -111,6 +117,7 @@ function mergeItemTaxFromPrior(prev: MasterItemVm[], incoming: MasterItemVm[]): 
     if (!prior) return row;
     return {
       ...row,
+      barcode: row.barcode ?? prior.barcode,
       hsnCode: row.hsnCode ?? prior.hsnCode,
       gstPercent: row.gstPercent ?? prior.gstPercent,
       cessPercent: row.cessPercent ?? prior.cessPercent,
@@ -157,6 +164,7 @@ export function CatalogPage() {
   const [itemSearchNames, setItemSearchNames] = useState('');
   const [itemMrp, setItemMrp] = useState('');
   const [itemHsn, setItemHsn] = useState('');
+  const [itemBarcode, setItemBarcode] = useState('');
   const [itemGst, setItemGst] = useState('18');
   const [itemCess, setItemCess] = useState('0');
   const [itemTaxIncl, setItemTaxIncl] = useState(true);
@@ -183,6 +191,7 @@ export function CatalogPage() {
   const [editItemUnitId, setEditItemUnitId] = useState('');
   const [editItemMrp, setEditItemMrp] = useState('');
   const [editItemHsn, setEditItemHsn] = useState('');
+  const [editItemBarcode, setEditItemBarcode] = useState('');
   const [editItemGst, setEditItemGst] = useState('18');
   const [editItemCess, setEditItemCess] = useState('0');
   const [editItemTaxIncl, setEditItemTaxIncl] = useState(true);
@@ -373,6 +382,10 @@ export function CatalogPage() {
       setError('Enter a valid HSN code (4–8 digits) before creating this product.');
       return;
     }
+    if (!isValidBarcode(itemBarcode)) {
+      setError('Barcode must be 4–14 digits, or leave it empty.');
+      return;
+    }
     setBusy(true);
     setError(null);
     setNotice(null);
@@ -385,6 +398,7 @@ export function CatalogPage() {
         categoryId: itemCategoryId,
         unitId: itemUnitId,
         mrp: itemMrp ? Number(itemMrp) : undefined,
+        barcode: itemBarcode.trim() || undefined,
         hsnCode: itemHsn.trim(),
         gstPercent: Number(itemGst),
         cessPercent: itemCess ? Number(itemCess) : 0,
@@ -397,6 +411,7 @@ export function CatalogPage() {
       setItemSearchNames('');
       setItemMrp('');
       setItemHsn('');
+      setItemBarcode('');
       setItemGst('18');
       setItemCess('0');
       setPage(0);
@@ -590,6 +605,7 @@ export function CatalogPage() {
     setEditItemUnitId(item.unitId ?? itemUnitId);
     setEditItemMrp(item.mrp != null ? String(item.mrp) : '');
     setEditItemHsn(item.hsnCode?.trim() ?? '');
+    setEditItemBarcode(item.barcode?.trim() ?? '');
     setEditItemGst(formatGstSlab(item.gstPercent));
     setEditItemCess(item.cessPercent != null ? String(item.cessPercent) : '0');
     setEditItemTaxIncl(item.priceIncludesTax !== false);
@@ -617,6 +633,10 @@ export function CatalogPage() {
       setError('Enter a valid HSN code (4–8 digits). Save is blocked until HSN is set for GST invoices.');
       return;
     }
+    if (!isValidBarcode(editItemBarcode)) {
+      setError('Barcode must be 4–14 digits, or leave it empty.');
+      return;
+    }
     setBusy(true);
     setError(null);
     setNotice(null);
@@ -627,6 +647,7 @@ export function CatalogPage() {
         categoryId: editItemCategoryId,
         unitId: editItemUnitId,
         mrp: editItemMrp ? Number(editItemMrp) : undefined,
+        barcode: editItemBarcode.trim(),
         hsnCode: editItemHsn.trim(),
         gstPercent: Number(editItemGst),
         cessPercent: editItemCess ? Number(editItemCess) : 0,
@@ -635,6 +656,7 @@ export function CatalogPage() {
       });
       const rowForList: MasterItemVm = {
         ...updated,
+        barcode: updated.barcode ?? (editItemBarcode.trim() || null),
         hsnCode: updated.hsnCode ?? editItemHsn.trim(),
         gstPercent: updated.gstPercent ?? Number(editItemGst),
         cessPercent: updated.cessPercent ?? (editItemCess ? Number(editItemCess) : 0),
@@ -872,6 +894,13 @@ export function CatalogPage() {
                   inputMode="numeric"
                   placeholder="4–8 digits"
                 />
+                <TextField
+                  label="Barcode"
+                  value={itemBarcode}
+                  onChange={(e) => setItemBarcode(e.target.value.replace(/\D/g, '').slice(0, 14))}
+                  inputMode="numeric"
+                  placeholder="Optional"
+                />
               </div>
               <div style={styles.addRowSecondary}>
                 <label style={styles.fieldMini}>
@@ -922,6 +951,9 @@ export function CatalogPage() {
               {!itemHsn.trim() || isValidHsn(itemHsn) ? null : (
                 <p style={styles.fieldError}>HSN must be 4–8 digits.</p>
               )}
+              {!itemBarcode.trim() || isValidBarcode(itemBarcode) ? null : (
+                <p style={styles.fieldError}>Barcode must be 4–14 digits.</p>
+              )}
             </form>
           </section>
 
@@ -967,7 +999,7 @@ export function CatalogPage() {
                     style={styles.searchInput}
                     value={qDraft}
                     onChange={(e) => setQDraft(e.target.value)}
-                    placeholder="Search name or other names"
+                    placeholder="Search name, other names, or barcode"
                     aria-label="Search master items"
                   />
                 </label>
@@ -1048,6 +1080,7 @@ export function CatalogPage() {
                       align="right"
                     />
                     <th style={styles.thRight}>HSN</th>
+                    <th style={styles.th}>Barcode</th>
                     <th style={styles.thRight}>GST</th>
                     <th style={styles.thRight}> </th>
                   </tr>
@@ -1055,7 +1088,7 @@ export function CatalogPage() {
                 <tbody>
                   {items.length === 0 && !loading ? (
                     <tr>
-                      <td colSpan={7} style={styles.empty}>
+                      <td colSpan={8} style={styles.empty}>
                         No master items match.
                       </td>
                     </tr>
@@ -1090,6 +1123,9 @@ export function CatalogPage() {
                         </td>
                         <td style={{ ...styles.tdMuted, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
                           {item.hsnCode?.trim() ? item.hsnCode : '—'}
+                        </td>
+                        <td style={{ ...styles.tdMuted, fontVariantNumeric: 'tabular-nums' }}>
+                          {item.barcode?.trim() ? item.barcode : '—'}
                         </td>
                         <td style={{ ...styles.tdMuted, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
                           {item.gstPercent != null ? `${item.gstPercent}%` : '—'}
@@ -1558,6 +1594,17 @@ export function CatalogPage() {
                 inputMode="decimal"
                 disabled={busy}
               />
+              <TextField
+                label="Barcode"
+                value={editItemBarcode}
+                onChange={(e) => setEditItemBarcode(e.target.value.replace(/\D/g, '').slice(0, 14))}
+                inputMode="numeric"
+                placeholder="Optional"
+                disabled={busy}
+              />
+              {!editItemBarcode.trim() || isValidBarcode(editItemBarcode) ? null : (
+                <p style={{ ...styles.fieldError, gridColumn: '1 / -1' }}>Barcode must be 4–14 digits.</p>
+              )}
               <TextField
                 label="Country of origin"
                 value={editItemOrigin}

@@ -67,7 +67,7 @@ const styles: Record<string, CSSProperties> = {
   tile: {
     width: '100%',
     aspectRatio: '1 / 1',
-    borderRadius: 16,
+    borderRadius: 18,
     display: 'grid',
     placeItems: 'center',
     overflow: 'hidden',
@@ -92,7 +92,7 @@ const styles: Record<string, CSSProperties> = {
     filter: 'drop-shadow(0 2px 4px rgba(15, 23, 42, 0.12))',
   },
   label: {
-    fontSize: '0.68rem',
+    fontSize: '0.7rem',
     fontWeight: 700,
     lineHeight: 1.2,
     textAlign: 'center',

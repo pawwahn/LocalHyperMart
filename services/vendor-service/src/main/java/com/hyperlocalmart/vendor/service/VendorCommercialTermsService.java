@@ -8,6 +8,7 @@ import com.hyperlocalmart.vendor.client.AdminAuditClient;
 import com.hyperlocalmart.vendor.dto.request.CommercialTermsQuoteRequest;
 import com.hyperlocalmart.vendor.dto.request.UpsertVendorCommercialTermsRequest;
 import com.hyperlocalmart.vendor.dto.response.CommercialTermsQuoteResponse;
+import com.hyperlocalmart.vendor.dto.response.MonthSubscriptionAmount;
 import com.hyperlocalmart.vendor.dto.response.VendorCommercialTermsListResponse;
 import com.hyperlocalmart.vendor.dto.response.VendorCommercialTermsResponse;
 import com.hyperlocalmart.vendor.entity.Vendor;
@@ -561,6 +562,50 @@ public class VendorCommercialTermsService {
         terms.setNotes(blankToNull(request.getNotes()));
         terms.setEffectiveFrom(from);
         terms.setEffectiveTo(to);
+    }
+
+    /**
+     * Subscription due on each period end, using the terms that cover that day.
+     * Same result as quoting each month with the charged flag ignored, in one read.
+     */
+    @Transactional(readOnly = true)
+    public List<MonthSubscriptionAmount> subscriptionAmounts(UUID vendorId, List<LocalDate> periodEnds) {
+        requireVendor(vendorId);
+        if (periodEnds == null || periodEnds.isEmpty()) {
+            return List.of();
+        }
+        List<VendorCommercialTerms> history = termsRepository.findByVendorIdOrderByEffectiveFromDesc(vendorId);
+        List<MonthSubscriptionAmount> out = new ArrayList<>();
+        for (LocalDate end : periodEnds) {
+            if (end == null) {
+                continue;
+            }
+            VendorCommercialTerms terms = covering(history, end);
+            if (terms == null) {
+                continue;
+            }
+            BigDecimal amount = subscriptionDue(terms, end, false, true);
+            if (amount.signum() > 0) {
+                out.add(new MonthSubscriptionAmount(end, amount));
+            }
+        }
+        return out;
+    }
+
+    /** First history row whose effective range covers the day. History is newest-from first. */
+    private static VendorCommercialTerms covering(List<VendorCommercialTerms> history, LocalDate onDate) {
+        for (VendorCommercialTerms terms : history) {
+            LocalDate from = terms.getEffectiveFrom();
+            LocalDate to = terms.getEffectiveTo();
+            if (from != null && from.isAfter(onDate)) {
+                continue;
+            }
+            if (to != null && to.isBefore(onDate)) {
+                continue;
+            }
+            return terms;
+        }
+        return null;
     }
 
     private BigDecimal subscriptionDue(

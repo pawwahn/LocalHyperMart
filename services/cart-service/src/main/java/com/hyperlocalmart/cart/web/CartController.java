@@ -4,6 +4,7 @@ import com.hyperlocalmart.cart.dto.request.AddCartItemRequest;
 import com.hyperlocalmart.cart.dto.request.ApplyPromoRequest;
 import com.hyperlocalmart.cart.dto.request.AttachCartMembershipRequest;
 import com.hyperlocalmart.cart.dto.request.ChangeTownRequest;
+import com.hyperlocalmart.cart.dto.request.SwitchCartLineRequest;
 import com.hyperlocalmart.cart.dto.request.UpdateCartItemRequest;
 import com.hyperlocalmart.cart.dto.response.CartResponse;
 import com.hyperlocalmart.cart.dto.response.CartSuggestionsResponse;
@@ -59,6 +60,16 @@ public class CartController {
             @Valid @RequestBody UpdateCartItemRequest request,
             HttpServletRequest httpRequest) {
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, cartService.updateItem(principal.getUserId(), itemId, request)));
+    }
+
+    @PostMapping("/items/{itemId}/switch")
+    public ResponseEntity<ApiResponse<CartResponse>> switchLine(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @PathVariable UUID itemId,
+            @Valid @RequestBody SwitchCartLineRequest request,
+            HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                cartService.switchUnavailableLine(principal.getUserId(), itemId, request.getListingId())));
     }
 
     @DeleteMapping("/items/{itemId}")

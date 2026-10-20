@@ -361,6 +361,7 @@ public class HubPaymentRequestService {
                 .documentRef(documentRef(row))
                 .submissionId(row.getSubmissionId())
                 .issuedAt(row.getCreatedAt())
+                .payerNotice(payerNotice(row))
                 .orderCount(codLines.size())
                 .codLines(codLines)
                 .build();
@@ -394,9 +395,17 @@ public class HubPaymentRequestService {
                 .documentRef(documentRef(row))
                 .submissionId(row.getSubmissionId())
                 .issuedAt(row.getCreatedAt())
+                .payerNotice(payerNotice(row))
                 .orderCount(orderCount)
                 .codLines(List.of())
                 .build();
+    }
+
+    private String payerNotice(HubPaymentRequest row) {
+        if (row.getStatus() != HubPaymentRequestStatus.ISSUED) {
+            return null;
+        }
+        return submissionService.latestPayerNotice(row.getId());
     }
 
     private static int clampSize(int size, int fallback, int max) {

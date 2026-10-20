@@ -59,5 +59,11 @@ public class TownDuesResponse {
         BigDecimal commission;
         int itemCount;
         String reference;
+        /** Settlement to confirm. Set when {@link #action} is CONFIRM for a vendor or hub settlement bill. */
+        UUID settlementId;
+        /** Hub payment submission to verify. Set when {@link #action} is CONFIRM for a hub bill. */
+        UUID submissionId;
+        String paymentMethod;
+        String paymentReference;
     }
 }

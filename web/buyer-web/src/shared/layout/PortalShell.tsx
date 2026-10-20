@@ -52,7 +52,7 @@ export function PortalShell({
 }: Props) {
   const { session, logout } = useAuth();
   const buyerName = useBuyerDisplayName();
-  const { townLabel, openPicker } = useTown();
+  const { townLabel, openPicker, deliveryWindowLabel } = useTown();
   const { cart } = useShop();
   const location = useLocation();
   const navigate = useNavigate();
@@ -146,7 +146,7 @@ export function PortalShell({
                   <span style={styles.shopLocPin} aria-hidden>📍</span>
                   <span style={styles.shopLocCopy}>
                     <span style={styles.shopLocMeta}>
-                      <span style={styles.shopEtaPill}>Same day</span>
+                      <span style={styles.shopEtaPill}>{deliveryWindowLabel || 'Today'}</span>
                       {session && buyerName ? (
                         <span style={styles.shopHiName}>Hi, {buyerName}</span>
                       ) : (
@@ -375,8 +375,7 @@ const styles: Record<string, CSSProperties> = {
     color: '#1A1C1A',
     fontSize: '0.58rem',
     fontWeight: 800,
-    letterSpacing: '0.04em',
-    textTransform: 'uppercase',
+    letterSpacing: '0.01em',
     borderRadius: 6,
     padding: '0.18rem 0.38rem',
     lineHeight: 1.1,

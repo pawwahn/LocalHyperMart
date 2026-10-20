@@ -119,6 +119,8 @@ export function TownSettingsDialog({
   const [codEnabled, setCodEnabled] = useState(true);
   const [upiEnabled, setUpiEnabled] = useState(true);
   const [codCharge, setCodCharge] = useState('0');
+  const [windowStart, setWindowStart] = useState('17:00');
+  const [windowEnd, setWindowEnd] = useState('19:00');
   const [savedNotice, setSavedNotice] = useState<string | null>(null);
   const [historyTick, setHistoryTick] = useState(0);
   const [section, setSection] = useState<SettingsSection>('shop');
@@ -167,6 +169,8 @@ export function TownSettingsDialog({
         setScratchRewardMax(String(cfg.scratchRewardMax ?? 50));
         setScratchMinGoodsAmount(String(cfg.scratchMinGoodsAmount ?? 499));
         setBuyerMembershipEnabled(cfg.buyerMembershipEnabled !== false);
+        setWindowStart(cfg.deliveryWindowStart || '17:00');
+        setWindowEnd(cfg.deliveryWindowEnd || '19:00');
         setCodEnabled(cfg.codEnabled !== false);
         setUpiEnabled(cfg.upiEnabled !== false);
         setCodCharge(String(cfg.codCharge ?? 0));
@@ -231,6 +235,10 @@ export function TownSettingsDialog({
       setError('COD charge must be ₹0 or more.');
       return;
     }
+    if (windowStart >= windowEnd) {
+      setError('Delivery window start must be before the end.');
+      return;
+    }
     if (!codEnabled && !upiEnabled) {
       setError('Enable at least one payment method (COD or UPI).');
       return;
@@ -254,6 +262,8 @@ export function TownSettingsDialog({
         codEnabled,
         upiEnabled,
         codCharge: codAmt,
+        deliveryWindowStart: windowStart,
+        deliveryWindowEnd: windowEnd,
       });
       setSavedNotice('Saved and logged.');
       setHistoryTick((n) => n + 1);
@@ -622,6 +632,21 @@ export function TownSettingsDialog({
                   </div>
                 </div>
               </div>
+              <div className="town-settings-delivery-row">
+                <TextField
+                  label="Window from"
+                  type="time"
+                  value={windowStart}
+                  onChange={(e) => setWindowStart(e.target.value)}
+                />
+                <TextField
+                  label="Window to"
+                  type="time"
+                  value={windowEnd}
+                  onChange={(e) => setWindowEnd(e.target.value)}
+                />
+              </div>
+              <p style={styles.hint}>Buyers see Today or Tomorrow in this window (IST). Same for every order in the town.</p>
               {deliveryMode === 'DEFAULT' ? (
                 <p style={styles.hint}>
                   Uses delivery fee from Settings → Checkout: <strong>₹{platformDeliveryFee.toFixed(2)}</strong>

@@ -332,6 +332,9 @@ export function HubPaymentRequestsPanel({ token, kind, from, to, preset, onSubmi
           <p style={styles.dueLine}>
             Pay <strong>{money(selected.totalAmount)}</strong> offline, then record details below.
           </p>
+          {selected.payerNotice ? (
+            <p style={styles.rejectWhy}>Not received: {selected.payerNotice}</p>
+          ) : null}
           {kind === 'FRANCHISE' && selected.franchiseLabel ? (
             <p style={styles.mutedSmall}>{selected.franchiseLabel}</p>
           ) : null}
@@ -567,6 +570,7 @@ const styles: Record<string, CSSProperties> = {
   lineAmt: { textAlign: 'right', fontVariantNumeric: 'tabular-nums' },
   muted: { margin: 0, fontSize: '0.82rem', color: 'var(--text-muted)' },
   mutedSmall: { margin: 0, fontSize: '0.75rem', color: 'var(--text-muted)' },
+  rejectWhy: { margin: 0, fontSize: '0.78rem', fontWeight: 700, color: '#991b1b' },
   error: { margin: 0, color: 'var(--danger)', fontSize: '0.82rem' },
   notice: { margin: 0, color: '#166534', fontSize: '0.82rem', fontWeight: 600 },
   openList: { display: 'grid', gap: '0.35rem' },

@@ -2,6 +2,7 @@ package com.hyperlocalmart.payment.service;
 
 import com.hyperlocalmart.payment.client.DeliveryClient;
 import com.hyperlocalmart.payment.client.OrderClient;
+import com.hyperlocalmart.payment.client.TownClient;
 import com.hyperlocalmart.payment.client.VendorClient;
 import com.hyperlocalmart.payment.dto.response.DeliverySettlementCandidateView;
 import com.hyperlocalmart.payment.dto.response.SettlementCandidateView;
@@ -20,11 +21,19 @@ import java.time.YearMonth;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 /**
  * Work that is owed but not yet a bill or payout: shop-held fee bills, unpaid shop goods,
@@ -44,7 +53,13 @@ public class OpenAccountsService {
     private final DeliverySettlementService deliverySettlementService;
     private final VendorClient vendorClient;
     private final DeliveryClient deliveryClient;
+    private final TownClient townClient;
     private final CodCloseDayLineItemRepository closeLineRepository;
+    private final ExecutorService workers = Executors.newFixedThreadPool(4, runnable -> {
+        Thread thread = new Thread(runnable, "open-accounts");
+        thread.setDaemon(true);
+        return thread;
+    });
 
     public List<Line> scan(LocalDate from, LocalDate to) {
         LocalDate start = from == null ? OPEN_START : from;
@@ -54,13 +69,91 @@ public class OpenAccountsService {
             start = end;
             end = swap;
         }
+        orderClient.beginReplay();
+        deliveryClient.beginReplay();
+        townClient.beginReplay();
         List<Line> out = new ArrayList<>();
-        scanVendors(out, from, to, start, end);
-        scanHubsAndAgents(out, start, end);
+        try {
+            scanVendors(out, from, to, start, end);
+            scanHubsAndAgents(out, start, end);
+        } finally {
+            orderClient.endReplay();
+            deliveryClient.endReplay();
+            townClient.endReplay();
+        }
         return out;
     }
 
     private void scanVendors(List<Line> out, LocalDate requestedFrom, LocalDate requestedTo, LocalDate start, LocalDate end) {
+        List<OrderClient.BagKey> keys = null;
+        try {
+            keys = orderClient.settlementBagKeys(start, end);
+        } catch (RuntimeException ex) {
+            log.warn("Could not list delivered bag keys: {}", ex.toString());
+        }
+        if (keys == null) {
+            scanVendorsOneByOne(out, requestedFrom, requestedTo, start, end);
+            return;
+        }
+        Map<String, UUID> vendorByPair = new LinkedHashMap<>();
+        Map<String, UUID> townByPair = new LinkedHashMap<>();
+        Map<String, List<UUID>> idsByPair = new HashMap<>();
+        List<UUID> allIds = new ArrayList<>();
+        for (OrderClient.BagKey key : keys) {
+            if (key == null || key.vendorId() == null || key.townId() == null || key.subOrderId() == null) {
+                continue;
+            }
+            String pair = key.vendorId() + "|" + key.townId();
+            vendorByPair.putIfAbsent(pair, key.vendorId());
+            townByPair.putIfAbsent(pair, key.townId());
+            idsByPair.computeIfAbsent(pair, ignored -> new ArrayList<>()).add(key.subOrderId());
+            allIds.add(key.subOrderId());
+        }
+        Set<UUID> settledIds;
+        try {
+            settledIds = settlementService.settledSubOrderIds(allIds);
+        } catch (RuntimeException ex) {
+            log.warn("Could not list settled bags, so every shop is checked: {}", ex.toString());
+            settledIds = Set.of();
+        }
+        Set<UUID> settled = settledIds;
+        Map<UUID, UUID> townForVendor = new LinkedHashMap<>();
+        List<Callable<List<Line>>> jobs = new ArrayList<>();
+        for (Map.Entry<String, UUID> pair : vendorByPair.entrySet()) {
+            UUID vendorId = pair.getValue();
+            UUID townId = townByPair.get(pair.getKey());
+            townForVendor.putIfAbsent(vendorId, townId);
+            boolean open = idsByPair.getOrDefault(pair.getKey(), List.of()).stream().anyMatch(id -> !settled.contains(id));
+            if (!open) {
+                continue;
+            }
+            jobs.add(() -> {
+                List<Line> local = new ArrayList<>();
+                try {
+                    appendVendor(local, townId, vendorId, start, end);
+                } catch (RuntimeException ex) {
+                    log.warn("Skipped open shop work for {}: {}", vendorId, ex.toString());
+                }
+                return local;
+            });
+        }
+        for (Map.Entry<UUID, UUID> vendor : townForVendor.entrySet()) {
+            jobs.add(() -> {
+                List<Line> local = new ArrayList<>();
+                try {
+                    appendUnsentSubscription(local, vendor.getValue(), vendor.getKey(), requestedFrom, requestedTo);
+                } catch (RuntimeException ex) {
+                    log.warn("Skipped subscription scan for {}: {}", vendor.getKey(), ex.toString());
+                }
+                return local;
+            });
+        }
+        out.addAll(runJobs(jobs));
+    }
+
+    /** Used when bag keys are not available. One shop at a time. */
+    private void scanVendorsOneByOne(
+            List<Line> out, LocalDate requestedFrom, LocalDate requestedTo, LocalDate start, LocalDate end) {
         List<OrderClient.VendorTown> pairs;
         try {
             pairs = orderClient.deliveredVendorTowns(start, end);
@@ -85,6 +178,27 @@ public class OpenAccountsService {
                     log.warn("Skipped subscription scan for {}: {}", pair.vendorId(), ex.toString());
                 }
             }
+        }
+    }
+
+    private List<Line> runJobs(List<Callable<List<Line>>> jobs) {
+        if (jobs.isEmpty()) {
+            return List.of();
+        }
+        try {
+            List<Line> lines = new ArrayList<>();
+            for (Future<List<Line>> future : workers.invokeAll(jobs)) {
+                try {
+                    lines.addAll(future.get());
+                } catch (ExecutionException ex) {
+                    log.warn("Open accounts job failed: {}", ex.getCause() == null ? ex.toString() : ex.getCause().toString());
+                }
+            }
+            return lines;
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            log.warn("Open accounts scan interrupted");
+            return List.of();
         }
     }
 

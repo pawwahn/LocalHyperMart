@@ -10,6 +10,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Comparator;
 import java.util.UUID;
 
 @Service
@@ -30,6 +31,46 @@ public class ListingLookupService {
     @Transactional(readOnly = true)
     public ListingSnapshotResponse getListingForOrderRead(UUID listingId, UUID townId) {
         return getListing(listingId, townId, false);
+    }
+
+    /** Cheapest other active shop in the same town for the same product. Null when none. */
+    @Transactional(readOnly = true)
+    public ListingSnapshotResponse cheapestAlternate(UUID listingId, UUID townId) {
+        VendorListing current;
+        try {
+            current = vendorListingRepository.findById(listingId).orElse(null);
+        } catch (Exception ex) {
+            return null;
+        }
+        if (current == null || current.getMasterItem() == null || !townId.equals(current.getTownId())) {
+            return null;
+        }
+        return vendorListingRepository
+                .findActiveSiblings(townId, current.getMasterItem().getId(), listingId)
+                .stream()
+                .filter(this::canSell)
+                .min(Comparator.comparing(ListingPricing::resolveEffectivePrice, Comparator.nullsLast(Comparator.naturalOrder())))
+                .map(listing -> {
+                    try {
+                        return getListing(listing.getId(), townId, true);
+                    } catch (BusinessException ex) {
+                        return null;
+                    }
+                })
+                .orElse(null);
+    }
+
+    private boolean canSell(VendorListing listing) {
+        try {
+            var category = listing.getMasterItem().getCategory();
+            if (category == null || !categoryVisibilityService.isVisibleInTown(category, listing.getTownId())) {
+                return false;
+            }
+            ProductTaxCompliance.validateForSale(listing.getMasterItem());
+            return true;
+        } catch (BusinessException ex) {
+            return false;
+        }
     }
 
     private ListingSnapshotResponse getListing(UUID listingId, UUID townId, boolean requireActive) {

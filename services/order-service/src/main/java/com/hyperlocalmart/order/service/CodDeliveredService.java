@@ -221,7 +221,7 @@ public class CodDeliveredService {
 
     private static UUID soleVendorId(List<VendorSubOrder> subOrders) {
         return subOrders.stream()
-                .filter(s -> s.getStatus() != com.hyperlocalmart.order.entity.VendorSubOrderStatus.VENDOR_REJECTED)
+                .filter(s -> !s.getStatus().isClosed())
                 .map(VendorSubOrder::getVendorId)
                 .findFirst()
                 .orElse(null);

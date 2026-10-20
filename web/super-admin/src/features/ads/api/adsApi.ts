@@ -21,6 +21,7 @@ export type TownAdVm = {
   imageUrl: string | null;
   imageMediaId: string | null;
   enabled: boolean;
+  bookable: boolean;
   allTowns: boolean;
   targetTownIds: string[];
   displayDurationSec: number;
@@ -40,6 +41,7 @@ export type UpsertTownAdInput = {
   ctaLabel: string;
   images: TownAdImage[];
   enabled: boolean;
+  bookable: boolean;
   allTowns: boolean;
   targetTownIds: string[];
   displayDurationSec: number;
@@ -47,6 +49,7 @@ export type UpsertTownAdInput = {
 
 export const MAX_AD_IMAGES = 3;
 export const MID_GRID_COUNT = 5;
+export const CAT_UPSELL_COUNT = 4;
 export const AD_DISPLAY_SEC_MIN = 2;
 export const AD_DISPLAY_SEC_MAX = 60;
 export const AD_DISPLAY_SEC_DEFAULT = 4;
@@ -80,19 +83,19 @@ export const AD_EDITOR_ITEMS: AdEditorItem[] = [
     title: `Slide ${i + 1}`,
     label: 'Mid-grid carousel · after category row 4',
   })),
-  {
-    slot: 'CART_UPSELL',
-    slotIndex: 0,
-    section: 'cart',
-    title: 'Ad 3',
-    label: 'Cart / checkout upsell',
-  },
+  ...Array.from({ length: CAT_UPSELL_COUNT }, (_, i) => ({
+    slot: 'CART_UPSELL' as const,
+    slotIndex: i + 1,
+    section: 'cart' as const,
+    title: `Cat ${i + 1}`,
+    label: `Categories screen · after row ${(i + 1) * 2}`,
+  })),
 ];
 
 export const SLOT_LABELS: Record<TownAdSlot, string> = {
   HOME_HERO: 'Home strip (top)',
   HOME_MID_GRID: 'Mid-grid carousel',
-  CART_UPSELL: 'Cart / checkout',
+  CART_UPSELL: 'Categories Upsell',
 };
 
 export async function fetchTownAdsEditor(

@@ -32,6 +32,7 @@ type NavIcon =
   | 'ledger'
   | 'audit'
   | 'dues'
+  | 'cash'
   | 'settings';
 
 type NavItem = { to: string; label: string; icon: NavIcon };
@@ -71,6 +72,7 @@ const NAV_GROUPS: Array<{ label: string; items: NavItem[] }> = [
     label: 'Money',
     items: [
       { to: '/dues', label: 'Accounts', icon: 'dues' },
+      { to: '/cash', label: 'Cash', icon: 'cash' },
       { to: '/vendor-billing', label: 'Billing', icon: 'billing' },
       { to: '/settlements', label: 'Payouts', icon: 'payouts' },
       { to: '/finance-ledger', label: 'Finance ledger', icon: 'ledger' },
@@ -320,6 +322,12 @@ const GLYPHS: Record<NavIcon, ReactNode> = {
     <>
       <path d="M5 4h14v16H5z" {...stroke} />
       <path d="M8 9h8M8 13h8M8 17h5" {...stroke} />
+    </>
+  ),
+  cash: (
+    <>
+      <rect x="3" y="6" width="18" height="12" rx="2" {...stroke} />
+      <path d="M12 9.2v5.6M9.8 11.2c.4-1 1.2-1.4 2.2-1.4 1.2 0 2 .6 2 1.5s-.8 1.4-2 1.6-2 .5-2 1.5.9 1.5 2.1 1.5c1 0 1.8-.4 2.2-1.3" {...stroke} />
     </>
   ),
   audit: (

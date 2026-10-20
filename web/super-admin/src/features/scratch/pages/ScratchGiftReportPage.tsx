@@ -7,6 +7,7 @@ import { Banner, Button, Card } from '@/shared/ui';
 import { listTowns, type TownVm } from '@/features/towns/api/townsApi';
 import { fetchScratchGiftReport, type ScratchGiftReport } from '../api/scratchGiftApi';
 import {
+  DEFAULT_REPORT_DATE_PRESET,
   TRANSFER_HISTORY_PRESET_OPTIONS,
   rangeForTransferHistoryPreset,
   type TransferHistoryPreset,

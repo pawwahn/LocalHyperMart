@@ -146,6 +146,7 @@ export function PayoutAckReminder() {
                 <div style={styles.meta}>
                   {s.payoutMethod ?? 'Payout'} · Txn {s.transactionReference || 'no ref'}
                 </div>
+                {s.transactionNotes?.trim() ? <div style={styles.meta}>{s.transactionNotes.trim()}</div> : null}
                 <div style={styles.meta}>
                   Orders {formatDay(s.periodStart)} – {formatDay(s.periodEnd)} · sent {formatWhen(s.paidAt)}
                 </div>
@@ -169,7 +170,7 @@ export function PayoutAckReminder() {
               value={note}
               maxLength={500}
               rows={2}
-              placeholder="What should they check? (optional)"
+              placeholder="What should they recheck?"
               onChange={(e) => setNote(e.target.value)}
             />
           </div>
@@ -180,8 +181,8 @@ export function PayoutAckReminder() {
               <Button type="button" variant="ghost" disabled={busyId != null} onClick={() => setDisputing(false)}>
                 Go back
               </Button>
-              <Button type="button" disabled={busyId != null} onClick={() => void reportMissing()}>
-                {busyId === 'missing' ? 'Sending…' : 'Tell KoyaKart'}
+              <Button type="button" disabled={busyId != null || !note.trim()} onClick={() => void reportMissing()}>
+                {busyId === 'missing' ? 'Sending…' : 'Send comment'}
               </Button>
             </>
           ) : (

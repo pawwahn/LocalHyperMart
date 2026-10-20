@@ -1,6 +1,8 @@
 package com.hyperlocalmart.town.dto.billing;
 
+import com.hyperlocalmart.town.entity.AdBillPeriod;
 import com.hyperlocalmart.town.entity.AdInvoiceStatus;
+import com.hyperlocalmart.town.entity.AdTownScope;
 import com.hyperlocalmart.town.entity.TownAdSlot;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -24,6 +26,8 @@ public class AdOccupancyBookingDto {
     private TownAdSlot slot;
     private int slotIndex;
     private String slotLabel;
+    private AdBillPeriod period;
+    private AdTownScope townScope;
     private LocalDate fromDate;
     private LocalDate toDate;
     private boolean allTowns;

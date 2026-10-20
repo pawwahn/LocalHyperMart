@@ -31,6 +31,7 @@ import { PNL_SUMMARY_TIPS } from '../pnlSummaryTips';
 import { GMV_TIPS } from '@/shared/glossary/gmv';
 import { MEMBERSHIP_DELIVERY_TIPS } from '@/shared/glossary/membershipDeliveryTips';
 import {
+  DEFAULT_REPORT_DATE_PRESET,
   isoIstDate,
   rangeForReportPreset,
   REPORT_DATE_PRESET_OPTIONS,
@@ -136,10 +137,10 @@ function filterPartyRows(rows: FinancePartyRow[], query: string): FinancePartyRo
 export function FinanceLedgerPage() {
   const { session } = useAuth();
   const token = session?.accessToken ?? '';
-  const initial = rangeForReportPreset('month');
+  const initial = rangeForReportPreset(DEFAULT_REPORT_DATE_PRESET);
   const [towns, setTowns] = useState<TownVm[]>([]);
   const [townId, setTownId] = useState('');
-  const [preset, setPreset] = useState<ReportDatePreset>('month');
+  const [preset, setPreset] = useState<ReportDatePreset>(DEFAULT_REPORT_DATE_PRESET);
   const [from, setFrom] = useState(initial.from);
   const [to, setTo] = useState(initial.to);
   const [mainTab, setMainTab] = useState<MainTab>('cash');

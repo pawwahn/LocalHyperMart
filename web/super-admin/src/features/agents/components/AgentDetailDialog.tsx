@@ -11,7 +11,7 @@ import {
   type AgentRatingListVm,
 } from '../api/agentsApi';
 import { DateRangePresetBar } from '@hlm-dates/DateRangePresetBar';
-import { rangeForReportPreset, type ReportDatePreset } from '@hlm-dates/istReportPresets';
+import { DEFAULT_REPORT_DATE_PRESET, rangeForReportPreset, type ReportDatePreset } from '@hlm-dates/istReportPresets';
 
 type Props = {
   agent: AdminAgentVm;
@@ -102,8 +102,8 @@ export function AgentDetailDialog({
   onRestore,
 }: Props) {
   const [panel, setPanel] = useState<Panel>('deliveries');
-  const initialDeliveryRange = rangeForReportPreset('today');
-  const [preset, setPreset] = useState<ReportDatePreset>('today');
+  const initialDeliveryRange = rangeForReportPreset(DEFAULT_REPORT_DATE_PRESET);
+  const [preset, setPreset] = useState<ReportDatePreset>(DEFAULT_REPORT_DATE_PRESET);
   const [fromYmd, setFromYmd] = useState(initialDeliveryRange.from);
   const [toYmd, setToYmd] = useState(initialDeliveryRange.to);
   const [jobType, setJobType] = useState<JobType>('all');

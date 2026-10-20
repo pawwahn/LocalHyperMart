@@ -32,6 +32,11 @@ public class CreateMasterItemRequest {
     @DecimalMin("0.01")
     private BigDecimal mrp;
 
+    /** Product barcode (EAN, UPC, or a short store code). Blank clears it. */
+    @Size(max = 14)
+    @Pattern(regexp = "^$|^[0-9]{4,14}$")
+    private String barcode;
+
     /** Harmonized System of Nomenclature (4–8 digits) — required for GST invoices. */
     @NotBlank
     @Pattern(regexp = "^[0-9]{4,8}$")

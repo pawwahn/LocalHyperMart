@@ -1,23 +1,15 @@
-import { useMemo, type CSSProperties } from 'react';
+import type { CSSProperties } from 'react';
 import type { CatalogItemView } from '../api/shopApi';
 import { productVisual } from '../lib/productVisual';
 import { QuantityStepper } from './QuantityStepper';
 
 const TILE_W = 108;
-const TILE_GAP = 9;
-const TILE_STEP = TILE_W + TILE_GAP;
 const SHELF_H = 88;
-/** Pixels moved per second — lower = slower marquee. */
-const MARQUEE_SPEED = 28;
 
 const STRIP_CSS = `
   @keyframes cart-suggest-shimmer {
     0% { background-position: 200% 0; }
     100% { background-position: -200% 0; }
-  }
-  @keyframes cart-suggest-marquee {
-    from { transform: translate3d(0, 0, 0); }
-    to { transform: translate3d(-50%, 0, 0); }
   }
   .cart-suggest-skeleton {
     background: linear-gradient(
@@ -30,11 +22,15 @@ const STRIP_CSS = `
     animation: cart-suggest-shimmer 1.2s ease-in-out infinite;
   }
   .cart-suggest-viewport {
-    overflow: hidden;
+    overflow-x: auto;
+    overflow-y: hidden;
     margin-inline: -0.85rem;
     padding-inline: 0.85rem;
     padding-bottom: 0.35rem;
+    scrollbar-width: none;
+    scroll-snap-type: x mandatory;
   }
+  .cart-suggest-viewport::-webkit-scrollbar { display: none; }
   .cart-suggest-viewport.flush-bottom {
     padding-bottom: 0.1rem;
   }
@@ -42,15 +38,12 @@ const STRIP_CSS = `
     display: flex;
     gap: 0.55rem;
     width: max-content;
-    will-change: transform;
-    animation: cart-suggest-marquee var(--cart-suggest-marquee-duration, 24s) linear infinite;
   }
-  .cart-suggest-viewport:hover .cart-suggest-track,
-  .cart-suggest-viewport:focus-within .cart-suggest-track {
-    animation-play-state: paused;
+  .cart-suggest-track > * {
+    scroll-snap-align: start;
   }
   @media (prefers-reduced-motion: reduce) {
-    .cart-suggest-track { animation: none; }
+    .cart-suggest-skeleton { animation: none; }
   }
 `;
 
@@ -153,25 +146,6 @@ export function CartSuggestionStrip({
   onBrowseMore,
   flushBottom = false,
 }: Props) {
-  const marqueeItems = useMemo(
-    () => (items.length > 1 ? [...items, ...items] : items),
-    [items],
-  );
-
-  const marqueeDurationSec = useMemo(() => {
-    if (items.length <= 1) return 0;
-    const loopWidth = items.length * TILE_STEP;
-    return Math.max(loopWidth / MARQUEE_SPEED, 12);
-  }, [items.length]);
-
-  const marqueeStyle = useMemo(
-    () =>
-      ({
-        '--cart-suggest-marquee-duration': `${marqueeDurationSec}s`,
-      }) as CSSProperties,
-    [marqueeDurationSec],
-  );
-
   if (!loading && items.length === 0) {
     return null;
   }
@@ -198,24 +172,12 @@ export function CartSuggestionStrip({
         <div className={viewportClass}>
           <SkeletonTiles />
         </div>
-      ) : items.length === 1 ? (
-        <div className={viewportClass}>
-          <div style={styles.staticRow}>
-            <SuggestionTile
-              item={items[0]}
-              busyKey={busyKey}
-              quantityFor={quantityFor}
-              onIncrease={onIncrease}
-              onDecrease={onDecrease}
-            />
-          </div>
-        </div>
       ) : (
         <div className={viewportClass}>
-          <div className="cart-suggest-track" style={marqueeStyle}>
-            {marqueeItems.map((item, i) => (
+          <div className="cart-suggest-track">
+            {items.map((item) => (
               <SuggestionTile
-                key={`${item.listingId}-${i}`}
+                key={item.listingId}
                 item={item}
                 busyKey={busyKey}
                 quantityFor={quantityFor}

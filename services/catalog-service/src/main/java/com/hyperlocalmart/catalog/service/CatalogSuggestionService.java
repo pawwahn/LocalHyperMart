@@ -56,7 +56,7 @@ public class CatalogSuggestionService {
                 break;
             }
             PageResponse<CatalogItemResponse> page = catalogBrowseService.browse(
-                    request.getTownId(), categoryId, null, 0, limit, "rating", "desc");
+                    request.getTownId(), categoryId, null, 0, limit, "rating", "desc", null);
             mergeBrowsePage(picked, seenListingIds, excluded, page.getItems(), limit);
         }
 
@@ -66,7 +66,7 @@ public class CatalogSuggestionService {
                     break;
                 }
                 PageResponse<CatalogItemResponse> page = catalogBrowseService.browse(
-                        request.getTownId(), null, name, 0, limit, "rating", "desc");
+                        request.getTownId(), null, name, 0, limit, "rating", "desc", null);
                 mergeBrowsePage(picked, seenListingIds, excluded, page.getItems(), limit);
             }
         }

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { ApiError } from '@/shared/api/http';
 import { DateRangePresetBar } from '@hlm-dates/DateRangePresetBar';
 import {
+  DEFAULT_REPORT_DATE_PRESET,
   hubCodPaymentPeriodKind,
   isoIstDate,
   rangeForReportPreset,
@@ -27,8 +28,8 @@ function sumLines(lines: HubCodPreview['codLines']): number {
 
 export function HubCodDuePanel({ token, preset: presetProp, from: fromProp, to: toProp }: Props) {
   const controlled = presetProp != null && fromProp != null && toProp != null;
-  const initial = rangeForReportPreset('month');
-  const [localPreset, setLocalPreset] = useState<ReportDatePreset>('month');
+  const initial = rangeForReportPreset(DEFAULT_REPORT_DATE_PRESET);
+  const [localPreset, setLocalPreset] = useState<ReportDatePreset>(DEFAULT_REPORT_DATE_PRESET);
   const [localFrom, setLocalFrom] = useState(initial.from);
   const [localTo, setLocalTo] = useState(initial.to);
   const preset = controlled ? presetProp : localPreset;

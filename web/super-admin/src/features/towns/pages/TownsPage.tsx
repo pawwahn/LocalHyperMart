@@ -13,6 +13,7 @@ import {
   type TownVm,
 } from '../api/townsApi';
 import { getPlatformSettings } from '@/features/settings/api/settingsApi';
+import { TownAreaDialog } from '../components/TownAreaDialog';
 import { TownSettingsDialog } from '../components/TownSettingsDialog';
 import { AdminHistoryPanel } from '@/shared/audit/AdminHistoryPanel';
 
@@ -46,6 +47,9 @@ export function TownsPage() {
   const [townCode, setTownCode] = useState('');
   const [pincodes, setPincodes] = useState('');
   const [radius, setRadius] = useState('10');
+  const [latitude, setLatitude] = useState('');
+  const [longitude, setLongitude] = useState('');
+  const [areaTown, setAreaTown] = useState<TownVm | null>(null);
   const [configTown, setConfigTown] = useState<TownVm | null>(null);
   const [pendingStatus, setPendingStatus] = useState<{ town: TownVm; next: 'ENABLED' | 'DISABLED' } | null>(null);
   const [historyTick, setHistoryTick] = useState(0);
@@ -174,6 +178,15 @@ export function TownsPage() {
       setBusy(false);
       return;
     }
+    const latText = latitude.trim();
+    const lngText = longitude.trim();
+    const lat = latText ? Number(latText) : null;
+    const lng = lngText ? Number(lngText) : null;
+    if ((lat == null) !== (lng == null) || (lat != null && !Number.isFinite(lat)) || (lng != null && !Number.isFinite(lng))) {
+      setError('Set both latitude and longitude, or leave both empty');
+      setBusy(false);
+      return;
+    }
     try {
       await createTown(token, {
         name: name.trim().toUpperCase(),
@@ -182,11 +195,15 @@ export function TownsPage() {
         townCode: townCode.trim().toUpperCase(),
         pincodes: pins,
         coverageRadiusKm: Number(radius) || 10,
+        latitude: lat,
+        longitude: lng,
       });
       setNotice('Town created with default min-order config. Next: Hubs → Add hub for this town.');
       setName('');
       setTownCode('');
       setPincodes('');
+      setLatitude('');
+      setLongitude('');
       setShowAdd(false);
       setFilter('all');
       setHistoryTick((n) => n + 1);
@@ -364,6 +381,20 @@ export function TownsPage() {
                 onChange={(e) => setRadius(e.target.value)}
                 inputMode="decimal"
               />
+              <TextField
+                label="Latitude"
+                value={latitude}
+                onChange={(e) => setLatitude(e.target.value)}
+                inputMode="decimal"
+                placeholder="Optional"
+              />
+              <TextField
+                label="Longitude"
+                value={longitude}
+                onChange={(e) => setLongitude(e.target.value)}
+                inputMode="decimal"
+                placeholder="Optional"
+              />
             </div>
             <TextField
               label="Pincodes"
@@ -469,14 +500,14 @@ export function TownsPage() {
                           </span>
                         </td>
                         <td style={styles.tdRight}>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            disabled={busy}
-                            onClick={() => setConfigTown(town)}
-                          >
-                            Settings
-                          </Button>
+                          <div style={styles.rowActions}>
+                            <Button size="sm" variant="ghost" disabled={busy} onClick={() => setAreaTown(town)}>
+                              Area
+                            </Button>
+                            <Button size="sm" variant="ghost" disabled={busy} onClick={() => setConfigTown(town)}>
+                              Settings
+                            </Button>
+                          </div>
                         </td>
                       </tr>
                     );
@@ -506,6 +537,19 @@ export function TownsPage() {
           </>
         )}
       </Card>
+      ) : null}
+
+      {areaTown ? (
+        <TownAreaDialog
+          town={areaTown}
+          token={token}
+          onClose={() => setAreaTown(null)}
+          onSaved={(message) => {
+            setNotice(message);
+            setError(null);
+            setHistoryTick((n) => n + 1);
+          }}
+        />
       ) : null}
 
       {configTown ? (
@@ -665,6 +709,7 @@ const styles: Record<string, CSSProperties> = {
     gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 200px), 1fr))',
     gap: '0.7rem',
   },
+  rowActions: { display: 'flex', justifyContent: 'flex-end', gap: '0.2rem' },
   formGrid: {
     display: 'grid',
     gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 140px), 1fr))',

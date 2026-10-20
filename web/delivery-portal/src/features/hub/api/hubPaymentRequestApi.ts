@@ -15,6 +15,8 @@ export type HubPaymentRequest = {
   documentRef: string;
   submissionId?: string | null;
   issuedAt?: string | null;
+  /** Comment from KoyaKart when the last payment was not received. */
+  payerNotice?: string | null;
   codLines: Array<{
     lineId?: string;
     orderId: string;

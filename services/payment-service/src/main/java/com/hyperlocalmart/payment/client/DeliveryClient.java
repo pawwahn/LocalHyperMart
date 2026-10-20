@@ -11,8 +11,13 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Comparator;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -23,6 +28,15 @@ public class DeliveryClient {
 
     private final RestClient.Builder restClientBuilder;
     private final DeliveryServiceProperties deliveryServiceProperties;
+    private final ShortCallCache<List<OrderLegs>> legsCache = new ShortCallCache<>();
+
+    public void beginReplay() {
+        legsCache.begin();
+    }
+
+    public void endReplay() {
+        legsCache.end();
+    }
 
     public HubAdminContext getHubAdminContext(UUID userId) {
         RestClient client = restClientBuilder.baseUrl(deliveryServiceProperties.getBaseUrl()).build();
@@ -89,6 +103,24 @@ public class DeliveryClient {
         if (orderIds == null || orderIds.isEmpty()) {
             return List.of();
         }
+        List<UUID> sorted = new ArrayList<>(orderIds);
+        sorted.sort(Comparator.comparing(UUID::toString));
+        return legsCache.get(legKey(sorted), () -> loadDeliveryLegs(sorted));
+    }
+
+    private static String legKey(List<UUID> sorted) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            for (UUID id : sorted) {
+                digest.update(id.toString().getBytes(StandardCharsets.UTF_8));
+            }
+            return HexFormat.of().formatHex(digest.digest());
+        } catch (Exception ex) {
+            return sorted.size() + ":" + sorted.getFirst() + ":" + sorted.getLast();
+        }
+    }
+
+    private List<OrderLegs> loadDeliveryLegs(List<UUID> orderIds) {
         RestClient client = restClientBuilder.baseUrl(deliveryServiceProperties.getBaseUrl()).build();
         try {
             ApiResponse<List<OrderLegs>> response = client.post()

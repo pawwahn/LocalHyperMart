@@ -9,6 +9,8 @@ type Props = {
   size?: 'xs' | 'sm' | 'md';
   /** icon = "+" only when qty is 0 (compact product tiles). */
   addMode?: 'label' | 'icon';
+  /** circle = outlined plus sitting on a product photo. */
+  chrome?: 'default' | 'circle';
 };
 
 /** ADD when qty is 0; otherwise filled green − qty + (Blinkit pattern). */
@@ -19,6 +21,7 @@ export function QuantityStepper({
   onDecrease,
   size = 'sm',
   addMode = 'label',
+  chrome = 'default',
 }: Props) {
   if (quantity <= 0) {
     const iconOnly = addMode === 'icon' && size === 'xs';
@@ -28,7 +31,9 @@ export function QuantityStepper({
         className="hlm-add-btn"
         style={
           iconOnly
-            ? styles.addIconXs
+            ? chrome === 'circle'
+              ? styles.addCircle
+              : styles.addIconXs
             : size === 'md'
               ? styles.addMd
               : size === 'xs'
@@ -136,6 +141,22 @@ const styles: Record<string, CSSProperties> = {
     letterSpacing: '0.03em',
     cursor: 'pointer',
     boxShadow: '0 1px 4px rgba(12, 131, 31, 0.1)',
+  },
+  addCircle: {
+    width: 30,
+    height: 30,
+    padding: 0,
+    border: '1.5px solid var(--accent)',
+    borderRadius: 999,
+    background: '#fff',
+    color: 'var(--accent)',
+    fontWeight: 500,
+    fontSize: '1.25rem',
+    lineHeight: 1,
+    cursor: 'pointer',
+    boxShadow: '0 1px 4px rgba(16, 24, 40, 0.12)',
+    display: 'grid',
+    placeItems: 'center',
   },
   addIconXs: {
     width: 28,

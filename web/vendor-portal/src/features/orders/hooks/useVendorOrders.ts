@@ -16,6 +16,7 @@ import {
 } from '../api/ordersApi';
 import { lookupOrderPayouts } from '@/features/reports/api/payoutsApi';
 import { fetchSalesReport, formatMoney } from '@/features/reports/api/reportsApi';
+import { adminPayoutHint, computeAdminPayoutDue } from '@/features/payouts/vendorPayable';
 import { useOrderAlert } from '../OrderAlertContext';
 
 function isoToday(): string {
@@ -106,13 +107,9 @@ export function useVendorOrders() {
           session.vendorId,
           (openSales.rows ?? []).map((r) => r.subOrderId),
         );
-        for (const row of openSales.rows ?? []) {
-          if (row.status === 'VENDOR_REJECTED' || row.status === 'REJECTED') continue;
-          if (!payouts[row.subOrderId]?.paid) {
-            waiting += Number(row.subtotal ?? 0);
-            waitingOrders += 1;
-          }
-        }
+        const due = computeAdminPayoutDue(openSales.rows ?? [], payouts);
+        waiting = due.amount;
+        waitingOrders = due.count;
       } catch {
         waiting = 0;
         waitingOrders = 0;
@@ -315,10 +312,7 @@ export function useVendorOrders() {
     error,
     notice,
     moneyWaitingLabel: formatMoney(moneyWaiting),
-    moneyWaitingHint:
-      moneyWaitingOrders > 0
-        ? `${moneyWaitingOrders} orders not yet paid by admin`
-        : 'No unpaid shop sales in last 60 days',
+    moneyWaitingHint: adminPayoutHint({ amount: moneyWaiting, count: moneyWaitingOrders }),
     reload,
     markReady,
     deliveryByVendorAgent,

@@ -35,6 +35,7 @@ Always ship **best-effort UI** without waiting for the user to complain. Benchma
 - Consistent spacing, borders, muted meta text; no cluttered badges or competing accents.
 - Loading / empty / error states that are calm and specific.
 - Keep touch targets ≥ 44px for primary actions; density must not shrink hit areas below that.
+- **Buttons in one row are the same size.** Same height and the same width when they sit together (a confirm row, a filter pair, a dialog). Labels stay on one line — do not let one label wrap and make that button taller. Hit height stays 44px.
 
 ## Process
 

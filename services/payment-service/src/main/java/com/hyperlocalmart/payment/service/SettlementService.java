@@ -18,6 +18,7 @@ import com.hyperlocalmart.payment.dto.request.SubscriptionPaymentRequest;
 import com.hyperlocalmart.payment.dto.request.CreateSettlementRequest;
 import com.hyperlocalmart.payment.dto.response.SubscriptionBillView;
 import com.hyperlocalmart.payment.dto.request.MarkSettlementPaidRequest;
+import com.hyperlocalmart.payment.dto.response.AdminOrderSettlementResponse;
 import com.hyperlocalmart.payment.dto.response.SettlementCandidateView;
 import com.hyperlocalmart.payment.dto.response.SettlementResponse;
 import com.hyperlocalmart.payment.dto.response.VendorCodCashHolderResponse;
@@ -65,6 +66,20 @@ public class SettlementService {
     private final ServiceInvoiceNumberService serviceInvoiceNumberService;
     private final HubCodCustodyService hubCodCustodyService;
     private final PayeeDisplayNameService payeeDisplayNameService;
+
+    /** Ids already on a draft, finalized, or paid vendor settlement. Chunked so a long open window stays one scan. */
+    public Set<UUID> settledSubOrderIds(Collection<UUID> subOrderIds) {
+        if (subOrderIds == null || subOrderIds.isEmpty()) {
+            return Set.of();
+        }
+        List<UUID> ids = subOrderIds.stream().filter(Objects::nonNull).distinct().toList();
+        Set<UUID> settled = new HashSet<>();
+        for (int i = 0; i < ids.size(); i += 400) {
+            List<UUID> chunk = ids.subList(i, Math.min(i + 400, ids.size()));
+            settled.addAll(settlementLineItemRepository.findSettledSubOrderIds(chunk, BLOCKING_STATUSES));
+        }
+        return settled;
+    }
 
     /** Order lookup stays outside a DB transaction so a slow call cannot pin the pool. */
     public SettlementCandidateView listCandidates(UUID townId, UUID vendorId, LocalDate from, LocalDate to) {
@@ -412,7 +427,24 @@ public class SettlementService {
         applyPaid(settlement, actorId, request.getPayoutMethod(), request.getTransactionReference(),
                 request.getTransactionNotes(), request.getPaidAt());
         settlement.setUpdatedBy(actorId);
-        return toResponse(settlementRepository.save(settlement));
+        Settlement saved = settlementRepository.save(settlement);
+        String who = saved.getPayeeName() == null ? "" : saved.getPayeeName();
+        boolean collection = saved.getDirection() == SettlementDirection.COLLECTION;
+        String auditAction = switch (saved.getPayeeType()) {
+            case VENDOR -> collection ? "VENDOR_COLLECTION" : "VENDOR_PAYOUT";
+            case HUB -> collection ? "HUB_COLLECTION" : "HUB_PAYOUT";
+            case AGENT -> "AGENT_PAYOUT";
+        };
+        townClient.appendAdminAudit(
+                "settlements",
+                auditAction,
+                (collection ? "Collected from " : "Paid ") + who + " ₹" + saved.getNetAmount()
+                        + " · " + saved.getPayoutMethod()
+                        + " · ref " + saved.getTransactionReference(),
+                actorId,
+                saved.getTownId(),
+                saved.getId());
+        return toResponse(saved);
     }
 
     @Transactional(readOnly = true)
@@ -474,9 +506,9 @@ public class SettlementService {
         if (settlement.getVendorAcknowledgedAt() != null) {
             throw new BusinessException(ErrorCode.CONFLICT, "You already confirmed this payout");
         }
-        String trimmed = note == null ? "" : note.trim();
+        String trimmed = requiredPayerNote(note);
         settlement.setVendorNotReceivedAt(Instant.now());
-        settlement.setVendorNotReceivedNote(trimmed.isEmpty() ? null : trimmed);
+        settlement.setVendorNotReceivedNote(trimmed);
         settlement.setUpdatedBy(actorId);
         Settlement saved = settlementRepository.save(settlement);
         String shop = saved.getPayeeName() == null ? "" : saved.getPayeeName();
@@ -518,11 +550,8 @@ public class SettlementService {
         if (request.getPaidAt() != null) {
             settlement.setPaidAt(request.getPaidAt());
         }
-        if (settlement.getPayeeType() == SettlementPayeeType.HUB
-                || settlement.getPayeeType() == SettlementPayeeType.AGENT) {
-            settlement.setVendorNotReceivedAt(null);
-            settlement.setVendorNotReceivedNote(null);
-        }
+        settlement.setVendorNotReceivedAt(null);
+        settlement.setVendorNotReceivedNote(null);
         settlement.setAckReminderCount(settlement.getAckReminderCount() + 1);
         settlement.setAckRemindedAt(Instant.now());
         settlement.setUpdatedBy(actorId);
@@ -598,9 +627,9 @@ public class SettlementService {
         if (settlement.getVendorAcknowledgedAt() != null) {
             throw new BusinessException(ErrorCode.CONFLICT, "You already confirmed this payout");
         }
-        String trimmed = note == null ? "" : note.trim();
+        String trimmed = requiredPayerNote(note);
         settlement.setVendorNotReceivedAt(Instant.now());
-        settlement.setVendorNotReceivedNote(trimmed.isEmpty() ? null : trimmed);
+        settlement.setVendorNotReceivedNote(trimmed);
         settlement.setUpdatedBy(actorId);
         Settlement saved = settlementRepository.save(settlement);
         String hub = saved.getPayeeName() == null ? "" : saved.getPayeeName();
@@ -641,9 +670,9 @@ public class SettlementService {
         if (settlement.getVendorAcknowledgedAt() != null) {
             throw new BusinessException(ErrorCode.CONFLICT, "You already confirmed this payout");
         }
-        String trimmed = note == null ? "" : note.trim();
+        String trimmed = requiredPayerNote(note);
         settlement.setVendorNotReceivedAt(Instant.now());
-        settlement.setVendorNotReceivedNote(trimmed.isEmpty() ? null : trimmed);
+        settlement.setVendorNotReceivedNote(trimmed);
         settlement.setUpdatedBy(actorId);
         Settlement saved = settlementRepository.save(settlement);
         String agent = saved.getPayeeName() == null ? "" : saved.getPayeeName();
@@ -773,11 +802,23 @@ public class SettlementService {
             billed.putIfAbsent(s.getPeriodStart().format(YM), s);
         }
         LocalDate today = LocalDate.now(java.time.ZoneId.of("Asia/Kolkata"));
-        List<SubscriptionBillView> out = new ArrayList<>();
+        List<LocalDate> monthStarts = new ArrayList<>();
+        List<Settlement> saved = new ArrayList<>();
+        List<LocalDate> unbilledRefs = new ArrayList<>();
         for (int back = 11; back >= 0; back--) {
             LocalDate monthStart = today.withDayOfMonth(1).minusMonths(back);
-            String ym = monthStart.format(YM);
-            Settlement bill = billed.get(ym);
+            monthStarts.add(monthStart);
+            Settlement bill = billed.get(monthStart.format(YM));
+            saved.add(bill);
+            if (bill == null && includeUnsent) {
+                LocalDate monthEnd = monthStart.withDayOfMonth(monthStart.lengthOfMonth());
+                unbilledRefs.add(monthEnd.isAfter(today) ? today : monthEnd);
+            }
+        }
+        Map<LocalDate, BigDecimal> quoted = includeUnsent ? subscriptionAmounts(vendorId, unbilledRefs) : Map.of();
+        List<SubscriptionBillView> out = new ArrayList<>();
+        for (int i = 0; i < monthStarts.size(); i++) {
+            Settlement bill = saved.get(i);
             if (bill != null) {
                 out.add(toSubscriptionView(bill));
                 continue;
@@ -785,14 +826,15 @@ public class SettlementService {
             if (!includeUnsent) {
                 continue;
             }
+            LocalDate monthStart = monthStarts.get(i);
             LocalDate monthEnd = monthStart.withDayOfMonth(monthStart.lengthOfMonth());
             LocalDate ref = monthEnd.isAfter(today) ? today : monthEnd;
-            BigDecimal amount = vendorClient.subscriptionForMonth(vendorId, monthStart, ref);
+            BigDecimal amount = quoted.getOrDefault(ref, BigDecimal.ZERO);
             if (amount.compareTo(BigDecimal.ZERO) <= 0) {
                 continue;
             }
             out.add(SubscriptionBillView.builder()
-                    .month(ym)
+                    .month(monthStart.format(YM))
                     .periodStart(monthStart)
                     .periodEnd(monthEnd)
                     .amount(amount.setScale(2, RoundingMode.HALF_UP))
@@ -800,6 +842,22 @@ public class SettlementService {
                     .build());
         }
         return out;
+    }
+
+    /** One vendor call for every open month. Falls back to a call per month if that route is down. */
+    private Map<LocalDate, BigDecimal> subscriptionAmounts(UUID vendorId, List<LocalDate> refs) {
+        if (refs.isEmpty()) {
+            return Map.of();
+        }
+        try {
+            return vendorClient.subscriptionForMonths(vendorId, refs);
+        } catch (RuntimeException ex) {
+            Map<LocalDate, BigDecimal> fallback = new LinkedHashMap<>();
+            for (LocalDate ref : refs) {
+                fallback.put(ref, vendorClient.subscriptionForMonth(vendorId, ref.withDayOfMonth(1), ref));
+            }
+            return fallback;
+        }
     }
 
     private static SubscriptionBillView toSubscriptionView(Settlement bill) {
@@ -1047,8 +1105,11 @@ public class SettlementService {
     private Settlement loadVendorBill(UUID settlementId) {
         Settlement bill = settlementRepository.findDetailedById(settlementId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Bill not found"));
-        if (bill.getPayeeType() != SettlementPayeeType.VENDOR || bill.getDirection() != SettlementDirection.COLLECTION) {
-            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Not a vendor bill");
+        if (bill.getDirection() != SettlementDirection.COLLECTION
+                || (bill.getPayeeType() != SettlementPayeeType.VENDOR
+                && bill.getPayeeType() != SettlementPayeeType.HUB
+                && bill.getPayeeType() != SettlementPayeeType.AGENT)) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Not a payment to KoyaKart");
         }
         return bill;
     }
@@ -1205,6 +1266,51 @@ public class SettlementService {
         return VendorCodCashHolderResponse.builder().items(out).build();
     }
 
+    /**
+     * Whether each order is already on a vendor settlement, and whether that money has moved.
+     * COLLECTION means the shop owes commission. PAYOUT means KoyaKart owes the shop its share.
+     */
+    @Transactional(readOnly = true)
+    public AdminOrderSettlementResponse lookupAdminOrderSettlements(List<UUID> orderIds) {
+        List<UUID> ids = orderIds == null
+                ? List.of()
+                : orderIds.stream().filter(Objects::nonNull).distinct().toList();
+        if (ids.isEmpty()) {
+            return AdminOrderSettlementResponse.builder().items(List.of()).build();
+        }
+        Map<UUID, SettlementLineItem> best = new HashMap<>();
+        for (SettlementLineItem line : settlementLineItemRepository.findVendorOrderLinesByOrderIds(ids)) {
+            if (line.getOrderId() == null || line.getSettlement() == null) {
+                continue;
+            }
+            SettlementLineItem current = best.get(line.getOrderId());
+            if (current == null || settlementRank(line) > settlementRank(current)) {
+                best.put(line.getOrderId(), line);
+            }
+        }
+        List<AdminOrderSettlementResponse.Item> items = best.values().stream()
+                .map(line -> {
+                    Settlement settlement = line.getSettlement();
+                    return AdminOrderSettlementResponse.Item.builder()
+                            .orderId(line.getOrderId())
+                            .direction(settlement.getDirection() == null
+                                    ? SettlementDirection.PAYOUT : settlement.getDirection())
+                            .status(settlement.getStatus())
+                            .paid(settlement.getStatus() == SettlementStatus.PAID)
+                            .build();
+                })
+                .toList();
+        return AdminOrderSettlementResponse.builder().items(items).build();
+    }
+
+    private static int settlementRank(SettlementLineItem line) {
+        Settlement settlement = line.getSettlement();
+        if (settlement != null && settlement.getStatus() == SettlementStatus.PAID) {
+            return 2;
+        }
+        return 1;
+    }
+
     /** Super-admin orders list: who holds buyer COD cash per order. */
     public VendorCodCashHolderResponse lookupAdminCashHolders(List<UUID> orderIds) {
         List<UUID> ids = orderIds == null
@@ -1252,19 +1358,31 @@ public class SettlementService {
                 orderVendorIds.put(ctx.orderId(), ctx.vendorId());
             }
         }
-        Map<UUID, AgentRef> deliveringAgentByOrder = new HashMap<>();
-        for (UUID orderId : codOrderIds) {
-            UUID vendorId = orderVendorIds.get(orderId);
-            Map<UUID, AgentRef> one = safeDeliveringAgents(
-                    pseudo.stream().filter(p -> orderId.equals(p.orderId())).toList(),
-                    remitted,
-                    withCompany,
-                    handoverByOrder,
-                    vendorId);
-            AgentRef agent = one.get(orderId);
-            if (agent != null) {
-                deliveringAgentByOrder.put(orderId, agent);
+        Map<UUID, List<SettlementCandidateItem>> withAgentByVendor = new HashMap<>();
+        List<SettlementCandidateItem> withAgentNoVendor = new ArrayList<>();
+        for (SettlementCandidateItem item : pseudo) {
+            if (!isCod(item.paymentMethod()) || item.orderId() == null) {
+                continue;
             }
+            if (!"WITH_AGENT".equals(resolveCodCashLocation(
+                    item.orderId(), remitted, withCompany, handoverByOrder))) {
+                continue;
+            }
+            UUID vendorId = orderVendorIds.get(item.orderId());
+            if (vendorId == null) {
+                withAgentNoVendor.add(item);
+            } else {
+                withAgentByVendor.computeIfAbsent(vendorId, ignored -> new ArrayList<>()).add(item);
+            }
+        }
+        Map<UUID, AgentRef> deliveringAgentByOrder = new HashMap<>();
+        for (Map.Entry<UUID, List<SettlementCandidateItem>> entry : withAgentByVendor.entrySet()) {
+            deliveringAgentByOrder.putAll(safeDeliveringAgents(
+                    entry.getValue(), remitted, withCompany, handoverByOrder, entry.getKey()));
+        }
+        if (!withAgentNoVendor.isEmpty()) {
+            deliveringAgentByOrder.putAll(safeDeliveringAgents(
+                    withAgentNoVendor, remitted, withCompany, handoverByOrder, null));
         }
 
         Map<UUID, UUID> orderHubIds = new HashMap<>();
@@ -1325,6 +1443,14 @@ public class SettlementService {
                 .filter(Objects::nonNull)
                 .toList();
         return VendorCodCashHolderResponse.builder().items(out).build();
+    }
+
+    private static String requiredPayerNote(String note) {
+        String trimmed = note == null ? "" : note.trim();
+        if (trimmed.isEmpty()) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Write what KoyaKart should check");
+        }
+        return trimmed;
     }
 
     private void applyPaid(
@@ -1543,9 +1669,11 @@ public class SettlementService {
         }
 
         Map<UUID, AgentSummary> agentById = new HashMap<>();
-        for (AgentSummary summary : deliveryClient.listVendorAgents(vendorId)) {
-            if (summary.agentId() != null) {
-                agentById.put(summary.agentId(), summary);
+        if (vendorId != null) {
+            for (AgentSummary summary : deliveryClient.listVendorAgents(vendorId)) {
+                if (summary.agentId() != null) {
+                    agentById.put(summary.agentId(), summary);
+                }
             }
         }
         legs.stream()

@@ -19,6 +19,7 @@ import {
   type ReferralReport,
 } from '../api/opsReportsApi';
 import {
+  DEFAULT_REPORT_DATE_PRESET,
   isoIstDate,
   rangeForReportPreset,
   REPORT_DATE_PRESET_OPTIONS,
@@ -78,7 +79,7 @@ function labelOf(name: string): string {
     DAMAGED: 'Damaged',
     HOME_HERO: 'Home strip',
     HOME_MID_GRID: 'Mid-grid',
-    CART_UPSELL: 'Cart ad',
+    CART_UPSELL: 'Categories Upsell',
     ISSUED: 'Issued',
     PAID: 'Paid',
     VOID: 'Void',
@@ -106,10 +107,10 @@ function csvEscape(value: string | number | null | undefined): string {
 export function ReportsPage() {
   const { session } = useAuth();
   const token = session?.accessToken ?? '';
-  const initial = rangeForReportPreset('week');
+  const initial = rangeForReportPreset(DEFAULT_REPORT_DATE_PRESET);
   const [towns, setTowns] = useState<TownVm[]>([]);
   const [townId, setTownId] = useState('');
-  const [preset, setPreset] = useState<ReportDatePreset>('week');
+  const [preset, setPreset] = useState<ReportDatePreset>(DEFAULT_REPORT_DATE_PRESET);
   const [from, setFrom] = useState(initial.from);
   const [to, setTo] = useState(initial.to);
   const [report, setReport] = useState<PlatformReport | null>(null);

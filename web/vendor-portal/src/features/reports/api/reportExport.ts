@@ -87,7 +87,7 @@ function buildRows(
         ? 'SETTLED'
         : row.status === 'DELIVERED'
           ? 'AWAITING'
-          : row.status === 'VENDOR_REJECTED' || row.status === 'REJECTED'
+          : row.status === 'VENDOR_REJECTED' || row.status === 'REJECTED' || row.status === 'BUYER_CANCELLED'
             ? 'NOT PAYABLE'
             : 'NOT DUE YET',
       paidAt: payout?.paidAt ? new Date(payout.paidAt).toLocaleString() : '',

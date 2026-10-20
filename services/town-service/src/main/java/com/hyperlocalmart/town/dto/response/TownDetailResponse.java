@@ -21,6 +21,8 @@ public class TownDetailResponse {
     private String townCode;
     private String stateCode;
     private BigDecimal coverageRadiusKm;
+    private BigDecimal latitude;
+    private BigDecimal longitude;
     private TownStatus status;
     private boolean acceptingOrders;
     private List<String> pincodes;

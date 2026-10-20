@@ -19,7 +19,7 @@ import {
   type PartyAuditReport,
 } from '../partyAuditReport';
 import { looksLikeUuid } from '@/shared/display/displayNames';
-import { rangeForReportPreset, type ReportDatePreset } from '@/shared/dates/istReportPresets';
+import { DEFAULT_REPORT_DATE_PRESET, rangeForReportPreset, type ReportDatePreset } from '@/shared/dates/istReportPresets';
 
 function money(value?: number | null): string {
   return `₹${Number(value ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -70,10 +70,10 @@ function day(iso?: string | null): string {
 export function PartyAuditReportPage() {
   const { session } = useAuth();
   const token = session?.accessToken ?? '';
-  const initial = rangeForReportPreset('month');
+  const initial = rangeForReportPreset(DEFAULT_REPORT_DATE_PRESET);
   const [towns, setTowns] = useState<TownVm[]>([]);
   const [townId, setTownId] = useState('');
-  const [preset, setPreset] = useState<ReportDatePreset>('month');
+  const [preset, setPreset] = useState<ReportDatePreset>(DEFAULT_REPORT_DATE_PRESET);
   const [from, setFrom] = useState(initial.from);
   const [to, setTo] = useState(initial.to);
   const [category, setCategory] = useState<PartyCategory>('HUB');

@@ -36,6 +36,8 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -55,15 +57,13 @@ public class CartService {
 
     @Transactional(readOnly = true)
     public CartSuggestionsResponse getSuggestions(UUID userId, UUID townId, int limit) {
+        int capped = Math.min(Math.max(limit, 10), 20);
         Cart cart = cartRepository.findByUserIdAndTownIdAndStatus(userId, townId, CartStatus.ACTIVE)
                 .orElse(null);
-        if (cart == null || cart.getItems().isEmpty()) {
-            return CartSuggestionsResponse.empty();
-        }
-        int capped = Math.min(Math.max(limit, 10), 20);
-        List<UUID> excludeListingIds = cart.getItems().stream().map(CartItem::getListingId).toList();
-        List<UUID> seedMasterItemIds = cart.getItems().stream().map(CartItem::getMasterItemId).distinct().toList();
-        List<String> seedNames = cart.getItems().stream().map(CartItem::getItemName).distinct().toList();
+        List<CartItem> lines = cart == null || cart.getItems() == null ? List.of() : cart.getItems();
+        List<UUID> excludeListingIds = lines.stream().map(CartItem::getListingId).toList();
+        List<UUID> seedMasterItemIds = lines.stream().map(CartItem::getMasterItemId).distinct().toList();
+        List<String> seedNames = lines.stream().map(CartItem::getItemName).distinct().limit(4).toList();
         List<UUID> previousListingIds = orderHistoryClient.recentListingIds(userId, townId, capped);
         return CartSuggestionsResponse.builder()
                 .items(catalogSuggestionClient.suggest(
@@ -128,6 +128,38 @@ public class CartService {
         item.setLineTotal(calculateLineTotal(item.getQuantity(), item.getUnitPrice(), item.getDiscountPrice()));
         refreshPromo(item.getCart());
         return toResponse(item.getCart());
+    }
+
+    @Transactional
+    public CartResponse switchUnavailableLine(UUID userId, UUID itemId, UUID alternateListingId) {
+        CartItem item = findUserItem(userId, itemId);
+        Cart cart = item.getCart();
+        if (cart.getStatus() != CartStatus.ACTIVE) {
+            throw new BusinessException(ErrorCode.CONFLICT, "Cart item not found");
+        }
+        CatalogListingClient.ListingProbe probe =
+                catalogListingClient.probe(item.getListingId(), cart.getTownId());
+        if (probe == CatalogListingClient.ListingProbe.UNKNOWN) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Couldn't check this item. Try again.");
+        }
+        if (probe != CatalogListingClient.ListingProbe.GONE) {
+            throw new BusinessException(ErrorCode.CONFLICT, "This item is still available from the current shop");
+        }
+        CatalogListingClient.ListingSnapshot alternate =
+                catalogListingClient.cheapestAlternate(item.getListingId(), cart.getTownId());
+        if (alternate == null || alternate.listingId() == null || !alternate.listingId().equals(alternateListingId)) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "That shop is no longer selling this item");
+        }
+        int quantity = item.getQuantity();
+        UUID townId = cart.getTownId();
+        cart.getItems().remove(item);
+        cartItemRepository.delete(item);
+        cartItemRepository.flush();
+        AddCartItemRequest request = new AddCartItemRequest();
+        request.setTownId(townId);
+        request.setListingId(alternateListingId);
+        request.setQuantity(quantity);
+        return addItem(userId, request);
     }
 
     @Transactional
@@ -262,14 +294,27 @@ public class CartService {
 
     @Transactional
     public CartReorderResponse replaceCartItems(UUID userId, UUID townId, List<ReorderLineRequest> lines) {
+        if (lines == null || lines.isEmpty()) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Nothing to add");
+        }
         Cart cart = getOrCreateCart(userId, townId);
-        cart.getItems().clear();
-        clearPromo(cart);
+        java.util.LinkedHashMap<UUID, Integer> quantities = new java.util.LinkedHashMap<>();
         for (ReorderLineRequest line : lines) {
+            if (line.getListingId() == null || line.getQuantity() < 1) {
+                continue;
+            }
+            quantities.merge(line.getListingId(), line.getQuantity(), Integer::sum);
+        }
+        if (quantities.isEmpty()) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Nothing to add");
+        }
+        List<CartItem> resolved = new ArrayList<>();
+        for (var entry : quantities.entrySet()) {
             CatalogListingClient.ListingSnapshot listing =
-                    catalogListingClient.getListing(line.getListingId(), townId);
+                    catalogListingClient.getListing(entry.getKey(), townId);
+            int quantity = entry.getValue();
             BigDecimal cartDiscount = resolveCartDiscountPrice(listing.price(), listing.effectivePrice());
-            CartItem item = CartItem.builder()
+            resolved.add(CartItem.builder()
                     .cart(cart)
                     .listingId(listing.listingId())
                     .vendorId(listing.vendorId())
@@ -277,13 +322,16 @@ public class CartService {
                     .itemName(listing.name())
                     .unitCode(listing.unit())
                     .shopId(listing.shopId())
-                    .quantity(line.getQuantity())
+                    .quantity(quantity)
                     .unitPrice(listing.price())
                     .discountPrice(cartDiscount)
-                    .lineTotal(calculateLineTotal(line.getQuantity(), listing.price(), cartDiscount))
-                    .build();
-            cart.getItems().add(item);
+                    .lineTotal(calculateLineTotal(quantity, listing.price(), cartDiscount))
+                    .build());
         }
+        cart.getItems().clear();
+        clearPromo(cart);
+        cartRepository.flush();
+        cart.getItems().addAll(resolved);
         CartResponse response = toResponse(cartRepository.save(cart));
         return CartReorderResponse.builder()
                 .cartId(response.getCartId())
@@ -302,8 +350,17 @@ public class CartService {
                             .map(CartItemResponse::getShopName)
                             .findFirst()
                             .orElse("Local Shop");
-                    CatalogListingClient.ListingSnapshot listing =
-                            catalogListingClient.getListing(item.getListingId(), cart.getTownId());
+                    CatalogListingClient.ListingSnapshot listing;
+                    try {
+                        listing = catalogListingClient.getListing(item.getListingId(), cart.getTownId());
+                    } catch (BusinessException ex) {
+                        String msg = ex.getMessage() == null ? "" : ex.getMessage().toLowerCase();
+                        if (msg.contains("not available") || msg.contains("not found") || msg.contains("does not belong")) {
+                            throw new BusinessException(ErrorCode.VALIDATION_ERROR,
+                                    item.getItemName() + " is no longer sold by that shop. Switch shop or remove it.");
+                        }
+                        throw ex;
+                    }
                     return CartInternalItemResponse.builder()
                             .itemId(item.getId())
                             .listingId(item.getListingId())
@@ -446,22 +503,63 @@ public class CartService {
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
     }
 
-    private CartResponse toResponse(Cart cart) {
-        List<UUID> shopIds = cart.getItems().stream().map(CartItem::getShopId).distinct().toList();
-        Map<UUID, String> shopNames = vendorShopClient.getShopNames(shopIds);
+    private LineOffer offerFor(CartItem item, UUID townId) {
+        try {
+            CatalogListingClient.ListingProbe probe = catalogListingClient.probe(item.getListingId(), townId);
+            if (probe != CatalogListingClient.ListingProbe.GONE) {
+                return new LineOffer(true, null);
+            }
+            return new LineOffer(false, catalogListingClient.cheapestAlternate(item.getListingId(), townId));
+        } catch (RuntimeException ex) {
+            return new LineOffer(true, null);
+        }
+    }
 
-        List<CartItemResponse> items = cart.getItems().stream()
-                .map(item -> CartItemResponse.builder()
-                        .itemId(item.getId())
-                        .listingId(item.getListingId())
-                        .name(item.getItemName())
-                        .shopName(shopNames.getOrDefault(item.getShopId(), "Local Shop"))
-                        .unitCode(item.getUnitCode())
-                        .quantity(item.getQuantity())
-                        .unitPrice(effectiveUnitPrice(item.getUnitPrice(), item.getDiscountPrice()))
-                        .lineTotal(item.getLineTotal())
-                        .build())
+    private record LineOffer(boolean available, CatalogListingClient.ListingSnapshot alternate) {
+    }
+
+    private CartResponse toResponse(Cart cart) {
+        List<LineOffer> offers = cart.getItems().stream()
+                .map(item -> offerFor(item, cart.getTownId()))
                 .toList();
+        LinkedHashSet<UUID> shopIds = new LinkedHashSet<>();
+        int index = 0;
+        for (CartItem item : cart.getItems()) {
+            if (item.getShopId() != null) {
+                shopIds.add(item.getShopId());
+            }
+            LineOffer offer = offers.get(index++);
+            if (offer.alternate() != null && offer.alternate().shopId() != null) {
+                shopIds.add(offer.alternate().shopId());
+            }
+        }
+        Map<UUID, String> shopNames = vendorShopClient.getShopNames(List.copyOf(shopIds));
+
+        List<CartItemResponse> items = new ArrayList<>();
+        index = 0;
+        for (CartItem item : cart.getItems()) {
+            LineOffer offer = offers.get(index++);
+            CatalogListingClient.ListingSnapshot alternate = offer.alternate();
+            CartItemResponse.CartItemResponseBuilder row = CartItemResponse.builder()
+                    .itemId(item.getId())
+                    .listingId(item.getListingId())
+                    .name(item.getItemName())
+                    .shopName(shopNames.getOrDefault(item.getShopId(), "Local Shop"))
+                    .unitCode(item.getUnitCode())
+                    .quantity(item.getQuantity())
+                    .unitPrice(effectiveUnitPrice(item.getUnitPrice(), item.getDiscountPrice()))
+                    .lineTotal(item.getLineTotal())
+                    .available(offer.available());
+            if (alternate != null && alternate.listingId() != null) {
+                BigDecimal altPrice = alternate.effectivePrice() != null
+                        ? alternate.effectivePrice()
+                        : effectiveUnitPrice(alternate.price(), alternate.discountPrice());
+                row.alternateListingId(alternate.listingId())
+                        .alternateShopName(shopNames.getOrDefault(alternate.shopId(), "Another shop"))
+                        .alternateUnitPrice(altPrice);
+            }
+            items.add(row.build());
+        }
 
         BigDecimal subtotal = itemsSubtotal(cart);
         BigDecimal promoDiscount = cart.getPromoDiscount() == null ? BigDecimal.ZERO : cart.getPromoDiscount();

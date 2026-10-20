@@ -41,6 +41,10 @@ public class MasterItem extends BaseAuditEntity {
 
     private BigDecimal mrp;
 
+    /** EAN / UPC / store barcode. Blank when the product has none. */
+    @Column(length = 14)
+    private String barcode;
+
     @Column(name = "hsn_code", nullable = false, length = 8)
     private String hsnCode;
 

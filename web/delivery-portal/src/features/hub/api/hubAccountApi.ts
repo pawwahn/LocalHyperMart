@@ -14,6 +14,7 @@ export type HubPayout = {
   invoiceNumber?: string | null;
   acknowledgedAt?: string | null;
   notReceivedAt?: string | null;
+  notReceivedNote?: string | null;
 };
 
 export type HubPayoutBill = {

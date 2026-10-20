@@ -36,7 +36,7 @@ public final class CodCashAllocation {
         }
 
         List<VendorSubOrder> active = subOrders.stream()
-                .filter(s -> s.getStatus() != VendorSubOrderStatus.VENDOR_REJECTED)
+                .filter(s -> !s.getStatus().isClosed())
                 .toList();
         if (active.isEmpty()) {
             return new OrderBreakdown(collect.setScale(2, RoundingMode.HALF_UP), List.of());

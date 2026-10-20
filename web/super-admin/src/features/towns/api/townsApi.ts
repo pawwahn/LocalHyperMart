@@ -14,7 +14,7 @@ export type TownVm = {
 
 type TownListResponse = { items: TownVm[]; total?: number; hasMore?: boolean };
 
-type TownDetailDto = {
+export type TownDetailDto = {
   id: string;
   name: string;
   country: string;
@@ -24,6 +24,8 @@ type TownDetailDto = {
   townCode: string;
   stateCode: string;
   coverageRadiusKm: number;
+  latitude?: number | null;
+  longitude?: number | null;
   status: string;
   acceptingOrders: boolean;
   pincodes: string[];
@@ -36,6 +38,15 @@ export type CreateTownInput = {
   townCode: string;
   pincodes: string[];
   coverageRadiusKm: number;
+  latitude?: number | null;
+  longitude?: number | null;
+};
+
+export type TownCoverageInput = {
+  coverageRadiusKm: number;
+  pincodes: string[];
+  latitude?: number | null;
+  longitude?: number | null;
 };
 
 export type GeoStateVm = {
@@ -98,6 +109,22 @@ export async function createTown(token: string, input: CreateTownInput): Promise
   });
 }
 
+export async function getTown(token: string, townId: string): Promise<TownDetailDto> {
+  return apiRequest<TownDetailDto>(`/api/v1/towns/${townId}`, { token });
+}
+
+export async function updateTownCoverage(
+  token: string,
+  townId: string,
+  input: TownCoverageInput,
+): Promise<TownDetailDto> {
+  return apiRequest<TownDetailDto>(`/api/v1/towns/${townId}/coverage`, {
+    method: 'PATCH',
+    token,
+    body: input,
+  });
+}
+
 export async function updateTownStatus(
   token: string,
   townId: string,
@@ -133,6 +160,8 @@ export type TownConfigVm = {
   codEnabled: boolean;
   upiEnabled: boolean;
   codCharge: number;
+  deliveryWindowStart: string;
+  deliveryWindowEnd: string;
 };
 
 export type UpdateTownConfigInput = {
@@ -151,7 +180,14 @@ export type UpdateTownConfigInput = {
   codEnabled: boolean;
   upiEnabled: boolean;
   codCharge: number;
+  deliveryWindowStart: string;
+  deliveryWindowEnd: string;
 };
+
+function asWindow(v: unknown, fallback: string): string {
+  const raw = String(v ?? '').trim().slice(0, 5);
+  return /^([01]\d|2[0-3]):[0-5]\d$/.test(raw) ? raw : fallback;
+}
 
 function asDealPrices(v: unknown): number[] {
   const fallback = [19, 29, 49, 99];
@@ -205,6 +241,8 @@ export async function getTownConfig(token: string, townId: string): Promise<Town
     codEnabled: data?.codEnabled !== false,
     upiEnabled: data?.upiEnabled !== false,
     codCharge: Math.max(0, asNum(data?.codCharge, 0)),
+    deliveryWindowStart: asWindow(data?.deliveryWindowStart, '17:00'),
+    deliveryWindowEnd: asWindow(data?.deliveryWindowEnd, '19:00'),
   };
 }
 

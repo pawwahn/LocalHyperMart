@@ -13,22 +13,22 @@ import {
 import { lookupOrderPayouts, listMyClaimAdjustments, listMySettlements, summarizeSettlements, type OrderPayout, type SettlementMoneySummary, type VendorClaimAdjustment } from '../api/payoutsApi';
 
 import {
+  DEFAULT_REPORT_DATE_PRESET,
   applyReportDatePreset,
   rangeForReportPreset,
   type ReportDatePreset,
 } from '@hlm-dates/istReportPresets';
 
+import {
+  computeUnpaidDelivered,
+  isPayoutDueStatus,
+  isRejectedSalesStatus,
+} from '@/features/payouts/vendorPayable';
+
 export type ReportPreset = ReportDatePreset;
 export type PayoutFilter = 'all' | 'paid' | 'unpaid';
 
-export function isRejectedSalesStatus(status: string | null | undefined): boolean {
-  return status === 'VENDOR_REJECTED' || status === 'REJECTED';
-}
-
-/** Hub pays out only delivered bags — open/in-progress sales are not yet "due". */
-export function isPayoutDueStatus(status: string | null | undefined): boolean {
-  return status === 'DELIVERED';
-}
+export { isPayoutDueStatus, isRejectedSalesStatus };
 
 type ReportsCache = {
   vendorId: string;
@@ -164,11 +164,11 @@ export function useVendorReports() {
       if (payout?.paid) {
         paidOrders += 1;
         paidAmount += Number(payout.amount ?? row.subtotal ?? 0);
-      } else if (isPayoutDueStatus(row.status)) {
-        unpaidOrders += 1;
-        unpaidAmount += Number(row.subtotal ?? 0);
       }
     }
+    const unpaid = computeUnpaidDelivered(report.rows, payoutsBySubOrder);
+    unpaidOrders = unpaid.count;
+    unpaidAmount = unpaid.amount;
     return { paidOrders, unpaidOrders, paidAmount, unpaidAmount, rejectedOrders };
   }, [report, payoutsBySubOrder]);
 

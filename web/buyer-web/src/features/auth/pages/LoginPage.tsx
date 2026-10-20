@@ -80,6 +80,9 @@ const LOGIN_FIT_CSS = `
   min-height: 44px;
   padding: 0.62rem 0.8rem !important;
 }
+.hlm-login-field input.hlm-pw {
+  padding-right: 3.35rem !important;
+}
 .hlm-login-cta { min-height: 46px !important; }
 .hlm-login-row {
   display: grid;
@@ -196,21 +199,19 @@ export function LoginPage() {
             </div>
           ) : null}
 
-          <div className="hlm-login-row">
-            <div className="hlm-login-field">
-              <TextField label="Phone" value={f.phone} onChange={(e) => f.setPhone(e.target.value)} inputMode="tel" />
-            </div>
-            <div className="hlm-login-field">
-              <TextField
-                label="Password"
-                type="password"
-                value={f.password}
-                onChange={(e) => f.setPassword(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') void f.submit();
-                }}
-              />
-            </div>
+          <div className="hlm-login-field">
+            <TextField label="Phone" value={f.phone} onChange={(e) => f.setPhone(e.target.value)} inputMode="tel" />
+          </div>
+          <div className="hlm-login-field">
+            <TextField
+              label="Password"
+              type="password"
+              value={f.password}
+              onChange={(e) => f.setPassword(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') void f.submit();
+              }}
+            />
           </div>
 
           {!login ? (

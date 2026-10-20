@@ -34,6 +34,14 @@ public class HubOnboardingService {
     private final TownClient townClient;
     private final UserClient userClient;
 
+    /** True only when this town has a hub whose status is ACTIVE. */
+    @Transactional(readOnly = true)
+    public boolean isHubEnabled(UUID townId) {
+        return deliveryHubRepository.findByTownId(townId)
+                .map(hub -> HUB_ACTIVE.equalsIgnoreCase(hub.getStatus()))
+                .orElse(false);
+    }
+
     @Transactional(readOnly = true)
     public List<AdminHubResponse> listHubs() {
         List<AdminHubResponse> items = new ArrayList<>();

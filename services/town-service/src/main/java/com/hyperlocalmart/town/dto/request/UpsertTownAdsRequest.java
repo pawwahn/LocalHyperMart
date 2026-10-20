@@ -11,7 +11,7 @@ import java.util.List;
 public class UpsertTownAdsRequest {
 
     @NotEmpty
-    @Size(min = 1, max = 7)
+    @Size(min = 1, max = 10, message = "Save between 1 and 10 ad rooms")
     @Valid
     private List<UpsertTownAdRequest> items;
 }

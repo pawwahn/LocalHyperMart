@@ -3,6 +3,7 @@ package com.hyperlocalmart.town.web;
 import com.hyperlocalmart.common.api.ApiResponse;
 import com.hyperlocalmart.town.dto.request.CreateTownRequest;
 import com.hyperlocalmart.town.dto.request.UpdateTownConfigRequest;
+import com.hyperlocalmart.town.dto.request.UpdateTownCoverageRequest;
 import com.hyperlocalmart.town.dto.request.UpdateTownStatusRequest;
 import com.hyperlocalmart.town.dto.response.MembershipConfigResponse;
 import com.hyperlocalmart.town.dto.response.ReferralConfigResponse;
@@ -65,6 +66,17 @@ public class TownController {
         UUID actorId = AdminAuth.requireUserId(httpRequest);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponses.ok(httpRequest, townService.createTown(request, actorId)));
+    }
+
+    @PatchMapping("/api/v1/towns/{townId}/coverage")
+    public ResponseEntity<ApiResponse<TownDetailResponse>> updateTownCoverage(
+            @PathVariable UUID townId,
+            @Valid @RequestBody UpdateTownCoverageRequest request,
+            HttpServletRequest httpRequest) {
+        AdminAuth.requireSuperAdmin(httpRequest);
+        UUID actorId = AdminAuth.requireUserId(httpRequest);
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                townService.updateCoverage(townId, request, actorId)));
     }
 
     @PatchMapping("/api/v1/towns/{townId}/status")

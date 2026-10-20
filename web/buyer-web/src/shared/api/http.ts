@@ -1,3 +1,5 @@
+import { Capacitor } from '@capacitor/core';
+
 export type ApiEnvelope<T> = {
   success: boolean;
   message?: string;
@@ -35,7 +37,17 @@ type RequestOptions = {
   timeoutMs?: number;
 };
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
+function resolveApiBase(): string {
+  const fromEnv = String(import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '');
+  if (fromEnv) return fromEnv;
+  if (Capacitor.isNativePlatform()) {
+    // Emulator → host machine gateway. Physical phone: set VITE_API_BASE_URL to your LAN IP.
+    return 'http://10.0.2.2:8080';
+  }
+  return '';
+}
+
+const API_BASE = resolveApiBase();
 const DEFAULT_TIMEOUT_MS = 15_000;
 
 /** Fired when the API rejects a request as unauthorized (expired/invalid JWT). */
@@ -74,6 +86,15 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
       (err instanceof Error && err.name === 'AbortError');
     if (aborted) {
       throw new ApiError('Request timed out. Check services are running, then refresh.', 408);
+    }
+    const msg = err instanceof Error ? err.message : String(err ?? '');
+    if (/failed to fetch|networkerror|load failed/i.test(msg)) {
+      throw new ApiError(
+        Capacitor.isNativePlatform()
+          ? 'Cannot reach the shop server. Keep this PC running and retry.'
+          : 'Cannot reach the shop server. Check your connection and retry.',
+        0,
+      );
     }
     throw err;
   } finally {

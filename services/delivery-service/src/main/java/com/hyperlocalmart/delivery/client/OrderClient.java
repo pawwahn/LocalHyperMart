@@ -58,6 +58,7 @@ public class OrderClient {
                 strVal(data.get("pincode")),
                 strVal(data.get("addressLabel")),
                 boolVal(data.get("vendorAgentDelivery")),
+                boolVal(data.get("stillPacking")),
                 strVal(data.get("paymentMethod")),
                 decimalVal(data.get("collectCashAmount")));
     }
@@ -163,11 +164,18 @@ public class OrderClient {
     }
 
     public void markDelivered(UUID orderId, UUID agentUserId, String recipientName) {
+        markDelivered(orderId, agentUserId, recipientName, null);
+    }
+
+    public void markDelivered(UUID orderId, UUID agentUserId, String recipientName, UUID vendorSubOrderId) {
         RestClient client = restClientBuilder.baseUrl(orderServiceProperties.getBaseUrl()).build();
         Map<String, Object> body = new HashMap<>();
         body.put("agentUserId", agentUserId);
         if (recipientName != null) {
             body.put("recipientName", recipientName);
+        }
+        if (vendorSubOrderId != null) {
+            body.put("vendorSubOrderId", vendorSubOrderId);
         }
         client.post()
                 .uri("/api/v1/internal/orders/{orderId}/delivered", orderId)
@@ -204,6 +212,7 @@ public class OrderClient {
             String pincode,
             String addressLabel,
             boolean vendorAgentDelivery,
+            boolean stillPacking,
             String paymentMethod,
             java.math.BigDecimal collectCashAmount
     ) {

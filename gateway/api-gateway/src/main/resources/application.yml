@@ -12,6 +12,20 @@ spring:
   cloud:
     gateway:
       default-filters: []
+      globalcors:
+        add-to-simple-url-handler-mapping: true
+        cors-configurations:
+          '[/**]':
+            allowedOriginPatterns: '*'
+            allowedMethods:
+              - GET
+              - POST
+              - PUT
+              - PATCH
+              - DELETE
+              - OPTIONS
+            allowedHeaders: '*'
+            maxAge: 3600
 
 hyperlocalmart:
   gateway:

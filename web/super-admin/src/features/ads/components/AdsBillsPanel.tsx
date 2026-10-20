@@ -3,17 +3,14 @@ import { createPortal } from 'react-dom';
 import { ApiError } from '@/shared/api/http';
 import { Banner, Button, Card } from '@/shared/ui';
 import type { TownVm } from '@/features/towns/api/townsApi';
-import { formatIsoDateRange } from '@/shared/dates/formatDateRange';
 import type { TownAdSlot } from '../api/adsApi';
 import {
   AD_PAY_METHODS,
   adInvoiceHtml,
   bookingPhaseLabel,
   createAdInvoice,
-  fetchAdOccupancy,
   listAdInvoices,
   money,
-  monthBounds,
   payAdInvoice,
   periodLabel,
   printAdInvoice,
@@ -23,16 +20,15 @@ import {
   type AdBillPeriod,
   type AdInvoice,
   type AdInvoiceStatus,
-  type AdOccupancyBooking,
   type AdQuote,
   type AdTownScope,
 } from '../api/adsBillingApi';
-import { AdsSlotCalendar } from './AdsSlotCalendar';
+import { AdsDateBoard } from './AdsDateBoard';
 
 type Props = {
   token: string;
   towns: TownVm[];
-  slotActive?: { homeHero?: boolean; homeMidGrid?: boolean; cartUpsell?: boolean };
+  offRooms?: string[];
   onChanged?: () => void;
 };
 
@@ -58,7 +54,7 @@ function fmtDate(iso?: string | null): string {
   return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
-export function AdsBillsPanel({ token, towns, slotActive, onChanged }: Props) {
+export function AdsBillsPanel({ token, towns, offRooms, onChanged }: Props) {
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [gstin, setGstin] = useState('');
@@ -97,10 +93,6 @@ export function AdsBillsPanel({ token, towns, slotActive, onChanged }: Props) {
   const [voidReason, setVoidReason] = useState('');
   const [voidBusy, setVoidBusy] = useState(false);
   const [viewRow, setViewRow] = useState<AdInvoice | null>(null);
-  const [calYear, setCalYear] = useState(() => new Date().getFullYear());
-  const [calMonth, setCalMonth] = useState(() => new Date().getMonth());
-  const [slotBookings, setSlotBookings] = useState<AdOccupancyBooking[]>([]);
-  const [pickedBooking, setPickedBooking] = useState<AdOccupancyBooking | null>(null);
   const [occTick, setOccTick] = useState(0);
 
   const enabledTowns = useMemo(() => towns.filter((t) => t.status === 'ENABLED'), [towns]);
@@ -119,18 +111,6 @@ export function AdsBillsPanel({ token, towns, slotActive, onChanged }: Props) {
   useEffect(() => {
     if (towns.length && townIds.length === 0) setTownIds([towns[0].id]);
   }, [towns, townIds.length]);
-
-  useEffect(() => {
-    if (!slotActive) return;
-    const currentOn =
-      (slot === 'HOME_HERO' && slotActive.homeHero !== false) ||
-      (slot === 'HOME_MID_GRID' && slotActive.homeMidGrid !== false) ||
-      (slot === 'CART_UPSELL' && slotActive.cartUpsell !== false);
-    if (currentOn) return;
-    if (slotActive.homeHero !== false) setSlot('HOME_HERO');
-    else if (slotActive.homeMidGrid !== false) setSlot('HOME_MID_GRID');
-    else if (slotActive.cartUpsell !== false) setSlot('CART_UPSELL');
-  }, [slot, slotActive]);
 
   useEffect(() => {
     const t = window.setTimeout(() => setQ(qDraft.trim()), 280);
@@ -166,7 +146,7 @@ export function AdsBillsPanel({ token, towns, slotActive, onChanged }: Props) {
   const quoteBody = useMemo(
     () => ({
       slot,
-      slotIndex: slot === 'HOME_MID_GRID' ? slotIndex : 0,
+      slotIndex: slot === 'HOME_HERO' ? 0 : slotIndex,
       period,
       townScope: scope,
       townIds: scope === 'ALL_TOWNS' ? [] : townIds,
@@ -200,37 +180,6 @@ export function AdsBillsPanel({ token, towns, slotActive, onChanged }: Props) {
       window.clearTimeout(handle);
     };
   }, [token, quoteBody]);
-
-  const calBounds = useMemo(() => monthBounds(calYear, calMonth), [calYear, calMonth]);
-  const occupancyTownId = scope === 'ONE_TOWN' ? townIds[0] : undefined;
-
-  useEffect(() => {
-    if (!token) return;
-    let cancelled = false;
-    void fetchAdOccupancy(token, {
-      from: calBounds.from,
-      to: calBounds.to,
-      slot,
-      townId: occupancyTownId,
-    })
-      .then((data) => {
-        if (cancelled) return;
-        const rows = data.bookings.filter((b) => b.slotIndex === (slot === 'HOME_MID_GRID' ? slotIndex : 0));
-        setSlotBookings(
-          scope === 'MULTI_TOWN'
-            ? rows.filter(
-                (b) => b.allTowns || b.towns?.some((t) => townIds.includes(t.id)),
-              )
-            : rows,
-        );
-      })
-      .catch(() => {
-        if (!cancelled) setSlotBookings([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [token, calBounds.from, calBounds.to, slot, slotIndex, occupancyTownId, scope, townIds, occTick]);
 
   function toggleTown(id: string) {
     setTownIds((prev) => {
@@ -357,28 +306,22 @@ export function AdsBillsPanel({ token, towns, slotActive, onChanged }: Props) {
               value={slot}
               onChange={(e) => setSlot(e.target.value as TownAdSlot)}
             >
-              <option value="HOME_HERO" disabled={slotActive?.homeHero === false}>
-                Main ad (home strip){slotActive?.homeHero === false ? ' · hidden' : ''}
-              </option>
-              <option value="HOME_MID_GRID" disabled={slotActive?.homeMidGrid === false}>
-                Mid-grid ad{slotActive?.homeMidGrid === false ? ' · hidden' : ''}
-              </option>
-              <option value="CART_UPSELL" disabled={slotActive?.cartUpsell === false}>
-                Cart ad{slotActive?.cartUpsell === false ? ' · hidden' : ''}
-              </option>
+              <option value="HOME_HERO">Main ad</option>
+              <option value="HOME_MID_GRID">Mid</option>
+              <option value="CART_UPSELL">Cat</option>
             </select>
           </label>
-          {slot === 'HOME_MID_GRID' ? (
+          {slot !== 'HOME_HERO' ? (
             <label style={styles.field}>
-              Slide
+              Room
               <select
                 style={styles.input}
                 value={slotIndex}
                 onChange={(e) => setSlotIndex(Number(e.target.value))}
               >
-                {[1, 2, 3, 4, 5].map((n) => (
+                {(slot === 'HOME_MID_GRID' ? [1, 2, 3, 4, 5] : [1, 2, 3, 4]).map((n) => (
                   <option key={n} value={n}>
-                    Slide {n}
+                    {slot === 'HOME_MID_GRID' ? `Mid ${n}` : `Cat ${n}`}
                   </option>
                 ))}
               </select>
@@ -438,64 +381,26 @@ export function AdsBillsPanel({ token, towns, slotActive, onChanged }: Props) {
             1 year
           </button>
         </div>
-        <div style={styles.slotBoard}>
-          <div style={styles.slotBoardHead}>
-            <strong style={styles.slotBoardTitle}>Slot calendar</strong>
-            <div style={styles.monthNav}>
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => {
-                  const d = new Date(calYear, calMonth - 1, 1);
-                  setCalYear(d.getFullYear());
-                  setCalMonth(d.getMonth());
-                }}
-              >
-                Prev
-              </Button>
-              <span style={styles.monthLabel}>
-                {new Date(calYear, calMonth, 1).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' })}
-              </span>
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => {
-                  const d = new Date(calYear, calMonth + 1, 1);
-                  setCalYear(d.getFullYear());
-                  setCalMonth(d.getMonth());
-                }}
-              >
-                Next
-              </Button>
-            </div>
-          </div>
-          <AdsSlotCalendar
-            year={calYear}
-            month={calMonth}
-            bookings={slotBookings}
-            highlightFrom={fromDate}
-            highlightTo={toDate}
-            slot={slot}
-            slotIndex={slot === 'HOME_MID_GRID' ? slotIndex : 0}
-            onPickDate={(iso, booking) => {
-              setPickedBooking(booking);
-              if (!booking) {
-                setFromDate(iso);
-                if (iso > toDate) setToDate(iso);
-              }
-            }}
-          />
-          {pickedBooking ? (
-            <Banner tone="warning" style={{ padding: '0.4rem 0.55rem' }}>
-              {formatIsoDateRange(pickedBooking.fromDate, pickedBooking.toDate)} already held by{' '}
-              {pickedBooking.advertiserName} (
-              {pickedBooking.invoiceNumber}, {bookingPhaseLabel(pickedBooking.bookingPhase)}). Choose a green day or
-              use the next free window.
-            </Banner>
-          ) : (
-            <p style={styles.muted}>Green = free (including future). Click a green day to start the booking there.</p>
-          )}
-        </div>
+        <AdsDateBoard
+          token={token}
+          towns={towns}
+          townId={townIds[0] ?? towns[0]?.id ?? ''}
+          onTownChange={(id) => {
+            if (scope === 'ONE_TOWN') setTownIds([id]);
+          }}
+          refreshTick={occTick}
+          startOpen
+          canBook={false}
+          offRooms={offRooms}
+          onPickStay={({ slot: nextSlot, slotIndex: nextIndex, from, booking }) => {
+            setSlot(nextSlot);
+            setSlotIndex(nextSlot === 'HOME_HERO' ? 0 : nextIndex);
+            if (!booking) {
+              setFromDate(from);
+              if (from > toDate) setToDate(from);
+            }
+          }}
+        />
         {scope !== 'ALL_TOWNS' ? (
           <div style={styles.townBox}>
             <div style={styles.townHead}>
@@ -580,10 +485,6 @@ export function AdsBillsPanel({ token, towns, slotActive, onChanged }: Props) {
                         onClick={() => {
                           setFromDate(quote.nextFreeFrom!);
                           setToDate(quote.nextFreeTo!);
-                          const d = new Date(`${quote.nextFreeFrom}T00:00:00`);
-                          setCalYear(d.getFullYear());
-                          setCalMonth(d.getMonth());
-                          setPickedBooking(null);
                         }}
                       >
                         Use next free {fmtDate(quote.nextFreeFrom)}–{fmtDate(quote.nextFreeTo)}
@@ -644,7 +545,7 @@ export function AdsBillsPanel({ token, towns, slotActive, onChanged }: Props) {
               <option value="">All placements</option>
               <option value="HOME_HERO">Main ad</option>
               <option value="HOME_MID_GRID">Mid-grid</option>
-              <option value="CART_UPSELL">Cart ad</option>
+              <option value="CART_UPSELL">Cat</option>
             </select>
           </div>
         </div>

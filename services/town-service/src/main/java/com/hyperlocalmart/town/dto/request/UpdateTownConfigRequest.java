@@ -50,6 +50,12 @@ public class UpdateTownConfigRequest {
     /** Extra COD charge (₹) added to buyer total when paying on delivery. */
     private BigDecimal codCharge;
 
+    /** Inclusive delivery window start, HH:mm in IST. */
+    private String deliveryWindowStart;
+
+    /** Inclusive delivery window end, HH:mm in IST. Must be after start. */
+    private String deliveryWindowEnd;
+
     @Data
     public static class DeliverySlabRequest {
         private BigDecimal minOrderValue;

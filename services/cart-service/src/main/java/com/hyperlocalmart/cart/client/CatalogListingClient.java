@@ -1,5 +1,6 @@
 package com.hyperlocalmart.cart.client;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hyperlocalmart.cart.config.CatalogServiceProperties;
@@ -9,6 +10,7 @@ import com.hyperlocalmart.common.exception.ErrorCode;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
 
@@ -73,6 +75,57 @@ public class CatalogListingClient {
         }
     }
 
+    /** AVAILABLE, GONE (sold out / missing), or UNKNOWN (catalog blip — do not block checkout). */
+    public ListingProbe probe(UUID listingId, UUID townId) {
+        try {
+            RestClient client = restClientBuilder.baseUrl(catalogServiceProperties.getBaseUrl()).build();
+            ApiResponse<ListingSnapshot> response = client.get()
+                    .uri(uriBuilder -> uriBuilder
+                            .path("/api/v1/internal/listings/{listingId}")
+                            .queryParam("townId", townId)
+                            .build(listingId))
+                    .retrieve()
+                    .body(new ParameterizedTypeReference<ApiResponse<ListingSnapshot>>() {});
+            if (response == null || response.getData() == null) {
+                return ListingProbe.GONE;
+            }
+            return ListingProbe.AVAILABLE;
+        } catch (RestClientResponseException ex) {
+            int code = ex.getStatusCode().value();
+            if (code == 404 || code == 400 || code == 409 || code == 422) {
+                return ListingProbe.GONE;
+            }
+            return ListingProbe.UNKNOWN;
+        } catch (ResourceAccessException ex) {
+            return ListingProbe.UNKNOWN;
+        }
+    }
+
+    public ListingSnapshot cheapestAlternate(UUID listingId, UUID townId) {
+        try {
+            RestClient client = restClientBuilder.baseUrl(catalogServiceProperties.getBaseUrl()).build();
+            ApiResponse<ListingSnapshot> response = client.get()
+                    .uri(uriBuilder -> uriBuilder
+                            .path("/api/v1/internal/listings/{listingId}/alternate")
+                            .queryParam("townId", townId)
+                            .build(listingId))
+                    .retrieve()
+                    .body(new ParameterizedTypeReference<ApiResponse<ListingSnapshot>>() {});
+            if (response == null) {
+                return null;
+            }
+            return response.getData();
+        } catch (RestClientResponseException | ResourceAccessException ex) {
+            return null;
+        }
+    }
+
+    public enum ListingProbe {
+        AVAILABLE,
+        GONE,
+        UNKNOWN
+    }
+
     private static String readApiMessage(String body) {
         if (body == null || body.isBlank()) {
             return null;
@@ -107,5 +160,21 @@ public class CatalogListingClient {
             boolean priceIncludesTax,
             String countryOfOrigin
     ) {
+        @JsonIgnore
+        public ListingSnapshot(
+                UUID listingId,
+                UUID townId,
+                UUID vendorId,
+                UUID shopId,
+                UUID masterItemId,
+                String name,
+                String unit,
+                BigDecimal price,
+                BigDecimal discountPrice,
+                BigDecimal effectivePrice,
+                boolean active) {
+            this(listingId, townId, vendorId, shopId, masterItemId, name, unit, price, discountPrice, effectivePrice,
+                    active, null, null, null, false, null);
+        }
     }
 }

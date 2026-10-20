@@ -17,6 +17,7 @@ import {
   type TownPreference,
 } from './townPreference';
 import { applyTownTheme, DEFAULT_DEAL_PRICES, DEFAULT_TOWN_THEME, parseDealPrices } from './townTheme';
+import { formatDeliveryWindow } from './deliveryWindow';
 
 type TownContextValue = {
   towns: TownVm[];
@@ -30,6 +31,7 @@ type TownContextValue = {
   codEnabled: boolean;
   upiEnabled: boolean;
   codCharge: number;
+  deliveryWindowLabel: string;
   loading: boolean;
   error: string | null;
   /** One-shot message after a town switch (cart cleared, etc.). */
@@ -73,6 +75,9 @@ export function TownProvider({ children }: { children: ReactNode }) {
   const [codEnabled, setCodEnabled] = useState(true);
   const [upiEnabled, setUpiEnabled] = useState(true);
   const [codCharge, setCodCharge] = useState(0);
+  const [windowStart, setWindowStart] = useState('17:00');
+  const [windowEnd, setWindowEnd] = useState('19:00');
+  const [clock, setClock] = useState(() => Date.now());
   const [switchNotice, setSwitchNotice] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
 
@@ -128,6 +133,8 @@ export function TownProvider({ children }: { children: ReactNode }) {
       setCodEnabled(true);
       setUpiEnabled(true);
       setCodCharge(0);
+      setWindowStart('17:00');
+      setWindowEnd('19:00');
       applyTownTheme(DEFAULT_TOWN_THEME);
       return;
     }
@@ -139,6 +146,8 @@ export function TownProvider({ children }: { children: ReactNode }) {
       codEnabled?: boolean;
       upiEnabled?: boolean;
       codCharge?: number;
+      deliveryWindowStart?: string;
+      deliveryWindowEnd?: string;
     }>(
       `/api/v1/towns/${townId}/shop-settings`,
       { timeoutMs: 8_000 },
@@ -153,6 +162,8 @@ export function TownProvider({ children }: { children: ReactNode }) {
         setUpiEnabled(data?.upiEnabled !== false);
         const charge = Number(data?.codCharge);
         setCodCharge(Number.isFinite(charge) && charge >= 0 ? charge : 0);
+        setWindowStart(data?.deliveryWindowStart || '17:00');
+        setWindowEnd(data?.deliveryWindowEnd || '19:00');
         applyTownTheme(color);
       })
       .catch(() => {
@@ -163,12 +174,24 @@ export function TownProvider({ children }: { children: ReactNode }) {
         setCodEnabled(true);
         setUpiEnabled(true);
         setCodCharge(0);
+        setWindowStart('17:00');
+        setWindowEnd('19:00');
         applyTownTheme(DEFAULT_TOWN_THEME);
       });
     return () => {
       cancelled = true;
     };
   }, [townId]);
+
+  useEffect(() => {
+    const id = window.setInterval(() => setClock(Date.now()), 60_000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  const deliveryWindowLabel = useMemo(
+    () => (hasTown ? formatDeliveryWindow(windowStart, windowEnd, clock) : ''),
+    [hasTown, windowStart, windowEnd, clock],
+  );
 
   const selectTown = useCallback(
     async (town: TownVm) => {
@@ -220,6 +243,7 @@ export function TownProvider({ children }: { children: ReactNode }) {
       codEnabled,
       upiEnabled,
       codCharge,
+      deliveryWindowLabel,
       loading,
       error,
       switchNotice,
@@ -245,6 +269,7 @@ export function TownProvider({ children }: { children: ReactNode }) {
       codEnabled,
       upiEnabled,
       codCharge,
+      deliveryWindowLabel,
       loading,
       error,
       switchNotice,

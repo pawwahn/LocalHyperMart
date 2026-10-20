@@ -10,6 +10,7 @@ export type CodCustodianReceivables = {
   agents: Array<{
     agentId: string;
     agentName: string;
+    agentPhone?: string | null;
     stillWithAgentAmount: number;
     stillWithAgentOrderCount: number;
     declaredAwaitingAmount: number;

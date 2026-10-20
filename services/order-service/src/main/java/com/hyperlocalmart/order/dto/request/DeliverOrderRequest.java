@@ -12,4 +12,7 @@ public class DeliverOrderRequest {
     private UUID agentUserId;
 
     private String recipientName;
+
+    /** Set for a shop-agent delivery so only that bag is completed. */
+    private UUID vendorSubOrderId;
 }

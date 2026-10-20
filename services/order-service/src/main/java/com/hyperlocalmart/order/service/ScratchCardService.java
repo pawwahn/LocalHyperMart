@@ -12,8 +12,11 @@ import com.hyperlocalmart.order.repository.OrderRepository;
 import com.hyperlocalmart.order.repository.OrderScratchCardRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -32,6 +35,7 @@ public class ScratchCardService {
     private final OrderRepository orderRepository;
     private final TownClient townClient;
     private final PaymentClient paymentClient;
+    private final PlatformTransactionManager transactionManager;
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void issueIfEligible(Order order) {
@@ -78,14 +82,13 @@ public class ScratchCardService {
 
     @Transactional
     public ScratchCardResponse reveal(UUID buyerId, UUID orderId) {
+        // Commit the drawn amount before the wallet call so a retry keeps the same figure.
+        // Wallet credit is already idempotent on SCRATCH_CARD + card id.
+        reserveRevealAmount(buyerId, orderId);
         OrderScratchCard card = scratchCardRepository.lockByOrderIdAndBuyerId(orderId, buyerId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "No scratch card for this order"));
         if (card.getStatus() == ScratchCardStatus.REVEALED && card.getRevealedAmount() != null) {
             return toResponse(card);
-        }
-        if (card.getRevealedAmount() == null) {
-            card.setRevealedAmount(pickAmount(card.getRewardMin(), card.getRewardMax()));
-            scratchCardRepository.saveAndFlush(card);
         }
         BigDecimal amount = card.getRevealedAmount();
         Order order = orderRepository.findById(orderId).orElse(null);
@@ -102,6 +105,24 @@ public class ScratchCardService {
         card.setRevealedAt(Instant.now());
         scratchCardRepository.save(card);
         return toResponse(card);
+    }
+
+    private BigDecimal reserveRevealAmount(UUID buyerId, UUID orderId) {
+        TransactionTemplate tx = new TransactionTemplate(transactionManager);
+        tx.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        BigDecimal reserved = tx.execute(status -> {
+            OrderScratchCard card = scratchCardRepository.lockByOrderIdAndBuyerId(orderId, buyerId)
+                    .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "No scratch card for this order"));
+            if (card.getRevealedAmount() == null) {
+                card.setRevealedAmount(pickAmount(card.getRewardMin(), card.getRewardMax()));
+                scratchCardRepository.saveAndFlush(card);
+            }
+            return card.getRevealedAmount();
+        });
+        if (reserved == null) {
+            throw new BusinessException(ErrorCode.INTERNAL_ERROR, "Could not open this scratch card. Try again.");
+        }
+        return reserved;
     }
 
     static BigDecimal goodsTotal(Order order) {

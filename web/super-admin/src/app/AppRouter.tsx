@@ -63,6 +63,9 @@ const PartyAuditReportPage = lazy(() =>
 const TownDuesPage = lazy(() =>
   import('@/features/dues/pages/TownDuesPage').then((m) => ({ default: m.TownDuesPage })),
 );
+const CashPage = lazy(() =>
+  import('@/features/cash/pages/CashPage').then((m) => ({ default: m.CashPage })),
+);
 const HubsPage = lazy(() => import('@/features/hubs/pages/HubsPage').then((m) => ({ default: m.HubsPage })));
 const AgentsPage = lazy(() =>
   import('@/features/agents/pages/AgentsPage').then((m) => ({ default: m.AgentsPage })),
@@ -105,6 +108,7 @@ export function AppRouter() {
                 <Route path="/finance-ledger" element={<FinanceLedgerPage />} />
                 <Route path="/audit-report" element={<PartyAuditReportPage />} />
                 <Route path="/dues" element={<TownDuesPage />} />
+                <Route path="/cash" element={<CashPage />} />
                 <Route path="/hubs" element={<HubsPage />} />
                 <Route path="/agents" element={<AgentsPage />} />
                 <Route path="/settings" element={<SettingsPage />} />

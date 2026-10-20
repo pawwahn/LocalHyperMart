@@ -1,5 +1,6 @@
 package com.hyperlocalmart.catalog.service;
 
+import com.hyperlocalmart.catalog.client.OrderClient;
 import com.hyperlocalmart.catalog.client.VendorShopClient;
 import com.hyperlocalmart.catalog.dto.response.CatalogItemResponse;
 import com.hyperlocalmart.catalog.entity.MasterItemImage;
@@ -38,15 +39,32 @@ public class CatalogBrowseService {
     private final MasterItemImageRepository masterItemImageRepository;
     private final VendorListingImageRepository vendorListingImageRepository;
     private final VendorShopClient vendorShopClient;
+    private final OrderClient orderClient;
+
+    public PageResponse<CatalogItemResponse> browse(
+            UUID townId, UUID categoryId, String query, int page, int size, String sort, String dir) {
+        return browse(townId, categoryId, query, page, size, sort, dir, null);
+    }
 
     @Transactional(readOnly = true)
     @Cacheable(
             cacheNames = "catalogBrowse",
             condition =
                     "@environment.getProperty('hyperlocalmart.cache.catalog-browse.enabled', 'false') == 'true'",
-            key = "T(java.lang.String).format('%s|%s|%s|%d|%d|%s|%s', #townId, #categoryId, #query, #page, #size, #sort, #dir)")
+            key = "T(java.lang.String).format('%s|%s|%s|%d|%d|%s|%s|%s', #townId, #categoryId, #query, #page, #size, #sort, #dir, #lane)")
     public PageResponse<CatalogItemResponse> browse(
-            UUID townId, UUID categoryId, String query, int page, int size, String sort, String dir) {
+            UUID townId, UUID categoryId, String query, int page, int size, String sort, String dir, String lane) {
+        String homeLane = lane == null ? "" : lane.trim().toLowerCase();
+        if ("discounted".equals(homeLane)) {
+            return pageOf(topDiscountedInTown(townId, Set.of(), size), page, size);
+        }
+        if ("popular".equals(homeLane)) {
+            List<UUID> topIds = orderClient.townTopListingIds(townId, size);
+            List<CatalogItemResponse> popular = activeByIdsInTown(townId, topIds);
+            if (!popular.isEmpty()) {
+                return pageOf(popular, page, size);
+            }
+        }
         String normalizedQuery = query == null || query.isBlank() ? null : query.trim();
         PageRequest pageable = PageRequest.of(page, size, browseSort(sort, dir));
         Page<VendorListing> listings = normalizedQuery == null
@@ -170,6 +188,17 @@ public class CatalogBrowseService {
                     return toItem(listing, shop, effective);
                 })
                 .toList();
+    }
+
+    private static PageResponse<CatalogItemResponse> pageOf(List<CatalogItemResponse> items, int page, int size) {
+        List<CatalogItemResponse> safe = items == null ? List.of() : items;
+        return PageResponse.<CatalogItemResponse>builder()
+                .items(safe)
+                .page(page)
+                .size(size)
+                .totalElements(safe.size())
+                .totalPages(safe.isEmpty() ? 0 : 1)
+                .build();
     }
 
     static int discountPercent(VendorListing listing) {

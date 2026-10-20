@@ -40,7 +40,7 @@ import {
 } from '../reports/hubReportCsv';
 import { DateRangePresetBar } from '@hlm-dates/DateRangePresetBar';
 import { formatIsoDateRange } from '../lib/codFormat';
-import { rangeForReportPreset, type ReportDatePreset } from '@hlm-dates/istReportPresets';
+import { DEFAULT_REPORT_DATE_PRESET, rangeForReportPreset, type ReportDatePreset } from '@hlm-dates/istReportPresets';
 
 export function HubReportsPage() {
   const { session } = useAuth();
@@ -48,8 +48,8 @@ export function HubReportsPage() {
   const [hubId, setHubId] = useState<string | null>(null);
   const [townId, setTownId] = useState<string | null>(null);
   const [reportKind, setReportKind] = useState<HubReportKind>('operations');
-  const monthRange = rangeForReportPreset('month');
-  const [preset, setPreset] = useState<ReportDatePreset>('month');
+  const monthRange = rangeForReportPreset(DEFAULT_REPORT_DATE_PRESET);
+  const [preset, setPreset] = useState<ReportDatePreset>(DEFAULT_REPORT_DATE_PRESET);
   const [from, setFrom] = useState(monthRange.from);
   const [to, setTo] = useState(monthRange.to);
   const [agentId, setAgentId] = useState('all');

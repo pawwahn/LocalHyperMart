@@ -53,13 +53,20 @@ const STICKY_CSS = `
     flex: 1 1 auto;
     min-width: 0;
   }
+  @media (max-width: 540px) {
+    .cart-sticky-mid {
+      flex: 1 1 100%;
+      justify-content: space-between;
+      gap: 0.45rem;
+    }
+  }
 `;
 
 export function CartPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const { session } = useAuth();
-  const { townId, bestDealsEnabled, codEnabled, upiEnabled, codCharge } = useTown();
+  const { townId, bestDealsEnabled, codEnabled, upiEnabled, codCharge, deliveryWindowLabel, themeColor } = useTown();
   const {
     cart,
     addresses,
@@ -80,6 +87,8 @@ export function CartPage() {
     doIncrease,
     doDecrease,
     doSetLineQuantity,
+    doRemove,
+    doSwitchShop,
     doApplyPromo,
     doRemovePromo,
     doCreateAddress,
@@ -359,8 +368,16 @@ export function CartPage() {
     };
   }, [townId, bestDealsEnabled, rememberItems]);
 
+  const blockedLine = cart?.items.some((item) => !item.available) ?? false;
+  const showDeliveryNudge = Boolean(deliveryNudge) && !membershipWaives;
+
   async function handleCheckout() {
     if (!hasCartItems) return;
+
+    if (blockedLine) {
+      setError('Switch shop or remove items that are no longer sold before placing the order.');
+      return;
+    }
 
     if (!hasTown) {
       openTownPicker();
@@ -453,7 +470,7 @@ export function CartPage() {
                 <p style={styles.payTotal}>{payLabel}</p>
               </div>
               <div className="cart-sticky-mid">
-                {deliveryNudge ? (
+                {showDeliveryNudge && deliveryNudge ? (
                   <DeliveryUnlockChip
                     layout="compact"
                     addMore={deliveryNudge.addMore}
@@ -478,7 +495,7 @@ export function CartPage() {
                 type="button"
                 className="cart-place-btn"
                 style={styles.placeBtn}
-                disabled={busy}
+                disabled={busy || blockedLine}
                 onClick={() => void handleCheckout()}
               >
                 Place order
@@ -579,7 +596,7 @@ export function CartPage() {
               📍
             </span>
             <span style={styles.deliverText}>
-              <span style={styles.deliverLabel}>Delivering to</span>
+              <span style={styles.deliverLabel}>{deliveryWindowLabel || 'Delivering to'}</span>
               <span style={styles.deliverValue}>
                 {deliverSummary || 'Add a delivery address'}
               </span>
@@ -587,9 +604,21 @@ export function CartPage() {
             <span style={styles.changeBtn}>Change</span>
           </button>
 
+          {showDeliveryNudge && deliveryNudge ? (
+            <div style={{ ...styles.unlockBar, background: themeColor || '#0C831F' }}>
+              <DeliveryUnlockChip
+                layout="inline"
+                addMore={deliveryNudge.addMore}
+                nextFee={deliveryNudge.nextFee}
+                progress={unlockProgress}
+              />
+            </div>
+          ) : null}
+
           <div style={styles.list}>
             {cart.items.map((item) => {
               const visual = productVisual(item.name);
+              const canSwitch = !item.available && item.alternateListingId;
               return (
                 <Card key={item.itemId} padding="sm" style={styles.row}>
                   <div style={{ ...styles.thumb, background: visual.tint }} aria-hidden>
@@ -600,10 +629,32 @@ export function CartPage() {
                     <p style={styles.meta}>
                       {item.shopName} · {item.lineLabel}
                     </p>
+                    {!item.available ? (
+                      canSwitch ? (
+                        <button
+                          type="button"
+                          style={styles.switchBtn}
+                          disabled={busyKey === item.itemId}
+                          onClick={() => void doSwitchShop(item.itemId, item.alternateListingId!)}
+                        >
+                          Unavailable at {item.shopName}. Switch to {item.alternateShopName} · ₹
+                          {Number(item.alternateUnitPrice ?? 0).toFixed(0)}
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          style={styles.switchBtn}
+                          disabled={busyKey === item.itemId}
+                          onClick={() => void doRemove(item.itemId)}
+                        >
+                          Unavailable. Remove to continue
+                        </button>
+                      )
+                    ) : null}
                   </div>
                   <QuantityStepper
                     quantity={quantityFor(item.listingId)}
-                    disabled={busyKey === item.itemId}
+                    disabled={busyKey === item.itemId || !item.available}
                     onIncrease={() =>
                       void doSetLineQuantity(item.itemId, quantityFor(item.listingId) + 1)
                     }
@@ -790,7 +841,7 @@ export function CartPage() {
                 type="button"
                 className="cart-place-btn"
                 style={styles.billPlaceBtn}
-                disabled={busy}
+                disabled={busy || blockedLine}
                 onClick={() => void handleCheckout()}
               >
                 {online ? 'Pay now' : 'Place order'}
@@ -840,6 +891,27 @@ const styles: Record<string, CSSProperties> = {
   deliverPin: { fontSize: '0.95rem', flexShrink: 0 },
   deliverText: { flex: 1, minWidth: 0, display: 'grid', gap: '0.05rem' },
   deliverLabel: { fontSize: '0.68rem', fontWeight: 700, color: 'var(--text-muted)' },
+  unlockBar: {
+    display: 'flex',
+    alignItems: 'center',
+    minHeight: 44,
+    borderRadius: 12,
+    padding: '0.35rem 0.65rem',
+    color: '#fff',
+  },
+  switchBtn: {
+    margin: '0.2rem 0 0',
+    padding: 0,
+    border: 'none',
+    background: 'none',
+    color: '#9a3412',
+    fontSize: '0.68rem',
+    fontWeight: 700,
+    lineHeight: 1.3,
+    textAlign: 'left',
+    cursor: 'pointer',
+    minHeight: 44,
+  },
   deliverValue: {
     fontWeight: 700,
     fontSize: '0.86rem',

@@ -19,6 +19,8 @@ export type AdCreative = {
   /** Empty / '*' = show in any town as fallback when no town-specific ad exists. */
   townId: string | '*';
   slot: AdSlotId;
+  /** Mid 1–5 and Cat 1–4. */
+  slotIndex?: number;
   sponsor: string;
   title: string;
   subtitle: string;

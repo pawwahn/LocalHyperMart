@@ -8,6 +8,7 @@ import { listTowns, type TownVm } from '@/features/towns/api/townsApi';
 import { AdsRatesPanel } from '../components/AdsRatesPanel';
 import { AdsBillsPanel } from '../components/AdsBillsPanel';
 import { AdsSlotsPanel } from '../components/AdsSlotsPanel';
+import { AdsDateBoard } from '../components/AdsDateBoard';
 import {
   fetchTownAdsEditor,
   saveTownAds,
@@ -15,6 +16,7 @@ import {
   normalizeAdImages,
   AD_EDITOR_ITEMS,
   MID_GRID_COUNT,
+  CAT_UPSELL_COUNT,
   MAX_AD_IMAGES,
   AD_DISPLAY_SEC_MIN,
   AD_DISPLAY_SEC_MAX,
@@ -57,6 +59,14 @@ const PAGE_CSS = `
     background: var(--success-soft);
     border-color: color-mix(in srgb, var(--success) 40%, var(--border));
     color: #047857;
+  }
+  .ads-toggle--off {
+    background: #fee2e2;
+    border-color: #fecaca;
+    color: #b91c1c;
+  }
+  .ads-card--closed {
+    border-color: #fecaca !important;
   }
   .ads-live-dot {
     width: 6px;
@@ -123,6 +133,7 @@ type DraftAd = {
   ctaLabel: string;
   images: TownAdImage[];
   enabled: boolean;
+  bookable: boolean;
   allTowns: boolean;
   targetTownIds: string[];
   displayDurationSec: number;
@@ -139,6 +150,7 @@ function emptyDraft(item: AdEditorItem): DraftAd {
     ctaLabel: '',
     images: [],
     enabled: false,
+    bookable: true,
     allTowns: false,
     targetTownIds: [],
     displayDurationSec: AD_DISPLAY_SEC_DEFAULT,
@@ -156,6 +168,7 @@ function toDraft(item: AdEditorItem, ad: TownAdVm): DraftAd {
     ctaLabel: ad.ctaLabel ?? '',
     images: normalizeAdImages(ad),
     enabled: ad.enabled,
+    bookable: ad.bookable !== false,
     allTowns: Boolean(ad.allTowns),
     targetTownIds: ad.targetTownIds?.length ? [...ad.targetTownIds] : [ad.townId],
     displayDurationSec: clampDisplayDurationSec(ad.displayDurationSec),
@@ -180,9 +193,9 @@ function enableCopy(section: AdEditorItem['section']): { title: string; onHint: 
   }
   if (section === 'cart') {
     return {
-      title: 'Show in cart',
-      onHint: 'Appears on cart / checkout',
-      offHint: 'Hidden in cart — no empty gap',
+      title: 'Show on categories',
+      onHint: 'Cat 1–4 sit after category rows 2, 4, 6 and 8',
+      offHint: 'Hidden on Categories — no empty gap',
     };
   }
   return {
@@ -201,11 +214,16 @@ function TogglePill({
 }: {
   active: boolean;
   label: string;
-  tone?: 'live';
+  tone?: 'live' | 'off';
   disabled?: boolean;
   onClick: () => void;
 }) {
-  const cls = ['ads-toggle', active ? 'ads-toggle--on' : '', tone === 'live' && active ? 'ads-toggle--live' : '']
+  const cls = [
+    'ads-toggle',
+    active ? 'ads-toggle--on' : '',
+    tone === 'live' && active ? 'ads-toggle--live' : '',
+    tone === 'off' ? 'ads-toggle--off' : '',
+  ]
     .filter(Boolean)
     .join(' ');
   return (
@@ -413,6 +431,7 @@ function AdEditorCard({
   const shown = enableCopy(meta.section);
   const cardClass = [
     'ads-card',
+    draft.bookable ? '' : 'ads-card--closed',
     draft.enabled ? 'ads-card--live' : '',
     draft.allTowns ? 'ads-card--broadcast' : '',
   ]
@@ -423,10 +442,10 @@ function AdEditorCard({
     <Card elevated style={styles.adCard} className={cardClass}>
       <div style={styles.adHead}>
         <div style={styles.adHeadLeft}>
-          {meta.section === 'mid' ? (
-            <span style={styles.slideBadge}>{meta.slotIndex}</span>
+          {meta.section === 'hero' ? (
+            <span style={styles.placementBadge}>Strip</span>
           ) : (
-            <span style={styles.placementBadge}>{meta.section === 'hero' ? 'Strip' : 'Cart'}</span>
+            <span style={styles.slideBadge}>{meta.slotIndex}</span>
           )}
           <div>
             <p style={styles.slotEyebrow}>{meta.label}</p>
@@ -434,24 +453,29 @@ function AdEditorCard({
           </div>
         </div>
         <div style={styles.toggles}>
-          {meta.section === 'mid' ? (
-            <TogglePill
-              active={draft.enabled}
-              label={draft.enabled ? 'Shown' : 'Hidden'}
-              tone="live"
-              disabled={busy}
-              onClick={() => onChange(shownPatch(!draft.enabled))}
-            />
-          ) : null}
+          <TogglePill
+            active={draft.bookable}
+            label={draft.bookable ? 'Enabled' : 'Disabled'}
+            tone={draft.bookable ? 'live' : 'off'}
+            disabled={busy}
+            onClick={() => onChange({ bookable: !draft.bookable })}
+          />
+          <TogglePill
+            active={draft.enabled}
+            label={draft.enabled ? 'Shown' : 'Hidden'}
+            tone="live"
+            disabled={busy || !draft.bookable}
+            onClick={() => onChange(shownPatch(!draft.enabled))}
+          />
           <TogglePill
             active={draft.allTowns}
             label="All towns"
-            disabled={busy}
+            disabled={busy || !draft.bookable}
             onClick={() =>
               onChange(
                 draft.allTowns
                   ? { allTowns: false }
-                  : { allTowns: true, enabled: true, targetTownIds: [currentTownId] },
+                  : { allTowns: true, targetTownIds: [currentTownId] },
               )
             }
           />
@@ -463,7 +487,7 @@ function AdEditorCard({
           towns={towns}
           currentTownId={currentTownId}
           selectedIds={draft.targetTownIds.length ? draft.targetTownIds : [currentTownId]}
-          disabled={busy}
+          disabled={busy || !draft.bookable}
           onChange={(targetTownIds) => onChange({ targetTownIds })}
         />
       ) : (
@@ -479,7 +503,7 @@ function AdEditorCard({
             <button
               type="button"
               style={styles.thumbRemove}
-              disabled={busy}
+              disabled={busy || !draft.bookable}
               onClick={() => onRemoveImage(index)}
               aria-label={`Remove image ${index + 1}`}
             >
@@ -497,7 +521,7 @@ function AdEditorCard({
               accept="image/jpeg,image/png,image/webp,image/gif"
               multiple
               hidden
-              disabled={busy || uploading}
+              disabled={busy || uploading || !draft.bookable}
               onChange={onPickImage}
             />
           </label>
@@ -509,25 +533,25 @@ function AdEditorCard({
           label="Shop name"
           value={draft.shopName}
           onChange={(e) => onChange({ shopName: e.target.value })}
-          disabled={busy}
+          disabled={busy || !draft.bookable}
         />
         <TextField
           label="Headline"
           value={draft.headline}
           onChange={(e) => onChange({ headline: e.target.value })}
-          disabled={busy}
+          disabled={busy || !draft.bookable}
         />
         <TextField
           label="Supporting text"
           value={draft.bodyText}
           onChange={(e) => onChange({ bodyText: e.target.value })}
-          disabled={busy}
+          disabled={busy || !draft.bookable}
         />
         <TextField
           label="Button label"
           value={draft.ctaLabel}
           onChange={(e) => onChange({ ctaLabel: e.target.value })}
-          disabled={busy}
+          disabled={busy || !draft.bookable}
           placeholder="Optional"
         />
         {meta.section === 'mid' ? (
@@ -541,51 +565,38 @@ function AdEditorCard({
             onChange={(e) =>
               onChange({ displayDurationSec: clampDisplayDurationSec(Number(e.target.value)) })
             }
-            disabled={busy}
+            disabled={busy || !draft.bookable}
             placeholder={`${AD_DISPLAY_SEC_MIN}–${AD_DISPLAY_SEC_MAX} sec before next slide`}
           />
         ) : null}
       </div>
 
-      {meta.section !== 'mid' ? (
-        <button
-          type="button"
-          role="switch"
-          aria-checked={draft.enabled}
-          aria-label={shown.title}
-          disabled={busy}
-          className="ads-enable-row"
-          style={styles.enableRow}
-          onClick={() => onChange(shownPatch(!draft.enabled))}
-        >
-          <span>
-            <strong style={styles.enableTitle}>{shown.title}</strong>
-            <span style={styles.enableHint}>{draft.enabled ? shown.onHint : shown.offHint}</span>
-          </span>
-          <span style={draft.enabled ? styles.switchOn : styles.switchOff} aria-hidden>
-            <span style={draft.enabled ? styles.knobOn : styles.knobOff} />
-          </span>
-        </button>
-      ) : null}
+      <p style={styles.hint}>
+        {draft.bookable ? (draft.enabled ? shown.onHint : shown.offHint) : 'Disabled · this room cannot be booked'}
+      </p>
 
       <div style={styles.cardFooter}>
         <span
           style={{
             ...styles.statusPill,
-            ...(draft.enabled && ready
-              ? styles.statusPillLive
-              : draft.enabled
-                ? styles.statusPillWarn
-                : styles.statusPillDraft),
+            ...(!draft.bookable
+              ? styles.statusPillDraft
+              : draft.enabled && ready
+                ? styles.statusPillLive
+                : draft.enabled
+                  ? styles.statusPillWarn
+                  : styles.statusPillDraft),
           }}
         >
-          {draft.enabled && ready
-            ? draft.allTowns
-              ? 'Shown · all towns'
-              : 'Shown · ready'
-            : draft.enabled
-              ? 'On · missing content'
-              : 'Hidden'}
+          {!draft.bookable
+            ? 'Disabled'
+            : draft.enabled && ready
+              ? draft.allTowns
+                ? 'Shown · all towns'
+                : 'Shown'
+              : draft.enabled
+                ? 'Shown · add the creative'
+                : 'Enabled · hidden'}
         </span>
         <span style={styles.hint}>
           {draft.images.length}/{MAX_AD_IMAGES} images · save to publish
@@ -613,7 +624,7 @@ export function AdsPage() {
   const selectedTown = useMemo(() => towns.find((t) => t.id === townId) ?? null, [towns, townId]);
   const heroItem = AD_EDITOR_ITEMS.find((i) => i.section === 'hero')!;
   const midItems = AD_EDITOR_ITEMS.filter((i) => i.section === 'mid');
-  const cartItem = AD_EDITOR_ITEMS.find((i) => i.section === 'cart')!;
+  const cartItems = AD_EDITOR_ITEMS.filter((i) => i.section === 'cart');
 
   const draftByKey = useMemo(() => {
     const map = new Map<string, DraftAd>();
@@ -625,13 +636,25 @@ export function AdsPage() {
   const liveMidCount = midItems.filter(
     (item) => draftByKey.get(adEditorKey(item.slot, item.slotIndex))?.enabled,
   ).length;
+  const offRooms = useMemo(
+    () =>
+      adsReady
+        ? AD_EDITOR_ITEMS.filter((item) => draftByKey.get(adEditorKey(item.slot, item.slotIndex))?.bookable === false).map(
+            (item) => adEditorKey(item.slot, item.slotIndex),
+          )
+        : undefined,
+    [adsReady, draftByKey],
+  );
+
   const slotActive = useMemo(
     () => ({
       homeHero: Boolean(draftByKey.get(adEditorKey('HOME_HERO', 0))?.enabled),
       homeMidGrid: AD_EDITOR_ITEMS.some(
         (item) => item.section === 'mid' && draftByKey.get(adEditorKey(item.slot, item.slotIndex))?.enabled,
       ),
-      cartUpsell: Boolean(draftByKey.get(adEditorKey('CART_UPSELL', 0))?.enabled),
+      cartUpsell: AD_EDITOR_ITEMS.some(
+        (item) => item.section === 'cart' && draftByKey.get(adEditorKey(item.slot, item.slotIndex))?.enabled,
+      ),
     }),
     [draftByKey],
   );
@@ -734,6 +757,7 @@ export function AdsPage() {
         ctaLabel: d.ctaLabel.trim(),
         images: d.images.slice(0, MAX_AD_IMAGES),
         enabled: d.enabled,
+        bookable: d.bookable,
         allTowns: d.allTowns,
         targetTownIds: d.allTowns ? [] : d.targetTownIds.length ? d.targetTownIds : [townId],
         displayDurationSec: clampDisplayDurationSec(d.displayDurationSec),
@@ -797,25 +821,50 @@ export function AdsPage() {
           townId={townId}
           onTownChange={setTownId}
           refreshTick={historyTick}
+          onBooked={() => setHistoryTick((n) => n + 1)}
+          offRooms={offRooms}
         />
       ) : null}
       {tab === 'rates' && token ? (
-        <AdsRatesPanel
-          token={token}
-          refreshTick={historyTick}
-          slotActive={adsReady ? slotActive : undefined}
-          onSaved={() => setHistoryTick((n) => n + 1)}
-        />
+        <>
+          <AdsDateBoard
+            token={token}
+            towns={towns}
+            townId={townId}
+            onTownChange={setTownId}
+            refreshTick={historyTick}
+            startOpen={false}
+            onBooked={() => setHistoryTick((n) => n + 1)}
+            offRooms={offRooms}
+          />
+          <AdsRatesPanel
+            token={token}
+            refreshTick={historyTick}
+            slotActive={adsReady ? slotActive : undefined}
+            onSaved={() => setHistoryTick((n) => n + 1)}
+          />
+        </>
       ) : null}
       {tab === 'bills' && token ? (
         <AdsBillsPanel
           token={token}
           towns={towns}
-          slotActive={adsReady ? slotActive : undefined}
+          offRooms={offRooms}
           onChanged={() => setHistoryTick((n) => n + 1)}
         />
       ) : null}
       {tab === 'history' && token ? (
+        <>
+        <AdsDateBoard
+          token={token}
+          towns={towns}
+          townId={townId}
+          onTownChange={setTownId}
+          refreshTick={historyTick}
+          startOpen={false}
+          onBooked={() => setHistoryTick((n) => n + 1)}
+          offRooms={offRooms}
+        />
         <AdminHistoryPanel
           token={token}
           title="Ad change log"
@@ -826,16 +875,27 @@ export function AdsPage() {
             { id: 'bills', label: 'Bills', screen: 'ads-bills' },
           ]}
         />
+        </>
       ) : null}
 
       {tab === 'creatives' ? (
       <>
+      <AdsDateBoard
+        token={token}
+        towns={towns}
+        townId={townId}
+        onTownChange={setTownId}
+        refreshTick={historyTick}
+        startOpen={false}
+        onBooked={() => setHistoryTick((n) => n + 1)}
+        offRooms={offRooms}
+      />
       <Card elevated style={styles.hero}>
         <div style={styles.heroTop}>
           <div style={styles.heroIntro}>
             <p style={styles.heroEyebrow}>Sponsored placements</p>
             <p style={styles.heroText}>
-              Manage buyer-facing ads — home strip, mid-grid carousel ({MID_GRID_COUNT} slides), and cart upsell.
+              Manage buyer-facing ads — home strip, mid-grid carousel ({MID_GRID_COUNT} slides), and Categories Upsell ({CAT_UPSELL_COUNT} rooms).
               Pick towns per ad or broadcast network-wide.
             </p>
           </div>
@@ -938,23 +998,34 @@ export function AdsPage() {
           </section>
 
           <section style={styles.section}>
-            <SectionHeader index="03" title="Cart upsell" hint="Shown on buyer cart and checkout screens." />
-            <AdEditorCard
-              meta={cartItem}
-              draft={draftByKey.get(adEditorKey(cartItem.slot, cartItem.slotIndex)) ?? emptyDraft(cartItem)}
-              busy={false}
-              uploading={uploadingKey === adEditorKey(cartItem.slot, cartItem.slotIndex)}
-              towns={towns}
-              currentTownId={townId}
-              onChange={(patch) => updateDraft(adEditorKey(cartItem.slot, cartItem.slotIndex), patch)}
-              onPickImage={(e) => void onPickImage(adEditorKey(cartItem.slot, cartItem.slotIndex), e)}
-              onRemoveImage={(index) => {
-                const key = adEditorKey(cartItem.slot, cartItem.slotIndex);
-                const draft = draftByKey.get(key);
-                if (!draft) return;
-                updateDraft(key, { images: draft.images.filter((_, i) => i !== index) });
-              }}
+            <SectionHeader
+              index="03"
+              title="Categories Upsell"
+              hint="Four rooms. Cat 1 after row 2, then rows 4, 6 and 8. Book each room on the date board."
             />
+            <div className="ads-mid-scroll" style={styles.midCarouselEditor}>
+              {cartItems.map((item) => {
+                const key = adEditorKey(item.slot, item.slotIndex);
+                const draft = draftByKey.get(key) ?? emptyDraft(item);
+                return (
+                  <AdEditorCard
+                    key={key}
+                    meta={item}
+                    draft={draft}
+                    busy={false}
+                    compact
+                    uploading={uploadingKey === key}
+                    towns={towns}
+                    currentTownId={townId}
+                    onChange={(patch) => updateDraft(key, patch)}
+                    onPickImage={(e) => void onPickImage(key, e)}
+                    onRemoveImage={(index) =>
+                      updateDraft(key, { images: draft.images.filter((_, i) => i !== index) })
+                    }
+                  />
+                );
+              })}
+            </div>
           </section>
         </div>
       ) : null}

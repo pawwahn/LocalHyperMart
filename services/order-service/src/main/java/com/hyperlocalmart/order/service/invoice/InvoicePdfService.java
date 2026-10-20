@@ -110,8 +110,14 @@ public class InvoicePdfService {
     }
 
     private PdfPTable buildLineItemsTable(InvoiceDocument invoice) throws DocumentException {
+        // Compensation cess applies to a few goods (aerated drinks, tobacco). Grocery lines are
+        // usually zero, and Blinkit/Instamart only need the column when cess is actually charged.
+        boolean showCess = invoice.getLineItems() != null && invoice.getLineItems().stream()
+                .anyMatch(item -> isPositive(item.getCessAmount()));
         // Wide enough for one-line "9,999.99" (4 digits + 2 decimals) in every money column.
-        PdfPTable table = new PdfPTable(new float[]{2.55f, 1.05f, 0.55f, 0.65f, 1.15f, 1.1f, 1.1f, 1.0f, 1.2f});
+        PdfPTable table = showCess
+                ? new PdfPTable(new float[]{2.55f, 1.05f, 0.55f, 0.65f, 1.15f, 1.1f, 1.1f, 1.0f, 1.2f})
+                : new PdfPTable(new float[]{3.15f, 1.15f, 0.6f, 0.7f, 1.25f, 1.2f, 1.2f, 1.35f});
         table.setWidthPercentage(100);
         table.setHeaderRows(1);
         table.setSplitLate(false);
@@ -122,7 +128,9 @@ public class InvoicePdfService {
         addHeaderCell(table, "Rate", Element.ALIGN_RIGHT);
         addHeaderCell(table, "CGST", Element.ALIGN_RIGHT);
         addHeaderCell(table, "SGST", Element.ALIGN_RIGHT);
-        addHeaderCell(table, "Cess", Element.ALIGN_RIGHT);
+        if (showCess) {
+            addHeaderCell(table, "Cess", Element.ALIGN_RIGHT);
+        }
         addHeaderCell(table, "Amount", Element.ALIGN_RIGHT);
 
         for (InvoiceDocument.InvoiceLineItem item : invoice.getLineItems()) {
@@ -135,7 +143,9 @@ public class InvoicePdfService {
             addMoneyCell(table, item.getUnitPrice());
             addMoneyCell(table, item.getCgstAmount());
             addMoneyCell(table, item.getSgstAmount());
-            addMoneyCell(table, item.getCessAmount());
+            if (showCess) {
+                addMoneyCell(table, item.getCessAmount());
+            }
             addMoneyCell(table, item.getLineTotal());
         }
         return table;

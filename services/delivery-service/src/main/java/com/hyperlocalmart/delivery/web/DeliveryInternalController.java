@@ -12,6 +12,7 @@ import com.hyperlocalmart.delivery.dto.response.VerifyHubPinResponse;
 import com.hyperlocalmart.delivery.dto.request.AssignVendorDirectInternalRequest;
 import com.hyperlocalmart.delivery.service.AgentService;
 import com.hyperlocalmart.delivery.service.DeliveryPayoutLegService;
+import com.hyperlocalmart.delivery.service.HubOnboardingService;
 import com.hyperlocalmart.delivery.service.HubPinService;
 import com.hyperlocalmart.delivery.dto.response.DeliveryAgentAlertResponse;
 import com.hyperlocalmart.delivery.dto.response.SubOrderAgentAlertSummaryResponse;
@@ -36,12 +37,21 @@ public class DeliveryInternalController {
     private final DeliveryPayoutLegService deliveryPayoutLegService;
     private final VendorAgentService vendorAgentService;
     private final DeliveryAgentAlertService deliveryAgentAlertService;
+    private final HubOnboardingService hubOnboardingService;
 
     @GetMapping("/api/v1/internal/agents/by-user/{userId}")
     public ResponseEntity<ApiResponse<AgentMeResponse>> getAgentByUser(
             @PathVariable UUID userId,
             HttpServletRequest httpRequest) {
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, agentService.getMyAgent(userId)));
+    }
+
+    @GetMapping("/api/v1/internal/towns/{townId}/hub-enabled")
+    public ResponseEntity<ApiResponse<java.util.Map<String, Boolean>>> townHubEnabled(
+            @PathVariable UUID townId,
+            HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                java.util.Map.of("enabled", hubOnboardingService.isHubEnabled(townId))));
     }
 
     @GetMapping("/api/v1/internal/hubs/{hubId}")

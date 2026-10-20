@@ -28,7 +28,7 @@ import { CodOutstandingSummary } from '../components/CodOutstandingSummary';
 import { CodReceivableCalendar } from '../components/CodReceivableCalendar';
 import { CodPendingByAgentPanel } from '../components/CodPendingByAgentPanel';
 import { todayIstIso } from '../lib/codFormat';
-import type { TransferHistoryPreset } from '@hlm-dates/istReportPresets';
+import { DEFAULT_REPORT_DATE_PRESET, rangeForReportPreset, type TransferHistoryPreset } from '@hlm-dates/istReportPresets';
 
 const PIN_PATTERN = /^\d{4,6}$/;
 
@@ -64,9 +64,10 @@ export function HubCodPage() {
   const [ledger, setLedger] = useState<CodHubLedger | null>(null);
   const [ledgerLoading, setLedgerLoading] = useState(false);
   const [ledgerError, setLedgerError] = useState<string | null>(null);
-  const [ledgerPreset, setLedgerPreset] = useState<TransferHistoryPreset>('all');
-  const [ledgerFrom, setLedgerFrom] = useState('');
-  const [ledgerTo, setLedgerTo] = useState('');
+  const openingLedger = rangeForReportPreset(DEFAULT_REPORT_DATE_PRESET);
+  const [ledgerPreset, setLedgerPreset] = useState<TransferHistoryPreset>(DEFAULT_REPORT_DATE_PRESET);
+  const [ledgerFrom, setLedgerFrom] = useState(openingLedger.from);
+  const [ledgerTo, setLedgerTo] = useState(openingLedger.to);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 

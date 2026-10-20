@@ -1,5 +1,7 @@
 package com.hyperlocalmart.town.dto.request;
 
+import jakarta.validation.constraints.DecimalMax;
+import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
@@ -35,4 +37,13 @@ public class CreateTownRequest {
 
     @NotNull
     private BigDecimal coverageRadiusKm;
+
+    /** Optional town-center point for "Use my location". Both must be set together. */
+    @DecimalMin(value = "-90", message = "latitude must be between -90 and 90")
+    @DecimalMax(value = "90", message = "latitude must be between -90 and 90")
+    private BigDecimal latitude;
+
+    @DecimalMin(value = "-180", message = "longitude must be between -180 and 180")
+    @DecimalMax(value = "180", message = "longitude must be between -180 and 180")
+    private BigDecimal longitude;
 }

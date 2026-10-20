@@ -26,6 +26,7 @@ public class CodCustodianReceivableResponse {
     public static class AgentReceivable {
         UUID agentId;
         String agentName;
+        String agentPhone;
         BigDecimal stillWithAgentAmount;
         int stillWithAgentOrderCount;
         BigDecimal declaredAwaitingAmount;

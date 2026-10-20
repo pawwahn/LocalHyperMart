@@ -7,6 +7,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientResponseException;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -107,6 +108,33 @@ public class OrderClient {
             return List.of();
         }
         return response.getData();
+    }
+
+    /** Delivered bag ids in the window. Null when the order service does not offer this call yet. */
+    public List<BagKey> settlementBagKeys(LocalDate from, LocalDate to) {
+        RestClient client = restClientBuilder.baseUrl(orderServiceProperties.getBaseUrl()).build();
+        try {
+            ApiResponse<List<BagKey>> response = client.get()
+                    .uri(uriBuilder -> uriBuilder
+                            .path("/api/v1/internal/orders/settlement-candidates/bag-keys")
+                            .queryParam("from", from)
+                            .queryParam("to", to)
+                            .build())
+                    .retrieve()
+                    .body(new ParameterizedTypeReference<ApiResponse<List<BagKey>>>() {});
+            if (response == null || response.getData() == null) {
+                return List.of();
+            }
+            return response.getData();
+        } catch (RestClientResponseException ex) {
+            if (ex.getStatusCode().value() == 404) {
+                return null;
+            }
+            throw ex;
+        }
+    }
+
+    public record BagKey(UUID vendorId, UUID townId, UUID subOrderId) {
     }
 
     public List<SettlementCandidateItem> resolveSettlementSubOrders(UUID vendorId, Collection<UUID> subOrderIds) {
@@ -272,7 +300,21 @@ public class OrderClient {
             UUID vendorId) {
     }
 
+    private final ShortCallCache<List<DeliveryCompleteOrder>> deliveryCompleteCache = new ShortCallCache<>();
+
+    public void beginReplay() {
+        deliveryCompleteCache.begin();
+    }
+
+    public void endReplay() {
+        deliveryCompleteCache.end();
+    }
+
     public List<DeliveryCompleteOrder> listDeliveryComplete(UUID townId, LocalDate from, LocalDate to) {
+        return deliveryCompleteCache.get(townId + "|" + from + "|" + to, () -> loadDeliveryComplete(townId, from, to));
+    }
+
+    private List<DeliveryCompleteOrder> loadDeliveryComplete(UUID townId, LocalDate from, LocalDate to) {
         RestClient client = restClientBuilder.baseUrl(orderServiceProperties.getBaseUrl()).build();
         ApiResponse<List<DeliveryCompleteOrder>> response = client.get()
                 .uri(uriBuilder -> uriBuilder

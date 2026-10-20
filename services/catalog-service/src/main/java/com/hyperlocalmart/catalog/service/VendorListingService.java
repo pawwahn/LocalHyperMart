@@ -429,6 +429,7 @@ public class VendorListingService {
                 .mrp(request.getMrp())
                 .status(CatalogItemStatus.ACTIVE)
                 .build();
+        applyBarcode(item, request.getBarcode());
         ProductTaxCompliance.applyTaxFields(
                 item,
                 request.getHsnCode(),
@@ -474,6 +475,7 @@ public class VendorListingService {
         item.setSearchNames(SearchNames.normalize(request.getSearchNames()));
         item.setDescription(blankToNull(request.getDescription()));
         item.setMrp(request.getMrp());
+        applyBarcode(item, request.getBarcode());
         ProductTaxCompliance.applyTaxFields(
                 item,
                 request.getHsnCode(),
@@ -549,6 +551,26 @@ public class VendorListingService {
 
     private String blankToNull(String value) {
         return value == null || value.isBlank() ? null : value.trim();
+    }
+
+    /** Blank clears the barcode. Digits only, so a scanner code stores as printed. */
+    private void applyBarcode(MasterItem item, String raw) {
+        String barcode = raw == null ? "" : raw.replaceAll("\\s+", "");
+        if (barcode.isEmpty()) {
+            item.setBarcode(null);
+            return;
+        }
+        if (!barcode.matches("[0-9]{4,14}")) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Barcode must be 4–14 digits");
+        }
+        masterItemRepository.findByBarcode(barcode).ifPresent(existing -> {
+            if (item.getId() == null || !existing.getId().equals(item.getId())) {
+                throw new BusinessException(
+                        ErrorCode.CONFLICT,
+                        "Barcode " + barcode + " is already on " + existing.getName());
+            }
+        });
+        item.setBarcode(barcode);
     }
 
     @Transactional(readOnly = true)
@@ -707,6 +729,7 @@ public class VendorListingService {
                 .unit(item.getUnit().getCode())
                 .category(item.getCategory().getName())
                 .mrp(item.getMrp())
+                .barcode(item.getBarcode())
                 .hsnCode(item.getHsnCode())
                 .gstPercent(item.getGstPercent())
                 .cessPercent(item.getCessPercent())

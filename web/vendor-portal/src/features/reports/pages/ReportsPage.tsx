@@ -35,6 +35,7 @@ const STATUS_FILTERS = [
   { id: 'READY_FOR_PICKUP', label: 'Ready' },
   { id: 'DELIVERED', label: 'Delivered' },
   { id: 'VENDOR_REJECTED', label: 'Rejected' },
+  { id: 'BUYER_CANCELLED', label: 'Buyer cancelled' },
 ] as const;
 
 export function ReportsPage({ active = true }: { active?: boolean }) {

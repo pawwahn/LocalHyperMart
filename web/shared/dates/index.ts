@@ -1,5 +1,6 @@
 export { formatIsoDateRange, isoDateRangeSlug, normalizeIsoDate } from './formatDateRange';
 export {
+  DEFAULT_REPORT_DATE_PRESET,
   REPORT_DATE_PRESET_OPTIONS,
   TRANSFER_HISTORY_PRESET_OPTIONS,
   applyReportDatePreset,

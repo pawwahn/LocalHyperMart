@@ -63,9 +63,15 @@ public class TownAd extends BaseAuditEntity {
     @Builder.Default
     private String imagesJson = "[]";
 
+    /** Buyer visibility. Hidden creatives stay off the town even when the room is bookable. */
     @Column(nullable = false)
     @Builder.Default
     private boolean enabled = false;
+
+    /** Room is open for a future booking. Disabled rooms cannot be booked. */
+    @Column(nullable = false)
+    @Builder.Default
+    private boolean bookable = true;
 
     /** When true, buyers in every town see this ad unless that town has its own live slot. */
     @Column(name = "all_towns", nullable = false)

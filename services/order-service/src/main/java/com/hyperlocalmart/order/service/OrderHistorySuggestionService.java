@@ -15,6 +15,7 @@ import java.util.UUID;
 public class OrderHistorySuggestionService {
 
     private static final int MAX_LISTING_IDS = 12;
+    private static final int MAX_TOWN_TOP_LISTINGS = 24;
 
     private final OrderItemRepository orderItemRepository;
 
@@ -33,5 +34,11 @@ public class OrderHistorySuggestionService {
             }
         }
         return List.copyOf(distinct);
+    }
+
+    @Transactional(readOnly = true)
+    public List<UUID> townTopListingIds(UUID townId, int limit) {
+        int capped = Math.min(Math.max(limit, 1), MAX_TOWN_TOP_LISTINGS);
+        return List.copyOf(orderItemRepository.findTopListingIdsByTown(townId, PageRequest.of(0, capped)));
     }
 }

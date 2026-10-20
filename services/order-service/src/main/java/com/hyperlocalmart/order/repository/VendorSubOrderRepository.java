@@ -54,6 +54,7 @@ public interface VendorSubOrderRepository extends JpaRepository<VendorSubOrder, 
             SELECT COALESCE(SUM(v.subtotal), 0) FROM VendorSubOrder v JOIN v.order o
             WHERE v.vendorId = :vendorId
               AND v.status <> com.hyperlocalmart.order.entity.VendorSubOrderStatus.VENDOR_REJECTED
+              AND v.status <> com.hyperlocalmart.order.entity.VendorSubOrderStatus.BUYER_CANCELLED
               AND o.placedAt IS NOT NULL
               AND o.placedAt >= :start AND o.placedAt < :end
             """)
@@ -155,6 +156,21 @@ public interface VendorSubOrderRepository extends JpaRepository<VendorSubOrder, 
             @Param("townId") UUID townId,
             @Param("start") Instant start,
             @Param("end") Instant end);
+
+    /**
+     * Delivered bags in the window as keys only, so accounts can skip shops whose bags are already settled
+     * without loading every order.
+     */
+    @Query("""
+            SELECT v.vendorId, o.townId, v.id
+            FROM VendorSubOrder v
+            JOIN v.order o
+            WHERE v.status = com.hyperlocalmart.order.entity.VendorSubOrderStatus.DELIVERED
+              AND COALESCE(o.deliveredAt, o.placedAt) IS NOT NULL
+              AND COALESCE(o.deliveredAt, o.placedAt) >= :start
+              AND COALESCE(o.deliveredAt, o.placedAt) < :end
+            """)
+    List<Object[]> findSettlementBagKeys(@Param("start") Instant start, @Param("end") Instant end);
 
     /** Shops that delivered at least one bag in the window, with the town of that order. */
     @Query("""

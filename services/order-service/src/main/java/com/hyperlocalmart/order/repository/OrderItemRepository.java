@@ -33,6 +33,22 @@ public interface OrderItemRepository extends JpaRepository<OrderItem, UUID> {
             Pageable pageable);
 
     @Query("""
+            SELECT oi.listingId
+            FROM OrderItem oi
+            JOIN oi.vendorSubOrder vso
+            JOIN vso.order o
+            WHERE o.townId = :townId
+              AND o.status IN (
+                    com.hyperlocalmart.order.entity.OrderStatus.PLACED,
+                    com.hyperlocalmart.order.entity.OrderStatus.DELIVERED
+                  )
+              AND (oi.status IS NULL OR oi.status = com.hyperlocalmart.order.entity.OrderItemStatus.ACTIVE)
+            GROUP BY oi.listingId
+            ORDER BY SUM(oi.quantity) DESC
+            """)
+    List<UUID> findTopListingIdsByTown(@Param("townId") UUID townId, Pageable pageable);
+
+    @Query("""
             SELECT COALESCE(SUM(i.lineTotal), 0)
             FROM OrderItem i
             WHERE i.vendorSubOrder.id = :subOrderId

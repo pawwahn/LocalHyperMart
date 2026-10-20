@@ -8,6 +8,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -202,7 +203,11 @@ public class TownClient {
         }
     }
 
-    public record TownSummary(String townCode, String stateCode, String displayName) {
+    public record TownSummary(String townCode, String stateCode, String displayName, List<String> pincodes) {
+        @com.fasterxml.jackson.annotation.JsonIgnore
+        public TownSummary(String townCode, String stateCode, String displayName) {
+            this(townCode, stateCode, displayName, List.of());
+        }
     }
 
     public record VendorAgentDeliverySettings(

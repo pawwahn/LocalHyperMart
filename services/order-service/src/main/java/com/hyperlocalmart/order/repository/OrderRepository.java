@@ -72,6 +72,30 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
             @Param("q") String q,
             Pageable pageable);
 
+    @EntityGraph(attributePaths = {"vendorSubOrders"})
+    @Query("""
+            SELECT o FROM Order o
+            WHERE o.townId = :townId
+              AND COALESCE(o.placedAt, o.createdAt) >= :from
+              AND COALESCE(o.placedAt, o.createdAt) < :to
+              AND (:status IS NULL OR o.status = :status)
+              AND (:method IS NULL OR o.paymentMethod = :method)
+              AND (
+                :q IS NULL OR :q = ''
+                OR LOWER(o.orderNumber) LIKE LOWER(CONCAT('%', :q, '%'))
+                OR o.buyerPhoneSnapshot LIKE CONCAT('%', :q, '%')
+              )
+            ORDER BY COALESCE(o.placedAt, o.createdAt) DESC
+            """)
+    Page<Order> searchAdminByTownPlacedBetween(
+            @Param("townId") UUID townId,
+            @Param("status") OrderStatus status,
+            @Param("method") com.hyperlocalmart.order.entity.PaymentMethod method,
+            @Param("q") String q,
+            @Param("from") Instant from,
+            @Param("to") Instant to,
+            Pageable pageable);
+
     long countByTownIdAndStatus(UUID townId, OrderStatus status);
 
     @Query("""

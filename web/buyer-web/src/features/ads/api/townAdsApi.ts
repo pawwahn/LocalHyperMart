@@ -60,6 +60,7 @@ export function apiAdToCreative(ad: TownAdDto): AdCreative {
     id: ad.id,
     townId: ad.townId,
     slot,
+    slotIndex: ad.slotIndex,
     sponsor: ad.shopName,
     title: ad.headline,
     subtitle: ad.bodyText || '',

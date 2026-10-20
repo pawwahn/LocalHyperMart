@@ -33,6 +33,15 @@ public class ListingInternalController {
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, data));
     }
 
+    @GetMapping("/api/v1/internal/listings/{listingId}/alternate")
+    public ResponseEntity<ApiResponse<ListingSnapshotResponse>> cheapestAlternate(
+            @PathVariable UUID listingId,
+            @RequestParam UUID townId,
+            HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                listingLookupService.cheapestAlternate(listingId, townId)));
+    }
+
     @PostMapping("/api/v1/internal/listings/{listingId}/ratings")
     public ResponseEntity<ApiResponse<ListingRatingSummaryResponse>> applyRating(
             @PathVariable UUID listingId,

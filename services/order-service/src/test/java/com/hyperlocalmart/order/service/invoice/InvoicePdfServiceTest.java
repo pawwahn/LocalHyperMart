@@ -83,6 +83,58 @@ class InvoicePdfServiceTest {
         assertThat(text).contains("All amounts in Rs.");
         assertThat(text).contains("1,234.56");
         assertThat(text).contains("35.00");
+        assertThat(text).contains("Cess");
+        assertThat(text).contains("12.35");
         assertThat(text).doesNotContain("Rs. 35.00");
+    }
+
+    @Test
+    void generate_omitsCessColumnWhenEveryLineIsZero() throws Exception {
+        InvoiceDocument document = InvoiceDocument.builder()
+                .orderNumber("CLX-00002")
+                .townName("Chirala")
+                .placedAt(Instant.parse("2026-10-20T10:00:00Z"))
+                .paymentMethod(PaymentMethod.COD)
+                .paymentStatus(PaymentStatus.PAID)
+                .buyerPhone("9876511111")
+                .itemsSubtotal(new BigDecimal("553.00"))
+                .deliveryFee(BigDecimal.ZERO)
+                .platformFee(new BigDecimal("1.00"))
+                .taxAmount(new BigDecimal("64.95"))
+                .totalAmount(new BigDecimal("554.00"))
+                .lineItems(List.of(
+                        InvoiceDocument.InvoiceLineItem.builder()
+                                .itemName("Choco Cereal 500g")
+                                .hsnCode("999799")
+                                .quantity(1)
+                                .gstPercent(new BigDecimal("18"))
+                                .unitPrice(new BigDecimal("200.00"))
+                                .cgstAmount(new BigDecimal("15.26"))
+                                .sgstAmount(new BigDecimal("15.25"))
+                                .cessAmount(BigDecimal.ZERO)
+                                .lineTotal(new BigDecimal("200.00"))
+                                .build(),
+                        InvoiceDocument.InvoiceLineItem.builder()
+                                .itemName("Butter 100g")
+                                .hsnCode("999799")
+                                .quantity(1)
+                                .gstPercent(new BigDecimal("18"))
+                                .unitPrice(new BigDecimal("58.00"))
+                                .cgstAmount(new BigDecimal("4.43"))
+                                .sgstAmount(new BigDecimal("4.42"))
+                                .cessAmount(null)
+                                .lineTotal(new BigDecimal("58.00"))
+                                .build()))
+                .build();
+
+        byte[] pdf = invoicePdfService.generate(document);
+        com.lowagie.text.pdf.PdfReader reader = new com.lowagie.text.pdf.PdfReader(pdf);
+        String text = new com.lowagie.text.pdf.parser.PdfTextExtractor(reader).getTextFromPage(1);
+        reader.close();
+
+        assertThat(text).contains("Choco Cereal 500g");
+        assertThat(text).contains("CGST");
+        assertThat(text).contains("SGST");
+        assertThat(text).doesNotContain("Cess");
     }
 }

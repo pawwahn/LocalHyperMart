@@ -15,6 +15,9 @@ public interface HubPlatformPaymentSubmissionRepository extends JpaRepository<Hu
 
     boolean existsByHubIdAndStatus(UUID hubId, HubPlatformPaymentSubmissionStatus status);
 
+    Optional<HubPlatformPaymentSubmission> findFirstByPaymentRequestIdAndStatusOrderByRejectedAtDesc(
+            UUID paymentRequestId, HubPlatformPaymentSubmissionStatus status);
+
     @Query("""
             SELECT CASE WHEN COUNT(s) > 0 THEN true ELSE false END
             FROM HubPlatformPaymentSubmission s

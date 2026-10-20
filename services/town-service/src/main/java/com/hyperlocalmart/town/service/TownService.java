@@ -3,6 +3,7 @@ package com.hyperlocalmart.town.service;
 import com.hyperlocalmart.common.exception.BusinessException;
 import com.hyperlocalmart.common.exception.ErrorCode;
 import com.hyperlocalmart.town.dto.request.CreateTownRequest;
+import com.hyperlocalmart.town.dto.request.UpdateTownCoverageRequest;
 import com.hyperlocalmart.town.dto.request.UpdateTownStatusRequest;
 import com.hyperlocalmart.town.dto.response.GeoCountryResponse;
 import com.hyperlocalmart.town.dto.response.GeoStateResponse;
@@ -23,9 +24,12 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -135,6 +139,7 @@ public class TownService {
                 name, state, countryCode)) {
             throw new BusinessException(ErrorCode.CONFLICT, "A town with this name already exists in this state/country");
         }
+        requireCenterPair(request.getLatitude(), request.getLongitude());
 
         Town town = Town.builder()
                 .name(name)
@@ -145,6 +150,8 @@ public class TownService {
                 .stateCode(stateCode)
                 .displayName(name + ", " + state)
                 .coverageRadiusKm(request.getCoverageRadiusKm())
+                .latitude(scaleCoord(request.getLatitude()))
+                .longitude(scaleCoord(request.getLongitude()))
                 .status(TownStatus.ENABLED)
                 .build();
         town.setCreatedBy(actorId);
@@ -212,6 +219,53 @@ public class TownService {
         return getTown(townId);
     }
 
+    @Transactional
+    public TownDetailResponse updateCoverage(UUID townId, UpdateTownCoverageRequest request, UUID actorId) {
+        Town town = townRepository.findById(townId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Town not found"));
+        requireCenterPair(request.getLatitude(), request.getLongitude());
+        List<String> pins = normalizePincodes(request.getPincodes());
+        if (pins.isEmpty()) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Add at least one pincode");
+        }
+        Map<String, Object> before = new LinkedHashMap<>();
+        before.put("coverageRadiusKm", town.getCoverageRadiusKm());
+        before.put("latitude", town.getLatitude());
+        before.put("longitude", town.getLongitude());
+        before.put("pincodes", townPincodeRepository.findByTownIdOrderByPincodeAsc(townId).stream()
+                .map(TownPincode::getPincode)
+                .toList());
+
+        town.setCoverageRadiusKm(request.getCoverageRadiusKm());
+        town.setLatitude(scaleCoord(request.getLatitude()));
+        town.setLongitude(scaleCoord(request.getLongitude()));
+        town.setUpdatedBy(actorId);
+        townRepository.save(town);
+
+        townPincodeRepository.deleteByTownId(townId);
+        for (String pin : pins) {
+            townPincodeRepository.save(TownPincode.builder().town(town).pincode(pin).build());
+        }
+
+        Map<String, Object> after = new LinkedHashMap<>();
+        after.put("coverageRadiusKm", town.getCoverageRadiusKm());
+        after.put("latitude", town.getLatitude());
+        after.put("longitude", town.getLongitude());
+        after.put("pincodes", pins);
+        adminAuditService.record(
+                "towns",
+                "UPDATE_TOWN_COVERAGE",
+                "Updated delivery area for " + town.getDisplayName(),
+                actorId,
+                "SUPER_ADMIN",
+                townId,
+                "TOWN",
+                townId,
+                before,
+                after);
+        return getTown(townId);
+    }
+
     @Transactional(readOnly = true)
     public boolean existsAndEnabled(UUID townId) {
         return townRepository.findById(townId)
@@ -223,10 +277,14 @@ public class TownService {
     public TownSummaryResponse getTownSummary(UUID townId) {
         Town town = townRepository.findById(townId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Town not found"));
+        List<String> pincodes = townPincodeRepository.findByTownIdOrderByPincodeAsc(townId).stream()
+                .map(TownPincode::getPincode)
+                .toList();
         return TownSummaryResponse.builder()
                 .townCode(town.getTownCode())
                 .stateCode(town.getStateCode())
                 .displayName(town.getDisplayName())
+                .pincodes(pincodes)
                 .build();
     }
 
@@ -241,6 +299,9 @@ public class TownService {
                 .countryCode(town.getCountryCode())
                 .status(town.getStatus())
                 .acceptingOrders(town.isAcceptingOrders())
+                .coverageRadiusKm(town.getCoverageRadiusKm())
+                .latitude(town.getLatitude())
+                .longitude(town.getLongitude())
                 .build();
     }
 
@@ -255,9 +316,38 @@ public class TownService {
                 .townCode(town.getTownCode())
                 .stateCode(town.getStateCode())
                 .coverageRadiusKm(town.getCoverageRadiusKm())
+                .latitude(town.getLatitude())
+                .longitude(town.getLongitude())
                 .status(town.getStatus())
                 .acceptingOrders(town.isAcceptingOrders())
                 .pincodes(pincodes)
                 .build();
+    }
+
+    private static void requireCenterPair(BigDecimal latitude, BigDecimal longitude) {
+        if ((latitude == null) != (longitude == null)) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Set both latitude and longitude, or leave both empty");
+        }
+    }
+
+    private static BigDecimal scaleCoord(BigDecimal value) {
+        if (value == null) {
+            return null;
+        }
+        return value.setScale(6, RoundingMode.HALF_UP);
+    }
+
+    private static List<String> normalizePincodes(List<String> raw) {
+        LinkedHashSet<String> pins = new LinkedHashSet<>();
+        if (raw == null) {
+            return List.of();
+        }
+        for (String pin : raw) {
+            if (pin == null || pin.isBlank()) {
+                continue;
+            }
+            pins.add(pin.trim());
+        }
+        return List.copyOf(pins);
     }
 }

@@ -1,4 +1,4 @@
-import { useEffect, type CSSProperties, type ReactNode } from 'react';
+import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 
 type Props = {
@@ -14,6 +14,10 @@ type Props = {
   error?: string | null;
   onConfirm: () => void;
   onBack: () => void;
+  /** Sends the hub's comment when the payout did not arrive. */
+  onMissing?: (note: string) => void;
+  /** Open straight on the comment, for a payout already sent back. */
+  commentOnly?: boolean;
   extra?: ReactNode;
 };
 
@@ -40,8 +44,23 @@ export function HubPaymentConfirmDialog({
   error,
   onConfirm,
   onBack,
+  onMissing,
+  commentOnly,
   extra,
 }: Props) {
+  const [missing, setMissing] = useState(false);
+  const [comment, setComment] = useState('');
+
+  useEffect(() => {
+    if (!open) {
+      setMissing(false);
+      setComment('');
+      return;
+    }
+    setMissing(Boolean(commentOnly));
+    setComment('');
+  }, [open, commentOnly]);
+
   useEffect(() => {
     if (!open) return;
     function onKey(e: KeyboardEvent) {
@@ -84,14 +103,56 @@ export function HubPaymentConfirmDialog({
             </div>
           ) : null}
         </dl>
+        {missing ? (
+          <label style={styles.commentField}>
+            Comment for KoyaKart *
+            <textarea
+              style={styles.comment}
+              value={comment}
+              maxLength={500}
+              rows={2}
+              autoFocus
+              placeholder="What should they recheck?"
+              onChange={(e) => setComment(e.target.value)}
+            />
+          </label>
+        ) : null}
         {extra}
         {error ? <p style={styles.error}>{error}</p> : null}
         <div style={styles.actions}>
-          <button type="button" style={styles.backBtn} disabled={busy} onClick={onBack}>
-            Back
+          {onMissing && !missing ? (
+            <button type="button" style={styles.backBtn} disabled={busy} onClick={() => setMissing(true)}>
+              Not received
+            </button>
+          ) : null}
+          <button
+            type="button"
+            style={styles.backBtn}
+            disabled={busy}
+            onClick={() => {
+              if (missing && !commentOnly) {
+                setMissing(false);
+                return;
+              }
+              onBack();
+            }}
+          >
+            {missing ? 'Go back' : 'Back'}
           </button>
-          <button type="button" style={styles.yesBtn} disabled={busy} onClick={onConfirm}>
-            {busy ? 'Submitting…' : confirmLabel}
+          <button
+            type="button"
+            style={styles.yesBtn}
+            disabled={busy || (missing && !comment.trim())}
+            onClick={() => {
+              if (missing) {
+                const note = comment.trim();
+                if (note && onMissing) onMissing(note);
+                return;
+              }
+              onConfirm();
+            }}
+          >
+            {busy ? 'Submitting…' : missing ? 'Send comment' : confirmLabel}
           </button>
         </div>
       </div>
@@ -133,7 +194,21 @@ const styles: Record<string, CSSProperties> = {
   ddMono: { margin: 0, fontFamily: 'ui-monospace, monospace', fontSize: '0.78rem', fontWeight: 700, wordBreak: 'break-all' },
   ddNote: { margin: 0, fontSize: '0.78rem', fontWeight: 600, lineHeight: 1.35, whiteSpace: 'pre-wrap' },
   error: { margin: 0, fontSize: '0.78rem', color: 'var(--danger)', fontWeight: 700 },
-  actions: { display: 'grid', gridTemplateColumns: '1fr 1.4fr', gap: '0.4rem', marginTop: '0.15rem' },
+  commentField: { display: 'grid', gap: '0.15rem', fontSize: '0.68rem', fontWeight: 800, color: 'var(--text-muted)' },
+  comment: {
+    width: '100%',
+    minHeight: 52,
+    resize: 'vertical',
+    padding: '0.35rem 0.45rem',
+    borderRadius: 8,
+    border: '1px solid var(--border)',
+    background: 'var(--bg)',
+    color: 'var(--text)',
+    font: 'inherit',
+    fontSize: '0.82rem',
+    fontWeight: 650,
+  },
+  actions: { display: 'flex', flexWrap: 'wrap', justifyContent: 'flex-end', gap: '0.4rem', marginTop: '0.15rem' },
   backBtn: {
     border: '1px solid var(--border)',
     borderRadius: 10,

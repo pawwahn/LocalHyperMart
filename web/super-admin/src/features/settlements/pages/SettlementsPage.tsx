@@ -53,6 +53,7 @@ import {
   type SettlementChangeLogProps,
 } from '../components/SettlementAuditSection';
 import {
+  DEFAULT_REPORT_DATE_PRESET,
   isoIstDate,
   rangeForReportPreset,
   REPORT_DATE_PRESET_OPTIONS,
@@ -165,12 +166,12 @@ export function SettlementsPage() {
   const { session } = useAuth();
   const token = session?.accessToken ?? '';
 
-  const initial = rangeForReportPreset('week');
+  const initial = rangeForReportPreset(DEFAULT_REPORT_DATE_PRESET);
   const [towns, setTowns] = useState<TownVm[]>([]);
   const [vendors, setVendors] = useState<VendorVm[]>([]);
   const [townId, setTownId] = useState('');
   const [vendorId, setVendorId] = useState('');
-  const [preset, setPreset] = useState<ReportDatePreset>('week');
+  const [preset, setPreset] = useState<ReportDatePreset>(DEFAULT_REPORT_DATE_PRESET);
   const [from, setFrom] = useState(initial.from);
   const [to, setTo] = useState(initial.to);
   const [periodType, setPeriodType] = useState<SettlementPeriodKind>(settlementPeriodKind('week'));
@@ -1208,7 +1209,7 @@ export function SettlementsPage() {
                         {s.status === 'PAID' && !isCollection ? (
                           s.vendorNotReceivedAt && !s.vendorAcknowledgedAt ? (
                             <div style={styles.notReceived}>
-                              {s.payeeType === 'HUB' ? 'Hub not received' : 'Vendor not received'}
+                              {s.payeeType === 'HUB' ? 'Hub not received' : s.payeeType === 'AGENT' ? 'Agent not received' : 'Vendor not received'}
                               <div style={styles.sub}>
                                 {new Date(s.vendorNotReceivedAt).toLocaleString(undefined, {
                                   day: '2-digit',
@@ -1219,7 +1220,7 @@ export function SettlementsPage() {
                               </div>
                               {s.vendorNotReceivedNote ? (
                                 <div style={styles.billReason}>
-                                  {s.payeeType === 'HUB' ? 'Hub' : 'Vendor'}: {s.vendorNotReceivedNote}
+                                  {s.payeeType === 'HUB' ? 'Hub' : s.payeeType === 'AGENT' ? 'Agent' : 'Vendor'}: {s.vendorNotReceivedNote}
                                 </div>
                               ) : null}
                               {correctId === s.id ? (

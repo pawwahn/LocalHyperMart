@@ -112,5 +112,7 @@ public class HubAccountSummaryResponse {
         Instant acknowledgedAt;
         /** Hub said the money has not arrived. */
         Instant notReceivedAt;
+        /** What the hub asked KoyaKart to recheck. */
+        String notReceivedNote;
     }
 }

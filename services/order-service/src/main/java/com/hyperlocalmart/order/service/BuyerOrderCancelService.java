@@ -59,7 +59,7 @@ public class BuyerOrderCancelService {
 
         boolean anyPastPlaced = order.getVendorSubOrders().stream()
                 .anyMatch(s -> s.getStatus() != VendorSubOrderStatus.PLACED
-                        && s.getStatus() != VendorSubOrderStatus.VENDOR_REJECTED);
+                        && !s.getStatus().isClosed());
         if (anyPastPlaced) {
             throw new BusinessException(ErrorCode.CONFLICT,
                     "Cannot cancel the whole order — a shop has already marked items ready. Cancel individual items still waiting, or contact support.");
@@ -95,13 +95,13 @@ public class BuyerOrderCancelService {
             }
             if (sub.getStatus() == VendorSubOrderStatus.PLACED) {
                 VendorSubOrderStatus from = sub.getStatus();
-                sub.setStatus(VendorSubOrderStatus.VENDOR_REJECTED);
+                sub.setStatus(VendorSubOrderStatus.BUYER_CANCELLED);
                 sub.setRejectReason("Buyer cancelled: " + reason);
                 orderStatusHistoryRepository.save(OrderStatusHistory.builder()
                         .orderId(order.getId())
                         .vendorSubOrderId(sub.getId())
                         .fromStatus(from.name())
-                        .toStatus(VendorSubOrderStatus.VENDOR_REJECTED.name())
+                        .toStatus(VendorSubOrderStatus.BUYER_CANCELLED.name())
                         .changedBy(buyerId)
                         .changedByRole("BUYER")
                         .note("Buyer cancelled order: " + reason)
@@ -203,13 +203,13 @@ public class BuyerOrderCancelService {
         boolean subOrderEmpty = subOrder.getItems().stream()
                 .noneMatch(i -> i.getStatus() == null || i.getStatus() == OrderItemStatus.ACTIVE);
         if (subOrderEmpty) {
-            subOrder.setStatus(VendorSubOrderStatus.VENDOR_REJECTED);
+            subOrder.setStatus(VendorSubOrderStatus.BUYER_CANCELLED);
             subOrder.setRejectReason("Buyer cancelled items: " + request.getReason());
             orderStatusHistoryRepository.save(OrderStatusHistory.builder()
                     .orderId(order.getId())
                     .vendorSubOrderId(subOrder.getId())
                     .fromStatus(VendorSubOrderStatus.PLACED.name())
-                    .toStatus(VendorSubOrderStatus.VENDOR_REJECTED.name())
+                    .toStatus(VendorSubOrderStatus.BUYER_CANCELLED.name())
                     .changedBy(buyerId)
                     .changedByRole("BUYER")
                     .note("Buyer cancelled all items from shop: " + request.getReason())
@@ -329,7 +329,7 @@ public class BuyerOrderCancelService {
         OrderStatus prior = order.getStatus();
         for (VendorSubOrder sub : order.getVendorSubOrders()) {
             if (sub.getStatus() == VendorSubOrderStatus.PLACED) {
-                sub.setStatus(VendorSubOrderStatus.VENDOR_REJECTED);
+                sub.setStatus(VendorSubOrderStatus.BUYER_CANCELLED);
                 sub.setRejectReason("Buyer cancelled: " + reason);
             }
         }

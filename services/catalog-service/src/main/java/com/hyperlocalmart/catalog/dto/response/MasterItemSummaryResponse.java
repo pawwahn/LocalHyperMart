@@ -20,6 +20,7 @@ public class MasterItemSummaryResponse {
     private String unit;
     private String category;
     private BigDecimal mrp;
+    private String barcode;
     private String hsnCode;
     private BigDecimal gstPercent;
     private BigDecimal cessPercent;

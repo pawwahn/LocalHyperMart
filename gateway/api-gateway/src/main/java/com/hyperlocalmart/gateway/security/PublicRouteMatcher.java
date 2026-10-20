@@ -8,6 +8,9 @@ public final class PublicRouteMatcher {
     }
 
     public static boolean isPublic(HttpMethod method, String path) {
+        if (method == HttpMethod.OPTIONS) {
+            return true;
+        }
         if (path.startsWith("/actuator")) {
             return true;
         }

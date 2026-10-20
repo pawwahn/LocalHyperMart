@@ -89,7 +89,11 @@ public class TownDuesService {
                         open.itemCount(),
                         open.reference(),
                         open.detail(),
-                        open.commission()));
+                        open.commission(),
+                        null,
+                        null,
+                        null,
+                        null));
             }
         } catch (RuntimeException ex) {
             log.warn("Open accounts scan failed: {}", ex.toString());
@@ -161,6 +165,10 @@ public class TownDuesService {
                     count,
                     null,
                     null,
+                    null,
+                    null,
+                    null,
+                    null,
                     null));
         }
         return out;
@@ -206,6 +214,10 @@ public class TownDuesService {
                     money(row.getTotalAmount()),
                     1,
                     row.getDocumentNumber(),
+                    null,
+                    null,
+                    null,
+                    confirm ? row.getSubmissionId() : null,
                     null,
                     null));
         }
@@ -262,7 +274,11 @@ public class TownDuesService {
                     1,
                     row.getServiceInvoiceNumber(),
                     null,
-                    vendorCommission(row, party)));
+                    vendorCommission(row, party),
+                    "CONFIRM".equals(action) || "PAY".equals(action) ? row.getId() : null,
+                    null,
+                    row.getVendorPaymentMethod(),
+                    row.getVendorPaymentReference()));
         }
         return out;
     }
@@ -315,6 +331,10 @@ public class TownDuesService {
                             end,
                             money(franchise.amount()),
                             1,
+                            null,
+                            null,
+                            null,
+                            null,
                             null,
                             null,
                             null));
@@ -439,7 +459,11 @@ public class TownDuesService {
             int itemCount,
             String reference,
             String detail,
-            BigDecimal commission) {
+            BigDecimal commission,
+            UUID settlementId,
+            UUID submissionId,
+            String paymentMethod,
+            String paymentReference) {
         TownDuesResponse.Line toLine() {
             return TownDuesResponse.Line.builder()
                     .party(party)
@@ -454,6 +478,10 @@ public class TownDuesService {
                     .commission(commission)
                     .itemCount(itemCount)
                     .reference(reference)
+                    .settlementId(settlementId)
+                    .submissionId(submissionId)
+                    .paymentMethod(paymentMethod)
+                    .paymentReference(paymentReference)
                     .build();
         }
     }

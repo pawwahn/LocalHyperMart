@@ -210,6 +210,12 @@ export type AgentPaySummary = {
     notReceivedAt?: string | null;
     notReceivedNote?: string | null;
   }>;
+  payerNotices?: Array<{
+    settlementId: string;
+    reference?: string | null;
+    amount?: number | null;
+    comment: string;
+  }>;
 };
 
 export async function acknowledgeMyPayout(token: string, settlementId: string): Promise<void> {

@@ -9,8 +9,11 @@ import com.hyperlocalmart.town.dto.request.UpsertTownAdRequest;
 import com.hyperlocalmart.town.dto.request.UpsertTownAdsRequest;
 import com.hyperlocalmart.town.dto.response.TownAdResponse;
 import com.hyperlocalmart.town.dto.response.TownAdsResponse;
+import com.hyperlocalmart.town.entity.AdInvoice;
+import com.hyperlocalmart.town.entity.AdInvoiceStatus;
 import com.hyperlocalmart.town.entity.TownAd;
 import com.hyperlocalmart.town.entity.TownAdSlot;
+import com.hyperlocalmart.town.repository.AdInvoiceRepository;
 import com.hyperlocalmart.town.repository.TownAdRepository;
 import com.hyperlocalmart.town.repository.TownRepository;
 import lombok.RequiredArgsConstructor;
@@ -18,6 +21,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -36,14 +41,21 @@ public class TownAdService {
     private static final int MAX_IMAGES = 3;
     private static final int MAX_TARGET_TOWNS = 200;
     public static final int MID_GRID_SLOTS = 5;
+    public static final int CAT_UPSELL_SLOTS = 4;
+    private static final ZoneId IST = ZoneId.of("Asia/Kolkata");
+    private static final List<AdInvoiceStatus> LIVE_STAYS =
+            List.of(AdInvoiceStatus.ISSUED, AdInvoiceStatus.PAID);
     private static final TypeReference<List<TownAdImageDto>> IMAGE_LIST =
             new TypeReference<>() {
             };
+    private static final TypeReference<List<UUID>> UUID_LIST = new TypeReference<>() {
+    };
 
     private record AdKey(TownAdSlot slot, int slotIndex) {
     }
 
     private final TownAdRepository townAdRepository;
+    private final AdInvoiceRepository adInvoiceRepository;
     private final TownRepository townRepository;
     private final ObjectMapper objectMapper;
     private final AdminAuditor adminAuditService;
@@ -72,8 +84,39 @@ public class TownAdService {
             }
             merged.putIfAbsent(key, ad);
         }
+        Set<AdKey> bookedToday = staysCovering(townId, LocalDate.now(IST));
+        merged.keySet().retainAll(bookedToday);
         List<TownAdResponse> items = merged.values().stream().map(ad -> toResponse(ad, List.of(ad.getTownId()))).toList();
         return TownAdsResponse.builder().townId(townId).items(items).build();
+    }
+
+    /** A creative is on the buyer app only while a company holds that room for today. */
+    private Set<AdKey> staysCovering(UUID townId, LocalDate day) {
+        Set<AdKey> open = new HashSet<>();
+        for (AdInvoice stay : adInvoiceRepository.findActiveInRange(day, day, null, LIVE_STAYS)) {
+            if (!stayCoversTown(stay, townId)) {
+                continue;
+            }
+            open.add(new AdKey(stay.getSlot(), stay.getSlotIndex()));
+        }
+        return open;
+    }
+
+    private boolean stayCoversTown(AdInvoice stay, UUID townId) {
+        if (stay.isAllTowns()) {
+            return true;
+        }
+        List<UUID> towns = readStayTowns(stay);
+        return towns.isEmpty() || towns.contains(townId);
+    }
+
+    private List<UUID> readStayTowns(AdInvoice stay) {
+        try {
+            List<UUID> ids = objectMapper.readValue(stay.getTownIdsJson(), UUID_LIST);
+            return ids == null ? List.of() : ids;
+        } catch (Exception ex) {
+            return List.of();
+        }
     }
 
     @Transactional(readOnly = true)
@@ -130,19 +173,15 @@ public class TownAdService {
         validateTargetTowns(targetTownIds);
 
         boolean enabled = Boolean.TRUE.equals(item.getEnabled());
-        if (allTowns) {
-            enabled = true;
-        }
+        boolean bookable = item.getBookable() == null || Boolean.TRUE.equals(item.getBookable());
 
         TownAd template = TownAd.builder()
                 .slot(item.getSlot())
                 .slotIndex(slotIndex)
                 .build();
         applyContent(template, item);
-        if ((enabled || allTowns) && !isRenderable(template)) {
-            throw new BusinessException(ErrorCode.VALIDATION_ERROR,
-                    "Cannot enable " + item.getSlot() + " #" + slotIndex
-                            + " until shop name, headline, and at least one image are set");
+        if (allTowns && isRenderable(template)) {
+            enabled = true;
         }
 
         UUID campaignId = null;
@@ -159,6 +198,7 @@ public class TownAdService {
                             .build());
             copyContent(template, ad);
             ad.setEnabled(enabled);
+            ad.setBookable(bookable);
             ad.setAllTowns(allTowns);
             ad.setCampaignId(campaignId);
             if (ad.getId() == null) {
@@ -342,6 +382,7 @@ public class TownAdService {
                 .imageUrl(imageUrl)
                 .imageMediaId(mediaId)
                 .enabled(ad.isEnabled())
+                .bookable(ad.isBookable())
                 .allTowns(ad.isAllTowns())
                 .targetTownIds(targetTownIds)
                 .displayDurationSec(ad.getDisplayDurationSec())
@@ -404,6 +445,14 @@ public class TownAdService {
             if (idx < 1 || idx > MID_GRID_SLOTS) {
                 throw new BusinessException(ErrorCode.VALIDATION_ERROR,
                         "Mid-grid ad index must be between 1 and " + MID_GRID_SLOTS);
+            }
+            return idx;
+        }
+        if (slot == TownAdSlot.CART_UPSELL) {
+            int idx = slotIndex == null ? 1 : slotIndex;
+            if (idx < 1 || idx > CAT_UPSELL_SLOTS) {
+                throw new BusinessException(ErrorCode.VALIDATION_ERROR,
+                        "Categories Upsell must be between 1 and " + CAT_UPSELL_SLOTS);
             }
             return idx;
         }

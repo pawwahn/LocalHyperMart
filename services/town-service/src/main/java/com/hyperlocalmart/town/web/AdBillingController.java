@@ -10,6 +10,7 @@ import com.hyperlocalmart.town.dto.billing.AdRevenueReportResponse;
 import com.hyperlocalmart.town.dto.billing.AdRateCardResponse;
 import com.hyperlocalmart.town.dto.billing.CreateAdInvoiceRequest;
 import com.hyperlocalmart.town.dto.billing.PayAdInvoiceRequest;
+import com.hyperlocalmart.town.dto.billing.UpdateAdInvoiceDatesRequest;
 import com.hyperlocalmart.town.dto.billing.UpsertAdRateCardRequest;
 import com.hyperlocalmart.town.dto.billing.VoidAdInvoiceRequest;
 import com.hyperlocalmart.town.entity.AdInvoiceStatus;
@@ -113,6 +114,17 @@ public class AdBillingController {
         UUID actorId = AdminAuth.requireUserId(httpRequest);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponses.ok(httpRequest, adBillingService.createInvoice(request, actorId)));
+    }
+
+    @PutMapping("/api/v1/platform/ads/invoices/{id}/dates")
+    public ResponseEntity<ApiResponse<AdInvoiceResponse>> updateDates(
+            @PathVariable UUID id,
+            @Valid @RequestBody UpdateAdInvoiceDatesRequest request,
+            HttpServletRequest httpRequest) {
+        AdminAuth.requireSuperAdmin(httpRequest);
+        UUID actorId = AdminAuth.requireUserId(httpRequest);
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                adBillingService.updateDates(id, request.getFromDate(), request.getToDate(), actorId)));
     }
 
     @PostMapping("/api/v1/platform/ads/invoices/{id}/pay")

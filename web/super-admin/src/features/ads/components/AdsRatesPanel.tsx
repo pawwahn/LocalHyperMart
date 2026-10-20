@@ -35,7 +35,7 @@ type Draft = {
 const SLOTS: { key: SlotKey; label: string; hint: string }[] = [
   { key: 'homeHero', label: 'Main ad', hint: 'Home strip' },
   { key: 'homeMidGrid', label: 'Mid-grid ad', hint: 'Each carousel slide' },
-  { key: 'cartUpsell', label: 'Cart ad', hint: 'Cart / checkout' },
+  { key: 'cartUpsell', label: 'Categories Upsell', hint: 'After 2 category rows' },
 ];
 
 const PERIODS: { key: PeriodKey; label: string; hint: string }[] = [
@@ -116,6 +116,12 @@ export function AdsRatesPanel({ token, refreshTick = 0, slotActive: slotActivePr
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
+  const [openPeriods, setOpenPeriods] = useState<Record<PeriodKey, boolean>>({
+    day: false,
+    week: false,
+    month: true,
+    year: true,
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -233,12 +239,21 @@ export function AdsRatesPanel({ token, refreshTick = 0, slotActive: slotActivePr
         </div>
       </Card>
 
-      {PERIODS.map((period) => (
+      {PERIODS.map((period) => {
+        const open = openPeriods[period.key];
+        return (
         <Card key={period.key} padding="sm" style={styles.periodCard}>
-          <div style={styles.periodHead}>
+          <button
+            type="button"
+            style={styles.periodHead}
+            aria-expanded={open}
+            onClick={() => setOpenPeriods((prev) => ({ ...prev, [period.key]: !prev[period.key] }))}
+          >
+            <span style={styles.periodCaret}>{open ? '▾' : '▸'}</span>
             <h3 style={styles.periodTitle}>{period.label}</h3>
             <p style={styles.periodHint}>{period.hint}</p>
-          </div>
+          </button>
+          {open ? (
           <div style={styles.grid}>
             <div style={styles.slotRow}>
               <span style={styles.colHead}>Placement</span>
@@ -281,14 +296,16 @@ export function AdsRatesPanel({ token, refreshTick = 0, slotActive: slotActivePr
               );
             })}
           </div>
+          ) : null}
         </Card>
-      ))}
+        );
+      })}
 
       {slotActive.homeHero || slotActive.homeMidGrid || slotActive.cartUpsell ? (
         <p style={styles.example}>
           Example · per day · 3 towns · 10 days: ({money(num((slotActive.homeHero ? draft.homeHero : slotActive.homeMidGrid ? draft.homeMidGrid : draft.cartUpsell).day.oneTown))} +{' '}
           {money(num((slotActive.homeHero ? draft.homeHero : slotActive.homeMidGrid ? draft.homeMidGrid : draft.cartUpsell).day.extraTown))} × 2) × 10
-          {slotActive.homeHero ? ' for the main ad.' : slotActive.homeMidGrid ? ' for a mid-grid slide.' : ' for the cart ad.'}
+          {slotActive.homeHero ? ' for the main ad.' : slotActive.homeMidGrid ? ' for a mid-grid slide.' : ' for Categories Upsell.'}
         </p>
       ) : (
         <p style={styles.example}>All placements are hidden. Turn one on in Creatives to set prices.</p>
@@ -316,7 +333,21 @@ const styles: Record<string, CSSProperties> = {
     minWidth: 0,
   },
   periodCard: { display: 'grid', gap: '0.4rem' },
-  periodHead: { display: 'flex', alignItems: 'baseline', gap: '0.55rem', flexWrap: 'wrap' },
+  periodHead: {
+    display: 'flex',
+    alignItems: 'baseline',
+    gap: '0.4rem',
+    flexWrap: 'wrap',
+    width: '100%',
+    margin: 0,
+    padding: 0,
+    border: 'none',
+    background: 'transparent',
+    color: 'inherit',
+    textAlign: 'left',
+    cursor: 'pointer',
+  },
+  periodCaret: { fontSize: '0.75rem', fontWeight: 800, color: 'var(--text-muted)', width: '0.7rem' },
   periodTitle: { margin: 0, fontSize: '0.92rem', fontWeight: 800 },
   periodHint: { margin: 0, fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 },
   grid: { display: 'grid', gap: '0.3rem' },

@@ -17,6 +17,12 @@ export type TownDueLine = {
   commission?: number | null;
   itemCount: number;
   reference?: string | null;
+  /** Vendor or hub settlement waiting for confirmation. */
+  settlementId?: string | null;
+  /** Hub payment submission waiting for verification. */
+  submissionId?: string | null;
+  paymentMethod?: string | null;
+  paymentReference?: string | null;
 };
 
 export type TownDueTown = {

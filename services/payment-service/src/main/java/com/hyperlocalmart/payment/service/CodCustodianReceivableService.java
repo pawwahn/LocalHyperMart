@@ -122,6 +122,7 @@ public class CodCustodianReceivableService {
             agentRows.add(AgentReceivable.builder()
                     .agentId(agentId)
                     .agentName(agent.name())
+                    .agentPhone(blankToNull(agent.phone()))
                     .stillWithAgentAmount(stillAmt.setScale(2, RoundingMode.HALF_UP))
                     .stillWithAgentOrderCount(stillWithAgent.size())
                     .declaredAwaitingAmount(awaitAmt.setScale(2, RoundingMode.HALF_UP))
@@ -576,6 +577,14 @@ public class CodCustodianReceivableService {
                     .declaredAwaitingConfirm(awaiting)
                     .build());
         }
+    }
+
+    private static String blankToNull(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
     }
 
     private static BigDecimal nullToZero(BigDecimal v) {

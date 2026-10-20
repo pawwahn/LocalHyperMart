@@ -2,7 +2,9 @@ import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { Button, Card } from '@/shared/ui';
 import { PAGE_SIZES, TablePager, pageWindow } from '@/shared/table';
 import type { SubOrderView } from '../api/ordersApi';
-import { vendorBagDisplayNumber, vendorBagLabelHint } from '../orderBagLabel';
+import { vendorBagDisplayNumber } from '../orderBagLabel';
+import { vendorOrderSituation } from '../orderStatusCopy';
+import { canOfferVendorAgentDelivery } from '../vendorOrderActions';
 import { useIsNarrow } from '@/shared/hooks/useIsNarrow';
 
 type Props = {
@@ -49,7 +51,8 @@ export function SubOrderList({
     if (!q) return orders;
     return orders.filter((order) => {
       const bagNo = vendorBagDisplayNumber(order);
-      const hay = `${bagNo} ${order.subOrderNumber} ${order.orderNumber} ${order.status} ${order.itemSummary}`.toLowerCase();
+      const siblingNames = (order.siblingShops ?? []).map((s) => s.shopName).join(' ');
+      const hay = `${bagNo} ${order.subOrderNumber} ${order.orderNumber} ${order.status} ${order.itemSummary} ${siblingNames}`.toLowerCase();
       return hay.includes(q);
     });
   }, [orders, query]);
@@ -137,11 +140,7 @@ export function SubOrderList({
             {pageItems.map((order) => {
               const busy = actionId === order.id || actionId?.startsWith(`${order.id}:`);
               const canAct = order.status === 'PLACED';
-              const canVendorAgent =
-                canAct &&
-                order.wholeOrderForShop &&
-                order.vendorAgentDeliveryEnabled &&
-                !order.vendorAgentDelivery;
+              const canVendorAgent = canOfferVendorAgentDelivery(order);
               const isCollapsed = !expanded.has(order.id);
               const itemCount = order.items.length;
               const itemLine =
@@ -151,7 +150,7 @@ export function SubOrderList({
               const toggleLabel = isCollapsed ? 'Show items' : 'Hide items';
               const statusStyle = statusStyleFor(order.status);
               const bagNo = vendorBagDisplayNumber(order);
-              const bagHint = vendorBagLabelHint(order);
+              const situation = vendorOrderSituation(order);
               const needsAgentAssign =
                 order.status === 'DELIVERY_BY_VENDOR_AGENT' && order.canAssignVendorAgent;
               const agentAssigned =
@@ -184,19 +183,29 @@ export function SubOrderList({
                           </span>
                           <span style={{ ...styles.statusPill, ...statusStyle }}>{statusLabel(order.status)}</span>
                         </span>
-                        <span style={styles.meta}>Parent {order.orderNumber}</span>
-                        {bagHint ? <span style={styles.bagHint}>{bagHint}</span> : null}
                         <span style={styles.summaryRow}>
                           <strong style={styles.amount}>{order.subtotalLabel}</strong>
                           {isCollapsed && itemLine ? (
                             <span style={styles.metaDot}>·</span>
                           ) : null}
                           {isCollapsed && itemLine ? <span style={styles.itemCount}>{itemLine}</span> : null}
+                          {situation.paymentLine ? (
+                            <>
+                              <span style={styles.metaDot}>·</span>
+                              <span style={styles.payment}>{situation.paymentLine}</span>
+                            </>
+                          ) : null}
                           <span style={styles.metaDot}>·</span>
                           <span style={styles.placedAt} title={order.placedAt}>
                             {order.placedAtLabel}
                           </span>
                         </span>
+                        {situation.siblingLine ? (
+                          <span style={situation.siblingAlert ? styles.siblingLine : styles.bagHint}>
+                            {situation.siblingLine}
+                          </span>
+                        ) : null}
+                        {situation.nextStep ? <span style={styles.nextStep}>{situation.nextStep}</span> : null}
                       </span>
                       <span style={styles.togglePill}>{toggleLabel}</span>
                     </button>
@@ -251,7 +260,7 @@ export function SubOrderList({
                       <p style={styles.meta}>{order.itemSummary}</p>
                     ) : null}
                   </div>
-                  {canAct || order.status === 'DELIVERY_BY_VENDOR_AGENT' ? (
+                  {canAct || canVendorAgent || order.status === 'DELIVERY_BY_VENDOR_AGENT' ? (
                     <div className="vendor-order-actions">
                       {canAct ? (
                         <Button
@@ -350,6 +359,10 @@ function statusLabel(status: string): string {
       return 'Ready';
     case 'DELIVERY_BY_VENDOR_AGENT':
       return 'Vendor agent';
+    case 'VENDOR_REJECTED':
+      return 'Rejected';
+    case 'BUYER_CANCELLED':
+      return 'Buyer cancelled';
     default:
       return status.replace(/_/g, ' ');
   }
@@ -477,6 +490,21 @@ const styles: Record<string, CSSProperties> = {
   },
   meta: { color: 'var(--text-muted)', fontSize: '0.78rem' },
   bagHint: { color: 'var(--text-muted)', fontSize: '0.72rem', lineHeight: 1.35, display: 'block' },
+  payment: { color: 'var(--text-muted)', fontWeight: 650 },
+  siblingLine: {
+    color: '#b45309',
+    fontSize: '0.74rem',
+    fontWeight: 700,
+    lineHeight: 1.35,
+    display: 'block',
+  },
+  nextStep: {
+    color: 'var(--text)',
+    fontSize: '0.74rem',
+    fontWeight: 650,
+    lineHeight: 1.35,
+    display: 'block',
+  },
   statusPill: {
     fontSize: '0.65rem',
     fontWeight: 800,

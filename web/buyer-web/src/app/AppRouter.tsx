@@ -21,6 +21,7 @@ import { AddressesPage } from '@/features/shop/pages/AddressesPage';
 import { WalletProvider } from '@/features/shop/hooks/useWallet';
 import { ShopProvider } from '@/features/shop/hooks/useShop';
 import { ScratchCardHost } from '@/features/shop/components/ScratchCardHost';
+import { NativeAppBridge } from '@/shared/native/NativeAppBridge';
 import { LegalDocumentPage } from '@hlm-legal';
 import type { ReactNode } from 'react';
 
@@ -48,6 +49,7 @@ export function AppRouter() {
           <WalletProvider>
             <ShopProvider>
               <BrowserRouter basename={routerBasename()}>
+                <NativeAppBridge />
                 <Routes>
                   <Route path="/login" element={<LoginPage />} />
                   <Route path="/legal/:doc" element={<LegalDocumentPage homeTo="/login" />} />

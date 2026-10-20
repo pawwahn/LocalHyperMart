@@ -57,13 +57,17 @@ public class OrderAdminController {
             @RequestParam(required = false) UUID buyerId,
             @RequestParam(required = false) OrderStatus status,
             @RequestParam(required = false) String q,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam(required = false) String paymentMethod,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
             HttpServletRequest httpRequest) {
         requireHubOrSuperAdmin(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
                 orderAdminService.listAdminOrders(
-                        principal.getUserId(), principal.getRoles(), townId, buyerId, status, q, page, size)));
+                        principal.getUserId(), principal.getRoles(), townId, buyerId, status, q,
+                        from, to, paymentMethod, page, size)));
     }
 
     @GetMapping("/claims")

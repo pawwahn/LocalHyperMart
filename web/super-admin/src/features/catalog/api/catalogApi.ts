@@ -9,6 +9,7 @@ export type MasterItemVm = {
   unitId?: string | null;
   unitName?: string | null;
   mrp?: number | null;
+  barcode?: string | null;
   hsnCode?: string | null;
   gstPercent?: number | null;
   cessPercent?: number | null;
@@ -59,6 +60,7 @@ type MasterItemDto = {
   unitName?: string | null;
   unitCode?: string | null;
   mrp?: number | null;
+  barcode?: string | null;
   hsnCode?: string | null;
   gstPercent?: number | null;
   cessPercent?: number | null;
@@ -75,6 +77,7 @@ export type CreateMasterItemInput = {
   searchNames?: string;
   description?: string;
   mrp?: number;
+  barcode?: string;
   hsnCode: string;
   gstPercent: number;
   cessPercent?: number;
@@ -98,6 +101,7 @@ function mapMaster(i: MasterItemDto): MasterItemVm {
     unitId: i.unitId ?? null,
     unitName: i.unitName ?? i.unit ?? i.unitCode,
     mrp: i.mrp,
+    barcode: i.barcode?.trim() || null,
     hsnCode: i.hsnCode ?? raw.hsn_code ?? null,
     gstPercent: i.gstPercent ?? raw.gst_percent ?? null,
     cessPercent: i.cessPercent ?? raw.cess_percent ?? null,

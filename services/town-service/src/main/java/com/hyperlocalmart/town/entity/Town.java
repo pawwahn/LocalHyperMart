@@ -46,6 +46,13 @@ public class Town extends BaseAuditEntity {
     @Column(name = "coverage_radius_km", nullable = false, precision = 5, scale = 2)
     private BigDecimal coverageRadiusKm;
 
+    /** Town center used only to suggest this town from the buyer's GPS. Null until an admin sets it. */
+    @Column(precision = 9, scale = 6)
+    private BigDecimal latitude;
+
+    @Column(precision = 9, scale = 6)
+    private BigDecimal longitude;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 30)
     private TownStatus status;

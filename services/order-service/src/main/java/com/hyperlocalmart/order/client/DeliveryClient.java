@@ -13,6 +13,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 @Slf4j
 @Component
@@ -21,6 +22,36 @@ public class DeliveryClient {
 
     private final RestClient.Builder restClientBuilder;
     private final DeliveryServiceProperties deliveryServiceProperties;
+    private final ConcurrentHashMap<UUID, HubEnabledCache> hubEnabledCache = new ConcurrentHashMap<>();
+
+    /**
+     * Active hub for the town. On failure, treat the hub as enabled so a split order
+     * does not gain shop-agent delivery during an outage.
+     */
+    public boolean isTownHubEnabled(UUID townId) {
+        if (townId == null) {
+            return true;
+        }
+        HubEnabledCache cached = hubEnabledCache.get(townId);
+        if (cached != null && cached.expiresAt().isAfter(Instant.now())) {
+            return cached.enabled();
+        }
+        try {
+            RestClient client = restClientBuilder.baseUrl(deliveryServiceProperties.getBaseUrl()).build();
+            ApiResponse<Map<String, Object>> response = client.get()
+                    .uri("/api/v1/internal/towns/{townId}/hub-enabled", townId)
+                    .retrieve()
+                    .body(new ParameterizedTypeReference<ApiResponse<Map<String, Object>>>() {});
+            boolean enabled = response != null
+                    && response.getData() != null
+                    && Boolean.TRUE.equals(response.getData().get("enabled"));
+            hubEnabledCache.put(townId, new HubEnabledCache(enabled, Instant.now().plusSeconds(20)));
+            return enabled;
+        } catch (Exception ex) {
+            log.warn("Hub status lookup failed for town {}: {}", townId, ex.getMessage());
+            return true;
+        }
+    }
 
     public HubAdminContext getHubAdminContext(UUID userId) {
         RestClient client = restClientBuilder.baseUrl(deliveryServiceProperties.getBaseUrl()).build();
@@ -225,6 +256,9 @@ public class DeliveryClient {
     }
 
     public record AgentAlertCreated(UUID alertId, String status) {
+    }
+
+    private record HubEnabledCache(boolean enabled, Instant expiresAt) {
     }
 
     public record AgentAlertSummary(

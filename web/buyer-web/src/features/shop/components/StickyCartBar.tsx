@@ -94,7 +94,12 @@ export function StickyCartBar({
                 setPlansOpen(true);
               }}
             >
-              Free delivery plan ₹{Number(starterPlan?.price ?? 0).toFixed(0)}
+              <span className="hlm-cart-bar-plan-full">
+                Free delivery plan ₹{Number(starterPlan?.price ?? 0).toFixed(0)}
+              </span>
+              <span className="hlm-cart-bar-plan-short">
+                Plan ₹{Number(starterPlan?.price ?? 0).toFixed(0)}
+              </span>
             </button>
           ) : null}
         </div>
@@ -127,6 +132,26 @@ const BAR_CSS = `
   .hlm-cart-bar-mid .cart-unlock {
     flex: 1 1 auto;
     min-width: 0;
+  }
+  .hlm-cart-bar-plan-short { display: none; }
+  @media (max-width: 540px) {
+    .hlm-cart-bar {
+      flex-wrap: wrap;
+      row-gap: 0.22rem;
+    }
+    .hlm-cart-bar-mid {
+      flex: 1 1 100%;
+      order: -1;
+      justify-content: space-between;
+      gap: 0.45rem;
+      padding: 0 0.1rem 0.28rem;
+      border-bottom: 1px solid rgba(255,255,255,0.2);
+    }
+    .hlm-cart-bar-mid .cart-unlock {
+      flex: 1 1 auto;
+    }
+    .hlm-cart-bar-plan-full { display: none; }
+    .hlm-cart-bar-plan-short { display: inline; }
   }
 `;
 

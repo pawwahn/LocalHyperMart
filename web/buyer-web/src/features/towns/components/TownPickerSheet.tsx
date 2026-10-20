@@ -1,6 +1,7 @@
 import { useState, type CSSProperties } from 'react';
 import { useTown } from '@/shared/town/TownContext';
-import type { TownVm } from '@/features/towns/api/townsApi';
+import { listEnabledTowns, type TownVm } from '@/features/towns/api/townsApi';
+import { nearestOpenTown } from '@/features/towns/nearestTown';
 import { Button } from '@/shared/ui';
 
 export function TownPickerSheet() {
@@ -18,6 +19,8 @@ export function TownPickerSheet() {
   } = useTown();
   const [pendingTown, setPendingTown] = useState<TownVm | null>(null);
   const [busy, setBusy] = useState(false);
+  const [locating, setLocating] = useState(false);
+  const [locNote, setLocNote] = useState<string | null>(null);
 
   if (!pickerOpen) return null;
 
@@ -31,6 +34,46 @@ export function TownPickerSheet() {
       return;
     }
     void selectTown(town);
+  }
+
+  function useMyLocation() {
+    if (!navigator.geolocation) {
+      setLocNote('This phone cannot share location. Pick a town below.');
+      return;
+    }
+    setLocating(true);
+    setLocNote(null);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        void (async () => {
+          let items = towns;
+          try {
+            items = await listEnabledTowns();
+          } catch {
+            items = towns;
+          }
+          setLocating(false);
+          const hit = nearestOpenTown(items, pos.coords.latitude, pos.coords.longitude);
+          if (!hit) {
+            setLocNote('No town has a map center yet. Pick one below.');
+            return;
+          }
+          const name = hit.town.displayName.split(',')[0];
+          const km = hit.km < 1 ? 'under 1 km' : `${Math.round(hit.km)} km`;
+          if (!hit.within) {
+            setLocNote(`${name} is the closest town, ${km} away. That is outside its ${hit.limitKm} km area.`);
+            return;
+          }
+          setLocNote(`${name} is ${km} away.`);
+          requestSelect(hit.town);
+        })();
+      },
+      () => {
+        setLocating(false);
+        setLocNote('Location was blocked. Pick a town below.');
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 },
+    );
   }
 
   async function confirmSwitch() {
@@ -86,6 +129,15 @@ export function TownPickerSheet() {
         <p style={styles.sub}>
           {hasTown ? 'Shops & delivery are for one town at a time.' : 'Pick a town to start shopping.'}
         </p>
+        <button
+          type="button"
+          style={styles.locateBtn}
+          disabled={busy || locating || loading}
+          onClick={useMyLocation}
+        >
+          {locating ? 'Finding…' : 'Use my location'}
+        </button>
+        {locNote ? <p style={styles.locNote}>{locNote}</p> : null}
 
         {error ? (
           <div style={styles.errorBox}>
@@ -234,6 +286,18 @@ const styles: Record<string, CSSProperties> = {
     padding: '0.15rem 0.25rem',
   },
   sub: { margin: 0, color: 'var(--text-muted)', fontSize: '0.75rem', lineHeight: 1.3 },
+  locateBtn: {
+    width: '100%',
+    minHeight: 44,
+    borderRadius: 10,
+    border: '1px solid var(--accent)',
+    background: 'color-mix(in srgb, var(--accent) 10%, #fff)',
+    color: 'var(--accent)',
+    fontWeight: 800,
+    fontSize: '0.86rem',
+    cursor: 'pointer',
+  },
+  locNote: { margin: 0, color: 'var(--text-muted)', fontSize: '0.75rem', lineHeight: 1.3 },
   list: {
     listStyle: 'none',
     margin: 0,
