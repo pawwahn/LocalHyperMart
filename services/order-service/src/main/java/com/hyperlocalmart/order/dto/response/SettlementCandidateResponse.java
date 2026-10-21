@@ -35,5 +35,14 @@ public class SettlementCandidateResponse {
         /** Shop's own delivery agent — COD is remitted to vendor, not hub close-day. */
         boolean vendorAgentDelivery;
         BigDecimal subtotal;
+        /** Pieces on this order. Per-piece platform fees use this. Null counts as 0. */
+        Integer pieceCount;
+        /**
+         * Town platform fee the buyer paid on this order. Billed back when the shop holds the cash.
+         * This is separate from the vendor billing quote.
+         */
+        BigDecimal platformFee;
+        /** Town COD charge the buyer paid. Billed back when the shop holds the cash. Null on grocery bags. */
+        BigDecimal codFee;
     }
 }

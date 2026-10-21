@@ -45,6 +45,17 @@ hyperlocalmart:
     razorpay-key-secret: ${RAZORPAY_KEY_SECRET:}
     razorpay-webhook-secret: ${RAZORPAY_WEBHOOK_SECRET:}
     razorpay-api-base-url: ${RAZORPAY_API_BASE_URL:https://api.razorpay.com/v1}
+    cashfree-client-id: ${CASHFREE_CLIENT_ID:}
+    cashfree-client-secret: ${CASHFREE_CLIENT_SECRET:}
+    cashfree-api-base-url: ${CASHFREE_API_BASE_URL:https://sandbox.cashfree.com/pg}
+    cashfree-api-version: ${CASHFREE_API_VERSION:2023-08-01}
+    phonepe-client-id: ${PHONEPE_CLIENT_ID:}
+    phonepe-client-secret: ${PHONEPE_CLIENT_SECRET:}
+    phonepe-client-version: ${PHONEPE_CLIENT_VERSION:1}
+    phonepe-env: ${PHONEPE_ENV:sandbox}
+    phonepe-webhook-username: ${PHONEPE_WEBHOOK_USERNAME:}
+    phonepe-webhook-password: ${PHONEPE_WEBHOOK_PASSWORD:}
+    payment-return-url: ${PAYMENT_RETURN_URL:http://localhost:5175/shop}
     checkout-name: ${RAZORPAY_CHECKOUT_NAME:KoyaKart}
     checkout-logo-url: ${RAZORPAY_CHECKOUT_LOGO_URL:}
     dev-webhook-bypass-secret: ${PAYMENT_DEV_WEBHOOK_BYPASS:dev-bypass}

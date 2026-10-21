@@ -71,5 +71,9 @@ public class CommercialTermsQuoteRequest {
         private Instant placedAt;
 
         private LocalDate orderDate;
+
+        /** Pieces on this order. Used by per-piece platform fees. Null counts as 0. */
+        @Min(0)
+        private Integer pieceCount;
     }
 }

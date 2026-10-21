@@ -6,9 +6,10 @@ import { formatLegalStamp } from '@hlm-legal';
 import { PortalShell } from '@/shared/layout/PortalShell';
 import { useAuth } from '@/shared/auth/AuthContext';
 import { ApiError } from '@/shared/api/http';
-import { Banner, Button, Card, TextField } from '@/shared/ui';
+import { Banner, Button, Card, ConfirmDialog, TextField } from '@/shared/ui';
 import { AdminHistoryPanel } from '@/shared/audit/AdminHistoryPanel';
 import { usePlatformBrand } from '@hlm-brand';
+import defaultMealPlannerIcon from '../meal-planner-icon.png';
 import {
   getPlatformSettings,
   patchPlatformSettings,
@@ -22,6 +23,8 @@ type PageView = 'settings' | 'history';
 
 const EMPTY: PlatformSettingsVm = {
   mapsEnabled: false,
+  mapProvider: 'OSM',
+  googleMapsApiKey: '',
   maintenanceMode: false,
   termsUrl: '',
   privacyUrl: '',
@@ -44,6 +47,8 @@ const EMPTY: PlatformSettingsVm = {
   supplierGstStateCode: '',
   brandLogoUrl: '',
   brandLogoMediaId: '',
+  mealPlannerIconUrl: '',
+  mealPlannerIconMediaId: '',
 };
 
 export function SettingsPage() {
@@ -59,6 +64,8 @@ export function SettingsPage() {
   const [pageView, setPageView] = useState<PageView>('settings');
   const [historyTick, setHistoryTick] = useState(0);
   const [logoUploadBusy, setLogoUploadBusy] = useState(false);
+  const [mealIconBusy, setMealIconBusy] = useState(false);
+  const [mapSwitchTo, setMapSwitchTo] = useState<'OSM' | 'GOOGLE' | null>(null);
 
   const reload = useCallback(async () => {
     if (!token) return;
@@ -514,6 +521,57 @@ export function SettingsPage() {
         </Card>
 
         <Card padding="sm" style={styles.card}>
+          <div style={styles.mapHead}>
+            <h2 style={styles.sectionTitle}>Delivery map</h2>
+            <div style={styles.modeRow} role="group" aria-label="Active map">
+              <button
+                type="button"
+                aria-pressed={settings.mapProvider !== 'GOOGLE'}
+                style={{
+                  ...(settings.mapProvider !== 'GOOGLE' ? styles.modeActive : styles.modeBtn),
+                  minHeight: 44,
+                }}
+                onClick={() => {
+                  if (settings.mapProvider !== 'GOOGLE') return;
+                  setMapSwitchTo('OSM');
+                }}
+              >
+                OpenStreetMap
+              </button>
+              <button
+                type="button"
+                aria-pressed={settings.mapProvider === 'GOOGLE'}
+                style={{
+                  ...(settings.mapProvider === 'GOOGLE' ? styles.modeActive : styles.modeBtn),
+                  minHeight: 44,
+                }}
+                onClick={() => {
+                  if (settings.mapProvider === 'GOOGLE') return;
+                  setMapSwitchTo('GOOGLE');
+                }}
+              >
+                Google
+              </button>
+            </div>
+          </div>
+          {settings.mapProvider === 'GOOGLE' ? (
+            <TextField
+              label="Google Maps key"
+              value={settings.googleMapsApiKey}
+              autoComplete="off"
+              spellCheck={false}
+              placeholder="Browser key"
+              onChange={(e) => setSettings((s) => ({ ...s, googleMapsApiKey: e.target.value }))}
+            />
+          ) : null}
+          <p style={styles.mapHint}>
+            {settings.mapProvider === 'GOOGLE'
+              ? 'Google is on. Paste a browser key restricted to this site, then save. OpenStreetMap stays idle.'
+              : 'OpenStreetMap is on and free. Google stays idle until you switch and save.'}
+          </p>
+        </Card>
+
+        <Card padding="sm" style={styles.card}>
           <h2 style={styles.sectionTitle}>Legal & support</h2>
           <div style={styles.formGrid}>
             <TextField
@@ -546,14 +604,6 @@ export function SettingsPage() {
             <label style={styles.check}>
               <input
                 type="checkbox"
-                checked={settings.mapsEnabled}
-                onChange={(e) => setSettings((s) => ({ ...s, mapsEnabled: e.target.checked }))}
-              />
-              Maps
-            </label>
-            <label style={styles.check}>
-              <input
-                type="checkbox"
                 checked={settings.maintenanceMode}
                 onChange={(e) => setSettings((s) => ({ ...s, maintenanceMode: e.target.checked }))}
               />
@@ -567,6 +617,55 @@ export function SettingsPage() {
               />
               Meal planner (buyer)
             </label>
+            <span style={styles.mealIconSlot}>
+              <img
+                src={settings.mealPlannerIconUrl || defaultMealPlannerIcon}
+                alt=""
+                style={styles.mealIconPreview}
+              />
+              <label style={styles.logoUploadBtn}>
+                {mealIconBusy ? 'Uploading…' : 'Change icon'}
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,image/gif"
+                  style={{ display: 'none' }}
+                  disabled={mealIconBusy || !token}
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    e.target.value = '';
+                    if (!file || !token) return;
+                    void (async () => {
+                      setMealIconBusy(true);
+                      setError(null);
+                      try {
+                        const uploaded = await uploadPlatformBrandLogo(token, file);
+                        setSettings((s) => ({
+                          ...s,
+                          mealPlannerIconUrl: uploaded.url,
+                          mealPlannerIconMediaId: uploaded.mediaId,
+                        }));
+                        setNotice('Icon uploaded — click Save settings to show it on the buyer cart bar.');
+                      } catch (err) {
+                        setError(err instanceof ApiError || err instanceof Error ? err.message : 'Upload failed');
+                      } finally {
+                        setMealIconBusy(false);
+                      }
+                    })();
+                  }}
+                />
+              </label>
+              {settings.mealPlannerIconUrl ? (
+                <Button
+                  variant="ghost"
+                  disabled={busy}
+                  onClick={() =>
+                    setSettings((s) => ({ ...s, mealPlannerIconUrl: '', mealPlannerIconMediaId: '' }))
+                  }
+                >
+                  Use default
+                </Button>
+              ) : null}
+            </span>
             <label style={styles.check}>
               <input
                 type="checkbox"
@@ -580,6 +679,23 @@ export function SettingsPage() {
           </>
         )}
       </div>
+      <ConfirmDialog
+        open={mapSwitchTo != null}
+        danger={false}
+        title={mapSwitchTo === 'OSM' ? 'Switch to OpenStreetMap?' : 'Switch to Google?'}
+        description={
+          mapSwitchTo === 'OSM'
+            ? 'Delivery cards will show the OpenStreetMap pin after you save.'
+            : 'Delivery cards will show the Google pin after you save.'
+        }
+        confirmLabel="Switch"
+        cancelLabel={mapSwitchTo === 'OSM' ? 'Keep Google' : 'Keep OpenStreetMap'}
+        onClose={() => setMapSwitchTo(null)}
+        onConfirm={() => {
+          if (mapSwitchTo) setSettings((s) => ({ ...s, mapProvider: mapSwitchTo }));
+          setMapSwitchTo(null);
+        }}
+      />
     </PortalShell>
   );
 }
@@ -637,6 +753,20 @@ const styles: Record<string, CSSProperties> = {
     fontFamily: 'var(--font-display)',
     fontSize: '1rem',
     fontWeight: 800,
+  },
+  mapHead: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: '0.45rem',
+    flexWrap: 'wrap',
+  },
+  mapHint: {
+    margin: 0,
+    color: 'var(--text-muted)',
+    fontSize: '0.75rem',
+    fontWeight: 600,
+    lineHeight: 1.35,
   },
   hintInline: { color: 'var(--text-muted)', fontSize: '0.78rem', fontWeight: 600 },
   themeRow: {
@@ -747,6 +877,19 @@ const styles: Record<string, CSSProperties> = {
     gap: '0.75rem',
     flexWrap: 'wrap',
     marginTop: '0.15rem',
+  },
+  mealIconSlot: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '0.4rem',
+  },
+  mealIconPreview: {
+    width: 32,
+    height: 32,
+    objectFit: 'contain',
+    borderRadius: 6,
+    border: '1px solid var(--border)',
+    background: '#fff',
   },
   check: {
     display: 'inline-flex',

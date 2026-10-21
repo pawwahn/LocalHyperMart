@@ -56,6 +56,9 @@ public class UpdateTownConfigRequest {
     /** Inclusive delivery window end, HH:mm in IST. Must be after start. */
     private String deliveryWindowEnd;
 
+    /** Laundry requests can be placed in this town. */
+    private Boolean laundryEnabled;
+
     @Data
     public static class DeliverySlabRequest {
         private BigDecimal minOrderValue;

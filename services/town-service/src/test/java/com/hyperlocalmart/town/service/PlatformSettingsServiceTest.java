@@ -120,6 +120,22 @@ class PlatformSettingsServiceTest {
     }
 
     @Test
+    void settingsChangeParts_includesDeliveryMapWithoutPrintingTheGoogleKey() {
+        Map<String, Object> before = new LinkedHashMap<>();
+        before.put("mapProvider", "OSM");
+        before.put("googleMapsApiKey", "");
+        Map<String, Object> after = new LinkedHashMap<>(before);
+        after.put("mapProvider", "GOOGLE");
+        after.put("googleMapsApiKey", "AIzaSyTestKey");
+
+        var parts = PlatformSettingsService.settingsChangeParts(before, after);
+
+        assertThat(parts).anyMatch(s -> s.contains("Delivery map") && s.contains("Google"));
+        assertThat(parts).anyMatch(s -> s.contains("Google Maps key added"));
+        assertThat(String.join(" ", parts)).doesNotContain("AIzaSyTestKey");
+    }
+
+    @Test
     void patch_rejectsEmptyTerms() {
         when(platformSettingRepository.findBySettingKey(PlatformSettingsService.KEY_PLATFORM))
                 .thenReturn(Optional.empty());

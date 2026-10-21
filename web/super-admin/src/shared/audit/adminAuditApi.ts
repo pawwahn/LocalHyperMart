@@ -103,6 +103,7 @@ const FIELD_LABELS: Record<string, string> = {
   scratchMinGoodsAmount: 'Scratch goods min',
   dealPrices: 'Deal prices',
   deliverySlabs: 'Delivery slabs',
+  laundryEnabled: 'Laundry',
   codEnabled: 'COD',
   upiEnabled: 'UPI / online pay',
   codCharge: 'COD charge',
@@ -115,6 +116,8 @@ const FIELD_LABELS: Record<string, string> = {
   deliveryFee: 'Delivery fee',
   vendorOrderAlertMessage: 'Vendor alert',
   mapsEnabled: 'Maps',
+  mapProvider: 'Delivery map',
+  googleMapsApiKey: 'Google Maps key',
   maintenanceMode: 'Maintenance',
   supportPhone: 'Support phone',
   grievanceOfficer: 'Grievance officer',
@@ -186,6 +189,8 @@ const CATALOG_KEY_ORDER = [
 
 function prettyVal(key: string, raw: unknown): string {
   if (raw == null) return '—';
+  if (key === 'googleMapsApiKey') return String(raw).trim() ? 'saved' : '—';
+  if (key === 'mapProvider') return String(raw).toUpperCase() === 'GOOGLE' ? 'Google' : 'OpenStreetMap';
   if (typeof raw === 'boolean') return raw ? 'on' : 'off';
   if (key === 'status') {
     const status = String(raw).trim().toUpperCase();

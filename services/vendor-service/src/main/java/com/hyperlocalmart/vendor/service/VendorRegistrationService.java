@@ -16,8 +16,11 @@ import com.hyperlocalmart.vendor.entity.RegistrationRequestStatus;
 import com.hyperlocalmart.vendor.entity.Shop;
 import com.hyperlocalmart.vendor.entity.ShopStatus;
 import com.hyperlocalmart.vendor.entity.Vendor;
+import com.hyperlocalmart.vendor.entity.ServiceOffering;
 import com.hyperlocalmart.vendor.entity.VendorRegistrationRequest;
 import com.hyperlocalmart.vendor.entity.VendorStatus;
+import com.hyperlocalmart.vendor.repository.LaundryProfileRepository;
+import com.hyperlocalmart.vendor.repository.ServiceOfferingRepository;
 import com.hyperlocalmart.vendor.repository.ShopRepository;
 import com.hyperlocalmart.vendor.repository.VendorRegistrationRequestRepository;
 import com.hyperlocalmart.vendor.repository.VendorRepository;
@@ -47,6 +50,8 @@ public class VendorRegistrationService {
     private final VendorRegistrationRequestRepository registrationRequestRepository;
     private final VendorRepository vendorRepository;
     private final ShopRepository shopRepository;
+    private final ServiceOfferingRepository offeringRepository;
+    private final LaundryProfileRepository laundryProfileRepository;
     private final UserClient userClient;
     private final VendorCommercialTermsService vendorCommercialTermsService;
     private final AdminAuditClient adminAuditClient;
@@ -61,6 +66,7 @@ public class VendorRegistrationService {
         String fssaiNumber = normalizeFssai(request.getFssaiNumber());
         String bankAccount = blankToNull(request.getBankAccount());
         String ifsc = blankToNull(request.getIfsc());
+        ServiceOffering service = requireOffering(request.getServiceId());
 
         if (gstNumber != null) {
             if (bankAccount == null || ifsc == null) {
@@ -85,6 +91,7 @@ public class VendorRegistrationService {
                 .fssaiNumber(fssaiNumber)
                 .bankAccountEnc(bankAccount)
                 .ifscEnc(ifsc == null ? null : ifsc.toUpperCase(Locale.ROOT))
+                .serviceId(service.getId())
                 .status(RegistrationRequestStatus.PENDING)
                 .build();
         entity.setCreatedBy(requestedByUserId);
@@ -137,6 +144,7 @@ public class VendorRegistrationService {
                 .fssaiNumber(request.getFssaiNumber())
                 .bankAccountEnc(request.getBankAccountEnc())
                 .ifscEnc(request.getIfscEnc())
+                .serviceId(request.getServiceId())
                 .status(VendorStatus.ACTIVE)
                 .build();
         vendor.setCreatedBy(reviewerId);
@@ -244,6 +252,7 @@ public class VendorRegistrationService {
         String fssaiNumber = normalizeFssai(request.getFssaiNumber());
         String bankAccount = blankToNull(request.getBankAccount());
         String ifsc = blankToNull(request.getIfsc());
+        ServiceOffering service = requireOffering(request.getServiceId());
         if (gstNumber != null && (bankAccount == null || ifsc == null)) {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR,
                     "Bank account and IFSC are required when GST number is provided");
@@ -251,10 +260,13 @@ public class VendorRegistrationService {
 
         List<Shop> shops = shopRepository.findByVendorIdOrderByCreatedAtAsc(vendorId);
         Shop shop = shops.isEmpty() ? null : shops.getFirst();
+        String beforeService = serviceName(vendor.getServiceId());
         Map<String, Object> beforeProfile = VendorAuditFormat.profile(vendor, shop);
+        beforeProfile.put("serviceName", beforeService);
 
         vendor.setBusinessName(businessName);
         vendor.setOwnerName(blankToNull(request.getOwnerName()));
+        vendor.setServiceId(service.getId());
         vendor.setGstNumberEnc(gstNumber);
         vendor.setFssaiNumber(fssaiNumber);
         vendor.setBankAccountEnc(bankAccount);
@@ -281,6 +293,7 @@ public class VendorRegistrationService {
         }
 
         Map<String, Object> afterProfile = VendorAuditFormat.profile(vendor, shop);
+        afterProfile.put("serviceName", service.getName());
         List<String> profileLines = VendorAuditFormat.changeLines(beforeProfile, afterProfile);
         if (!profileLines.isEmpty()) {
             String shopLabel = shop.getShopName() == null ? vendor.getBusinessName() : shop.getShopName();
@@ -404,6 +417,7 @@ public class VendorRegistrationService {
 
         List<Shop> shops = shopRepository.findByVendorIdOrderByCreatedAtAsc(vendor.getId());
         Shop shop = shops.isEmpty() ? null : shops.getFirst();
+        ServiceOffering service = offeringOrNull(vendor.getServiceId());
 
         return VendorMeResponse.builder()
                 .vendorId(vendor.getId())
@@ -414,10 +428,14 @@ public class VendorRegistrationService {
                 .shopName(shop != null ? shop.getShopName() : null)
                 .shopId(shop != null ? shop.getId() : null)
                 .status(vendor.getStatus().name())
+                .serviceId(service != null ? service.getId() : null)
+                .serviceName(service != null ? service.getName() : null)
+                .hidesListings(CatalogListingPolicy.hidesListings(service, laundryProfileRepository.existsById(vendor.getId())))
                 .build();
     }
 
     private VendorRegistrationResponse toRegistrationResponse(VendorRegistrationRequest request, String temporaryPassword) {
+        ServiceOffering service = offeringOrNull(request.getServiceId());
         return VendorRegistrationResponse.builder()
                 .id(request.getId())
                 .townId(request.getTownId())
@@ -426,6 +444,8 @@ public class VendorRegistrationService {
                 .phone(request.getPhone())
                 .shopName(request.getShopName())
                 .address(request.getAddress())
+                .serviceId(service != null ? service.getId() : null)
+                .serviceName(service != null ? service.getName() : null)
                 .gstNumber(request.getGstNumberEnc())
                 .fssaiNumber(request.getFssaiNumber())
                 .status(request.getStatus().name())
@@ -439,6 +459,7 @@ public class VendorRegistrationService {
     private VendorResponse toVendorResponse(Vendor vendor) {
         List<Shop> shops = shopRepository.findByVendorIdOrderByCreatedAtAsc(vendor.getId());
         Shop shop = shops.isEmpty() ? null : shops.getFirst();
+        ServiceOffering service = offeringOrNull(vendor.getServiceId());
         return VendorResponse.builder()
                 .id(vendor.getId())
                 .townId(vendor.getTownId())
@@ -453,7 +474,30 @@ public class VendorRegistrationService {
                 .shopName(shop != null ? shop.getShopName() : null)
                 .address(shop != null ? shop.getAddress() : null)
                 .disabledReason(vendor.getDisabledReason())
+                .serviceId(service != null ? service.getId() : null)
+                .serviceName(service != null ? service.getName() : null)
+                .hidesListings(CatalogListingPolicy.hidesListings(service, laundryProfileRepository.existsById(vendor.getId())))
                 .build();
+    }
+
+    private ServiceOffering requireOffering(UUID serviceId) {
+        if (serviceId == null) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Service is required");
+        }
+        return offeringRepository.findById(serviceId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.VALIDATION_ERROR, "Select a service"));
+    }
+
+    private ServiceOffering offeringOrNull(UUID serviceId) {
+        if (serviceId == null) {
+            return null;
+        }
+        return offeringRepository.findById(serviceId).orElse(null);
+    }
+
+    private String serviceName(UUID serviceId) {
+        ServiceOffering service = offeringOrNull(serviceId);
+        return service == null ? null : service.getName();
     }
 
     private static String normalizeGst(String raw) {

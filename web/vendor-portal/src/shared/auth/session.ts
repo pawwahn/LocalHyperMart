@@ -10,6 +10,8 @@ export type AuthSession = {
   phone: string;
   shopName?: string;
   townName?: string;
+  serviceName?: string;
+  hidesListings?: boolean;
 };
 
 export function loadSession(): AuthSession | null {

@@ -6,6 +6,7 @@ import { useTown } from '@/shared/town/TownContext';
 import { Banner, EmptyState, LoadingBlock } from '@/shared/ui';
 import {
   fetchCartSuggestions,
+  fetchCatalogHome,
   fetchCatalogPage,
   fetchCategories,
   fetchDiscountedItems,
@@ -15,7 +16,7 @@ import {
   type CategoryView,
 } from '../api/shopApi';
 import { CategoryTile } from '../components/CategoryTile';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/shared/auth/AuthContext';
 import { getPublicPlatformSettings } from '@/features/auth/api/platformSettingsApi';
 import { DeliveryHero } from '../components/DeliveryHero';
@@ -97,7 +98,7 @@ function sortParams(sort: ItemSort): { sort: string; dir: string } {
 export function ShopPage({ browseOnly = false }: Props) {
   const navigate = useNavigate();
   const { isAuthenticated, session } = useAuth();
-  const { townId, townLabel, bestDealsEnabled, deliveryWindowLabel } = useTown();
+  const { townId, townLabel, bestDealsEnabled, deliveryWindowLabel, laundryEnabled } = useTown();
   const {
     cart,
     busy,
@@ -137,6 +138,7 @@ export function ShopPage({ browseOnly = false }: Props) {
   const [discountPool, setDiscountPool] = useState<CatalogItemView[]>([]);
   const [bestsellerPool, setBestsellerPool] = useState<CatalogItemView[]>([]);
   const [picks, setPicks] = useState<CatalogItemView[]>([]);
+  const [railSource, setRailSource] = useState<'pending' | 'home' | 'fallback'>('pending');
   const [storeRails, setStoreRails] = useState<
     Array<{ id: string; title: string; items: CatalogItemView[]; categoryId: string | null }>
   >([]);
@@ -250,35 +252,60 @@ export function ShopPage({ browseOnly = false }: Props) {
       setFeatured([]);
       setDiscountPool([]);
       setBestsellerPool([]);
+      setStoreRails([]);
+      setRailSource('home');
       return;
     }
     let cancelled = false;
-    void fetchCatalogPage({ townId, page: 0, size: 48, sort: 'rating', dir: 'desc' })
-      .then((data) => {
+    setRailSource('pending');
+    void fetchCatalogHome(townId)
+      .then((home) => {
         if (cancelled) return;
-        setFeatured(data.items);
-        rememberItems(data.items, 'append');
+        setFeatured(home.featured);
+        setDiscountPool(home.discounted);
+        setBestsellerPool(home.popular);
+        setStoreRails(home.rails);
+        rememberItems(
+          [
+            ...home.featured,
+            ...home.discounted,
+            ...home.popular,
+            ...home.rails.flatMap((rail) => rail.items),
+          ],
+          'append',
+        );
+        setRailSource('home');
       })
       .catch(() => {
-        if (!cancelled) setFeatured([]);
-      });
-    void fetchDiscountedItems(townId, 28)
-      .then((items) => {
         if (cancelled) return;
-        setDiscountPool(items);
-        rememberItems(items, 'append');
-      })
-      .catch(() => {
-        if (!cancelled) setDiscountPool([]);
-      });
-    void fetchTownBestsellers(townId, 24)
-      .then((items) => {
-        if (cancelled) return;
-        setBestsellerPool(items);
-        rememberItems(items, 'append');
-      })
-      .catch(() => {
-        if (!cancelled) setBestsellerPool([]);
+        setRailSource('fallback');
+        void fetchCatalogPage({ townId, page: 0, size: 48, sort: 'rating', dir: 'desc' })
+          .then((data) => {
+            if (cancelled) return;
+            setFeatured(data.items);
+            rememberItems(data.items, 'append');
+          })
+          .catch(() => {
+            if (!cancelled) setFeatured([]);
+          });
+        void fetchDiscountedItems(townId, 28)
+          .then((items) => {
+            if (cancelled) return;
+            setDiscountPool(items);
+            rememberItems(items, 'append');
+          })
+          .catch(() => {
+            if (!cancelled) setDiscountPool([]);
+          });
+        void fetchTownBestsellers(townId, 24)
+          .then((items) => {
+            if (cancelled) return;
+            setBestsellerPool(items);
+            rememberItems(items, 'append');
+          })
+          .catch(() => {
+            if (!cancelled) setBestsellerPool([]);
+          });
       });
     return () => {
       cancelled = true;
@@ -306,8 +333,11 @@ export function ShopPage({ browseOnly = false }: Props) {
   }, [townId, browseOnly, isAuthenticated, session?.accessToken, rememberItems]);
 
   useEffect(() => {
-    if (!townId || browseOnly || categories.length === 0) {
+    if (!townId || browseOnly) {
       setStoreRails([]);
+      return;
+    }
+    if (railSource !== 'fallback' || categories.length === 0) {
       return;
     }
     let cancelled = false;
@@ -369,7 +399,7 @@ export function ShopPage({ browseOnly = false }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [townId, browseOnly, categories, rememberItems]);
+  }, [townId, browseOnly, categories, rememberItems, railSource]);
 
   const buyAgainItems = useMemo(
     () => picks.filter((item) => item.fromPreviousOrder),
@@ -607,6 +637,21 @@ export function ShopPage({ browseOnly = false }: Props) {
             </button>
           ))}
         </div>
+      ) : null}
+      {!inCategory && !searching && laundryEnabled ? (
+        <Link to="/laundry" style={styles.laundry} aria-label="Laundry. Wash, iron, pickup and drop. Book">
+          <span style={styles.laundryIcon} aria-hidden>
+            👕
+          </span>
+          <span style={styles.laundryCopy}>
+            <span style={styles.laundryTitleRow}>
+              <strong style={styles.laundryTitle}>Laundry</strong>
+              <span style={styles.laundryBadge}>Service</span>
+            </span>
+            <span style={styles.laundryHint}>Wash, iron, pickup and drop</span>
+          </span>
+          <span style={styles.laundryCta}>Book</span>
+        </Link>
       ) : null}
       {!browseOnly && !inCategory && !searching && isAuthenticated && session?.accessToken && townId ? (
         <BuyAgainBar
@@ -1068,6 +1113,66 @@ const styles: Record<string, CSSProperties> = {
     display: 'flex',
     flexWrap: 'wrap',
     gap: '0.35rem',
+  },
+  laundry: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.5rem',
+    margin: '0.4rem 0 0.45rem',
+    padding: '0.38rem 0.45rem 0.38rem 0.42rem',
+    minHeight: 48,
+    borderRadius: 12,
+    background:
+      'linear-gradient(105deg, var(--hero-deep) 0%, var(--accent) 52%, color-mix(in srgb, var(--accent) 62%, #fff) 100%)',
+    color: '#fff',
+    textDecoration: 'none',
+    boxShadow: '0 4px 14px color-mix(in srgb, var(--accent) 32%, transparent)',
+  },
+  laundryIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 9,
+    background: 'rgba(255, 255, 255, 0.18)',
+    display: 'grid',
+    placeItems: 'center',
+    fontSize: '1.05rem',
+    lineHeight: 1,
+    flexShrink: 0,
+  },
+  laundryCopy: { flex: 1, minWidth: 0 },
+  laundryTitleRow: { display: 'flex', alignItems: 'center', gap: '0.35rem', minWidth: 0 },
+  laundryTitle: { fontSize: '0.9rem', fontWeight: 800, color: '#fff', letterSpacing: '-0.02em' },
+  laundryBadge: {
+    padding: '0.05rem 0.38rem',
+    borderRadius: 999,
+    background: 'var(--highlight, #F7CE46)',
+    color: '#0a3d12',
+    fontSize: '0.56rem',
+    fontWeight: 900,
+    letterSpacing: '0.06em',
+    textTransform: 'uppercase',
+    lineHeight: 1.4,
+    flexShrink: 0,
+  },
+  laundryHint: {
+    display: 'block',
+    marginTop: '0.05rem',
+    fontSize: '0.68rem',
+    color: 'rgba(255, 255, 255, 0.9)',
+    fontWeight: 600,
+  },
+  laundryCta: {
+    flexShrink: 0,
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 30,
+    padding: '0 0.7rem',
+    borderRadius: 999,
+    background: '#fff',
+    color: 'var(--accent)',
+    fontSize: '0.75rem',
+    fontWeight: 800,
   },
   hint: {
     border: '1px solid var(--border)',

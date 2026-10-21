@@ -174,6 +174,7 @@ public class VendorCommercialTermsService {
         view.put("Fee model", feeLabel(terms.getFeeModel()));
         view.put("Commission %", percentText(terms.getCommissionPercent()));
         view.put("₹ per order", moneyText(terms.getPerOrderFlatAmount()));
+        view.put("₹ per piece", moneyText(terms.getPerPieceAmount()));
         view.put("Monthly fee", moneyText(terms.getMonthlySubscriptionAmount()));
         view.put("Billing day", terms.getSubscriptionBillingDay() == null ? "—" : String.valueOf(terms.getSubscriptionBillingDay()));
         view.put("Tiers", slabsText(terms.getCommissionSlabsJson()));
@@ -186,7 +187,7 @@ public class VendorCommercialTermsService {
     private static List<String> termsChangeLines(Map<String, String> before, Map<String, String> after) {
         List<String> lines = new ArrayList<>();
         for (String label : List.of(
-                "Fee model", "Commission %", "₹ per order", "Monthly fee", "Billing day", "Tiers", "Notes", "Starts from", "Ends on")) {
+                "Fee model", "Commission %", "₹ per order", "₹ per piece", "Monthly fee", "Billing day", "Tiers", "Notes", "Starts from", "Ends on")) {
             String oldValue = before.getOrDefault(label, "—");
             String newValue = after.getOrDefault(label, "—");
             if (oldValue.equals(newValue)) {
@@ -205,6 +206,9 @@ public class VendorCommercialTermsService {
             case NONE -> "No fee";
             case COMMISSION_PCT -> "Simple %";
             case PER_ORDER_FLAT -> "₹ per order";
+            case PER_PIECE -> "₹ per piece";
+            case PER_PIECE_WITH_SUBSCRIPTION -> "₹ per piece + monthly";
+            case PER_ORDER_WITH_SUBSCRIPTION -> "₹ per order + monthly";
             case MONTHLY_SUBSCRIPTION -> "Monthly fee";
             case HYBRID -> "Monthly + %";
             case SLAB_COMMISSION -> "Tiered %";
@@ -363,6 +367,7 @@ public class VendorCommercialTermsService {
             Bucket bucket = buckets.computeIfAbsent(key, k -> new Bucket(terms));
             bucket.gross = bucket.gross.add(line.amount());
             bucket.orderCount += 1;
+            bucket.pieceCount += line.pieces();
             bucket.lineIndexes.add(i);
         }
 
@@ -370,7 +375,7 @@ public class VendorCommercialTermsService {
         String slabLabel = null;
         BigDecimal[] lineFees = new BigDecimal[datedLines.size()];
         for (Bucket bucket : buckets.values()) {
-            FeePart part = computeOrderFees(bucket.terms, bucket.gross, bucket.orderCount);
+            FeePart part = computeOrderFees(bucket.terms, bucket.gross, bucket.orderCount, bucket.pieceCount);
             commission = commission.add(part.commission());
             lines.addAll(part.lines());
             if (part.slabLabel() != null) {
@@ -386,7 +391,9 @@ public class VendorCommercialTermsService {
         if (request.includeSubscription()
                 && subTerms != null
                 && (subTerms.getFeeModel() == VendorFeeModel.MONTHLY_SUBSCRIPTION
-                || subTerms.getFeeModel() == VendorFeeModel.HYBRID)) {
+                || subTerms.getFeeModel() == VendorFeeModel.HYBRID
+                || subTerms.getFeeModel() == VendorFeeModel.PER_PIECE_WITH_SUBSCRIPTION
+                || subTerms.getFeeModel() == VendorFeeModel.PER_ORDER_WITH_SUBSCRIPTION)) {
             subscription = subscriptionDue(subTerms, request.getPeriodEnd(), request.isMarkSubscriptionCharged(),
                     request.ignoreSubscriptionChargedFlag());
             subscriptionIncluded = subscription.compareTo(BigDecimal.ZERO) > 0;
@@ -444,13 +451,25 @@ public class VendorCommercialTermsService {
             return;
         }
         BigDecimal fee = nz(bucketFee).setScale(2, RoundingMode.HALF_UP);
-        boolean flat = bucket.terms != null && bucket.terms.getFeeModel() == VendorFeeModel.PER_ORDER_FLAT;
+        boolean flat = bucket.terms != null && (bucket.terms.getFeeModel() == VendorFeeModel.PER_ORDER_FLAT
+                || bucket.terms.getFeeModel() == VendorFeeModel.PER_ORDER_WITH_SUBSCRIPTION);
+        boolean perPiece = bucket.terms != null && (bucket.terms.getFeeModel() == VendorFeeModel.PER_PIECE
+                || bucket.terms.getFeeModel() == VendorFeeModel.PER_PIECE_WITH_SUBSCRIPTION);
+        int pieceTotal = 0;
+        if (perPiece) {
+            for (int i : idx) {
+                pieceTotal += datedLines.get(i).pieces();
+            }
+        }
         BigDecimal allocated = BigDecimal.ZERO;
         for (int k = 0; k < idx.size(); k++) {
             int i = idx.get(k);
             BigDecimal share;
             if (k == idx.size() - 1) {
                 share = fee.subtract(allocated);
+            } else if (perPiece && pieceTotal > 0) {
+                share = fee.multiply(BigDecimal.valueOf(datedLines.get(i).pieces()))
+                        .divide(BigDecimal.valueOf(pieceTotal), 2, RoundingMode.HALF_UP);
             } else if (flat || bucket.gross.signum() == 0) {
                 share = fee.divide(BigDecimal.valueOf(idx.size()), 2, RoundingMode.HALF_UP);
             } else {
@@ -473,7 +492,7 @@ public class VendorCommercialTermsService {
                 if (date == null) {
                     date = request.getPeriodEnd() == null ? LocalDate.now(IST) : request.getPeriodEnd();
                 }
-                out.add(new DatedLine(nz(line.getAmount()), date));
+                out.add(new DatedLine(nz(line.getAmount()), date, nzInt(line.getPieceCount())));
             }
             return out;
         }
@@ -486,7 +505,7 @@ public class VendorCommercialTermsService {
         LocalDate date = request.getPeriodEnd() == null ? LocalDate.now(IST) : request.getPeriodEnd();
         List<DatedLine> synthetic = new ArrayList<>();
         if (count <= 0) {
-            synthetic.add(new DatedLine(gross, date));
+            synthetic.add(new DatedLine(gross, date, 0));
             return synthetic;
         }
         BigDecimal each = gross.divide(BigDecimal.valueOf(count), 2, RoundingMode.HALF_UP);
@@ -494,12 +513,12 @@ public class VendorCommercialTermsService {
         for (int i = 0; i < count; i++) {
             BigDecimal amt = i == count - 1 ? gross.subtract(allocated) : each;
             allocated = allocated.add(amt);
-            synthetic.add(new DatedLine(amt, date));
+            synthetic.add(new DatedLine(amt, date, 0));
         }
         return synthetic;
     }
 
-    private FeePart computeOrderFees(VendorCommercialTerms terms, BigDecimal gross, int orderCount) {
+    private FeePart computeOrderFees(VendorCommercialTerms terms, BigDecimal gross, int orderCount, int pieceCount) {
         if (terms == null || terms.getFeeModel() == VendorFeeModel.NONE) {
             return new FeePart(BigDecimal.ZERO, List.of("No fee (" + orderCount + " orders)"), null);
         }
@@ -508,10 +527,16 @@ public class VendorCommercialTermsService {
                 + (terms.getEffectiveTo() == null ? "open" : terms.getEffectiveTo());
         List<String> lines = new ArrayList<>();
         return switch (terms.getFeeModel()) {
-            case PER_ORDER_FLAT -> {
+            case PER_ORDER_FLAT, PER_ORDER_WITH_SUBSCRIPTION -> {
                 BigDecimal flat = nz(terms.getPerOrderFlatAmount());
                 BigDecimal commission = flat.multiply(BigDecimal.valueOf(orderCount)).setScale(2, RoundingMode.HALF_UP);
                 lines.add(orderCount + " orders × ₹" + flat.toPlainString() + " flat [" + range + "]");
+                yield new FeePart(commission, lines, null);
+            }
+            case PER_PIECE, PER_PIECE_WITH_SUBSCRIPTION -> {
+                BigDecimal each = nz(terms.getPerPieceAmount());
+                BigDecimal commission = each.multiply(BigDecimal.valueOf(pieceCount)).setScale(2, RoundingMode.HALF_UP);
+                lines.add(pieceCount + " pieces × ₹" + each.toPlainString() + " [" + range + "]");
                 yield new FeePart(commission, lines, null);
             }
             case COMMISSION_PCT, HYBRID -> {
@@ -556,6 +581,7 @@ public class VendorCommercialTermsService {
         terms.setFeeModel(request.getFeeModel());
         terms.setCommissionPercent(normalizeMoney(request.getCommissionPercent(), 4));
         terms.setPerOrderFlatAmount(normalizeMoney(request.getPerOrderFlatAmount(), 2));
+        terms.setPerPieceAmount(normalizeMoney(request.getPerPieceAmount(), 2));
         terms.setMonthlySubscriptionAmount(normalizeMoney(request.getMonthlySubscriptionAmount(), 2));
         terms.setSubscriptionBillingDay(request.getSubscriptionBillingDay());
         terms.setCommissionSlabsJson(writeSlabs(request.getCommissionSlabs()));
@@ -659,9 +685,22 @@ public class VendorCommercialTermsService {
     private void validateRequest(UpsertVendorCommercialTermsRequest request) {
         VendorFeeModel model = request.getFeeModel();
         switch (model) {
-            case PER_ORDER_FLAT -> {
+            case PER_ORDER_FLAT, PER_ORDER_WITH_SUBSCRIPTION -> {
                 if (nz(request.getPerOrderFlatAmount()).compareTo(BigDecimal.ZERO) <= 0) {
                     throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Per-order flat amount is required");
+                }
+                if (model == VendorFeeModel.PER_ORDER_WITH_SUBSCRIPTION
+                        && nz(request.getMonthlySubscriptionAmount()).compareTo(BigDecimal.ZERO) <= 0) {
+                    throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Monthly subscription amount is required");
+                }
+            }
+            case PER_PIECE, PER_PIECE_WITH_SUBSCRIPTION -> {
+                if (nz(request.getPerPieceAmount()).compareTo(BigDecimal.ZERO) <= 0) {
+                    throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Per-piece amount is required");
+                }
+                if (model == VendorFeeModel.PER_PIECE_WITH_SUBSCRIPTION
+                        && nz(request.getMonthlySubscriptionAmount()).compareTo(BigDecimal.ZERO) <= 0) {
+                    throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Monthly subscription amount is required");
                 }
             }
             case COMMISSION_PCT -> {
@@ -718,6 +757,7 @@ public class VendorCommercialTermsService {
                 .feeModel(terms.getFeeModel())
                 .commissionPercent(terms.getCommissionPercent())
                 .perOrderFlatAmount(terms.getPerOrderFlatAmount())
+                .perPieceAmount(terms.getPerPieceAmount())
                 .monthlySubscriptionAmount(terms.getMonthlySubscriptionAmount())
                 .subscriptionBillingDay(terms.getSubscriptionBillingDay())
                 .commissionSlabs(readSlabs(terms.getCommissionSlabsJson()).stream()
@@ -811,6 +851,7 @@ public class VendorCommercialTermsService {
         private final VendorCommercialTerms terms;
         private BigDecimal gross = BigDecimal.ZERO;
         private int orderCount;
+        private int pieceCount;
         private final List<Integer> lineIndexes = new ArrayList<>();
 
         private Bucket(VendorCommercialTerms terms) {
@@ -818,7 +859,7 @@ public class VendorCommercialTermsService {
         }
     }
 
-    private record DatedLine(BigDecimal amount, LocalDate date) {}
+    private record DatedLine(BigDecimal amount, LocalDate date, int pieces) {}
 
     private record FeePart(BigDecimal commission, List<String> lines, String slabLabel) {}
 

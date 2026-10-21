@@ -1,0 +1,31 @@
+package com.hyperlocalmart.vendor.laundry;
+
+public enum LaundryItemType {
+    SAREE,
+    SHIRT,
+    PANTS,
+    CURTAINS,
+    BEDSHEET,
+    TOWEL,
+    PILLOW_COVER,
+    BLANKET,
+    SHERWANI,
+    LEHENGA,
+    SUIT,
+    SALWAR_SUIT,
+    KURTA,
+    T_SHIRT,
+    HOODIE,
+    JACKET,
+    SWEATER,
+    DRESS,
+    KIDS_WEAR,
+    BLOUSE,
+    DHOTI,
+    NIGHTWEAR,
+    UNDERGARMENT,
+    TABLE_CLOTH,
+    CUSHION_COVER,
+    SOFT_TOY,
+    OTHER
+}

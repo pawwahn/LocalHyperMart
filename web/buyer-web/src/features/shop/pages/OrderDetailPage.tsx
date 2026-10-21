@@ -6,7 +6,7 @@ import { useAuth } from '@/shared/auth/AuthContext';
 import { useShop } from '../hooks/useShop';
 import { useOrderDetail } from '../hooks/useOrderDetail';
 import { formatBuyerPaymentLabel } from '../lib/formatBuyerPaymentLabel';
-import { CheckoutDismissedError, openRazorpayCheckout } from '../lib/razorpayCheckout';
+import { CheckoutDismissedError, checkoutCanOpen, openGatewayCheckout } from '../lib/gatewayCheckout';
 import { pollUntilCheckoutReady } from '../lib/paymentCheckoutPoll';
 import { fetchPaymentCheckout } from '../api/shopApi';
 import { confirmOnlinePayment, retryOnlinePayment } from '../api/shopApi';
@@ -199,10 +199,10 @@ export function OrderDetailPage() {
           fetchPaymentCheckout(session.accessToken, retry.paymentId!),
         );
       }
-      if (!checkout?.gatewayOrderId) {
+      if (!checkoutCanOpen(checkout)) {
         throw new Error('Could not start online payment');
       }
-      const paid = await openRazorpayCheckout(checkout, { contact: session.phone });
+      const paid = await openGatewayCheckout(checkout, { contact: session.phone });
       await confirmOnlinePayment(session.accessToken, paid);
       await reload();
     } catch (err) {

@@ -72,8 +72,12 @@ public class PlatformSettingsService {
         pub.put("membershipAnnualCredits", asInt(all.get("membershipAnnualCredits"), 0));
         pub.put("referralsEnabled", asBool(all.get("referralsEnabled"), false));
         pub.put("mealPlannerEnabled", asBool(all.get("mealPlannerEnabled"), false));
+        pub.put("mealPlannerIconUrl", all.getOrDefault("mealPlannerIconUrl", ""));
+        pub.put("mealPlannerIconMediaId", all.getOrDefault("mealPlannerIconMediaId", ""));
         pub.put("brandLogoUrl", all.getOrDefault("brandLogoUrl", ""));
         pub.put("brandLogoMediaId", all.getOrDefault("brandLogoMediaId", ""));
+        pub.put("mapProvider", normalizeMapProvider(all.get("mapProvider")));
+        pub.put("googleMapsApiKey", asString(all.get("googleMapsApiKey")));
         return pub;
     }
 
@@ -158,6 +162,7 @@ public class PlatformSettingsService {
             }
             applyMembershipPatch(current, patch);
             applyLegalPatch(current, patch);
+            applyMapPatch(current, patch);
             current.putAll(patch);
         }
         PackSnap afterPacks = packSnap(current);
@@ -196,8 +201,8 @@ public class PlatformSettingsService {
                 null,
                 "PLATFORM_SETTINGS",
                 null,
-                before,
-                current);
+                redactMapKey(before),
+                redactMapKey(current));
         return current;
     }
 
@@ -291,8 +296,19 @@ public class PlatformSettingsService {
         auditMoney(parts, "Vendor TDS exempt up to", left.get("vendorTdsExemptUpto"), right.get("vendorTdsExemptUpto"));
         auditPlain(parts, "Vendor alert", left.get("vendorOrderAlertMessage"), right.get("vendorOrderAlertMessage"));
         auditBool(parts, "Maps", left.get("mapsEnabled"), right.get("mapsEnabled"));
+        auditPlain(parts, "Delivery map", mapProviderLabel(left.get("mapProvider")), mapProviderLabel(right.get("mapProvider")));
+        if (!asString(left.get("googleMapsApiKey")).equals(asString(right.get("googleMapsApiKey")))) {
+            if (asString(right.get("googleMapsApiKey")).isEmpty()) {
+                parts.add("Google Maps key cleared");
+            } else if (asString(left.get("googleMapsApiKey")).isEmpty()) {
+                parts.add("Google Maps key added");
+            } else {
+                parts.add("Google Maps key updated");
+            }
+        }
         auditBool(parts, "Maintenance", left.get("maintenanceMode"), right.get("maintenanceMode"));
         auditBool(parts, "Meal planner", left.get("mealPlannerEnabled"), right.get("mealPlannerEnabled"));
+        auditPlain(parts, "Meal planner icon", left.get("mealPlannerIconUrl"), right.get("mealPlannerIconUrl"));
         auditBool(parts, "Hub admin agent ratings", left.get("hubAdminCanSeeAgentRatings"), right.get("hubAdminCanSeeAgentRatings"));
         auditPlain(parts, "Support phone", left.get("supportPhone"), right.get("supportPhone"));
         auditPlain(parts, "Brand logo", left.get("brandLogoUrl"), right.get("brandLogoUrl"));
@@ -506,6 +522,8 @@ public class PlatformSettingsService {
     private Map<String, Object> defaults() {
         Map<String, Object> map = new LinkedHashMap<>();
         map.put("mapsEnabled", false);
+        map.put("mapProvider", "OSM");
+        map.put("googleMapsApiKey", "");
         map.put("maintenanceMode", false);
         map.put("termsUrl", "");
         map.put("privacyUrl", "");
@@ -542,6 +560,8 @@ public class PlatformSettingsService {
         map.put("referralShareMessageTemplate",
                 "Order groceries from local shops on KoyaKart. Use my code {code}: {link}");
         map.put("mealPlannerEnabled", false);
+        map.put("mealPlannerIconUrl", "");
+        map.put("mealPlannerIconMediaId", "");
         map.put("hubAdminCanSeeAgentRatings", true);
         map.put("vendorTdsRatePercent", new BigDecimal("0.10"));
         map.put("vendorTdsExemptUpto", new BigDecimal("500000.00"));
@@ -703,6 +723,44 @@ public class PlatformSettingsService {
             throw new IllegalArgumentException(key + " must be at most " + DefaultLegalDocuments.MAX_CHARS + " characters");
         }
         return value;
+    }
+
+    private void applyMapPatch(Map<String, Object> current, Map<String, Object> patch) {
+        if (patch == null) {
+            return;
+        }
+        if (patch.containsKey("mapProvider")) {
+            current.put("mapProvider", normalizeMapProvider(patch.get("mapProvider")));
+            patch.remove("mapProvider");
+        }
+        if (patch.containsKey("googleMapsApiKey")) {
+            String key = asString(patch.get("googleMapsApiKey")).replaceAll("\\s+", "");
+            if (key.length() > 200) {
+                throw new IllegalArgumentException("Google Maps key is too long");
+            }
+            if (!key.isEmpty() && !key.matches("[A-Za-z0-9_\\-]+")) {
+                throw new IllegalArgumentException("Google Maps key looks invalid");
+            }
+            current.put("googleMapsApiKey", key);
+            patch.remove("googleMapsApiKey");
+        }
+    }
+
+    /** OSM unless the stored value is exactly GOOGLE. */
+    public static String normalizeMapProvider(Object raw) {
+        return "GOOGLE".equalsIgnoreCase(asString(raw)) ? "GOOGLE" : "OSM";
+    }
+
+    public static String mapProviderLabel(Object raw) {
+        return "GOOGLE".equals(normalizeMapProvider(raw)) ? "Google" : "OpenStreetMap";
+    }
+
+    private static Map<String, Object> redactMapKey(Map<String, Object> source) {
+        Map<String, Object> copy = new LinkedHashMap<>(source);
+        if (!asString(copy.get("googleMapsApiKey")).isEmpty()) {
+            copy.put("googleMapsApiKey", "••••");
+        }
+        return copy;
     }
 
     private void applyMembershipPatch(Map<String, Object> current, Map<String, Object> patch) {

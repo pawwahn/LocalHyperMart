@@ -26,6 +26,7 @@ type SettingsSection =
   | 'delivery'
   | 'payments'
   | 'promotions'
+  | 'laundry'
   | 'hub-pay'
   | 'vendor-delivery'
   | 'status'
@@ -41,7 +42,7 @@ type Props = {
   townStatusBusy?: boolean;
 };
 
-const CONFIG_SECTIONS: SettingsSection[] = ['shop', 'delivery', 'payments', 'promotions'];
+const CONFIG_SECTIONS: SettingsSection[] = ['shop', 'delivery', 'payments', 'promotions', 'laundry'];
 
 const TOWN_AUDIT_TABS: HistoryTab[] = [
   { id: 'checkout', label: 'Checkout', screen: 'town-settings' },
@@ -57,6 +58,7 @@ const NAV_GROUPS: { title: string; items: { id: SettingsSection; label: string }
       { id: 'delivery', label: 'Delivery fees' },
       { id: 'payments', label: 'Payments' },
       { id: 'promotions', label: 'Scratch card' },
+      { id: 'laundry', label: 'Laundry' },
     ],
   },
   {
@@ -121,6 +123,7 @@ export function TownSettingsDialog({
   const [codCharge, setCodCharge] = useState('0');
   const [windowStart, setWindowStart] = useState('17:00');
   const [windowEnd, setWindowEnd] = useState('19:00');
+  const [laundryEnabled, setLaundryEnabled] = useState(false);
   const [savedNotice, setSavedNotice] = useState<string | null>(null);
   const [historyTick, setHistoryTick] = useState(0);
   const [section, setSection] = useState<SettingsSection>('shop');
@@ -174,6 +177,7 @@ export function TownSettingsDialog({
         setCodEnabled(cfg.codEnabled !== false);
         setUpiEnabled(cfg.upiEnabled !== false);
         setCodCharge(String(cfg.codCharge ?? 0));
+        setLaundryEnabled(cfg.laundryEnabled === true);
       })
       .catch((err) => {
         if (cancelled) return;
@@ -264,6 +268,7 @@ export function TownSettingsDialog({
         codCharge: codAmt,
         deliveryWindowStart: windowStart,
         deliveryWindowEnd: windowEnd,
+        laundryEnabled,
       });
       setSavedNotice('Saved and logged.');
       setHistoryTick((n) => n + 1);
@@ -554,6 +559,26 @@ export function TownSettingsDialog({
           </section>
         ) : null}
 
+        {isConfigSection && !loading && section === 'laundry' ? (
+          <section style={styles.card}>
+            <div style={styles.toggleRow}>
+              <span>
+                <strong style={styles.toggleTitle}>Laundry in this town</strong>
+                <span style={styles.toggleHint}>Customers see laundry shops only when this is on</span>
+              </span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={laundryEnabled}
+                style={laundryEnabled ? styles.switchOn : styles.switchOff}
+                onClick={() => setLaundryEnabled((v) => !v)}
+              >
+                <span style={laundryEnabled ? styles.knobOn : styles.knobOff} />
+              </button>
+            </div>
+          </section>
+        ) : null}
+
         {isConfigSection && !loading && section === 'promotions' ? (
           <section style={styles.card}>
                 <div style={styles.scratchHead}>
@@ -798,7 +823,7 @@ export function TownSettingsDialog({
               <div style={styles.actions}>
                 {isConfigSection && !loading ? (
                   <Button disabled={busy} onClick={() => void onSave()}>
-                    {busy ? 'Saving…' : 'Save checkout settings'}
+                    {busy ? 'Saving…' : section === 'laundry' ? 'Save laundry' : 'Save checkout settings'}
                   </Button>
                 ) : null}
                 {section === 'vendor-delivery' &&

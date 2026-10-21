@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { listMyOrders, reorderOrder, type OrderSummaryDto } from '../api/shopApi';
+import { markBuyAgainKept } from '../lib/buyAgainKeep';
 
 type Props = {
   townId: string;
@@ -37,6 +38,7 @@ export function BuyAgainBar({ townId, token, busy = false, onMessage, onError }:
     if (!order || working || busy) return;
     setWorking(true);
     onError('');
+    markBuyAgainKept(order.orderId);
     try {
       const result = await reorderOrder(token, order.orderId);
       const skipped = result.skippedItemNames ?? [];

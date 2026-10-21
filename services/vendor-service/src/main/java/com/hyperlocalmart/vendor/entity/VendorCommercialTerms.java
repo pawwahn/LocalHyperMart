@@ -34,6 +34,9 @@ public class VendorCommercialTerms extends BaseAuditEntity {
     @Column(name = "per_order_flat_amount", precision = 12, scale = 2)
     private BigDecimal perOrderFlatAmount;
 
+    @Column(name = "per_piece_amount", precision = 12, scale = 2)
+    private BigDecimal perPieceAmount;
+
     @Column(name = "monthly_subscription_amount", precision = 12, scale = 2)
     private BigDecimal monthlySubscriptionAmount;
 

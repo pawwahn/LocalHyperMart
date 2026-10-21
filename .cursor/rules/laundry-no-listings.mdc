@@ -1,0 +1,17 @@
+---
+description: Laundry vendors never see catalog Listings
+alwaysApply: true
+---
+
+# Laundry vendors have no Listings screen
+
+Laundry service providers (vendor portal, e.g. Tumble Dry) **never** see grocery **Listings** or **Sellers**. They take laundry jobs and set rates. Catalog “Add products” is for grocery shops only.
+
+This is product policy, not an optional checkbox. Do not bring `/listings` or `/sellers` back for a laundry vendor when:
+
+- a service flag (`hidesListings`) is false
+- a nav list is copied
+- keep-alive chrome is refactored
+- the vendor still has a laundry profile
+
+Hide those routes when the vendor’s service name contains `laundry` **or** they have a laundry profile. Grocery vendors keep Listings.

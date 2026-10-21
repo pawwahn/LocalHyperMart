@@ -68,6 +68,7 @@ public class OrderService {
     private final ScratchCardService scratchCardService;
     private final UserReferralClient userReferralClient;
     private final PlatformTransactionManager transactionManager;
+    private final LaundryOrderService laundryOrderService;
 
     @Transactional(readOnly = true)
     public boolean buyerHasDeliveredOrder(UUID buyerId) {
@@ -425,8 +426,12 @@ public class OrderService {
 
     @Transactional
     public void markPaymentSuccess(UUID orderId, PaymentCallbackRequest request) {
-        Order order = orderRepository.findByIdAndBuyerId(orderId, request.getBuyerId())
-                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Order not found"));
+        var grocery = orderRepository.findByIdAndBuyerId(orderId, request.getBuyerId());
+        if (grocery.isEmpty()) {
+            laundryOrderService.markOnlinePaid(orderId, request.getBuyerId());
+            return;
+        }
+        Order order = grocery.get();
         if (order.getStatus() != OrderStatus.PAYMENT_PENDING && order.getStatus() != OrderStatus.PAYMENT_FAILED) {
             return;
         }
@@ -449,8 +454,12 @@ public class OrderService {
 
     @Transactional
     public void markPaymentFailed(UUID orderId, PaymentCallbackRequest request) {
-        Order order = orderRepository.findByIdAndBuyerId(orderId, request.getBuyerId())
-                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Order not found"));
+        var grocery = orderRepository.findByIdAndBuyerId(orderId, request.getBuyerId());
+        if (grocery.isEmpty()) {
+            laundryOrderService.markOnlineFailed(orderId, request.getBuyerId());
+            return;
+        }
+        Order order = grocery.get();
         if (order.getStatus() != OrderStatus.PAYMENT_PENDING) {
             return;
         }
@@ -471,7 +480,7 @@ public class OrderService {
     }
 
     @Transactional
-    public PaymentInfoResponse retryPayment(UUID buyerId, UUID orderId, String idempotencyKey) {
+    public PaymentInfoResponse retryPayment(UUID buyerId, UUID orderId, String idempotencyKey, String gateway) {
         Order order = orderRepository.findByIdAndBuyerId(orderId, buyerId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Order not found"));
         if (order.getPaymentMethod() != PaymentMethod.ONLINE) {
@@ -481,7 +490,7 @@ public class OrderService {
             throw new BusinessException(ErrorCode.CONFLICT, "Order is not awaiting payment");
         }
         PaymentInfoResponse payment = paymentClient.initiatePayment(
-                buyerId, order.getId(), order.getTownId(), "RAZORPAY",
+                buyerId, order.getId(), order.getTownId(), gateway == null || gateway.isBlank() ? "RAZORPAY" : gateway,
                 idempotencyKey, order.getBuyerPhoneSnapshot(),
                 order.getTotalAmount(), order.getOrderNumber(), order.getStatus().name(), "ONLINE");
         if (order.getStatus() == OrderStatus.PAYMENT_FAILED) {

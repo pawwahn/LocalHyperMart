@@ -221,9 +221,13 @@ public class OpenAccountsService {
         if (!collect.isEmpty()) {
             VendorClient.CommercialTermsQuote quote = vendorClient.quoteCommercialTerms(
                     vendorId, start, end, orderLines(collect), false, true);
-            BigDecimal fee = money(quote.totalFeeAmount());
+            BigDecimal fee = money(quote.totalFeeAmount()).add(platformFees(collect));
             if (fee.signum() > 0) {
-                String extra = "commission " + inr(fee);
+                String extra = "commission " + inr(money(quote.totalFeeAmount()));
+                BigDecimal platform = platformFees(collect);
+                if (platform.signum() > 0) {
+                    extra = extra + " · platform fee " + inr(platform);
+                }
                 if (quote.appliedSlabLabel() != null && !quote.appliedSlabLabel().isBlank()) {
                     extra = extra + " · " + quote.appliedSlabLabel().trim();
                 }
@@ -406,9 +410,15 @@ public class OpenAccountsService {
                 when = Instant.now();
             }
             lines.add(new VendorClient.OrderLine(
-                    item.getSubtotal() == null ? BigDecimal.ZERO : item.getSubtotal(), when));
+                    item.getSubtotal() == null ? BigDecimal.ZERO : item.getSubtotal(), when, item.getPieceCount()));
         }
         return lines;
+    }
+
+    private static BigDecimal platformFees(List<SettlementCandidateView.Item> items) {
+        return items.stream()
+                .map(item -> money(item.getPlatformFee()))
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
     }
 
     private static String cashNote(List<SettlementCandidateView.Item> items) {

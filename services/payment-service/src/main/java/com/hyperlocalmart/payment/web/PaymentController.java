@@ -15,6 +15,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @RestController
@@ -32,6 +34,11 @@ public class PaymentController {
             HttpServletRequest httpRequest) {
         PaymentResponse response = paymentService.initiate(principal.getUserId(), request, idempotencyKey);
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponses.ok(httpRequest, response));
+    }
+
+    @GetMapping("/gateways")
+    public ResponseEntity<ApiResponse<List<Map<String, String>>>> gateways(HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest, paymentService.configuredGateways()));
     }
 
     @PostMapping("/confirm")

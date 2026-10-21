@@ -133,6 +133,10 @@ public class RazorpayClient {
         return restClient;
     }
 
+    public void refreshCredentials() {
+        rebuildClient();
+    }
+
     private void rebuildClient() {
         String token = Base64.getEncoder().encodeToString(
                 (paymentProperties.getRazorpayKeyId() + ":" + paymentProperties.getRazorpayKeySecret())

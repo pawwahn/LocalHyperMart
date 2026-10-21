@@ -18,6 +18,8 @@ import { InviteFriendsPage } from '@/features/shop/pages/InviteFriendsPage';
 import { AlertsPage } from '@/features/shop/pages/AlertsPage';
 import { MorePage } from '@/features/shop/pages/MorePage';
 import { AddressesPage } from '@/features/shop/pages/AddressesPage';
+import { LaundryPage } from '@/features/laundry/pages/LaundryPage';
+import { LaundryOrderPage } from '@/features/laundry/pages/LaundryOrderPage';
 import { WalletProvider } from '@/features/shop/hooks/useWallet';
 import { ShopProvider } from '@/features/shop/hooks/useShop';
 import { ScratchCardHost } from '@/features/shop/components/ScratchCardHost';
@@ -61,6 +63,8 @@ export function AppRouter() {
                     <Route path="/cart" element={<CartPage />} />
                     <Route path="/addresses" element={<AddressesPage />} />
                     <Route path="/orders" element={<OrdersPage />} />
+                    <Route path="/laundry/orders/:orderId" element={<LaundryOrderPage />} />
+                    <Route path="/laundry" element={<LaundryPage />} />
                     <Route path="/orders/:orderId" element={<OrderDetailPage />} />
                     <Route path="/alerts" element={<AlertsPage />} />
                     <Route path="/wallet" element={<WalletPage />} />

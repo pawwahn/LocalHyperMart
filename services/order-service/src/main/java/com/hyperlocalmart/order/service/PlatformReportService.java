@@ -13,6 +13,7 @@ import com.hyperlocalmart.order.entity.OrderStatus;
 import com.hyperlocalmart.order.entity.PaymentMethod;
 import com.hyperlocalmart.order.entity.VendorSubOrder;
 import com.hyperlocalmart.order.entity.VendorSubOrderStatus;
+import com.hyperlocalmart.order.repository.LaundryOrderRepository;
 import com.hyperlocalmart.order.repository.OrderRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -40,6 +41,7 @@ public class PlatformReportService {
     private static final int MAX_RANGE_DAYS = 366;
 
     private final OrderRepository orderRepository;
+    private final LaundryOrderRepository laundryOrderRepository;
     private final TownClient townClient;
 
     @Transactional(readOnly = true)
@@ -165,6 +167,8 @@ public class PlatformReportService {
                 }
             }
         }
+
+        platformFees = platformFees.add(nz(laundryOrderRepository.sumOpenPlatformFee(townId, start, end)));
 
         long placed = orders.size();
         return PlatformReportResponse.builder()

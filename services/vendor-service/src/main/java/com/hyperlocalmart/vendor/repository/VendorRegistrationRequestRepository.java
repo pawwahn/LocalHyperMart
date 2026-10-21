@@ -14,4 +14,6 @@ public interface VendorRegistrationRequestRepository extends JpaRepository<Vendo
     List<VendorRegistrationRequest> findByStatusOrderByCreatedAtDesc(RegistrationRequestStatus status);
 
     boolean existsByPhoneAndStatus(String phone, RegistrationRequestStatus status);
+
+    boolean existsByServiceId(UUID serviceId);
 }

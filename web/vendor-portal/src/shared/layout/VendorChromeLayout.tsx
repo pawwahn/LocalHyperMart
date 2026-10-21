@@ -1,10 +1,11 @@
 import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
-import { Outlet, useLocation } from 'react-router-dom';
+import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { DashboardPage } from '@/features/orders/pages/DashboardPage';
 import { ListingsPage } from '@/features/listings/pages/ListingsPage';
 import { ReportsPage } from '@/features/reports/pages/ReportsPage';
 import { PayoutAckReminder } from '@/features/payouts/components/PayoutAckReminder';
 import { VendorBillReminder } from '@/features/payouts/components/VendorBillReminder';
+import { useHidesListings } from '@/features/shop/hooks/useHidesListings';
 import { PortalShell } from './PortalShell';
 import { PortalChromeProvider, usePortalChromeState } from './PortalChromeContext';
 
@@ -22,16 +23,24 @@ export function VendorChromeLayout() {
 
 function VendorChromeLayoutInner() {
   const location = useLocation();
+  const navigate = useNavigate();
   const chrome = usePortalChromeState();
+  const hidesListings = useHidesListings();
   const path = location.pathname;
   const onHome = path === '/dashboard';
-  const onListings = path === '/listings';
+  const onListings = path === '/listings' && !hidesListings;
   const onReports = path === '/reports';
   const keepAliveRoute = onHome || onListings || onReports;
 
   const [homeVisited, setHomeVisited] = useState(onHome);
   const [listingsVisited, setListingsVisited] = useState(onListings);
   const [reportsVisited, setReportsVisited] = useState(onReports);
+
+  useEffect(() => {
+    if (hidesListings && (location.pathname === '/listings' || location.pathname === '/sellers')) {
+      navigate('/dashboard', { replace: true });
+    }
+  }, [hidesListings, location.pathname, navigate]);
 
   useEffect(() => {
     if (onHome) setHomeVisited(true);
@@ -50,7 +59,7 @@ function VendorChromeLayoutInner() {
           <DashboardPage active={onHome} />
         </KeepAlivePane>
       ) : null}
-      {listingsVisited ? (
+      {listingsVisited && !hidesListings ? (
         <KeepAlivePane active={onListings}>
           <ListingsPage active={onListings} />
         </KeepAlivePane>

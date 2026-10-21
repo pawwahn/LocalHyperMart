@@ -6,6 +6,8 @@ import { ApiError } from '@/shared/api/http';
 import { Banner, Button, Card, TextField, SearchSelect, ConfirmDialog } from '@/shared/ui';
 import { AdminHistoryPanel } from '@/shared/audit/AdminHistoryPanel';
 import { listTowns, type TownVm } from '@/features/towns/api/townsApi';
+import { listServices, type ServiceOffering } from '@/features/services/api/servicesApi';
+import { Link } from 'react-router-dom';
 import {
   approveRegistration,
   createRegistrationRequest,
@@ -50,6 +52,8 @@ export function VendorsPage() {
   const [showAdd, setShowAdd] = useState(false);
   const [requests, setRequests] = useState<VendorRegistrationVm[]>([]);
   const [vendors, setVendors] = useState<VendorVm[]>([]);
+  const [services, setServices] = useState<ServiceOffering[]>([]);
+  const [serviceId, setServiceId] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -78,6 +82,7 @@ export function VendorsPage() {
   const [editFssaiNumber, setEditFssaiNumber] = useState('');
   const [editBankAccount, setEditBankAccount] = useState('');
   const [editIfsc, setEditIfsc] = useState('');
+  const [editServiceId, setEditServiceId] = useState('');
 
   const townById = useMemo(() => {
     const map = new Map<string, TownVm>();
@@ -92,13 +97,19 @@ export function VendorsPage() {
 
   const filteredPending = useMemo(() => {
     return pendingForTown.filter((r) =>
-      matchesQuery([r.shopName, r.businessName, r.ownerName, r.phone, r.address].filter(Boolean).join(' '), listQuery),
+      matchesQuery(
+        [r.shopName, r.businessName, r.ownerName, r.phone, r.address, r.serviceName].filter(Boolean).join(' '),
+        listQuery,
+      ),
     );
   }, [pendingForTown, listQuery]);
 
   const filteredVendors = useMemo(() => {
     return vendors.filter((v) =>
-      matchesQuery([v.shopName, v.businessName, v.ownerName, v.phone, v.status].filter(Boolean).join(' '), listQuery),
+      matchesQuery(
+        [v.shopName, v.businessName, v.ownerName, v.phone, v.status, v.serviceName].filter(Boolean).join(' '),
+        listQuery,
+      ),
     );
   }, [vendors, listQuery]);
 
@@ -127,6 +138,13 @@ export function VendorsPage() {
     } catch (err) {
       problems.push(err instanceof Error ? err.message : 'Could not load registration requests');
       setRequests([]);
+    }
+
+    try {
+      setServices(await listServices(token));
+    } catch (err) {
+      problems.push(err instanceof Error ? err.message : 'Could not load services');
+      setServices([]);
     }
 
     if (selectedTownId) {
@@ -160,6 +178,10 @@ export function VendorsPage() {
       setError('Phone must be a 10-digit Indian mobile number');
       return;
     }
+    if (!serviceId) {
+      setError('Select a service');
+      return;
+    }
     const gst = gstNumber.trim().toUpperCase();
     if (gst && (!bankAccount.trim() || !ifsc.trim())) {
       setError('Bank account and IFSC are required when GST number is provided');
@@ -171,6 +193,7 @@ export function VendorsPage() {
     try {
       await createRegistrationRequest(token, {
         townId,
+        serviceId,
         businessName: businessName.trim(),
         ownerName: ownerName.trim() || undefined,
         phone: normalizedPhone,
@@ -191,6 +214,7 @@ export function VendorsPage() {
       setFssaiNumber('');
       setBankAccount('');
       setIfsc('');
+      setServiceId('');
       setShowAdd(false);
       setTab('pending');
       await reload();
@@ -274,6 +298,7 @@ export function VendorsPage() {
     setEditFssaiNumber(vendor.fssaiNumber ?? '');
     setEditBankAccount(vendor.bankAccount ?? '');
     setEditIfsc(vendor.ifsc ?? '');
+    setEditServiceId(vendor.serviceId ?? '');
     setDisableId(null);
     setDisableReason('');
     setRejectId(null);
@@ -294,6 +319,10 @@ export function VendorsPage() {
       setError('Business and shop name are required');
       return;
     }
+    if (!editServiceId) {
+      setError('Select a service');
+      return;
+    }
     setBusy(true);
     setError(null);
     setNotice(null);
@@ -302,6 +331,7 @@ export function VendorsPage() {
         businessName: editBusinessName.trim(),
         ownerName: editOwnerName.trim() || undefined,
         shopName: editShopName.trim(),
+        serviceId: editServiceId,
         address: editAddress.trim() || undefined,
         gstNumber: gst || undefined,
         fssaiNumber: editFssaiNumber.trim() || undefined,
@@ -356,6 +386,11 @@ export function VendorsPage() {
     [towns],
   );
 
+  const serviceOptions = useMemo(
+    () => services.map((service) => ({ value: service.id, label: service.name })),
+    [services],
+  );
+
   return (
     <PortalShell title="Vendors" onRefresh={() => void reload()}>
       {error ? <Banner tone="danger">{error}</Banner> : null}
@@ -372,14 +407,19 @@ export function VendorsPage() {
             placeholder={loading ? 'Loading towns…' : 'Search by name, code, or state…'}
             emptyMessage={towns.length === 0 ? 'No towns yet' : 'No towns match your search'}
           />
-          <Button
-            size="sm"
-            variant={showAdd ? 'secondary' : 'primary'}
-            disabled={!townId}
-            onClick={() => setShowAdd((v) => !v)}
-          >
-            {showAdd ? 'Close' : 'Add vendor'}
-          </Button>
+          <div style={styles.toolbarActions}>
+            <Button
+              size="sm"
+              variant={showAdd ? 'secondary' : 'primary'}
+              disabled={!townId}
+              onClick={() => setShowAdd((v) => !v)}
+            >
+              {showAdd ? 'Close' : 'Add vendor'}
+            </Button>
+            <Link to="/services" style={styles.textLink}>
+              Services
+            </Link>
+          </div>
         </div>
         {selectedTown ? (
           <p style={styles.townHint}>
@@ -396,6 +436,14 @@ export function VendorsPage() {
             <p style={styles.subtle}>Approve later to create login + shop.</p>
           </div>
           <div style={styles.formGrid}>
+            <SearchSelect
+              label="Service"
+              value={serviceId}
+              options={serviceOptions}
+              onChange={setServiceId}
+              placeholder={services.length === 0 ? 'Add a service first' : 'Select service'}
+              emptyMessage="No services yet"
+            />
             <TextField label="Business" value={businessName} onChange={(e) => setBusinessName(e.target.value)} />
             <TextField label="Shop" value={shopName} onChange={(e) => setShopName(e.target.value)} />
             <TextField label="Owner" value={ownerName} onChange={(e) => setOwnerName(e.target.value)} />
@@ -444,7 +492,7 @@ export function VendorsPage() {
           </p>
           <div style={styles.formActions}>
             <Button
-              disabled={busy || !townId || !businessName.trim() || !shopName.trim() || !phone.trim()}
+              disabled={busy || !townId || !serviceId || !businessName.trim() || !shopName.trim() || !phone.trim()}
               onClick={() => void onSubmitRequest()}
             >
               {busy ? 'Submitting…' : 'Submit'}
@@ -527,6 +575,7 @@ export function VendorsPage() {
                     </div>
                     <p style={styles.meta}>
                       {req.businessName}
+                      {req.serviceName ? ` · ${req.serviceName}` : ''}
                       {req.ownerName ? ` · ${req.ownerName}` : ''} · {req.phone}
                       {req.gstNumber ? ` · GST ${req.gstNumber}` : ''}
                       {req.fssaiNumber ? ` · FSSAI ${req.fssaiNumber}` : ''}
@@ -611,6 +660,7 @@ export function VendorsPage() {
                       </div>
                       <p style={styles.meta}>
                         {v.businessName}
+                        {v.serviceName ? ` · ${v.serviceName}` : ''}
                         {v.ownerName ? ` · ${v.ownerName}` : ''} · {v.phone}
                         {v.gstNumber ? ` · GST ${v.gstNumber}` : ' · No GST'}
                         {v.fssaiNumber ? ` · FSSAI ${v.fssaiNumber}` : ''}
@@ -621,6 +671,14 @@ export function VendorsPage() {
                       {editing ? (
                         <div style={styles.inlineForm}>
                           <div style={styles.formGrid}>
+                            <SearchSelect
+                              label="Service"
+                              value={editServiceId}
+                              options={serviceOptions}
+                              onChange={setEditServiceId}
+                              placeholder={services.length === 0 ? 'Add a service first' : 'Select service'}
+                              emptyMessage="No services yet"
+                            />
                             <TextField
                               label="Business"
                               value={editBusinessName}
@@ -784,6 +842,14 @@ const styles: Record<string, CSSProperties> = {
     alignItems: 'end',
     justifyContent: 'space-between',
   },
+  textLink: {
+    color: 'var(--accent)',
+    fontWeight: 700,
+    fontSize: '0.86rem',
+    alignSelf: 'center',
+    textDecoration: 'none',
+  },
+  toolbarActions: { display: 'flex', gap: '0.65rem', alignItems: 'center', flexWrap: 'wrap' },
   townHint: {
     margin: 0,
     color: 'var(--text-muted)',

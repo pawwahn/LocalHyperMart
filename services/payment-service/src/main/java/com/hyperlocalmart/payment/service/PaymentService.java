@@ -19,6 +19,10 @@ import com.hyperlocalmart.payment.entity.PaymentStatus;
 import com.hyperlocalmart.payment.entity.PaymentWebhookLog;
 import com.hyperlocalmart.payment.entity.Refund;
 import com.hyperlocalmart.payment.entity.RefundStatus;
+import com.hyperlocalmart.payment.cashfree.CashfreeClient;
+import com.hyperlocalmart.payment.cashfree.CashfreeSignatures;
+import com.hyperlocalmart.payment.phonepe.PhonePeClient;
+import com.hyperlocalmart.payment.phonepe.PhonePeSignatures;
 import com.hyperlocalmart.payment.razorpay.RazorpayClient;
 import com.hyperlocalmart.payment.razorpay.RazorpayMaps;
 import com.hyperlocalmart.payment.razorpay.RazorpayMoney;
@@ -51,6 +55,8 @@ public class PaymentService {
     private final OrderClient orderClient;
     private final PaymentProperties paymentProperties;
     private final RazorpayClient razorpayClient;
+    private final CashfreeClient cashfreeClient;
+    private final PhonePeClient phonePeClient;
     private final MembershipService membershipService;
     private final ObjectMapper objectMapper;
     private final TransactionTemplate transactionTemplate;
@@ -95,6 +101,16 @@ public class PaymentService {
 
     @Transactional
     public PaymentResponse confirmCheckout(UUID buyerId, ConfirmGatewayPaymentRequest request) {
+        PaymentGateway gateway = request.getGateway() == null ? PaymentGateway.RAZORPAY : request.getGateway();
+        if (gateway == PaymentGateway.CASHFREE) {
+            return confirmCashfree(buyerId, request);
+        }
+        if (gateway == PaymentGateway.PHONEPE) {
+            return confirmPhonePe(buyerId, request);
+        }
+        if (blank(request.getRazorpayOrderId()) || blank(request.getRazorpayPaymentId()) || blank(request.getRazorpaySignature())) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Razorpay payment details are missing");
+        }
         RazorpaySignatures.verifyPayment(
                 request.getRazorpayOrderId(),
                 request.getRazorpayPaymentId(),
@@ -108,6 +124,37 @@ public class PaymentService {
         assertGatewayPaymentOk(request.getRazorpayPaymentId(), request.getRazorpayOrderId());
         markSuccess(payment, request.getRazorpayPaymentId());
         return toInitiateResponse(payment);
+    }
+
+    private PaymentResponse confirmCashfree(UUID buyerId, ConfirmGatewayPaymentRequest request) {
+        String orderId = firstNonBlank(request.getGatewayOrderId(), request.getRazorpayOrderId());
+        if (blank(orderId)) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Cashfree order id is missing");
+        }
+        Payment payment = ownedPayment(buyerId, orderId);
+        CashfreeClient.PaidOrder paid = cashfreeClient.requirePaid(orderId);
+        markSuccess(payment, paid.paymentId());
+        return toInitiateResponse(payment);
+    }
+
+    private PaymentResponse confirmPhonePe(UUID buyerId, ConfirmGatewayPaymentRequest request) {
+        String orderId = firstNonBlank(request.getGatewayOrderId(), request.getRazorpayOrderId());
+        if (blank(orderId)) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "PhonePe order id is missing");
+        }
+        Payment payment = ownedPayment(buyerId, orderId);
+        PhonePeClient.CompletedOrder paid = phonePeClient.requireCompleted(orderId);
+        markSuccess(payment, paid.transactionId());
+        return toInitiateResponse(payment);
+    }
+
+    private Payment ownedPayment(UUID buyerId, String gatewayOrderId) {
+        Payment payment = paymentRepository.findByGatewayOrderId(gatewayOrderId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Payment not found"));
+        if (!payment.getBuyerId().equals(buyerId)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "Payment does not belong to buyer");
+        }
+        return payment;
     }
 
     @Transactional
@@ -169,25 +216,101 @@ public class PaymentService {
         paymentWebhookLogRepository.save(log);
     }
 
-    @Transactional
-    public void processWebhook(PaymentGateway gateway, Map<String, Object> payload, String headerSignature) {
-        String signature = headerSignature;
-        if (signature == null && payload.get("signature") != null) {
-            signature = String.valueOf(payload.get("signature"));
+    public java.util.List<java.util.Map<String, String>> configuredGateways() {
+        java.util.List<java.util.Map<String, String>> rows = new java.util.ArrayList<>();
+        if (paymentProperties.isRazorpayConfigured()) {
+            rows.add(gatewayChoice(PaymentGateway.RAZORPAY, "Razorpay"));
         }
-        boolean signatureValid = paymentProperties.getDevWebhookBypassSecret().equals(signature);
+        if (paymentProperties.isCashfreeConfigured()) {
+            rows.add(gatewayChoice(PaymentGateway.CASHFREE, "Cashfree"));
+        }
+        if (paymentProperties.isPhonePeConfigured()) {
+            rows.add(gatewayChoice(PaymentGateway.PHONEPE, "PhonePe"));
+        }
+        return rows;
+    }
+
+    @Transactional
+    public void processCashfreeWebhook(String rawBody, String timestamp, String signature) {
+        Map<String, Object> payload = parseJson(rawBody);
+        boolean signatureValid = CashfreeSignatures.verifyWebhook(
+                rawBody, timestamp, signature, paymentProperties.getCashfreeClientSecret());
         PaymentWebhookLog log = PaymentWebhookLog.builder()
-                .gateway(gateway.name())
+                .gateway(PaymentGateway.CASHFREE.name())
                 .payload(payload)
                 .signatureValid(signatureValid)
                 .processed(false)
                 .build();
         paymentWebhookLogRepository.save(log);
-
         if (!signatureValid) {
             throw new BusinessException(ErrorCode.UNAUTHORIZED, "Invalid webhook signature");
         }
-        captureStubPayload(payload);
+        String type = String.valueOf(payload.getOrDefault("type", ""));
+        String orderId = firstNonBlank(
+                RazorpayMaps.nestedString(payload, "data", "order", "order_id"),
+                RazorpayMaps.nestedString(payload, "data", "order", "orderId"));
+        String paymentId = firstNonBlank(
+                RazorpayMaps.nestedString(payload, "data", "payment", "cf_payment_id"),
+                RazorpayMaps.nestedString(payload, "data", "payment", "cfPaymentId"));
+        String orderStatus = RazorpayMaps.nestedString(payload, "data", "order", "order_status");
+        if (type.contains("SUCCESS") || "PAID".equalsIgnoreCase(orderStatus)) {
+            if (!membershipService.completeOnlineFromGateway(orderId, paymentId)) {
+                Payment payment = findPendingOrAny(orderId);
+                if (payment != null) {
+                    markSuccess(payment, paymentId);
+                }
+            }
+        } else if (type.contains("FAILED")) {
+            Payment payment = findPendingOrAny(orderId);
+            if (payment != null && payment.getStatus() == PaymentStatus.PENDING) {
+                markFailed(payment, "Cashfree payment failed");
+            }
+        }
+        log.setProcessed(true);
+        paymentWebhookLogRepository.save(log);
+    }
+
+    @Transactional
+    public void processPhonePeWebhook(String rawBody, String authorization) {
+        Map<String, Object> payload = parseJson(rawBody);
+        boolean signatureValid = PhonePeSignatures.verifyWebhook(
+                authorization,
+                paymentProperties.getPhonepeWebhookUsername(),
+                paymentProperties.getPhonepeWebhookPassword());
+        if (!signatureValid && !paymentProperties.isPhonePeConfigured()) {
+            signatureValid = paymentProperties.getDevWebhookBypassSecret().equals(authorization);
+        }
+        PaymentWebhookLog log = PaymentWebhookLog.builder()
+                .gateway(PaymentGateway.PHONEPE.name())
+                .payload(payload)
+                .signatureValid(signatureValid)
+                .processed(false)
+                .build();
+        paymentWebhookLogRepository.save(log);
+        if (!signatureValid) {
+            throw new BusinessException(ErrorCode.UNAUTHORIZED, "Invalid webhook signature");
+        }
+        String event = String.valueOf(payload.getOrDefault("event", ""));
+        String orderId = firstNonBlank(
+                RazorpayMaps.nestedString(payload, "payload", "merchantOrderId"),
+                payload.get("merchantOrderId") == null ? null : String.valueOf(payload.get("merchantOrderId")));
+        String state = firstNonBlank(
+                RazorpayMaps.nestedString(payload, "payload", "state"),
+                payload.get("state") == null ? null : String.valueOf(payload.get("state")));
+        String transactionId = RazorpayMaps.nestedString(payload, "payload", "paymentDetails", "0", "transactionId");
+        if (event.contains("completed") || "COMPLETED".equalsIgnoreCase(state)) {
+            if (!membershipService.completeOnlineFromGateway(orderId, transactionId)) {
+                Payment payment = findPendingOrAny(orderId);
+                if (payment != null) {
+                    markSuccess(payment, transactionId);
+                }
+            }
+        } else if (event.contains("failed") || "FAILED".equalsIgnoreCase(state)) {
+            Payment payment = findPendingOrAny(orderId);
+            if (payment != null && payment.getStatus() == PaymentStatus.PENDING) {
+                markFailed(payment, "PhonePe payment failed");
+            }
+        }
         log.setProcessed(true);
         paymentWebhookLogRepository.save(log);
     }
@@ -214,6 +337,14 @@ public class PaymentService {
         RazorpayRefund gatewayRefund;
         if (payment.getGateway() == PaymentGateway.RAZORPAY && payment.getGatewayPaymentId() != null) {
             gatewayRefund = razorpayClient.refund(payment.getGatewayPaymentId(), paise, request.getReason());
+        } else if (payment.getGateway() == PaymentGateway.CASHFREE && payment.getGatewayOrderId() != null) {
+            String refundId = "rf" + payment.getId().toString().replace("-", "");
+            String id = cashfreeClient.refund(payment.getGatewayOrderId(), amount, refundId, request.getReason());
+            gatewayRefund = new RazorpayRefund(id, "pending", paise);
+        } else if (payment.getGateway() == PaymentGateway.PHONEPE && payment.getGatewayOrderId() != null) {
+            String refundId = "rf" + payment.getId().toString().replace("-", "");
+            String id = phonePeClient.refund(payment.getGatewayOrderId(), paise, refundId);
+            gatewayRefund = new RazorpayRefund(id, "pending", paise);
         } else {
             gatewayRefund = new RazorpayRefund("rfnd_dev_" + payment.getOrderId(), "processed", paise);
         }
@@ -264,14 +395,23 @@ public class PaymentService {
                     .findFirstByOrderIdAndStatusOrderByCreatedAtDesc(request.getOrderId(), PaymentStatus.PENDING)
                     .orElse(null);
             if (existingPending != null) {
+                if ((existingPending.getGatewayOrderId() == null || existingPending.getGatewayOrderId().isBlank())
+                        && existingPending.getGateway() != request.getGateway()) {
+                    requireConfigured(request.getGateway());
+                    existingPending.setGateway(request.getGateway());
+                    existingPending.setBuyerPhone(request.getBuyerPhone());
+                    paymentRepository.save(existingPending);
+                }
                 return existingPending.getId();
             }
+            requireConfigured(request.getGateway());
             Payment payment = Payment.builder()
                     .orderId(request.getOrderId())
                     .townId(request.getTownId())
                     .buyerId(buyerId)
                     .amount(order.totalAmount())
                     .gateway(request.getGateway())
+                    .buyerPhone(request.getBuyerPhone())
                     .status(PaymentStatus.PENDING)
                     .idempotencyKey(idempotencyKey)
                     .build();
@@ -288,7 +428,10 @@ public class PaymentService {
     }
 
     private void ensureOrderGatewayCreated(UUID paymentId) {
-        if (useAsyncGateway()) {
+        Payment payment = paymentRepository.findById(paymentId).orElse(null);
+        PaymentGateway gateway = payment == null || payment.getGateway() == null
+                ? PaymentGateway.RAZORPAY : payment.getGateway();
+        if (razorpayGatewayQueue.isEnabled() && isConfigured(gateway)) {
             razorpayGatewayQueue.enqueueOrderPayment(
                     paymentId, () -> razorpayGatewaySync.ensureOrderPaymentGateway(paymentId));
         } else {
@@ -296,8 +439,23 @@ public class PaymentService {
         }
     }
 
-    private boolean useAsyncGateway() {
-        return razorpayGatewayQueue.isEnabled() && paymentProperties.isRazorpayConfigured();
+    private boolean isConfigured(PaymentGateway gateway) {
+        if (gateway == PaymentGateway.CASHFREE) {
+            return paymentProperties.isCashfreeConfigured();
+        }
+        if (gateway == PaymentGateway.PHONEPE) {
+            return paymentProperties.isPhonePeConfigured();
+        }
+        return paymentProperties.isRazorpayConfigured();
+    }
+
+    private void requireConfigured(PaymentGateway gateway) {
+        if (gateway == PaymentGateway.CASHFREE && !paymentProperties.isCashfreeConfigured()) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Cashfree is not configured");
+        }
+        if (gateway == PaymentGateway.PHONEPE && !paymentProperties.isPhonePeConfigured()) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "PhonePe is not configured");
+        }
     }
 
     private PaymentResponse buildInitiateResponse(
@@ -350,7 +508,7 @@ public class PaymentService {
     }
 
     private PaymentResponse toInitiateResponse(Payment payment, String prefillContact, String orderNumber) {
-        boolean live = paymentProperties.isRazorpayConfigured();
+        boolean live = isConfigured(payment.getGateway() == null ? PaymentGateway.RAZORPAY : payment.getGateway());
         String upiIntent = live ? null : "upi://pay?pa=hyperlocalmart@razorpay&pn=KoyaKart&am="
                 + payment.getAmount().toPlainString()
                 + "&tn=Order-" + payment.getOrderId();
@@ -371,9 +529,17 @@ public class PaymentService {
         if (payment.getGatewayOrderId() == null) {
             return null;
         }
+        PaymentGateway gateway = payment.getGateway() == null ? PaymentGateway.RAZORPAY : payment.getGateway();
         return GatewayCheckoutResponse.builder()
-                .keyId(paymentProperties.isRazorpayConfigured() ? paymentProperties.getRazorpayKeyId() : null)
+                .gateway(gateway.name())
+                .keyId(gateway == PaymentGateway.RAZORPAY && paymentProperties.isRazorpayConfigured()
+                        ? paymentProperties.getRazorpayKeyId() : null)
                 .gatewayOrderId(payment.getGatewayOrderId())
+                .paymentSessionId(gateway == PaymentGateway.CASHFREE ? payment.getGatewaySession() : null)
+                .redirectUrl(gateway == PaymentGateway.PHONEPE ? payment.getGatewaySession() : null)
+                .mode(gateway == PaymentGateway.CASHFREE
+                        ? (paymentProperties.isCashfreeSandbox() ? "sandbox" : "production")
+                        : (paymentProperties.isPhonePeSandbox() ? "sandbox" : "production"))
                 .amountPaise(RazorpayMoney.toPaise(payment.getAmount()))
                 .currency(payment.getCurrency() == null ? "INR" : payment.getCurrency())
                 .name(paymentProperties.getCheckoutName())
@@ -513,6 +679,17 @@ public class PaymentService {
             }
         }
         return null;
+    }
+
+    private static java.util.Map<String, String> gatewayChoice(PaymentGateway gateway, String label) {
+        java.util.Map<String, String> row = new java.util.LinkedHashMap<>();
+        row.put("id", gateway.name());
+        row.put("label", label);
+        return row;
+    }
+
+    private static boolean blank(String value) {
+        return value == null || value.isBlank();
     }
 
     private static String blankToNull(String value) {

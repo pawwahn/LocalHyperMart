@@ -30,6 +30,7 @@ public class CategoryVisibilityService {
     private final CategoryRepository categoryRepository;
     private final CategoryTownOverrideRepository overrideRepository;
     private final AdminAuditClient adminAuditClient;
+    private final CatalogBrowseCache catalogBrowseCache;
 
     @Transactional(readOnly = true)
     public boolean isVisibleInTown(Category category, UUID townId) {
@@ -76,6 +77,7 @@ public class CategoryVisibilityService {
                 actorUserId,
                 null,
                 categoryId);
+        catalogBrowseCache.evictAll();
         return toCategory(category, 0, 0);
     }
 
@@ -91,6 +93,7 @@ public class CategoryVisibilityService {
                 actorUserId,
                 null,
                 null);
+        catalogBrowseCache.evictAll();
         return BulkCategoryVisibilityResponse.builder()
                 .paused(paused)
                 .updatedCount(updated)
@@ -137,6 +140,7 @@ public class CategoryVisibilityService {
                 actorUserId,
                 townIds.isEmpty() ? null : townIds.getFirst(),
                 categoryId);
+        catalogBrowseCache.evictAll();
         long[] pair = countsFor(categoryId);
         return toCategory(category, pair[0], pair[1]);
     }

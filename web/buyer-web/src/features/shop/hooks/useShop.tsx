@@ -11,6 +11,7 @@ import {
 import { useAuth } from '@/shared/auth/AuthContext';
 import { useTown } from '@/shared/town/TownContext';
 import { ApiError } from '@/shared/api/http';
+import { wasBuyAgainKept } from '../lib/buyAgainKeep';
 import {
   addToCart,
   applyPromo,
@@ -18,6 +19,7 @@ import {
   createAddress,
   deleteAddress,
   fetchCart,
+  fetchOrderDetail,
   fetchWalletBalance,
   friendlyCartError,
   isCartTownConflict,
@@ -61,17 +63,6 @@ type CartDraftLine = {
 
 function cartDraftKey(userId: string, townId: string): string {
   return `hlm.cart.draft.${userId}.${townId}`;
-}
-
-function readCartDraft(userId: string, townId: string): CartDraftLine[] {
-  try {
-    const raw = sessionStorage.getItem(cartDraftKey(userId, townId));
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as CartDraftLine[];
-    return Array.isArray(parsed) ? parsed.filter((l) => l.listingId && l.quantity > 0) : [];
-  } catch {
-    return [];
-  }
 }
 
 function writeCartDraft(userId: string, townId: string, lines: CartDraftLine[]): void {
@@ -194,6 +185,7 @@ function useShopState() {
   const itemsRef = useRef<CatalogItemView[]>([]);
   const desiredQtyRef = useRef<Map<string, number>>(new Map());
   const syncChainRef = useRef<Map<string, Promise<void>>>(new Map());
+  const basketGuardRef = useRef(0);
 
   useEffect(() => {
     cartRef.current = cart;
@@ -350,6 +342,51 @@ function useShopState() {
     setCart(null);
   }
 
+  function linesMatchOrder(
+    cart: CartView,
+    orderLines: Array<{ name: string; quantity: number; status?: string }>,
+  ): boolean {
+    const active = orderLines.filter((line) => line.status !== 'CANCELLED' && line.quantity > 0);
+    if (cart.items.length === 0 || active.length === 0 || cart.items.length !== active.length) return false;
+    const names = (rows: Array<{ name: string }>) => rows.map((line) => line.name.trim().toLowerCase()).sort();
+    const left = names(cart.items);
+    const right = names(active);
+    return left.every((value, index) => value === right[index]);
+  }
+
+  /** The last order must stay out of the basket until the buyer taps Buy again. */
+  async function dropUnaskedOrderCopy(cart: CartView | null) {
+    if (!session?.accessToken || !townId || !cart?.items.length) return;
+    try {
+      const orders = await listMyOrders(session.accessToken, townId);
+      const last = orders.find((row) => row.status === 'PLACED' || row.status === 'DELIVERED');
+      if (!last || wasBuyAgainKept(last.orderId)) return;
+      const detail = await fetchOrderDetail(session.accessToken, last.orderId);
+      const current = cartRef.current;
+      if (!current || wasBuyAgainKept(last.orderId) || !linesMatchOrder(current, detail.items)) return;
+      let latest = current;
+      for (const line of [...current.items]) {
+        if (wasBuyAgainKept(last.orderId)) return;
+        latest = await removeCartItem(session.accessToken, line.itemId);
+      }
+      applyServerCart(latest);
+      if (session.userId) writeCartDraft(session.userId, townId, []);
+    } catch {
+      /* leave the basket if the order lookup fails */
+    }
+  }
+
+  /** Drop the local copy of a basket that was already ordered, so login cannot put it back. */
+  function forgetOrderedBasket() {
+    basketGuardRef.current += 1;
+    desiredQtyRef.current.clear();
+    syncChainRef.current.clear();
+    resetCartState();
+    if (session?.userId && townId) {
+      writeCartDraft(session.userId, townId, []);
+    }
+  }
+
   function cartViewWithLineQuantity(base: CartView, listingId: string, nextQty: number): CartView {
     const catalog = itemsRef.current.find((i) => sameListingId(i.listingId, listingId));
     const existing = base.items.find((i) => sameListingId(i.listingId, listingId));
@@ -438,8 +475,10 @@ function useShopState() {
   async function flushListingToServer(listingId: string) {
     if (!session || !townId) return;
 
+    const guard = basketGuardRef.current;
     const pushUntilSynced = async () => {
       for (let step = 0; step < 8; step += 1) {
+        if (basketGuardRef.current !== guard) return;
         const pendingEntry = desiredQtyEntry(listingId);
         if (!pendingEntry) break;
         const target = pendingEntry[1];
@@ -460,6 +499,7 @@ function useShopState() {
             break;
           }
         } else if (!realLine) {
+          if (basketGuardRef.current !== guard) return;
           // POST /cart/items adds quantity; only use when the listing is not on the server yet.
           next = await addToCart(session.accessToken, townId, listingId, target);
         } else if (realLine.quantity === target) {
@@ -611,38 +651,15 @@ function useShopState() {
       }
 
       const cartTask = fetchCart(session.accessToken, townId)
-        .then((next) => {
+        .then(async (next) => {
           applyServerCart(next);
-          // Keep any still-pending optimistic qty visible and push it again.
+          // Replay only edits still in this page session. A saved draft must not
+          // refill an empty basket after checkout or the next login.
           for (const [listingId, qty] of [...desiredQtyRef.current.entries()]) {
             patchLocalQuantity(listingId, qty);
             enqueueListingSync(listingId);
           }
-          const after = cartRef.current;
-          if ((!after || after.items.length === 0) && session.userId && townId) {
-            const draft = readCartDraft(session.userId, townId);
-            if (draft.length > 0) {
-              const extra: CatalogItemView[] = draft.map((line) => ({
-                listingId: line.listingId,
-                name: line.name,
-                shopName: line.shopName,
-                unit: '',
-                price: line.unitPrice,
-                priceLabel: moneyLabel(line.unitPrice),
-                avgRating: 0,
-                ratingCount: 0,
-                imageUrls: [],
-              }));
-              const seen = new Set(itemsRef.current.map((i) => i.listingId));
-              const merged = [...itemsRef.current, ...extra.filter((i) => !seen.has(i.listingId))];
-              itemsRef.current = merged;
-              setItems(merged);
-              for (const line of draft) {
-                patchLocalQuantity(line.listingId, line.quantity);
-                enqueueListingSync(line.listingId);
-              }
-            }
-          }
+          await dropUnaskedOrderCopy(cartRef.current);
         })
         .catch((err) => noteFailure(err, 'Cart failed'));
 
@@ -1052,7 +1069,7 @@ function useShopState() {
     return { cart: cartRef.current, error: null };
   }
 
-  async function doCheckout(opts?: { useStoreCredit?: boolean; paymentMethod?: 'COD' | 'ONLINE' }): Promise<CheckoutOutcome> {
+  async function doCheckout(opts?: { useStoreCredit?: boolean; paymentMethod?: 'COD' | 'ONLINE'; paymentGateway?: string }): Promise<CheckoutOutcome> {
     if (!session) {
       setError('Sign in to place an order');
       return { ok: false };
@@ -1095,6 +1112,7 @@ function useShopState() {
         addressId: selectedAddressId,
         useStoreCredit: Boolean(opts?.useStoreCredit),
         paymentMethod: opts?.paymentMethod ?? 'COD',
+        paymentGateway: opts?.paymentGateway,
       });
       if (order.status === 'PAYMENT_PENDING') {
         let checkout = order.payment?.checkout;
@@ -1106,6 +1124,7 @@ function useShopState() {
           );
         }
         if (checkout?.gatewayOrderId) {
+          forgetOrderedBasket();
           void reload();
           return {
             ok: true,
@@ -1116,6 +1135,7 @@ function useShopState() {
           };
         }
       }
+      forgetOrderedBasket();
       void reload();
       return { ok: true, kind: 'placed', orderId: order.orderId, orderNumber: order.orderNumber, status: order.status };
     } catch (err) {

@@ -1,12 +1,14 @@
-import { useMemo, useState, type CSSProperties } from 'react';
+import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { PortalShell } from '@/shared/layout/PortalShell';
 import { Badge, Banner, EmptyState, LoadingBlock } from '@/shared/ui';
 import { useAuth } from '@/shared/auth/AuthContext';
+import { useTown } from '@/shared/town/TownContext';
 import { formatBuyerPaymentLabel } from '../lib/formatBuyerPaymentLabel';
 import { useShop } from '../hooks/useShop';
 import { prefetchOrderDetail, summaryToPreview } from '../hooks/useOrderDetail';
 import type { OrderSummaryDto } from '../api/shopApi';
+import { fetchMyLaundryOrders, type LaundryOrder } from '@/features/laundry/api/laundryApi';
 
 const PAGE_SIZE = 20;
 
@@ -33,18 +35,34 @@ function formatWhen(value?: string): string {
   });
 }
 
-function orderTime(o: OrderSummaryDto): number {
-  if (!o.placedAt) return 0;
-  const t = new Date(o.placedAt).getTime();
+type HistoryItem =
+  | { kind: 'grocery'; at: number; order: OrderSummaryDto }
+  | { kind: 'laundry'; at: number; order: LaundryOrder };
+
+function placedMs(value?: string | null): number {
+  if (!value) return 0;
+  const t = new Date(value).getTime();
   return Number.isNaN(t) ? 0 : t;
 }
 
-function buildPeriodOptions(orders: OrderSummaryDto[]): Array<{ key: PeriodKey; label: string }> {
+function laundryPay(order: LaundryOrder): string {
+  const method = order.paymentMethod === 'UPI' ? 'UPI' : 'Cash';
+  if (order.paymentStatus === 'COLLECTED') return `${method} paid`;
+  if (order.paymentStatus === 'DUE') return `${method} due`;
+  if (order.paymentStatus === 'EXTRA_DUE') return `${method} extra due`;
+  if (order.paymentStatus === 'REFUND_DUE') return `${method} refund due`;
+  return method;
+}
+
+function laundryTotal(order: LaundryOrder): number {
+  return Number(order.goodsAmount) + Number(order.platformFeeAmount || 0) + Number(order.codFee || 0);
+}
+
+function buildPeriodOptions(times: number[]): Array<{ key: PeriodKey; label: string }> {
   const now = new Date();
   const years = new Set<number>();
   years.add(now.getFullYear());
-  for (const o of orders) {
-    const t = orderTime(o);
+  for (const t of times) {
     if (t > 0) years.add(new Date(t).getFullYear());
   }
   // Offer a few recent years even if empty, like Amazon.
@@ -64,15 +82,14 @@ function buildPeriodOptions(orders: OrderSummaryDto[]): Array<{ key: PeriodKey; 
   ];
 }
 
-function matchesPeriod(o: OrderSummaryDto, period: PeriodKey, nowMs: number): boolean {
-  const t = orderTime(o);
-  if (t <= 0) return false;
-  if (period === 'd30') return t >= nowMs - 30 * 24 * 60 * 60 * 1000;
-  if (period === 'm3') return t >= nowMs - 90 * 24 * 60 * 60 * 1000;
-  if (period === 'm6') return t >= nowMs - 182 * 24 * 60 * 60 * 1000;
+function matchesPeriod(at: number, period: PeriodKey, nowMs: number): boolean {
+  if (at <= 0) return false;
+  if (period === 'd30') return at >= nowMs - 30 * 24 * 60 * 60 * 1000;
+  if (period === 'm3') return at >= nowMs - 90 * 24 * 60 * 60 * 1000;
+  if (period === 'm6') return at >= nowMs - 182 * 24 * 60 * 60 * 1000;
   if (period.startsWith('y')) {
     const year = Number(period.slice(1));
-    return new Date(t).getFullYear() === year;
+    return new Date(at).getFullYear() === year;
   }
   return true;
 }
@@ -80,11 +97,36 @@ function matchesPeriod(o: OrderSummaryDto, period: PeriodKey, nowMs: number): bo
 export function OrdersPage() {
   const navigate = useNavigate();
   const { session } = useAuth();
+  const { townId } = useTown();
   const { orders, cart, loading, error, reload } = useShop();
+  const [laundryOrders, setLaundryOrders] = useState<LaundryOrder[]>([]);
+  const [laundryLoading, setLaundryLoading] = useState(false);
   const authExpired = Boolean(error && /sign-in expired|invalid jwt|unauthorized/i.test(error));
   const [query, setQuery] = useState('');
   const [period, setPeriod] = useState<PeriodKey>('m6');
   const [visible, setVisible] = useState(PAGE_SIZE);
+
+  useEffect(() => {
+    if (!session?.accessToken || !townId) {
+      setLaundryOrders([]);
+      return;
+    }
+    let cancelled = false;
+    setLaundryLoading(true);
+    void fetchMyLaundryOrders(session.accessToken, townId)
+      .then((rows) => {
+        if (!cancelled) setLaundryOrders(rows);
+      })
+      .catch(() => {
+        if (!cancelled) setLaundryOrders([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLaundryLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [session?.accessToken, townId]);
 
   function openOrder(o: OrderSummaryDto) {
     navigate(`/orders/${o.orderId}`, { state: { preview: summaryToPreview(o) } });
@@ -94,14 +136,29 @@ export function OrdersPage() {
     if (session?.accessToken) prefetchOrderDetail(session.accessToken, o.orderId);
   }
 
-  const periodOptions = useMemo(() => buildPeriodOptions(orders), [orders]);
+  const history = useMemo<HistoryItem[]>(() => {
+    const rows: HistoryItem[] = [
+      ...orders.map((order) => ({ kind: 'grocery' as const, at: placedMs(order.placedAt), order })),
+      ...laundryOrders.map((order) => ({ kind: 'laundry' as const, at: placedMs(order.placedAt), order })),
+    ];
+    rows.sort((a, b) => b.at - a.at);
+    return rows;
+  }, [laundryOrders, orders]);
+
+  const periodOptions = useMemo(() => buildPeriodOptions(history.map((row) => row.at)), [history]);
 
   const filtered = useMemo(() => {
     const nowMs = Date.now();
     const q = query.trim().toLowerCase();
-    return orders.filter((o) => {
-      if (!matchesPeriod(o, period, nowMs)) return false;
+    return history.filter((row) => {
+      if (!matchesPeriod(row.at, period, nowMs)) return false;
       if (!q) return true;
+      if (row.kind === 'laundry') {
+        const order = row.order;
+        const hay = `${order.orderNumber} ${order.statusLabel} ${order.shopName} laundry ${laundryPay(order)}`.toLowerCase();
+        return hay.includes(q);
+      }
+      const o = row.order;
       const pay = formatBuyerPaymentLabel({
         paymentMethod: o.paymentMethod,
         paymentStatus: o.paymentStatus,
@@ -110,7 +167,7 @@ export function OrdersPage() {
       const hay = `${o.orderNumber} ${o.displayStatus || o.status} ${pay} ${o.totalAmount}`.toLowerCase();
       return hay.includes(q);
     });
-  }, [orders, query, period]);
+  }, [history, query, period]);
 
   const shown = filtered.slice(0, visible);
   const remaining = Math.max(0, filtered.length - shown.length);
@@ -124,9 +181,9 @@ export function OrdersPage() {
       showDeliveryBanner={false}
       showTownPicker={false}
     >
-      {loading && orders.length === 0 ? (
+      {loading && history.length === 0 ? (
         <LoadingBlock label="Loading your order history…" />
-      ) : error && orders.length === 0 ? (
+      ) : error && history.length === 0 && !laundryLoading ? (
         <EmptyState
           icon="⚠️"
           title={authExpired ? 'Please sign in again' : 'Couldn’t load your orders'}
@@ -140,11 +197,11 @@ export function OrdersPage() {
         >
           {!authExpired ? <p style={styles.errorDetail}>{error}</p> : null}
         </EmptyState>
-      ) : orders.length === 0 ? (
+      ) : history.length === 0 && !laundryLoading ? (
         <EmptyState
           icon="📦"
           title="No orders yet"
-          description="When you place a COD order, it will show up here with status updates."
+          description="Grocery and laundry orders show up here."
           actionLabel="Shop now"
           onAction={() => navigate('/shop')}
         />
@@ -202,7 +259,43 @@ export function OrdersPage() {
           ) : (
             <>
               <div style={styles.list}>
-                {shown.map((o, index) => {
+                {shown.map((row, index) => {
+                  if (row.kind === 'laundry') {
+                    const order = row.order;
+                    const total = laundryTotal(order);
+                    return (
+                      <button
+                        key={order.id}
+                        type="button"
+                        style={{
+                          ...styles.row,
+                          borderTop: index === 0 ? 'none' : '1px solid var(--border)',
+                        }}
+                        onClick={() => navigate(`/laundry/orders/${order.id}`)}
+                      >
+                        <div style={styles.rowMain}>
+                          <div style={styles.metaRow}>
+                            <span style={styles.orderNo}>{order.orderNumber}</span>
+                            <p style={styles.meta}>
+                              {formatWhen(order.placedAt)}
+                              {' · '}
+                              {order.pieceCount} piece{order.pieceCount === 1 ? '' : 's'}
+                              {' · '}
+                              {order.shopName}
+                              {' · '}
+                              {laundryPay(order)}
+                            </p>
+                            <Badge tone={statusTone(order.statusLabel)}>{order.statusLabel}</Badge>
+                          </div>
+                        </div>
+                        <div style={styles.rowSide}>
+                          <p style={styles.amount}>₹{total.toFixed(2).replace(/\.00$/, '')}</p>
+                          <p style={styles.chevron}>›</p>
+                        </div>
+                      </button>
+                    );
+                  }
+                  const o = row.order;
                   const status = o.displayStatus || o.status;
                   const pay = formatBuyerPaymentLabel({
                     paymentMethod: o.paymentMethod,

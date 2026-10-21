@@ -6,7 +6,8 @@ import { useAuth } from '@/shared/auth/AuthContext';
 import { useTown } from '@/shared/town/TownContext';
 import { Banner, Button, Card, EmptyState, TextField } from '@/shared/ui';
 import { confirmOnlinePayment } from '../api/shopApi';
-import { CheckoutDismissedError, openRazorpayCheckout } from '../lib/razorpayCheckout';
+import { CheckoutDismissedError, checkoutCanOpen, openGatewayCheckout } from '../lib/gatewayCheckout';
+import { PaymentGatewayChoices, usePaymentGateways } from '../components/PaymentGatewayChoices';
 import { AddressPickerSheet } from '../components/AddressPickerSheet';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { OrderCelebration } from '../components/OrderCelebration';
@@ -111,16 +112,13 @@ export function CartPage() {
     setError(null);
     setDealsOpen(true);
   };
-  const openMealPlanner = () => {
-    setError(null);
-    setMealPlannerOpen(true);
-  };
   const [suggestions, setSuggestions] = useState<CatalogItemView[]>([]);
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
   const [memberCredits, setMemberCredits] = useState(0);
   const [membershipCatalog, setMembershipCatalog] = useState<MembershipCatalog | null>(null);
   const [plansOpen, setPlansOpen] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<'COD' | 'ONLINE'>('COD');
+  const { options: paymentGateways, gateway: paymentGateway, setGateway: setPaymentGateway } = usePaymentGateways(session?.accessToken);
   const [referralInfo, setReferralInfo] = useState<ReferralMeVm | null>(null);
   const [promoBusy, setPromoBusy] = useState(false);
   const couponSectionRef = useRef<HTMLDivElement | null>(null);
@@ -252,7 +250,6 @@ export function CartPage() {
   const showCodOption = codEnabled && payOnDelivery > 0;
   const showUpiOption = upiEnabled && payOnDelivery > 0;
   const showPayMethods = showCodOption || showUpiOption;
-  const showMealPlannerLink = mealPlannerOn && Boolean(townId);
   const showStickyMembershipOffer =
     showMembershipOffer && !membershipCatalog?.mine?.active;
 
@@ -398,7 +395,7 @@ export function CartPage() {
     try {
       const checkoutWaitMs = online ? 75_000 : 25_000;
       result = await Promise.race([
-        doCheckout({ useStoreCredit, paymentMethod: online ? 'ONLINE' : 'COD' }),
+        doCheckout({ useStoreCredit, paymentMethod: online ? 'ONLINE' : 'COD', paymentGateway }),
         new Promise<never>((_, reject) => {
           window.setTimeout(() => {
             reject(
@@ -427,13 +424,13 @@ export function CartPage() {
     }
     setConfirmCheckout(false);
     if (result.kind === 'pay') {
-      if (!result.checkout.keyId) {
-        setError('Online payment is not configured yet. Use cash on delivery, or add Razorpay keys and restart payment-service.');
+      if (!checkoutCanOpen(result.checkout)) {
+        setError('Online payment is not configured yet. Use cash on delivery, or add the gateway keys and restart payment-service.');
         checkoutErrorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
         return;
       }
       try {
-        const paid = await openRazorpayCheckout(result.checkout, {
+        const paid = await openGatewayCheckout(result.checkout, {
           contact: session?.phone,
         });
         await confirmOnlinePayment(session?.accessToken ?? '', paid);
@@ -483,11 +480,6 @@ export function CartPage() {
                 {showStickyMembershipOffer ? (
                   <button type="button" style={styles.stickyLink} onClick={() => setPlansOpen(true)}>
                     Free delivery ₹{Number(starterPlan?.price ?? 0).toFixed(0)}
-                  </button>
-                ) : null}
-                {showMealPlannerLink ? (
-                  <button type="button" style={styles.stickyLink} onClick={openMealPlanner}>
-                    Meal planner
                   </button>
                 ) : null}
               </div>
@@ -811,30 +803,35 @@ export function CartPage() {
               </button>
             ) : null}
             {showPayMethods ? (
-              <div style={styles.payMethods} role="radiogroup" aria-label="Payment method">
-                {showCodOption ? (
-                  <button
-                    type="button"
-                    role="radio"
-                    aria-checked={!online}
-                    style={{ ...styles.payMethod, ...(!online ? styles.payMethodOn : null) }}
-                    onClick={() => setPaymentMethod('COD')}
-                  >
-                    Cash on delivery
-                  </button>
+              <>
+                <div style={styles.payMethods} role="radiogroup" aria-label="Payment method">
+                  {showCodOption ? (
+                    <button
+                      type="button"
+                      role="radio"
+                      aria-checked={!online}
+                      style={{ ...styles.payMethod, ...(!online ? styles.payMethodOn : null) }}
+                      onClick={() => setPaymentMethod('COD')}
+                    >
+                      Cash on delivery
+                    </button>
+                  ) : null}
+                  {showUpiOption ? (
+                    <button
+                      type="button"
+                      role="radio"
+                      aria-checked={online}
+                      style={{ ...styles.payMethod, ...(online ? styles.payMethodOn : null) }}
+                      onClick={() => setPaymentMethod('ONLINE')}
+                    >
+                      UPI / Online
+                    </button>
+                  ) : null}
+                </div>
+                {online ? (
+                  <PaymentGatewayChoices value={paymentGateway} options={paymentGateways} onChange={setPaymentGateway} />
                 ) : null}
-                {showUpiOption ? (
-                  <button
-                    type="button"
-                    role="radio"
-                    aria-checked={online}
-                    style={{ ...styles.payMethod, ...(online ? styles.payMethodOn : null) }}
-                    onClick={() => setPaymentMethod('ONLINE')}
-                  >
-                    UPI / Online
-                  </button>
-                ) : null}
-              </div>
+              </>
             ) : null}
             {hasCartItems ? (
               <button

@@ -25,10 +25,12 @@
       "@hlm-legal/*": ["../shared/legal/*"],
       "@hlm-brand": ["../shared/brand/index.ts"],
       "@hlm-brand/*": ["../shared/brand/*"],
+      "@hlm-laundry": ["../shared/laundry/index.ts"],
+      "@hlm-laundry/*": ["../shared/laundry/*"],
       "react": ["./node_modules/@types/react/index.d.ts"],
       "react/jsx-runtime": ["./node_modules/@types/react/jsx-runtime.d.ts"],
       "react/jsx-dev-runtime": ["./node_modules/@types/react/jsx-dev-runtime.d.ts"]
     }
   },
-  "include": ["src", "../shared/theme/**/*.ts", "../shared/theme/**/*.tsx", "../shared/legal/**/*.ts", "../shared/legal/**/*.tsx", "../shared/brand/**/*.ts", "../shared/brand/**/*.tsx"]
+  "include": ["src", "../shared/theme/**/*.ts", "../shared/theme/**/*.tsx", "../shared/legal/**/*.ts", "../shared/legal/**/*.tsx", "../shared/brand/**/*.ts", "../shared/brand/**/*.tsx", "../shared/laundry/**/*.ts"]
 }

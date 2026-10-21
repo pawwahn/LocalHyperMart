@@ -211,7 +211,7 @@ public class VendorClient {
     public record VendorShopContext(UUID vendorId, UUID townId, UUID shopId, String shopName) {
     }
 
-    public record OrderLine(BigDecimal amount, Instant placedAt) {
+    public record OrderLine(BigDecimal amount, Instant placedAt, Integer pieceCount) {
     }
 
     public record CommercialTermsQuote(

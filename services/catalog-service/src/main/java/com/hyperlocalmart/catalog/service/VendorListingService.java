@@ -62,6 +62,7 @@ public class VendorListingService {
     private final UnitRepository unitRepository;
     private final VendorShopClient vendorShopClient;
     private final AdminAuditClient adminAuditClient;
+    private final CatalogBrowseCache catalogBrowseCache;
 
     @Transactional(readOnly = true)
     public PageResponse<VendorListingResponse> listMyListings(UUID vendorId, int page, int size) {
@@ -96,6 +97,7 @@ public class VendorListingService {
         VendorListingResponse response = toResponse(
                 createOrUpdateListing(vendorId, actorUserId, context, request), context.shopName());
         attachListingImages(List.of(response));
+        catalogBrowseCache.evictAll();
         return response;
     }
 
@@ -126,6 +128,7 @@ public class VendorListingService {
                     : new BusinessException(ErrorCode.VALIDATION_ERROR, "No products could be listed");
         }
         attachListingImages(results);
+        catalogBrowseCache.evictAll();
         return results;
     }
 
@@ -154,6 +157,7 @@ public class VendorListingService {
         listing.setUpdatedBy(actorUserId);
         VendorListingResponse response = toResponse(vendorListingRepository.save(listing), context.shopName());
         attachListingImages(List.of(response));
+        catalogBrowseCache.evictAll();
         return response;
     }
 
@@ -198,6 +202,7 @@ public class VendorListingService {
                 actorUserId,
                 null,
                 CatalogAuditSnapshots.category(saved));
+        catalogBrowseCache.evictAll();
         return CategoryVisibilityService.toCategory(saved, 0, 0);
     }
 
@@ -223,6 +228,7 @@ public class VendorListingService {
                 actorUserId,
                 beforeCategory,
                 null);
+        catalogBrowseCache.evictAll();
     }
 
     @Transactional
@@ -252,6 +258,7 @@ public class VendorListingService {
                 actorUserId,
                 beforeCategory,
                 afterCategory);
+        catalogBrowseCache.evictAll();
         return toCategory(saved);
     }
 
@@ -356,6 +363,7 @@ public class VendorListingService {
         if (!refs.isEmpty()) {
             masterItemRepository.save(item);
         }
+        catalogBrowseCache.evictAll();
         return listMasterItemImageUrls(masterItemId);
     }
 
@@ -395,6 +403,7 @@ public class VendorListingService {
                     .sortOrder(order++)
                     .build());
         }
+        catalogBrowseCache.evictAll();
         return listVendorListingImageUrls(vendorId, listingId);
     }
 
@@ -495,6 +504,7 @@ public class VendorListingService {
                 actorUserId,
                 beforeItem,
                 CatalogAuditSnapshots.masterItem(savedItem));
+        catalogBrowseCache.evictAll();
         return updated;
     }
 

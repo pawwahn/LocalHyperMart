@@ -50,6 +50,12 @@ function termsDetail(row: VendorCommercialTerms): string {
   switch (row.feeModel) {
     case 'PER_ORDER_FLAT':
       return `₹${Number(row.perOrderFlatAmount ?? 0).toFixed(2)} / order`;
+    case 'PER_PIECE':
+      return `₹${Number(row.perPieceAmount ?? 0).toFixed(2)} / piece`;
+    case 'PER_PIECE_WITH_SUBSCRIPTION':
+      return `₹${Number(row.perPieceAmount ?? 0).toFixed(2)} / piece + ₹${Number(row.monthlySubscriptionAmount ?? 0).toFixed(0)}/mo`;
+    case 'PER_ORDER_WITH_SUBSCRIPTION':
+      return `₹${Number(row.perOrderFlatAmount ?? 0).toFixed(2)} / order + ₹${Number(row.monthlySubscriptionAmount ?? 0).toFixed(0)}/mo`;
     case 'COMMISSION_PCT':
       return `${Number(row.commissionPercent ?? 0)}%`;
     case 'HYBRID':
@@ -78,6 +84,7 @@ function applyTerms(
     setFeeModel: (v: VendorFeeModel) => void;
     setCommissionPercent: (v: string) => void;
     setPerOrderFlat: (v: string) => void;
+    setPerPiece: (v: string) => void;
     setMonthlySub: (v: string) => void;
     setBillingDay: (v: string) => void;
     setNotes: (v: string) => void;
@@ -87,6 +94,7 @@ function applyTerms(
   set.setFeeModel(terms.feeModel ?? 'NONE');
   set.setCommissionPercent(String(terms.commissionPercent ?? 0));
   set.setPerOrderFlat(String(terms.perOrderFlatAmount ?? 0));
+  set.setPerPiece(String(terms.perPieceAmount ?? 0));
   set.setMonthlySub(String(terms.monthlySubscriptionAmount ?? 0));
   set.setBillingDay(String(terms.subscriptionBillingDay ?? 1));
   set.setNotes(terms.notes ?? '');
@@ -112,6 +120,7 @@ export function VendorBillingPage() {
   const [feeModel, setFeeModel] = useState<VendorFeeModel>('NONE');
   const [commissionPercent, setCommissionPercent] = useState('0');
   const [perOrderFlat, setPerOrderFlat] = useState('0');
+  const [perPiece, setPerPiece] = useState('0');
   const [monthlySub, setMonthlySub] = useState('0');
   const [billingDay, setBillingDay] = useState('1');
   const [notes, setNotes] = useState('');
@@ -134,6 +143,7 @@ export function VendorBillingPage() {
       setFeeModel,
       setCommissionPercent,
       setPerOrderFlat,
+      setPerPiece,
       setMonthlySub,
       setBillingDay,
       setNotes,
@@ -263,6 +273,7 @@ export function VendorBillingPage() {
         feeModel,
         commissionPercent: Number(commissionPercent || 0),
         perOrderFlatAmount: Number(perOrderFlat || 0),
+        perPieceAmount: Number(perPiece || 0),
         monthlySubscriptionAmount: Number(monthlySub || 0),
         subscriptionBillingDay: Number(billingDay || 1),
         commissionSlabs: feeModel === 'SLAB_COMMISSION' ? slabs : undefined,
@@ -420,7 +431,7 @@ export function VendorBillingPage() {
               </div>
 
               <div className="vb-params">
-                {feeModel === 'PER_ORDER_FLAT' ? (
+                {feeModel === 'PER_ORDER_FLAT' || feeModel === 'PER_ORDER_WITH_SUBSCRIPTION' ? (
                   <label style={styles.label}>
                     ₹ per order
                     <input
@@ -430,6 +441,20 @@ export function VendorBillingPage() {
                       step="0.01"
                       value={perOrderFlat}
                       onChange={(e) => setPerOrderFlat(e.target.value)}
+                    />
+                  </label>
+                ) : null}
+
+                {feeModel === 'PER_PIECE' || feeModel === 'PER_PIECE_WITH_SUBSCRIPTION' ? (
+                  <label style={styles.label}>
+                    ₹ per piece
+                    <input
+                      style={styles.input}
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={perPiece}
+                      onChange={(e) => setPerPiece(e.target.value)}
                     />
                   </label>
                 ) : null}
@@ -448,7 +473,10 @@ export function VendorBillingPage() {
                   </label>
                 ) : null}
 
-                {feeModel === 'MONTHLY_SUBSCRIPTION' || feeModel === 'HYBRID' ? (
+                {feeModel === 'MONTHLY_SUBSCRIPTION' ||
+                feeModel === 'HYBRID' ||
+                feeModel === 'PER_PIECE_WITH_SUBSCRIPTION' ||
+                feeModel === 'PER_ORDER_WITH_SUBSCRIPTION' ? (
                   <>
                     <label style={styles.label}>
                       ₹ each month

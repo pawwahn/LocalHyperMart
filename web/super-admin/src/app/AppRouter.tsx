@@ -39,6 +39,12 @@ const CustomersPage = lazy(() =>
 const VendorsPage = lazy(() =>
   import('@/features/vendors/pages/VendorsPage').then((m) => ({ default: m.VendorsPage })),
 );
+const LaundryAdminPage = lazy(() =>
+  import('@/features/laundry/pages/LaundryAdminPage').then((m) => ({ default: m.LaundryAdminPage })),
+);
+const ServicesPage = lazy(() =>
+  import('@/features/services/pages/ServicesPage').then((m) => ({ default: m.ServicesPage })),
+);
 const VendorBillingPage = lazy(() =>
   import('@/features/vendors/pages/VendorBillingPage').then((m) => ({ default: m.VendorBillingPage })),
 );
@@ -73,6 +79,9 @@ const AgentsPage = lazy(() =>
 const SettingsPage = lazy(() =>
   import('@/features/settings/pages/SettingsPage').then((m) => ({ default: m.SettingsPage })),
 );
+const PaymentGatewaysPage = lazy(() =>
+  import('@/features/payments/pages/PaymentGatewaysPage').then((m) => ({ default: m.PaymentGatewaysPage })),
+);
 
 function RouteFallback() {
   return <p style={{ margin: '1rem', color: 'var(--text-muted)' }}>Loading…</p>;
@@ -100,6 +109,8 @@ export function AppRouter() {
                 <Route path="/claims" element={<ClaimsPage />} />
                 <Route path="/customers" element={<CustomersPage />} />
                 <Route path="/vendors" element={<VendorsPage />} />
+                <Route path="/services" element={<ServicesPage />} />
+                <Route path="/laundry" element={<LaundryAdminPage />} />
                 <Route path="/vendor-billing" element={<VendorBillingPage />} />
                 <Route path="/catalog" element={<CatalogPage />} />
                 <Route path="/recipes" element={<RecipesPage />} />
@@ -111,6 +122,7 @@ export function AppRouter() {
                 <Route path="/cash" element={<CashPage />} />
                 <Route path="/hubs" element={<HubsPage />} />
                 <Route path="/agents" element={<AgentsPage />} />
+                <Route path="/payments" element={<PaymentGatewaysPage />} />
                 <Route path="/settings" element={<SettingsPage />} />
               </Route>
               <Route path="*" element={<Navigate to="/dashboard" replace />} />

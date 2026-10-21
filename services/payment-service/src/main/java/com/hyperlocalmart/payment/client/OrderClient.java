@@ -288,7 +288,10 @@ public class OrderClient {
             String paymentMethod,
             boolean vendorAgentDelivery,
             BigDecimal subtotal,
-            Instant deliveredAt
+            Instant deliveredAt,
+            Integer pieceCount,
+            BigDecimal platformFee,
+            BigDecimal codFee
     ) {
     }
 

@@ -1,6 +1,10 @@
 export type GatewayCheckout = {
   keyId?: string | null;
+  gateway?: 'RAZORPAY' | 'CASHFREE' | 'PHONEPE' | string | null;
   gatewayOrderId: string;
+  paymentSessionId?: string | null;
+  redirectUrl?: string | null;
+  mode?: 'sandbox' | 'production' | string | null;
   amountPaise: number;
   currency: string;
   name: string;

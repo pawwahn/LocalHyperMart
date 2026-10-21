@@ -183,6 +183,24 @@ public class TownClient {
         }
     }
 
+    /** False when the town has laundry off, or when town-service cannot be read. */
+    public boolean isLaundryEnabled(UUID townId) {
+        try {
+            RestClient client = restClientBuilder.baseUrl(townServiceProperties.getBaseUrl()).build();
+            ApiResponse<Map<String, Object>> response = client.get()
+                    .uri("/api/v1/towns/{townId}/shop-settings", townId)
+                    .retrieve()
+                    .body(new ParameterizedTypeReference<ApiResponse<Map<String, Object>>>() {});
+            if (response == null || response.getData() == null) {
+                return false;
+            }
+            Object flag = response.getData().get("laundryEnabled");
+            return Boolean.TRUE.equals(flag) || "true".equalsIgnoreCase(String.valueOf(flag));
+        } catch (Exception ex) {
+            return false;
+        }
+    }
+
     public VendorAgentDeliverySettings getVendorAgentDeliverySettings(UUID townId) {
         try {
             RestClient client = restClientBuilder.baseUrl(townServiceProperties.getBaseUrl()).build();

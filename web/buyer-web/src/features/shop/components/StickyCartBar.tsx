@@ -3,6 +3,9 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '@/shared/auth/AuthContext';
 import { useTown } from '@/shared/town/TownContext';
+import { getPublicPlatformSettings } from '@/features/auth/api/platformSettingsApi';
+import { MealPlannerSheet } from '@/features/meal-planner/components/MealPlannerSheet';
+import mealPlannerIcon from '@/features/meal-planner/meal-planner-icon.png';
 import { DeliveryUnlockChip } from './DeliveryUnlockChip';
 import { MembershipPlansSheet } from './MembershipPlansSheet';
 import { useDeliveryQuote } from '../hooks/useDeliveryQuote';
@@ -24,9 +27,12 @@ export function StickyCartBar({
   label = 'Next',
 }: Props) {
   const { session } = useAuth();
-  const { townId } = useTown();
-  const { cart } = useShop();
+  const { townId, openPicker } = useTown();
+  const { cart, busyKey, quantityFor, rememberItems, doIncrease, doDecrease } = useShop();
   const [plansOpen, setPlansOpen] = useState(false);
+  const [mealPlannerOn, setMealPlannerOn] = useState(false);
+  const [mealPlannerIconUrl, setMealPlannerIconUrl] = useState('');
+  const [mealPlannerOpen, setMealPlannerOpen] = useState(false);
   const [membershipCatalog, setMembershipCatalog] = useState<MembershipCatalog | null>(null);
   const itemCount = itemCountProp ?? cart?.itemCount ?? 0;
   const itemsPayable = cart?.payableSubtotal ?? 0;
@@ -41,6 +47,26 @@ export function StickyCartBar({
     memberCredits <= 0 &&
     !membershipCatalog?.mine?.active &&
     Boolean(starterPlan);
+
+  useEffect(() => {
+    let cancelled = false;
+    void getPublicPlatformSettings()
+      .then((s) => {
+        if (!cancelled) {
+          setMealPlannerOn(s.mealPlannerEnabled);
+          setMealPlannerIconUrl(s.mealPlannerIconUrl);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setMealPlannerOn(false);
+          setMealPlannerIconUrl('');
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     const token = session?.accessToken;
@@ -103,11 +129,39 @@ export function StickyCartBar({
             </button>
           ) : null}
         </div>
+        {mealPlannerOn ? (
+          <button
+            type="button"
+            style={styles.mealIcon}
+            aria-label="Meal planner"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              if (!townId) {
+                openPicker();
+                return;
+              }
+              setMealPlannerOpen(true);
+            }}
+          >
+            <img src={mealPlannerIconUrl || mealPlannerIcon} alt="" style={styles.mealIconImg} />
+          </button>
+        ) : null}
         <Link to={to} style={styles.cta}>
           {label}
           <span aria-hidden>→</span>
         </Link>
       </div>
+      <MealPlannerSheet
+        open={mealPlannerOpen && mealPlannerOn}
+        townId={townId ?? ''}
+        busyKey={busyKey}
+        quantityFor={quantityFor}
+        rememberItems={rememberItems}
+        onIncrease={(listingId) => void doIncrease(listingId)}
+        onDecrease={(listingId) => void doDecrease(listingId)}
+        onClose={() => setMealPlannerOpen(false)}
+      />
       <MembershipPlansSheet
         open={plansOpen}
         onClose={() => setPlansOpen(false)}
@@ -205,6 +259,24 @@ const styles: Record<string, CSSProperties> = {
     letterSpacing: '-0.02em',
   },
   spacer: { flex: '1 1 auto', minWidth: 0 },
+  mealIcon: {
+    flex: '0 0 auto',
+    width: 40,
+    height: 36,
+    padding: 0,
+    border: 'none',
+    borderRadius: 8,
+    overflow: 'hidden',
+    cursor: 'pointer',
+    background: 'transparent',
+    lineHeight: 0,
+  },
+  mealIconImg: {
+    width: '100%',
+    height: '100%',
+    objectFit: 'contain',
+    display: 'block',
+  },
   planLink: {
     margin: 0,
     padding: 0,

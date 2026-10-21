@@ -10,6 +10,7 @@ export type PublicPlatformSettingsVm = {
   membershipEnabled: boolean;
   referralsEnabled: boolean;
   mealPlannerEnabled: boolean;
+  mealPlannerIconUrl: string;
 };
 
 type SettingsDto = Record<string, unknown>;
@@ -50,6 +51,7 @@ export async function getPublicPlatformSettings(): Promise<PublicPlatformSetting
     membershipEnabled: data?.membershipEnabled === true,
     referralsEnabled: data?.referralsEnabled === true,
     mealPlannerEnabled: data?.mealPlannerEnabled === true,
+    mealPlannerIconUrl: asString(data?.mealPlannerIconUrl),
   };
   settingsCache = { expiresAt: now + SETTINGS_TTL_MS, value };
   return value;

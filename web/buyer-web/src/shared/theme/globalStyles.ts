@@ -75,11 +75,21 @@ export function injectGlobalStyles(): void {
       overflow-x: hidden;
       max-width: 100%;
       -webkit-text-size-adjust: 100%;
+      scrollbar-width: none;
+      -ms-overflow-style: none;
+    }
+    html::-webkit-scrollbar,
+    body::-webkit-scrollbar {
+      display: none;
+      width: 0;
+      height: 0;
     }
     body, #root {
       min-height: 100%;
       overflow-x: hidden;
       max-width: 100%;
+      scrollbar-width: none;
+      -ms-overflow-style: none;
     }
     body {
       margin: 0;

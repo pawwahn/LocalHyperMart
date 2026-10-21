@@ -12,7 +12,11 @@ import lombok.NoArgsConstructor;
 public class GatewayCheckoutResponse {
 
     private String keyId;
+    private String gateway;
     private String gatewayOrderId;
+    private String paymentSessionId;
+    private String redirectUrl;
+    private String mode;
     private long amountPaise;
     private String currency;
     private String name;

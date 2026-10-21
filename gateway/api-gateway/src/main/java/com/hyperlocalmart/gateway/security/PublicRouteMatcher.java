@@ -43,6 +43,9 @@ public final class PublicRouteMatcher {
         if (method == HttpMethod.GET && path.equals("/api/v1/catalog/items")) {
             return true;
         }
+        if (method == HttpMethod.GET && path.equals("/api/v1/catalog/home")) {
+            return true;
+        }
         if (method == HttpMethod.GET && (path.equals("/api/v1/catalog/categories")
                 || path.equals("/api/v1/catalog/master-items")
                 || path.equals("/api/v1/catalog/units")

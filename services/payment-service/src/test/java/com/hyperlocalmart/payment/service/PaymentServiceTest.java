@@ -44,6 +44,8 @@ class PaymentServiceTest {
     @Mock private OrderClient orderClient;
     @Mock private PaymentProperties paymentProperties;
     @Mock private RazorpayClient razorpayClient;
+    @Mock private com.hyperlocalmart.payment.cashfree.CashfreeClient cashfreeClient;
+    @Mock private com.hyperlocalmart.payment.phonepe.PhonePeClient phonePeClient;
     @Mock private MembershipService membershipService;
     @Mock private ObjectMapper objectMapper;
     @Mock private TransactionTemplate transactionTemplate;

@@ -3,6 +3,7 @@ package com.hyperlocalmart.catalog.web;
 import com.hyperlocalmart.common.api.ApiResponse;
 import com.hyperlocalmart.common.api.PageResponse;
 import com.hyperlocalmart.catalog.dto.request.ListingPrimaryImagesRequest;
+import com.hyperlocalmart.catalog.dto.response.CatalogHomeResponse;
 import com.hyperlocalmart.catalog.dto.response.CatalogItemResponse;
 import com.hyperlocalmart.catalog.dto.response.ListingPrimaryImageResponse;
 import com.hyperlocalmart.catalog.service.CatalogBrowseService;
@@ -52,6 +53,13 @@ public class CatalogController {
         PageResponse<CatalogItemResponse> result =
                 catalogBrowseService.browse(townId, categoryId, q, page, size, sort, dir, lane);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, result));
+    }
+
+    @GetMapping("/home")
+    public ResponseEntity<ApiResponse<CatalogHomeResponse>> home(
+            @RequestParam UUID townId,
+            HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest, catalogBrowseService.home(townId)));
     }
 
     @GetMapping("/items/discounted")

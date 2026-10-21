@@ -55,6 +55,13 @@ public class Payment extends BaseAuditEntity {
     @Column(name = "gateway_payment_id")
     private String gatewayPaymentId;
 
+    /** Cashfree payment session, or PhonePe checkout URL. */
+    @Column(name = "gateway_session", length = 2048)
+    private String gatewaySession;
+
+    @Column(name = "buyer_phone", length = 20)
+    private String buyerPhone;
+
     @Column(name = "idempotency_key", unique = true, length = 128)
     private String idempotencyKey;
 

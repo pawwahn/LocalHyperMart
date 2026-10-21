@@ -13,6 +13,7 @@ import { SellersPage } from '@/features/sellers/pages/SellersPage';
 import { SettingsPage } from '@/features/settings/pages/SettingsPage';
 import { DeliveryAgentsPage } from '@/features/delivery/pages/DeliveryAgentsPage';
 import { VendorCodHandoverPage } from '@/features/cod/pages/VendorCodHandoverPage';
+import { LaundryDeskPage } from '@/features/laundry/pages/LaundryDeskPage';
 
 function AuthBoundTheme({ children }: { children: ReactNode }) {
   const { isAuthenticated } = useAuth();
@@ -49,6 +50,7 @@ export function AppRouter() {
                 <Route path="/payouts" element={<PayoutsPage />} />
                 <Route path="/sellers" element={<SellersPage />} />
                 <Route path="/settings" element={<SettingsPage />} />
+                <Route path="/laundry" element={<LaundryDeskPage />} />
                 <Route path="/delivery-agents" element={<DeliveryAgentsPage />} />
                 <Route path="/cod-handover" element={<VendorCodHandoverPage />} />
               </Route>

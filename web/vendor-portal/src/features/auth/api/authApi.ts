@@ -18,6 +18,8 @@ type VendorMeResponse = {
   shopName?: string | null;
   shopId?: string | null;
   status?: string | null;
+  serviceName?: string | null;
+  hidesListings?: boolean;
 };
 
 /**
@@ -87,6 +89,8 @@ export async function login(phone: string, password: string): Promise<AuthSessio
     phone,
     shopName: shopName ?? 'Your shop',
     townName,
+    serviceName: me.serviceName ?? undefined,
+    hidesListings: Boolean(me.hidesListings) || /laundry/i.test(me.serviceName ?? ''),
   };
 }
 

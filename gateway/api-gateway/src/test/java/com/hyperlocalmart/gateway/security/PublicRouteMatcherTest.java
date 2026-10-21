@@ -36,6 +36,7 @@ class PublicRouteMatcherTest {
     @Test
     void catalogBrowse_isPublic() {
         assertThat(PublicRouteMatcher.isPublic(HttpMethod.GET, "/api/v1/catalog/items")).isTrue();
+        assertThat(PublicRouteMatcher.isPublic(HttpMethod.GET, "/api/v1/catalog/home")).isTrue();
     }
 
     @Test

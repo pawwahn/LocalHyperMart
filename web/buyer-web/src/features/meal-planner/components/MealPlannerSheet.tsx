@@ -1,4 +1,5 @@
 import { useEffect, type CSSProperties } from 'react';
+import { createPortal } from 'react-dom';
 import type { CatalogItemView } from '@/features/shop/api/shopApi';
 import { MealPlannerPanel } from './MealPlannerPanel';
 
@@ -37,9 +38,9 @@ export function MealPlannerSheet({
     };
   }, [open, onClose]);
 
-  if (!open || !townId) return null;
+  if (!open || !townId || typeof document === 'undefined') return null;
 
-  return (
+  return createPortal(
     <div style={styles.backdrop} role="presentation" onClick={onClose}>
       <div
         style={styles.sheet}
@@ -65,7 +66,8 @@ export function MealPlannerSheet({
           />
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

@@ -68,6 +68,10 @@ public class TownOperationalConfigResponse {
     @Builder.Default
     private String deliveryWindowEnd = "19:00";
 
+    /** Off until super admin turns laundry on for this town. */
+    @Builder.Default
+    private boolean laundryEnabled = false;
+
     @Data
     @Builder
     public static class DeliverySlabResponse {

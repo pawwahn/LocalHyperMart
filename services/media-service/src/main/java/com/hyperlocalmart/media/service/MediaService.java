@@ -17,6 +17,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -92,6 +93,31 @@ public class MediaService {
     }
 
     @Transactional(readOnly = true)
+    public MediaMeta meta(UUID id) {
+        MediaFile mediaFile = mediaFileRepository.findById(id)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Media file not found"));
+        return new MediaMeta(mediaFile.getId(), mediaFile.getOwnerUserId(), mediaFile.getContext());
+    }
+
+    /**
+     * Deletes exactly one media row and its stored file. Other orders' photos are different ids.
+     */
+    @Transactional
+    public void deleteOne(UUID id) {
+        Optional<MediaFile> found = mediaFileRepository.findById(id);
+        if (found.isEmpty()) {
+            return;
+        }
+        MediaFile mediaFile = found.get();
+        try {
+            Files.deleteIfExists(Path.of(mediaFile.getStoragePath()));
+        } catch (IOException e) {
+            throw new BusinessException(ErrorCode.INTERNAL_ERROR, "Failed to delete media file");
+        }
+        mediaFileRepository.delete(mediaFile);
+    }
+
+    @Transactional(readOnly = true)
     public MediaContent loadContent(UUID id) {
         MediaFile mediaFile = mediaFileRepository.findById(id)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Media file not found"));
@@ -116,5 +142,8 @@ public class MediaService {
             return "image/jpeg";
         }
         return normalized;
+    }
+
+    public record MediaMeta(UUID id, UUID ownerUserId, String context) {
     }
 }

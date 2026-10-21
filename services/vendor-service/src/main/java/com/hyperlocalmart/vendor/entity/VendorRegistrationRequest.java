@@ -73,4 +73,7 @@ public class VendorRegistrationRequest extends BaseAuditEntity {
 
     @Column(name = "vendor_id")
     private UUID vendorId;
+
+    @Column(name = "service_id")
+    private UUID serviceId;
 }

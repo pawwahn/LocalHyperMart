@@ -61,6 +61,10 @@ public class SettlementCandidateView {
         /** Agent mobile for support / settlement follow-up. */
         String codDeliveringAgentPhone;
         BigDecimal subtotal;
+        /** Pieces on a laundry order. Grocery bags leave this empty. */
+        Integer pieceCount;
+        /** Buyer platform fee sitting in shop-held cash. Null on payout bags and on laundry. */
+        BigDecimal platformFee;
         boolean alreadySettled;
     }
 }

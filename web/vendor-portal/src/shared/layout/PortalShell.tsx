@@ -9,6 +9,7 @@ import { useCodConfirmPendingCount } from '@/features/cod/hooks/useCodConfirmPen
 import { usePayoutActionCount } from '@/features/payouts/hooks/usePayoutActionCount';
 import { Banner } from '@/shared/ui';
 import { useIsNarrow } from '@/shared/hooks/useIsNarrow';
+import { useHidesListings } from '@/features/shop/hooks/useHidesListings';
 
 type ShopPauseControl = {
   acceptingOrders: boolean;
@@ -32,6 +33,7 @@ const NAV = [
   { to: '/reports', label: 'Reports', icon: '📊', end: false },
   { to: '/payouts', label: 'Payouts', icon: '💵', end: false },
   { to: '/sellers', label: 'Sellers', icon: '🏆', end: false },
+  { to: '/laundry', label: 'Laundry', icon: '👕', end: false },
   { to: '/settings', label: 'Settings', icon: '⚙️', end: false },
 ] as const;
 
@@ -45,6 +47,10 @@ export function PortalShell({ title, children, onRefresh, shopPause }: Props) {
   const codConfirmPending = useCodConfirmPendingCount();
   const payoutActionCount = usePayoutActionCount();
   const narrow = useIsNarrow(767);
+  const hidesListings = useHidesListings();
+  const nav = hidesListings
+    ? NAV.filter((item) => item.to !== '/listings' && item.to !== '/sellers')
+    : NAV;
   const shopName = session?.shopName ?? 'Vendor shop';
   const phone = session?.phone;
   const townName = shopTownName ?? session?.townName ?? null;
@@ -77,7 +83,7 @@ export function PortalShell({ title, children, onRefresh, shopPause }: Props) {
             <h1 style={{ ...styles.title, ...(narrow ? styles.titleNarrow : null) }}>{title}</h1>
             {!narrow ? (
               <nav style={styles.nav} aria-label="Vendor sections">
-                {NAV.map((item) => (
+                {nav.map((item) => (
                   <Link
                     key={item.to}
                     to={item.to}
@@ -187,7 +193,7 @@ export function PortalShell({ title, children, onRefresh, shopPause }: Props) {
 
       {narrow ? (
         <nav style={styles.tabbar} aria-label="Vendor sections">
-          {NAV.map((item) => (
+          {nav.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}

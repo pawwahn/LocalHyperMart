@@ -2,6 +2,10 @@ import { apiRequest } from '@/shared/api/http';
 
 export type PlatformSettingsVm = {
   mapsEnabled: boolean;
+  /** OSM or GOOGLE. Delivery cards draw only this one. */
+  mapProvider: 'OSM' | 'GOOGLE';
+  /** Browser key for the Google embed. Empty while OpenStreetMap is enough. */
+  googleMapsApiKey: string;
   maintenanceMode: boolean;
   termsUrl: string;
   privacyUrl: string;
@@ -38,6 +42,8 @@ export type PlatformSettingsVm = {
   membershipAnnualCredits?: number;
   referralsEnabled?: boolean;
   mealPlannerEnabled?: boolean;
+  mealPlannerIconUrl?: string;
+  mealPlannerIconMediaId?: string;
   hubAdminCanSeeAgentRatings?: boolean;
   referralReferrerRewardAmount?: number;
   referralRefereeRewardAmount?: number;
@@ -67,6 +73,8 @@ function asNumber(v: unknown, fallback: number): number {
 function mapSettings(data: SettingsDto): PlatformSettingsVm {
   return {
     mapsEnabled: asBool(data.mapsEnabled, false),
+    mapProvider: String(data.mapProvider ?? '').toUpperCase() === 'GOOGLE' ? 'GOOGLE' : 'OSM',
+    googleMapsApiKey: asString(data.googleMapsApiKey),
     maintenanceMode: asBool(data.maintenanceMode, false),
     termsUrl: asString(data.termsUrl),
     privacyUrl: asString(data.privacyUrl),
@@ -98,6 +106,8 @@ function mapSettings(data: SettingsDto): PlatformSettingsVm {
     membershipAnnualCredits: asNumber(data.membershipAnnualCredits, 0),
     referralsEnabled: asBool(data.referralsEnabled, false),
     mealPlannerEnabled: asBool(data.mealPlannerEnabled, false),
+    mealPlannerIconUrl: asString(data.mealPlannerIconUrl),
+    mealPlannerIconMediaId: asString(data.mealPlannerIconMediaId),
     hubAdminCanSeeAgentRatings: asBool(data.hubAdminCanSeeAgentRatings, true),
     referralReferrerRewardAmount: asNumber(data.referralReferrerRewardAmount, 0),
     referralRefereeRewardAmount: asNumber(data.referralRefereeRewardAmount, 0),

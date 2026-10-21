@@ -37,4 +37,7 @@ public class TownShopSettingsResponse {
 
     @Builder.Default
     private String deliveryWindowEnd = "19:00";
+
+    @Builder.Default
+    private boolean laundryEnabled = false;
 }

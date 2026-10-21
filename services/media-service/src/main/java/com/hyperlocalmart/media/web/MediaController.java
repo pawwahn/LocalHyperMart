@@ -39,7 +39,13 @@ public class MediaController {
             @RequestPart("file") MultipartFile file,
             @RequestParam(value = "context", defaultValue = "CATALOG_PRODUCT") String context,
             HttpServletRequest httpRequest) {
-        requireUploader(principal);
+        requireUploader(principal, context);
+        if (principal.getRoles().contains("BUYER")
+                && !principal.getRoles().contains("VENDOR")
+                && !principal.getRoles().contains("SUPER_ADMIN")
+                && !"LAUNDRY_ITEM".equalsIgnoreCase(context)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "Customers can upload a laundry item photo only");
+        }
         MediaUploadResponse uploaded = mediaService.upload(file, context, principal.getUserId());
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponses.ok(httpRequest, uploaded));
     }
@@ -53,14 +59,16 @@ public class MediaController {
                 .body(media.bytes());
     }
 
-    private void requireUploader(AuthUserPrincipal principal) {
+    private void requireUploader(AuthUserPrincipal principal, String context) {
         if (principal == null || principal.getRoles() == null) {
             throw new BusinessException(ErrorCode.FORBIDDEN, "Authentication required");
         }
-        boolean allowed = principal.getRoles().contains("SUPER_ADMIN")
+        boolean staff = principal.getRoles().contains("SUPER_ADMIN")
                 || principal.getRoles().contains("VENDOR");
-        if (!allowed) {
-            throw new BusinessException(ErrorCode.FORBIDDEN, "Vendor or super admin role required");
+        boolean buyerLaundry = "LAUNDRY_ITEM".equalsIgnoreCase(context == null ? "" : context)
+                && principal.getRoles().contains("BUYER");
+        if (!staff && !buyerLaundry) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "Not allowed to upload this file");
         }
     }
 }

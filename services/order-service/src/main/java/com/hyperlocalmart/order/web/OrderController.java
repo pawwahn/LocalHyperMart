@@ -72,12 +72,13 @@ public class OrderController {
             @AuthenticationPrincipal AuthUserPrincipal principal,
             @PathVariable UUID orderId,
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+            @RequestParam(value = "gateway", required = false) String gateway,
             HttpServletRequest httpRequest) {
         String key = idempotencyKey != null && !idempotencyKey.isBlank()
                 ? idempotencyKey
                 : "retry-" + orderId + "-" + System.currentTimeMillis();
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
-                orderService.retryPayment(principal.getUserId(), orderId, key)));
+                orderService.retryPayment(principal.getUserId(), orderId, key, gateway)));
     }
 
     @GetMapping

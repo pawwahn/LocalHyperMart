@@ -22,4 +22,7 @@ public class VendorResponse {
     private String shopName;
     private String address;
     private String disabledReason;
+    private UUID serviceId;
+    private String serviceName;
+    private boolean hidesListings;
 }

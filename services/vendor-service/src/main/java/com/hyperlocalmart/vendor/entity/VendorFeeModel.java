@@ -16,5 +16,11 @@ public enum VendorFeeModel {
     /** Fixed monthly subscription; deducted once per calendar month on payout. */
     MONTHLY_SUBSCRIPTION,
     /** Monthly subscription + % commission on gross. */
-    HYBRID
+    HYBRID,
+    /** Fixed ₹ per piece (laundry and similar). */
+    PER_PIECE,
+    /** ₹ per piece on each order, plus the monthly subscription. */
+    PER_PIECE_WITH_SUBSCRIPTION,
+    /** ₹ per order, plus the monthly subscription. */
+    PER_ORDER_WITH_SUBSCRIPTION
 }

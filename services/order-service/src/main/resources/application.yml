@@ -50,5 +50,9 @@ hyperlocalmart:
     base-url: ${HLM_PAYMENT_SERVICE_URI:http://localhost:8087}
   notification-service:
     base-url: ${HLM_NOTIFICATION_SERVICE_URI:http://localhost:8089}
+  vendor-service:
+    base-url: ${HLM_VENDOR_SERVICE_URI:http://localhost:8083}
+  media-service:
+    base-url: ${HLM_MEDIA_SERVICE_URI:http://localhost:8091}
   checkout:
     delivery-fee: 40.00

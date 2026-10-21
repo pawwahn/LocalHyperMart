@@ -135,6 +135,9 @@ public class TownConfigService {
         }
         applyPaymentSettings(value, request);
         applyDeliveryWindow(value, request);
+        if (request.getLaundryEnabled() != null) {
+            value.put("laundryEnabled", request.getLaundryEnabled());
+        }
 
         config.setConfigValue(value);
         config.setUpdatedAt(Instant.now());
@@ -313,6 +316,7 @@ public class TownConfigService {
                 .codCharge(BigDecimal.ZERO)
                 .deliveryWindowStart(DEFAULT_WINDOW_START)
                 .deliveryWindowEnd(DEFAULT_WINDOW_END)
+                .laundryEnabled(false)
                 .build();
     }
 
@@ -339,6 +343,7 @@ public class TownConfigService {
         value.put("codCharge", BigDecimal.ZERO);
         value.put("deliveryWindowStart", DEFAULT_WINDOW_START);
         value.put("deliveryWindowEnd", DEFAULT_WINDOW_END);
+        value.put("laundryEnabled", false);
         return value;
     }
 
@@ -419,6 +424,7 @@ public class TownConfigService {
                 .codCharge(readCodCharge(value))
                 .deliveryWindowStart(readWindow(value, "deliveryWindowStart", DEFAULT_WINDOW_START))
                 .deliveryWindowEnd(readWindow(value, "deliveryWindowEnd", DEFAULT_WINDOW_END))
+                .laundryEnabled(readLaundryEnabled(value))
                 .build();
     }
 
@@ -437,6 +443,7 @@ public class TownConfigService {
                 .codCharge(cfg.getCodCharge())
                 .deliveryWindowStart(cfg.getDeliveryWindowStart())
                 .deliveryWindowEnd(cfg.getDeliveryWindowEnd())
+                .laundryEnabled(cfg.isLaundryEnabled())
                 .build();
     }
 
@@ -464,6 +471,13 @@ public class TownConfigService {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, "COD charge must be ₹0 or more");
         }
         return raw.setScale(2, RoundingMode.HALF_UP);
+    }
+
+    private static boolean readLaundryEnabled(Map<String, Object> value) {
+        if (value == null || value.get("laundryEnabled") == null) {
+            return false;
+        }
+        return truthy(value.get("laundryEnabled"));
     }
 
     private static boolean readCodEnabled(Map<String, Object> value) {
@@ -681,6 +695,7 @@ public class TownConfigService {
         addBoolChange(parts, "Best deals", left.get("bestDealsEnabled"), right.get("bestDealsEnabled"));
         addBoolChange(parts, "Buyer membership", left.get("buyerMembershipEnabled"), right.get("buyerMembershipEnabled"));
         addBoolChange(parts, "Scratch card", left.get("scratchCardEnabled"), right.get("scratchCardEnabled"));
+        addBoolChange(parts, "Laundry", left.get("laundryEnabled"), right.get("laundryEnabled"));
         addBoolChange(parts, "COD", left.get("codEnabled"), right.get("codEnabled"));
         addBoolChange(parts, "UPI / online pay", left.get("upiEnabled"), right.get("upiEnabled"));
         addMoneyChange(parts, "COD charge", left.get("codCharge"), right.get("codCharge"));

@@ -1048,7 +1048,7 @@ export function SettlementsPage() {
                 });
                 const feeLines = (s.lines ?? []).filter((l) => {
                   const t = (l.lineType ?? '').toUpperCase();
-                  return t === 'COMMISSION' || t === 'SUBSCRIPTION';
+                  return t === 'COMMISSION' || t === 'SUBSCRIPTION' || t === 'PLATFORM_FEE' || t === 'COD_FEE';
                 });
                 const open = expandedHistoryId === s.id;
                 return (

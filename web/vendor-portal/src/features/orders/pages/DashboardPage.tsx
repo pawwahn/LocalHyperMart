@@ -3,6 +3,8 @@ import { useLocation } from 'react-router-dom';
 import { usePortalChrome } from '@/shared/layout/PortalChromeContext';
 import { useAuth } from '@/shared/auth/AuthContext';
 import { Banner, Button } from '@/shared/ui';
+import { useHidesListings } from '@/features/shop/hooks/useHidesListings';
+import { LaundryRequests } from '@/features/laundry/components/LaundryRequests';
 import { useVendorOrders } from '../hooks/useVendorOrders';
 import { useVendorShop } from '@/features/shop/hooks/useVendorShop';
 import { DashboardStats } from '../components/DashboardStats';
@@ -73,6 +75,7 @@ export function DashboardPage({ active = true }: { active?: boolean }) {
   const [prompt, setPrompt] = useState<PromptState>(null);
   const location = useLocation();
   const { shop } = useVendorShop();
+  const hidesListings = useHidesListings();
   const agentPendingCount = ordersNeedingAgent.length;
 
   useEffect(() => {
@@ -125,6 +128,16 @@ export function DashboardPage({ active = true }: { active?: boolean }) {
 
   return (
     <div style={styles.page}>
+      {hidesListings ? (
+        <>
+          {!acceptingOrders ? (
+            <Banner tone="warning">Shop is paused — buyers cannot send laundry requests.</Banner>
+          ) : null}
+          {shopError ? <Banner tone="danger">{shopError}</Banner> : null}
+          <LaundryRequests />
+        </>
+      ) : (
+        <>
       {!acceptingOrders ? (
         <Banner tone="warning">
           Shop is paused — buyers cannot see your products. Resume when you are ready.
@@ -427,6 +440,8 @@ export function DashboardPage({ active = true }: { active?: boolean }) {
           void assignVendorAgent(prompt.subOrderId, agentId).then(() => setPrompt(null));
         }}
       />
+        </>
+      )}
     </div>
   );
 }

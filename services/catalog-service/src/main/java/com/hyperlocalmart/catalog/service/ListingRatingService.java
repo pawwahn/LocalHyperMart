@@ -19,6 +19,7 @@ import java.util.UUID;
 public class ListingRatingService {
 
     private final VendorListingRepository vendorListingRepository;
+    private final CatalogBrowseCache catalogBrowseCache;
 
     @Transactional
     public ListingRatingSummaryResponse applyRating(UUID listingId, ApplyListingRatingRequest request) {
@@ -55,6 +56,7 @@ public class ListingRatingService {
         listing.setAvgRating(avg);
         listing.setRatingCount(count);
         vendorListingRepository.save(listing);
+        catalogBrowseCache.evictAll();
 
         return ListingRatingSummaryResponse.builder()
                 .listingId(listing.getId())

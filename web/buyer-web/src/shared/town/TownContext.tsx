@@ -31,6 +31,10 @@ type TownContextValue = {
   codEnabled: boolean;
   upiEnabled: boolean;
   codCharge: number;
+  platformFee: number;
+  laundryEnabled: boolean;
+  /** False while shop settings for the current town are still loading. */
+  laundryReady: boolean;
   deliveryWindowLabel: string;
   loading: boolean;
   error: string | null;
@@ -75,6 +79,9 @@ export function TownProvider({ children }: { children: ReactNode }) {
   const [codEnabled, setCodEnabled] = useState(true);
   const [upiEnabled, setUpiEnabled] = useState(true);
   const [codCharge, setCodCharge] = useState(0);
+  const [platformFee, setPlatformFee] = useState(0);
+  const [laundryEnabled, setLaundryEnabled] = useState(false);
+  const [laundryReady, setLaundryReady] = useState(false);
   const [windowStart, setWindowStart] = useState('17:00');
   const [windowEnd, setWindowEnd] = useState('19:00');
   const [clock, setClock] = useState(() => Date.now());
@@ -122,6 +129,13 @@ export function TownProvider({ children }: { children: ReactNode }) {
   }, [loading, pref?.townId, session?.townId, towns.length]);
 
   const townId = session?.townId || pref?.townId || '';
+  const [laundryTownId, setLaundryTownId] = useState(townId);
+  if (laundryTownId !== townId) {
+    setLaundryTownId(townId);
+    setLaundryEnabled(false);
+    setLaundryReady(false);
+    setPlatformFee(0);
+  }
   const hasTown = Boolean(townId);
   const townLabel = hasTown ? labelFor(pref, towns, townId) : 'Choose your town';
 
@@ -133,12 +147,17 @@ export function TownProvider({ children }: { children: ReactNode }) {
       setCodEnabled(true);
       setUpiEnabled(true);
       setCodCharge(0);
+      setPlatformFee(0);
       setWindowStart('17:00');
       setWindowEnd('19:00');
+      setLaundryEnabled(false);
+      setLaundryReady(true);
       applyTownTheme(DEFAULT_TOWN_THEME);
       return;
     }
     let cancelled = false;
+    setLaundryEnabled(false);
+    setLaundryReady(false);
     void apiRequest<{
       themeColor?: string;
       bestDealsEnabled?: boolean;
@@ -148,6 +167,8 @@ export function TownProvider({ children }: { children: ReactNode }) {
       codCharge?: number;
       deliveryWindowStart?: string;
       deliveryWindowEnd?: string;
+      laundryEnabled?: boolean;
+      platformFee?: number;
     }>(
       `/api/v1/towns/${townId}/shop-settings`,
       { timeoutMs: 8_000 },
@@ -162,8 +183,12 @@ export function TownProvider({ children }: { children: ReactNode }) {
         setUpiEnabled(data?.upiEnabled !== false);
         const charge = Number(data?.codCharge);
         setCodCharge(Number.isFinite(charge) && charge >= 0 ? charge : 0);
+        const fee = Number(data?.platformFee);
+        setPlatformFee(Number.isFinite(fee) && fee >= 0 ? fee : 0);
         setWindowStart(data?.deliveryWindowStart || '17:00');
         setWindowEnd(data?.deliveryWindowEnd || '19:00');
+        setLaundryEnabled(data?.laundryEnabled === true);
+        setLaundryReady(true);
         applyTownTheme(color);
       })
       .catch(() => {
@@ -174,8 +199,11 @@ export function TownProvider({ children }: { children: ReactNode }) {
         setCodEnabled(true);
         setUpiEnabled(true);
         setCodCharge(0);
+        setPlatformFee(0);
         setWindowStart('17:00');
         setWindowEnd('19:00');
+        setLaundryEnabled(false);
+        setLaundryReady(true);
         applyTownTheme(DEFAULT_TOWN_THEME);
       });
     return () => {
@@ -243,6 +271,9 @@ export function TownProvider({ children }: { children: ReactNode }) {
       codEnabled,
       upiEnabled,
       codCharge,
+      platformFee,
+      laundryEnabled,
+      laundryReady,
       deliveryWindowLabel,
       loading,
       error,
@@ -269,6 +300,9 @@ export function TownProvider({ children }: { children: ReactNode }) {
       codEnabled,
       upiEnabled,
       codCharge,
+      platformFee,
+      laundryEnabled,
+      laundryReady,
       deliveryWindowLabel,
       loading,
       error,

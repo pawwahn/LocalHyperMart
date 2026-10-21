@@ -17,4 +17,7 @@ public class VendorMeResponse {
     private String shopName;
     private UUID shopId;
     private String status;
+    private UUID serviceId;
+    private String serviceName;
+    private boolean hidesListings;
 }

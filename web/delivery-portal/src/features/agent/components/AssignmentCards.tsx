@@ -1,5 +1,6 @@
 import { useState, type CSSProperties, type ReactNode } from 'react';
 import { CallPhoneLink } from '@/shared/ui/CallPhoneLink';
+import { DropMap } from './DropMap';
 import { formatPortalTime } from '@/shared/time/formatPortalTime';
 import { LegStepper } from './LegStepper';
 import { PickupItemsList } from './PickupItemsList';
@@ -30,6 +31,21 @@ function stepIndex(step: string, steps: string[]): number {
   return idx < 0 ? 0 : idx;
 }
 
+function splitDropAddress(raw: string): { near: string | null; lines: string } {
+  const parts = raw
+    .split(',')
+    .map((part) => part.trim())
+    .filter(Boolean);
+  const nearIndex = parts.findIndex((part) => /^near\s+/i.test(part));
+  const near = nearIndex >= 0 ? parts[nearIndex].replace(/^near\s+/i, '') : null;
+  const lines = parts.filter((_, index) => index !== nearIndex).join(', ');
+  return { near, lines };
+}
+
+function mapsSearchUrl(query: string): string {
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
+}
+
 function latestMeta(task: AssignmentView): string | null {
   const events = task.events ?? [];
   if (events.length > 0) {
@@ -37,6 +53,21 @@ function latestMeta(task: AssignmentView): string | null {
     return formatPortalTime(last.createdAt);
   }
   return task.assignedAt ? formatPortalTime(task.assignedAt) : null;
+}
+
+function DropAddress({ label, address }: { label?: string | null; address: string }) {
+  const { near, lines } = splitDropAddress(address);
+  const house = label ? `${label} · ${lines}` : lines;
+  return (
+    <div style={styles.drop}>
+      {near ? <p style={styles.landmark}>Near {near}</p> : null}
+      {house ? <p style={styles.addressFull}>{house}</p> : null}
+      <DropMap address={address} />
+      <a href={mapsSearchUrl(address)} target="_blank" rel="noopener noreferrer" style={styles.mapsLink}>
+        Open in Maps
+      </a>
+    </div>
+  );
 }
 
 function MiniBlock({
@@ -203,10 +234,7 @@ export function BuyerDeliveryCard({
         <div style={styles.headMain}>
           {task.destinationName ? <p style={styles.customerName}>{task.destinationName}</p> : null}
           {task.destinationAddress ? (
-            <p style={styles.addressOnce} title={task.destinationAddress}>
-              {task.destinationLabel ? `${task.destinationLabel} · ` : ''}
-              {task.destinationAddress}
-            </p>
+            <DropAddress label={task.destinationLabel} address={task.destinationAddress} />
           ) : task.destinationLabel ? (
             <p style={styles.addressOnce}>{task.destinationLabel}</p>
           ) : (
@@ -437,6 +465,32 @@ const styles: Record<string, CSSProperties> = {
     whiteSpace: 'nowrap',
     overflow: 'hidden',
     textOverflow: 'ellipsis',
+  },
+  drop: { display: 'grid', gap: '0.12rem' },
+  landmark: {
+    margin: 0,
+    fontSize: '0.84rem',
+    fontWeight: 800,
+    color: 'var(--text)',
+    lineHeight: 1.3,
+  },
+  addressFull: {
+    margin: 0,
+    fontSize: '0.78rem',
+    fontWeight: 650,
+    color: 'var(--text)',
+    lineHeight: 1.35,
+  },
+  mapsLink: {
+    justifySelf: 'start',
+    marginTop: '0.15rem',
+    fontSize: '0.75rem',
+    fontWeight: 800,
+    color: 'var(--accent)',
+    textDecoration: 'none',
+    minHeight: 32,
+    display: 'inline-flex',
+    alignItems: 'center',
   },
   addressOnce: {
     margin: 0,

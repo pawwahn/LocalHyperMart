@@ -26,6 +26,9 @@ public class UpsertVendorCommercialTermsRequest {
     private BigDecimal perOrderFlatAmount;
 
     @DecimalMin("0.0")
+    private BigDecimal perPieceAmount;
+
+    @DecimalMin("0.0")
     private BigDecimal monthlySubscriptionAmount;
 
     @Min(1)

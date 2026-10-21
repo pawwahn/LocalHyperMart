@@ -14,6 +14,9 @@ public class CreateRegistrationRequest {
     @NotNull
     private UUID townId;
 
+    @NotNull
+    private UUID serviceId;
+
     @NotBlank
     @Size(max = 255)
     private String businessName;

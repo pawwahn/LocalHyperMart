@@ -2,6 +2,7 @@ package com.hyperlocalmart.catalog.service;
 
 import com.hyperlocalmart.catalog.client.OrderClient;
 import com.hyperlocalmart.catalog.client.VendorShopClient;
+import com.hyperlocalmart.catalog.dto.response.CatalogHomeResponse;
 import com.hyperlocalmart.catalog.dto.response.CatalogItemResponse;
 import com.hyperlocalmart.catalog.entity.*;
 import com.hyperlocalmart.catalog.repository.MasterItemImageRepository;
@@ -17,6 +18,7 @@ import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -33,6 +35,7 @@ class CatalogBrowseServiceTest {
     @Mock private VendorListingImageRepository vendorListingImageRepository;
     @Mock private VendorShopClient vendorShopClient;
     @Mock private OrderClient orderClient;
+    @Mock private CategoryVisibilityService categoryVisibilityService;
 
     @InjectMocks
     private CatalogBrowseService catalogBrowseService;
@@ -77,6 +80,33 @@ class CatalogBrowseServiceTest {
 
         assertThat(response.getItems()).hasSize(1);
         assertThat(response.getItems().getFirst().getShopName()).isEqualTo("Local shop");
+    }
+
+    @Test
+    void home_keepsFeaturedWhenATownHasNoRailCategories() {
+        UUID townId = UUID.fromString("a1111111-1111-4111-8111-111111111111");
+        UUID shopId = UUID.fromString("c1111111-1111-4111-8111-111111111111");
+        VendorListing listing = sampleListing(shopId);
+        when(vendorListingRepository.browseActive(eq(townId), isNull(), any(PageRequest.class)))
+                .thenReturn(new PageImpl<>(List.of(listing)));
+        when(vendorShopClient.getShopsByIds(anyList())).thenReturn(Map.of(
+                shopId, new VendorShopClient.ShopInfo(shopId, listing.getVendorId(), "Ravi Kirana")
+        ));
+        when(vendorListingImageRepository.findByListingIdInOrderByListingIdAscSortOrderAsc(any()))
+                .thenReturn(List.of());
+        when(masterItemImageRepository.findByMasterItemIdInOrderByMasterItemIdAscSortOrderAsc(any()))
+                .thenReturn(List.of());
+        when(vendorListingRepository.findDiscountedActiveInTown(eq(townId), isNull(), any(Instant.class), any(PageRequest.class)))
+                .thenReturn(new PageImpl<>(List.of()));
+        when(orderClient.townTopListingIds(eq(townId), eq(24))).thenReturn(List.of());
+        when(categoryVisibilityService.listVisibleInTown(townId)).thenReturn(List.of());
+
+        CatalogHomeResponse home = catalogBrowseService.home(townId);
+
+        assertThat(home.getFeatured()).hasSize(1);
+        assertThat(home.getFeatured().getFirst().getName()).isEqualTo("Tomato");
+        assertThat(home.getDiscounted()).isEmpty();
+        assertThat(home.getRails()).isEmpty();
     }
 
     private VendorListing sampleListing(UUID shopId) {

@@ -61,4 +61,7 @@ public class Vendor extends BaseAuditEntity {
 
     @Column(name = "cod_pin_hash")
     private String codPinHash;
+
+    @Column(name = "service_id")
+    private UUID serviceId;
 }

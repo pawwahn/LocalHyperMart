@@ -3,6 +3,7 @@ package com.hyperlocalmart.order.service;
 import com.hyperlocalmart.common.exception.BusinessException;
 import com.hyperlocalmart.common.exception.ErrorCode;
 import com.hyperlocalmart.order.dto.response.PlatformFinanceAccrualResponse;
+import com.hyperlocalmart.order.repository.LaundryOrderRepository;
 import com.hyperlocalmart.order.repository.OrderItemRepository;
 import com.hyperlocalmart.order.repository.OrderRepository;
 import lombok.RequiredArgsConstructor;
@@ -31,6 +32,7 @@ public class PlatformFinanceAccrualService {
 
     private final OrderRepository orderRepository;
     private final OrderItemRepository orderItemRepository;
+    private final LaundryOrderRepository laundryOrderRepository;
 
     @Transactional(readOnly = true)
     public PlatformFinanceAccrualResponse accrual(UUID townId, LocalDate from, LocalDate to) {
@@ -41,9 +43,11 @@ public class PlatformFinanceAccrualService {
         Object[] totals = normalizeAggregateRow(
                 orderRepository.sumDeliveredCommercialsByTownAndDeliveredAtBetween(townId, start, end));
         long deliveredCount = asLong(totals[0]);
-        BigDecimal platformFees = money(totals[1]);
+        BigDecimal platformFees = money(totals[1])
+                .add(money(laundryOrderRepository.sumDeliveredPlatformFee(townId, start, end)));
         BigDecimal deliveryFees = money(totals[2]);
-        BigDecimal codFees = money(totals[3]);
+        BigDecimal codFees = money(totals[3])
+                .add(money(laundryOrderRepository.sumDeliveredCodFee(townId, start, end)));
         BigDecimal orderTax = money(totals[4]);
         BigDecimal deliveredGmv = money(totals[5]);
 
@@ -58,6 +62,7 @@ public class PlatformFinanceAccrualService {
         mergeDay(dayCounts, dayFees, orderRepository.countDeliveredGroupedByIstDayFiltered(townId, start, end), 0);
         mergeDayGmv(dayFees, orderRepository.sumDeliveredGmvGroupedByIstDayFiltered(townId, start, end), 1);
         mergeDayFees(dayFees, orderRepository.sumPlatformFeeGroupedByIstDayFiltered(townId, start, end), 0);
+        addDayFees(dayFees, laundryOrderRepository.sumDeliveredPlatformFeeGroupedByIstDay(townId, start, end), 0);
         mergeDayGst(dayFees, orderItemRepository.sumGstGroupedByDeliveredIstDay(townId, start, end), 2);
 
         List<PlatformFinanceAccrualResponse.DailyAccrualRow> daily = new ArrayList<>();
@@ -121,6 +126,16 @@ public class PlatformFinanceAccrualService {
             fees.computeIfAbsent(day, k -> new BigDecimal[] {
                     BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO
             })[idx] = money(row[1]);
+        }
+    }
+
+    private static void addDayFees(Map<LocalDate, BigDecimal[]> fees, List<Object[]> rows, int idx) {
+        for (Object[] row : rows) {
+            LocalDate day = toLocalDate(row[0]);
+            BigDecimal[] slot = fees.computeIfAbsent(day, k -> new BigDecimal[] {
+                    BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO
+            });
+            slot[idx] = slot[idx].add(money(row[1]));
         }
     }
 

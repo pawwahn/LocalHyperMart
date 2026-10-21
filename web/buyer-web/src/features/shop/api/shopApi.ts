@@ -207,7 +207,11 @@ export type CreateOrderDto = {
 
 export type GatewayCheckout = {
   keyId?: string | null;
+  gateway?: 'RAZORPAY' | 'CASHFREE' | 'PHONEPE' | string | null;
   gatewayOrderId: string;
+  paymentSessionId?: string | null;
+  redirectUrl?: string | null;
+  mode?: 'sandbox' | 'production' | string | null;
   amountPaise: number;
   currency: string;
   name: string;
@@ -414,6 +418,39 @@ export function mergeCatalogItems(...groups: CatalogItemView[][]): CatalogItemVi
     }
   }
   return out;
+}
+
+export type CatalogHome = {
+  featured: CatalogItemView[];
+  discounted: CatalogItemView[];
+  popular: CatalogItemView[];
+  rails: Array<{ id: string; title: string; items: CatalogItemView[]; categoryId: string | null }>;
+};
+
+/** One payload for the shop home. Category pages and search still use fetchCatalogPage. */
+export async function fetchCatalogHome(townId: string): Promise<CatalogHome> {
+  const data = await apiRequest<{
+    featured?: CatalogItemDto[];
+    discounted?: CatalogItemDto[];
+    popular?: CatalogItemDto[];
+    rails?: Array<{
+      id: string;
+      title: string;
+      categoryId?: string | null;
+      items?: CatalogItemDto[];
+    }>;
+  }>(`/api/v1/catalog/home?townId=${encodeURIComponent(townId)}`, { timeoutMs: 15_000 });
+  return {
+    featured: (data.featured ?? []).map(toCatalogItem),
+    discounted: (data.discounted ?? []).map(toCatalogItem),
+    popular: (data.popular ?? []).map(toCatalogItem),
+    rails: (data.rails ?? []).map((rail) => ({
+      id: rail.id,
+      title: rail.title,
+      categoryId: rail.categoryId ?? null,
+      items: (rail.items ?? []).map(toCatalogItem),
+    })),
+  };
 }
 
 export async function fetchDiscountedItems(townId: string, limit = 24): Promise<CatalogItemView[]> {
@@ -692,6 +729,7 @@ export async function placeOrder(
     addressId: string;
     useStoreCredit?: boolean;
     paymentMethod?: 'COD' | 'ONLINE';
+    paymentGateway?: string;
   },
 ): Promise<CreateOrderDto> {
   const paymentMethod = input.paymentMethod ?? 'COD';
@@ -705,7 +743,7 @@ export async function placeOrder(
       cartId: input.cartId,
       addressId: input.addressId,
       paymentMethod,
-      paymentGateway: paymentMethod === 'ONLINE' ? 'RAZORPAY' : undefined,
+      paymentGateway: paymentMethod === 'ONLINE' ? input.paymentGateway || 'RAZORPAY' : undefined,
       useStoreCredit: Boolean(input.useStoreCredit),
     },
   });
@@ -720,7 +758,13 @@ export async function placeCodOrder(
 
 export async function confirmOnlinePayment(
   token: string,
-  input: { razorpayOrderId: string; razorpayPaymentId: string; razorpaySignature: string },
+  input: {
+    gateway?: string;
+    gatewayOrderId?: string;
+    razorpayOrderId?: string;
+    razorpayPaymentId?: string;
+    razorpaySignature?: string;
+  },
 ): Promise<unknown> {
   return apiRequest('/api/v1/payments/confirm', {
     token,
@@ -740,11 +784,17 @@ export async function fetchPaymentCheckout(token: string, paymentId: string): Pr
   return apiRequest<PaymentCheckoutDto>(`/api/v1/payments/${paymentId}/checkout`, { token, timeoutMs: 10_000 });
 }
 
+export async function fetchPaymentGateways(token: string): Promise<Array<{ id: string; label: string }>> {
+  return apiRequest<Array<{ id: string; label: string }>>('/api/v1/payments/gateways', { token, timeoutMs: 8_000 });
+}
+
 export async function retryOnlinePayment(
   token: string,
   orderId: string,
+  gateway?: string,
 ): Promise<{ paymentId?: string; status?: string; checkout?: GatewayCheckout | null }> {
-  return apiRequest(`/api/v1/orders/${orderId}/payments/retry`, {
+  const query = gateway ? `?gateway=${encodeURIComponent(gateway)}` : '';
+  return apiRequest(`/api/v1/orders/${orderId}/payments/retry${query}`, {
     token,
     method: 'POST',
     headers: { 'Idempotency-Key': `retry-${orderId}-${Date.now()}` },

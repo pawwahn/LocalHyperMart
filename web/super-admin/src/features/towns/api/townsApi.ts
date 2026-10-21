@@ -162,6 +162,7 @@ export type TownConfigVm = {
   codCharge: number;
   deliveryWindowStart: string;
   deliveryWindowEnd: string;
+  laundryEnabled: boolean;
 };
 
 export type UpdateTownConfigInput = {
@@ -182,6 +183,7 @@ export type UpdateTownConfigInput = {
   codCharge: number;
   deliveryWindowStart: string;
   deliveryWindowEnd: string;
+  laundryEnabled: boolean;
 };
 
 function asWindow(v: unknown, fallback: string): string {
@@ -243,6 +245,7 @@ export async function getTownConfig(token: string, townId: string): Promise<Town
     codCharge: Math.max(0, asNum(data?.codCharge, 0)),
     deliveryWindowStart: asWindow(data?.deliveryWindowStart, '17:00'),
     deliveryWindowEnd: asWindow(data?.deliveryWindowEnd, '19:00'),
+    laundryEnabled: data?.laundryEnabled === true,
   };
 }
 

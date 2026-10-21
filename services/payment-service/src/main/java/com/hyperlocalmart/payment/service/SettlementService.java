@@ -139,6 +139,8 @@ public class SettlementService {
                             .codDeliveringAgentName(agent != null ? agent.name() : null)
                             .codDeliveringAgentPhone(agent != null ? agent.phone() : null)
                             .subtotal(item.subtotal())
+                            .pieceCount(item.pieceCount())
+                            .platformFee(item.platformFee())
                             .alreadySettled(settled.contains(item.subOrderId()))
                             .build();
                 })
@@ -232,7 +234,8 @@ public class SettlementService {
         List<VendorClient.OrderLine> orderLines = resolved.stream()
                 .map(item -> new VendorClient.OrderLine(
                         item.subtotal() == null ? BigDecimal.ZERO : item.subtotal(),
-                        item.placedAt()))
+                        item.placedAt(),
+                        item.pieceCount()))
                 .toList();
         VendorClient.CommercialTermsQuote feeQuote = vendorClient.quoteCommercialTerms(
                 request.getVendorId(),
@@ -273,12 +276,30 @@ public class SettlementService {
                     "Reason is required when adding a penalty or other charge");
         }
 
+        BigDecimal platformFees = collection
+                ? resolved.stream()
+                .map(item -> item.platformFee() == null ? BigDecimal.ZERO : item.platformFee())
+                .reduce(BigDecimal.ZERO, BigDecimal::add)
+                .setScale(2, RoundingMode.HALF_UP)
+                : BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+        if (platformFees.signum() < 0) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Platform fee cannot be negative");
+        }
+        BigDecimal codFees = collection
+                ? resolved.stream()
+                .map(item -> item.codFee() == null ? BigDecimal.ZERO : item.codFee())
+                .reduce(BigDecimal.ZERO, BigDecimal::add)
+                .setScale(2, RoundingMode.HALF_UP)
+                : BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+        if (codFees.signum() < 0) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "COD charge cannot be negative");
+        }
         BigDecimal net;
         if (collection) {
-            net = commission.add(otherCharges);
+            net = commission.add(platformFees).add(codFees).add(otherCharges);
             if (net.compareTo(BigDecimal.ZERO) <= 0) {
                 throw new BusinessException(ErrorCode.VALIDATION_ERROR,
-                        "Nothing to collect — no commission or extra charge on this batch. Monthly subscription is billed on the Subscription tab.");
+                        "Nothing to collect — no commission, platform fee, or extra charge on this batch. Monthly subscription is billed on the Subscription tab.");
             }
         } else {
             net = gross.subtract(commission).subtract(claimChargebacks).subtract(otherCharges);
@@ -303,7 +324,7 @@ public class SettlementService {
                 .periodType(request.getPeriodType() == null
                         ? SettlementPeriodType.CUSTOM : request.getPeriodType())
                 .grossAmount(gross)
-                .commissionAmount(commission)
+                .commissionAmount(collection ? commission.add(platformFees).add(codFees) : commission)
                 .netAmount(net)
                 .status(SettlementStatus.DRAFT)
                 .build();
@@ -344,6 +365,30 @@ public class SettlementService {
             feeLine.setCreatedBy(actorId);
             feeLine.setUpdatedBy(actorId);
             settlement.getLineItems().add(feeLine);
+        }
+
+        if (collection && platformFees.signum() > 0) {
+            SettlementLineItem platformLine = SettlementLineItem.builder()
+                    .settlement(settlement)
+                    .lineType("PLATFORM_FEE")
+                    .amount(platformFees)
+                    .description("Platform fee collected from shop-held cash")
+                    .build();
+            platformLine.setCreatedBy(actorId);
+            platformLine.setUpdatedBy(actorId);
+            settlement.getLineItems().add(platformLine);
+        }
+
+        if (collection && codFees.signum() > 0) {
+            SettlementLineItem codLine = SettlementLineItem.builder()
+                    .settlement(settlement)
+                    .lineType("COD_FEE")
+                    .amount(codFees)
+                    .description("COD charge collected from shop-held cash")
+                    .build();
+            codLine.setCreatedBy(actorId);
+            codLine.setUpdatedBy(actorId);
+            settlement.getLineItems().add(codLine);
         }
 
         for (VendorSettlementAdjustment adj : pendingAdjustments) {
@@ -1337,6 +1382,9 @@ public class SettlementService {
                         ctx.paymentMethod(),
                         ctx.vendorAgentDelivery(),
                         BigDecimal.ZERO,
+                        null,
+                        null,
+                        null,
                         null))
                 .toList();
 

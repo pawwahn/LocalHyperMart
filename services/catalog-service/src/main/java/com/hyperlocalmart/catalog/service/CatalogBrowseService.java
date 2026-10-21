@@ -2,7 +2,9 @@ package com.hyperlocalmart.catalog.service;
 
 import com.hyperlocalmart.catalog.client.OrderClient;
 import com.hyperlocalmart.catalog.client.VendorShopClient;
+import com.hyperlocalmart.catalog.dto.response.CatalogHomeResponse;
 import com.hyperlocalmart.catalog.dto.response.CatalogItemResponse;
+import com.hyperlocalmart.catalog.dto.response.CategoryResponse;
 import com.hyperlocalmart.catalog.entity.MasterItemImage;
 import com.hyperlocalmart.catalog.entity.VendorListing;
 import com.hyperlocalmart.catalog.entity.VendorListingImage;
@@ -40,6 +42,7 @@ public class CatalogBrowseService {
     private final VendorListingImageRepository vendorListingImageRepository;
     private final VendorShopClient vendorShopClient;
     private final OrderClient orderClient;
+    private final CategoryVisibilityService categoryVisibilityService;
 
     public PageResponse<CatalogItemResponse> browse(
             UUID townId, UUID categoryId, String query, int page, int size, String sort, String dir) {
@@ -47,11 +50,6 @@ public class CatalogBrowseService {
     }
 
     @Transactional(readOnly = true)
-    @Cacheable(
-            cacheNames = "catalogBrowse",
-            condition =
-                    "@environment.getProperty('hyperlocalmart.cache.catalog-browse.enabled', 'false') == 'true'",
-            key = "T(java.lang.String).format('%s|%s|%s|%d|%d|%s|%s|%s', #townId, #categoryId, #query, #page, #size, #sort, #dir, #lane)")
     public PageResponse<CatalogItemResponse> browse(
             UUID townId, UUID categoryId, String query, int page, int size, String sort, String dir, String lane) {
         String homeLane = lane == null ? "" : lane.trim().toLowerCase();
@@ -98,6 +96,37 @@ public class CatalogBrowseService {
                 .size(listings.getSize())
                 .totalElements(listings.getTotalElements())
                 .totalPages(listings.getTotalPages())
+                .build();
+    }
+
+    /**
+     * Shop home in one response: featured, offers, bestsellers, and the named rails.
+     * Category browse and search stay on {@link #browse}.
+     */
+    @Transactional(readOnly = true)
+    @Cacheable(
+            cacheNames = CatalogBrowseCache.CACHE_NAME,
+            condition =
+                    "@environment.getProperty('hyperlocalmart.cache.catalog-browse.enabled', 'false') == 'true'",
+            key = "'home|' + #townId",
+            sync = true)
+    public CatalogHomeResponse home(UUID townId) {
+        List<CatalogItemResponse> featured =
+                browse(townId, null, null, 0, 48, "rating", "desc", null).getItems();
+        List<CatalogItemResponse> discounted = topDiscountedInTown(townId, Set.of(), 28);
+        List<CatalogItemResponse> popular =
+                browse(townId, null, null, 0, 24, "name", "asc", "popular").getItems();
+
+        List<CategoryResponse> categories = categoryVisibilityService.listVisibleInTown(townId);
+        Map<UUID, List<CatalogItemResponse>> pages = new HashMap<>();
+        for (UUID categoryId : CatalogHomeRails.categoryIds(categories)) {
+            pages.put(categoryId, browse(townId, categoryId, null, 0, 12, "rating", "desc", null).getItems());
+        }
+        return CatalogHomeResponse.builder()
+                .featured(featured == null ? List.of() : featured)
+                .discounted(discounted == null ? List.of() : discounted)
+                .popular(popular == null ? List.of() : popular)
+                .rails(CatalogHomeRails.build(categories, pages))
                 .build();
     }
 

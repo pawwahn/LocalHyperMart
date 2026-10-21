@@ -21,14 +21,22 @@ spring:
     locations: classpath:db/migration
   kafka:
     bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:hyperlocalmart}
   cache:
-    type: ${HLM_SPRING_CACHE_TYPE:none}
+    type: ${HLM_SPRING_CACHE_TYPE:redis}
 
 management:
   endpoints:
     web:
       exposure:
         include: health,info,prometheus
+  health:
+    redis:
+      enabled: false
 
 springdoc:
   api-docs:
@@ -37,7 +45,7 @@ springdoc:
 hyperlocalmart:
   cache:
     catalog-browse:
-      enabled: ${HLM_CATALOG_BROWSE_CACHE:false}
+      enabled: ${HLM_CATALOG_BROWSE_CACHE:true}
       ttl-seconds: ${HLM_CATALOG_BROWSE_CACHE_TTL:45}
   security:
     jwt:

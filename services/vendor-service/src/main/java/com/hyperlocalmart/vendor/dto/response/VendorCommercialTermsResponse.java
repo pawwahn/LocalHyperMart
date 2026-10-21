@@ -18,6 +18,7 @@ public class VendorCommercialTermsResponse {
     private VendorFeeModel feeModel;
     private BigDecimal commissionPercent;
     private BigDecimal perOrderFlatAmount;
+    private BigDecimal perPieceAmount;
     private BigDecimal monthlySubscriptionAmount;
     private Integer subscriptionBillingDay;
     private List<CommissionSlab> commissionSlabs;

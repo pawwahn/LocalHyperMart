@@ -618,6 +618,7 @@ export function AdsPage() {
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<{ message: string; tone: 'success' | 'info' } | null>(null);
   const [tab, setTab] = useState<'creatives' | 'slots' | 'rates' | 'bills' | 'history'>('creatives');
+  const [homeOpen, setHomeOpen] = useState(false);
   const [historyTick, setHistoryTick] = useState(0);
   const [adsReady, setAdsReady] = useState(false);
 
@@ -632,6 +633,7 @@ export function AdsPage() {
     return map;
   }, [drafts]);
 
+  const heroDraft = draftByKey.get(adEditorKey(heroItem.slot, heroItem.slotIndex));
   const liveCount = useMemo(() => drafts.filter((d) => d.enabled && isDraftReady(d)).length, [drafts]);
   const liveMidCount = midItems.filter(
     (item) => draftByKey.get(adEditorKey(item.slot, item.slotIndex))?.enabled,
@@ -942,27 +944,42 @@ export function AdsPage() {
       {selectedTown ? (
         <div style={styles.sections}>
           <section style={styles.section}>
-            <SectionHeader
-              index="01"
-              title="Home strip"
-              hint="Top of buyer shop home, directly below search."
-            />
-            <AdEditorCard
-              meta={heroItem}
-              draft={draftByKey.get(adEditorKey(heroItem.slot, heroItem.slotIndex)) ?? emptyDraft(heroItem)}
-              busy={false}
-              uploading={uploadingKey === adEditorKey(heroItem.slot, heroItem.slotIndex)}
-              towns={towns}
-              currentTownId={townId}
-              onChange={(patch) => updateDraft(adEditorKey(heroItem.slot, heroItem.slotIndex), patch)}
-              onPickImage={(e) => void onPickImage(adEditorKey(heroItem.slot, heroItem.slotIndex), e)}
-              onRemoveImage={(index) => {
-                const key = adEditorKey(heroItem.slot, heroItem.slotIndex);
-                const draft = draftByKey.get(key);
-                if (!draft) return;
-                updateDraft(key, { images: draft.images.filter((_, i) => i !== index) });
-              }}
-            />
+            <button
+              type="button"
+              style={styles.sectionToggle}
+              aria-expanded={homeOpen}
+              onClick={() => setHomeOpen((open) => !open)}
+            >
+              <span style={styles.sectionCaret}>{homeOpen ? '▾' : '▸'}</span>
+              <span style={styles.sectionIndex}>01</span>
+              <span style={styles.sectionCopy}>
+                <span style={styles.sectionTitleRow}>
+                  <h2 style={styles.sectionTitle}>Home strip</h2>
+                  <span style={styles.sectionBadgeMuted}>
+                    {heroDraft?.bookable === false ? 'Disabled' : heroDraft?.enabled ? 'Shown' : 'Hidden'}
+                  </span>
+                </span>
+                {homeOpen ? <p style={styles.sectionHint}>Top of buyer shop home, directly below search.</p> : null}
+              </span>
+            </button>
+            {homeOpen ? (
+              <AdEditorCard
+                meta={heroItem}
+                draft={heroDraft ?? emptyDraft(heroItem)}
+                busy={false}
+                uploading={uploadingKey === adEditorKey(heroItem.slot, heroItem.slotIndex)}
+                towns={towns}
+                currentTownId={townId}
+                onChange={(patch) => updateDraft(adEditorKey(heroItem.slot, heroItem.slotIndex), patch)}
+                onPickImage={(e) => void onPickImage(adEditorKey(heroItem.slot, heroItem.slotIndex), e)}
+                onRemoveImage={(index) => {
+                  const key = adEditorKey(heroItem.slot, heroItem.slotIndex);
+                  const draft = draftByKey.get(key);
+                  if (!draft) return;
+                  updateDraft(key, { images: draft.images.filter((_, i) => i !== index) });
+                }}
+              />
+            ) : null}
           </section>
 
           <section style={styles.section}>
@@ -1155,6 +1172,20 @@ const styles: Record<string, CSSProperties> = {
   townMetaText: { fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)' },
   sections: { display: 'grid', gap: '1.1rem', paddingBottom: '4.5rem' },
   section: { display: 'grid', gap: '0.55rem' },
+  sectionToggle: {
+    display: 'flex',
+    gap: '0.45rem',
+    alignItems: 'center',
+    width: '100%',
+    margin: 0,
+    padding: 0,
+    border: 'none',
+    background: 'transparent',
+    color: 'inherit',
+    textAlign: 'left',
+    cursor: 'pointer',
+  },
+  sectionCaret: { width: '0.7rem', fontSize: '0.75rem', fontWeight: 800, color: 'var(--text-muted)' },
   sectionHead: { display: 'flex', gap: '0.65rem', alignItems: 'flex-start' },
   sectionIndex: {
     flexShrink: 0,
@@ -1177,6 +1208,14 @@ const styles: Record<string, CSSProperties> = {
     fontFamily: 'var(--font-display)',
     fontSize: '1.08rem',
     fontWeight: 800,
+  },
+  sectionBadgeMuted: {
+    fontSize: '0.65rem',
+    fontWeight: 800,
+    padding: '0.12rem 0.4rem',
+    borderRadius: 'var(--radius-full)',
+    background: 'var(--bg-muted)',
+    color: 'var(--text-muted)',
   },
   sectionBadge: {
     fontSize: '0.65rem',

@@ -6,7 +6,10 @@ export type VendorFeeModel =
   | 'COMMISSION_PCT'
   | 'SLAB_COMMISSION'
   | 'MONTHLY_SUBSCRIPTION'
-  | 'HYBRID';
+  | 'HYBRID'
+  | 'PER_PIECE'
+  | 'PER_PIECE_WITH_SUBSCRIPTION'
+  | 'PER_ORDER_WITH_SUBSCRIPTION';
 
 export type CommissionSlab = {
   uptoAmount?: number | null;
@@ -19,6 +22,7 @@ export type VendorCommercialTerms = {
   feeModel: VendorFeeModel;
   commissionPercent?: number | null;
   perOrderFlatAmount?: number | null;
+  perPieceAmount?: number | null;
   monthlySubscriptionAmount?: number | null;
   subscriptionBillingDay?: number | null;
   commissionSlabs?: CommissionSlab[] | null;
@@ -53,6 +57,7 @@ export type UpsertCommercialTermsInput = {
   feeModel: VendorFeeModel;
   commissionPercent?: number;
   perOrderFlatAmount?: number;
+  perPieceAmount?: number;
   monthlySubscriptionAmount?: number;
   subscriptionBillingDay?: number;
   commissionSlabs?: CommissionSlab[];
@@ -72,7 +77,20 @@ export const FEE_MODEL_OPTIONS: Array<{
   { id: 'NONE', label: 'No fee', help: 'Nothing deducted on payout', primary: true },
   { id: 'COMMISSION_PCT', label: 'Simple %', help: 'One % on payout total', primary: true },
   { id: 'PER_ORDER_FLAT', label: '₹ per order', help: 'Fixed ₹ for each settled order', primary: true },
+  { id: 'PER_PIECE', label: '₹ per piece', help: 'Fixed ₹ for each piece, such as laundry', primary: true },
   { id: 'MONTHLY_SUBSCRIPTION', label: 'Monthly fee', help: 'Fixed ₹ once each month', primary: true },
+  {
+    id: 'PER_PIECE_WITH_SUBSCRIPTION',
+    label: '₹ per piece + monthly',
+    help: 'Per piece on each order plus a monthly fee',
+    primary: false,
+  },
+  {
+    id: 'PER_ORDER_WITH_SUBSCRIPTION',
+    label: '₹ per order + monthly',
+    help: 'Per order plus a monthly fee',
+    primary: false,
+  },
   {
     id: 'HYBRID',
     label: 'Monthly + %',

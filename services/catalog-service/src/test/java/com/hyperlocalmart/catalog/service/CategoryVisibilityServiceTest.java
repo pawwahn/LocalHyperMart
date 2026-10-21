@@ -31,6 +31,7 @@ class CategoryVisibilityServiceTest {
     @Mock private CategoryRepository categoryRepository;
     @Mock private CategoryTownOverrideRepository overrideRepository;
     @Mock private com.hyperlocalmart.catalog.client.AdminAuditClient adminAuditClient;
+    @Mock private CatalogBrowseCache catalogBrowseCache;
     @InjectMocks private CategoryVisibilityService service;
 
     @Test

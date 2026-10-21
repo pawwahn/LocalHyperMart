@@ -2,11 +2,13 @@ package com.hyperlocalmart.payment.service;
 
 import com.hyperlocalmart.common.exception.BusinessException;
 import com.hyperlocalmart.common.exception.ErrorCode;
-import com.hyperlocalmart.payment.client.OrderClient;
 import com.hyperlocalmart.payment.entity.BuyerMembershipPurchase;
 import com.hyperlocalmart.payment.entity.MembershipPurchaseStatus;
+import com.hyperlocalmart.payment.cashfree.CashfreeClient;
 import com.hyperlocalmart.payment.entity.Payment;
+import com.hyperlocalmart.payment.entity.PaymentGateway;
 import com.hyperlocalmart.payment.entity.PaymentStatus;
+import com.hyperlocalmart.payment.phonepe.PhonePeClient;
 import com.hyperlocalmart.payment.razorpay.RazorpayClient;
 import com.hyperlocalmart.payment.razorpay.RazorpayMoney;
 import com.hyperlocalmart.payment.razorpay.RazorpayOrder;
@@ -29,7 +31,8 @@ public class RazorpayGatewaySyncService {
     private final PaymentRepository paymentRepository;
     private final BuyerMembershipPurchaseRepository purchaseRepository;
     private final RazorpayClient razorpayClient;
-    private final OrderClient orderClient;
+    private final CashfreeClient cashfreeClient;
+    private final PhonePeClient phonePeClient;
     private final TransactionTemplate transactionTemplate;
 
     public void ensureOrderPaymentGateway(UUID paymentId) {
@@ -40,15 +43,35 @@ public class RazorpayGatewaySyncService {
         if (payment.getGatewayOrderId() != null && !payment.getGatewayOrderId().isBlank()) {
             return;
         }
-        OrderClient.OrderSnapshot order = orderClient.getOrder(payment.getOrderId(), payment.getBuyerId());
-        RazorpayOrder rzp = createRazorpayOrder(payment, order.totalAmount());
+        if (payment.getGateway() == PaymentGateway.CASHFREE) {
+            String orderId = payment.getId().toString().replace("-", "");
+            CashfreeClient.CreatedOrder created = cashfreeClient.createOrder(
+                    orderId, payment.getAmount(), payment.getBuyerPhone(), payment.getBuyerId().toString());
+            saveGateway(paymentId, created.orderId(), created.paymentSessionId());
+            return;
+        }
+        if (payment.getGateway() == PaymentGateway.PHONEPE) {
+            String orderId = payment.getId().toString().replace("-", "");
+            PhonePeClient.CreatedCheckout created = phonePeClient.createCheckout(
+                    orderId, RazorpayMoney.toPaise(payment.getAmount()));
+            saveGateway(paymentId, created.merchantOrderId(), created.redirectUrl());
+            return;
+        }
+        RazorpayOrder rzp = createRazorpayOrder(payment, payment.getAmount());
+        saveGateway(paymentId, rzp.id(), null);
+    }
+
+    private void saveGateway(UUID paymentId, String orderId, String session) {
         transactionTemplate.executeWithoutResult(status -> {
             Payment row = paymentRepository.findById(paymentId)
                     .orElseThrow(() -> new BusinessException(ErrorCode.INTERNAL_ERROR, "Payment row missing"));
             if (row.getGatewayOrderId() != null && !row.getGatewayOrderId().isBlank()) {
                 return;
             }
-            row.setGatewayOrderId(rzp.id());
+            row.setGatewayOrderId(orderId);
+            if (session != null && !session.isBlank()) {
+                row.setGatewaySession(session);
+            }
             paymentRepository.save(row);
         });
     }

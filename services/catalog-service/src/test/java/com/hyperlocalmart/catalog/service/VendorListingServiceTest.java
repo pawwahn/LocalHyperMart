@@ -41,6 +41,7 @@ class VendorListingServiceTest {
     @Mock private UnitRepository unitRepository;
     @Mock private VendorShopClient vendorShopClient;
     @Mock private com.hyperlocalmart.catalog.client.AdminAuditClient adminAuditClient;
+    @Mock private CatalogBrowseCache catalogBrowseCache;
 
     @InjectMocks
     private VendorListingService vendorListingService;
@@ -66,6 +67,8 @@ class VendorListingServiceTest {
                 .thenReturn(Optional.of(MasterItem.builder()
                         .id(masterItemId)
                         .name("Rice")
+                        .hsnCode("1006")
+                        .gstPercent(new BigDecimal("5"))
                         .unit(Unit.builder().code("KG").label("Kilogram").build())
                         .status(CatalogItemStatus.ACTIVE)
                         .build()));

@@ -14,6 +14,8 @@ export type VendorRegistrationVm = {
   rejectReason?: string | null;
   vendorId?: string | null;
   createdAt?: string | null;
+  serviceId?: string | null;
+  serviceName?: string | null;
   /** Present only on approve — share with vendor once. */
   temporaryPassword?: string | null;
 };
@@ -32,6 +34,9 @@ export type VendorVm = {
   shopName?: string | null;
   address?: string | null;
   disabledReason?: string | null;
+  serviceId?: string | null;
+  serviceName?: string | null;
+  hidesListings?: boolean;
 };
 
 export type UpdateVendorProfileInput = {
@@ -39,6 +44,7 @@ export type UpdateVendorProfileInput = {
   ownerName?: string;
   shopName: string;
   address?: string;
+  serviceId: string;
   gstNumber?: string;
   fssaiNumber?: string;
   bankAccount?: string;
@@ -50,6 +56,7 @@ type VendorDto = VendorVm;
 
 export type CreateRegistrationInput = {
   townId: string;
+  serviceId: string;
   businessName: string;
   ownerName?: string;
   phone: string;
