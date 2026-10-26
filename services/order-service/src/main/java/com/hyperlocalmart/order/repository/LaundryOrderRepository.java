@@ -21,6 +21,14 @@ public interface LaundryOrderRepository extends JpaRepository<LaundryOrder, UUID
     List<LaundryOrder> findByTownIdOrderByPlacedAtDesc(UUID townId);
 
     @Query("""
+            select distinct o from LaundryOrder o
+            left join fetch o.lines
+            where o.townId = :townId
+            order by o.placedAt desc
+            """)
+    List<LaundryOrder> findByTownIdWithLinesOrderByPlacedAtDesc(@Param("townId") UUID townId);
+
+    @Query("""
             select coalesce(sum(l.quantity), 0)
             from LaundryOrderLine l
             join l.order o
@@ -106,6 +114,37 @@ public interface LaundryOrderRepository extends JpaRepository<LaundryOrder, UUID
             @Param("end") Instant end);
 
     List<LaundryOrder> findByVendorIdAndIdIn(UUID vendorId, Collection<UUID> ids);
+
+    @Query("""
+            select o from LaundryOrder o
+            where o.id in :ids
+              and o.paymentMethod = com.hyperlocalmart.order.laundry.LaundryPaymentMethod.CASH
+              and o.status = com.hyperlocalmart.order.laundry.LaundryOrderStatus.DELIVERED
+              and o.deliveredAt is not null
+            """)
+    List<LaundryOrder> findCashDeliveredByIds(@Param("ids") Collection<UUID> ids);
+
+    @Query("""
+            select o from LaundryOrder o
+            where o.townId = :townId
+              and o.paymentMethod = com.hyperlocalmart.order.laundry.LaundryPaymentMethod.CASH
+              and o.status = com.hyperlocalmart.order.laundry.LaundryOrderStatus.DELIVERED
+              and o.deliveredAt >= :start and o.deliveredAt < :end
+            """)
+    List<LaundryOrder> findCashDeliveredByTownAndDeliveredAtBetween(
+            @Param("townId") UUID townId, @Param("start") Instant start, @Param("end") Instant end);
+
+    @Query("""
+            select o from LaundryOrder o
+            where o.vendorId = :vendorId
+              and o.status <> com.hyperlocalmart.order.laundry.LaundryOrderStatus.CANCELLED
+              and o.status <> com.hyperlocalmart.order.laundry.LaundryOrderStatus.AWAITING_PAYMENT
+              and coalesce(o.deliveredAt, o.placedAt) >= :start
+              and coalesce(o.deliveredAt, o.placedAt) < :end
+            order by coalesce(o.deliveredAt, o.placedAt) desc
+            """)
+    List<LaundryOrder> findSalesReportByVendorId(
+            @Param("vendorId") UUID vendorId, @Param("start") Instant start, @Param("end") Instant end);
 
     @Query("""
             select o.vendorId, o.townId, o.id

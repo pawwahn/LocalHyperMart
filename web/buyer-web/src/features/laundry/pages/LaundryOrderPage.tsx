@@ -1,17 +1,20 @@
-import { useEffect, useState, type CSSProperties } from 'react';
-import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
+import { useEffect, useMemo, useState, type CSSProperties } from 'react';
+import { Link, useLocation, useParams } from 'react-router-dom';
+import { OrderStatusTimeline } from '@/features/shop/components/OrderStatusTimeline';
+import { buildLaundryBuyerTimeline } from '../lib/laundryOrderProgress';
 import { PortalShell } from '@/shared/layout/PortalShell';
 import { useAuth } from '@/shared/auth/AuthContext';
 import { ApiError } from '@/shared/api/http';
+import { LaundryCustomerNote } from '@hlm-laundry';
 import { CheckoutDismissedError, checkoutCanOpen, openGatewayCheckout } from '@/features/shop/lib/gatewayCheckout';
 import { confirmOnlinePayment, fetchPaymentCheckout } from '@/features/shop/api/shopApi';
 import { pollUntilCheckoutReady } from '@/features/shop/lib/paymentCheckoutPoll';
+import { ConfirmDialog } from '@/features/shop/components/ConfirmDialog';
 import {
-  cancelLaundryOrder,
   fetchLaundryOrder,
+  laundryAgentCashBuyerNote,
   laundryLabel,
   retryLaundryPayment,
-  saveLaundryComment,
   type LaundryOrder,
 } from '../api/laundryApi';
 
@@ -27,18 +30,21 @@ function when(value?: string | null): string {
   return date.toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
 }
 
+function customerNote(order: LaundryOrder): string | null {
+  return order.specialInstructions?.trim() || order.buyerComment?.trim() || null;
+}
+
 export function LaundryOrderPage() {
   const { orderId = '' } = useParams();
-  const navigate = useNavigate();
   const location = useLocation();
   const openedWith = (location.state as { payError?: string } | null)?.payError ?? null;
   const { session } = useAuth();
   const token = session?.accessToken ?? '';
   const [order, setOrder] = useState<LaundryOrder | null>(null);
-  const [comment, setComment] = useState('');
   const [error, setError] = useState<string | null>(openedWith);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [confirmPay, setConfirmPay] = useState(false);
 
   useEffect(() => {
     if (!token || !orderId) {
@@ -49,9 +55,7 @@ export function LaundryOrderPage() {
     setLoading(true);
     void fetchLaundryOrder(token, orderId)
       .then((row) => {
-        if (cancelled) return;
-        setOrder(row);
-        setComment(row.buyerComment ?? '');
+        if (!cancelled) setOrder(row);
       })
       .catch((err) => {
         if (!cancelled) setError(err instanceof ApiError || err instanceof Error ? err.message : 'Could not load this order');
@@ -63,21 +67,6 @@ export function LaundryOrderPage() {
       cancelled = true;
     };
   }, [orderId, token]);
-
-  async function saveComment() {
-    if (!token || !order) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const next = await saveLaundryComment(token, order.id, comment.trim());
-      setOrder(next);
-      setComment(next.buyerComment ?? '');
-    } catch (err) {
-      setError(err instanceof ApiError || err instanceof Error ? err.message : 'Could not save the comment');
-    } finally {
-      setBusy(false);
-    }
-  }
 
   async function pay() {
     if (!token || !order) return;
@@ -105,33 +94,36 @@ export function LaundryOrderPage() {
     }
   }
 
-  async function cancel() {
-    if (!token || !order) return;
-    setBusy(true);
-    setError(null);
-    try {
-      setOrder(await cancelLaundryOrder(token, order.id));
-    } catch (err) {
-      setError(err instanceof ApiError || err instanceof Error ? err.message : 'Could not cancel the order');
-    } finally {
-      setBusy(false);
-    }
-  }
-
   const total = order ? Number(order.goodsAmount) + Number(order.platformFeeAmount || 0) + Number(order.codFee || 0) : 0;
   const pickup = order?.pickupSlotStart ? `${when(order.pickupSlotStart)}${order.pickupSlotEnd ? ` – ${when(order.pickupSlotEnd)}` : ''}` : '';
+  const timeline = useMemo(() => (order ? buildLaundryBuyerTimeline(order) : []), [order]);
 
   return (
     <PortalShell title="Laundry order" showDeliveryBanner={false} showStickyCart={false}>
+      <div style={styles.pageRail}>
+      <Link to="/orders" style={styles.back}>
+        <span style={styles.backChev} aria-hidden>
+          ‹
+        </span>
+        My orders
+      </Link>
+
       {loading ? <p style={styles.muted}>Loading order…</p> : null}
       {error ? <p style={styles.error}>{error}</p> : null}
       {order ? (
+        <div style={styles.stack}>
         <article style={styles.card}>
           <div style={styles.head}>
             <strong>{order.orderNumber}</strong>
             <span style={styles.pill}>{order.statusLabel}</span>
           </div>
           <p style={styles.shop}>{order.shopName} · {money(total)} · {order.paymentMethod === 'UPI' ? 'UPI' : 'Cash'}</p>
+          {laundryAgentCashBuyerNote(order.agentCashPickupReport, order.agentCashDropReport) ? (
+            <p style={styles.payNote}>
+              {laundryAgentCashBuyerNote(order.agentCashPickupReport, order.agentCashDropReport)}
+            </p>
+          ) : null}
+          <LaundryCustomerNote note={customerNote(order)} />
           <p style={styles.muted}>{laundryLabel('logistics', order.logistics)}</p>
           {order.addressText ? <p style={styles.muted}>{order.addressText}</p> : null}
           {pickup ? <p style={styles.line}><span>Pickup</span><strong>{pickup}</strong></p> : null}
@@ -139,6 +131,17 @@ export function LaundryOrderPage() {
             <span>Estimated ready</span>
             <strong>{order.estimatedReadyAt ? when(order.estimatedReadyAt) : 'Shop will set this'}</strong>
           </p>
+        </article>
+
+        {timeline.length > 0 ? (
+          <OrderStatusTimeline
+            steps={timeline}
+            orderStatus={order.status}
+            displayStatus={order.statusLabel}
+          />
+        ) : null}
+
+        <article style={styles.card}>
           <ul style={styles.lines}>
             {order.lines.map((line) => (
               <li key={line.id} style={styles.item}>
@@ -156,48 +159,74 @@ export function LaundryOrderPage() {
             <strong>Pay the shop</strong><strong>{money(total)}</strong>
           </div>
           {Number(order.walletCredited) > 0 ? <p style={styles.note}>₹{Number(order.walletCredited)} is in your wallet.</p> : null}
-          {order.specialInstructions ? <p style={styles.note}>Care note: {order.specialInstructions}</p> : null}
-          <label style={styles.field}>
-            Your comment
-            <textarea style={styles.input} rows={2} maxLength={400} value={comment} onChange={(e) => setComment(e.target.value)} placeholder="Anything the shop should know" />
-          </label>
-          <button type="button" style={styles.secondary} disabled={busy} onClick={() => void saveComment()}>Save comment</button>
-          <p style={styles.field}>Shop comment</p>
-          <p style={styles.note}>{order.vendorComment || 'No comment from the shop yet.'}</p>
-          <div style={styles.actions}>
-            <Link to="/laundry" style={styles.primary}>Request Laundry service</Link>
-            {order.status === 'AWAITING_PAYMENT' ? (
-              <button type="button" style={styles.primaryBtn} disabled={busy} onClick={() => void pay()}>Pay now</button>
-            ) : null}
-            {order.allowedActions.includes('CANCEL') ? (
-              <button type="button" style={styles.danger} disabled={busy} onClick={() => void cancel()}>Cancel order</button>
-            ) : null}
-            <button type="button" style={styles.ghost} onClick={() => navigate('/orders')}>Back to orders</button>
-          </div>
+          {order.status === 'AWAITING_PAYMENT' ? (
+            <div style={styles.actions}>
+              <button type="button" style={styles.primaryBtn} disabled={busy} onClick={() => setConfirmPay(true)}>Pay now</button>
+            </div>
+          ) : null}
         </article>
+        </div>
       ) : null}
+      </div>
+      <ConfirmDialog
+        open={confirmPay}
+        title="Pay online now?"
+        description="You will complete payment in the payment app, then return here."
+        confirmLabel="Continue to pay"
+        busy={busy}
+        onClose={() => setConfirmPay(false)}
+        onConfirm={() => {
+          setConfirmPay(false);
+          void pay();
+        }}
+      />
     </PortalShell>
   );
 }
 
 const styles: Record<string, CSSProperties> = {
-  card: { display: 'grid', gap: '0.4rem', padding: '0.7rem 0.75rem', borderRadius: 14, background: 'var(--bg-elevated)', border: '1px solid var(--border)' },
+  pageRail: {
+    width: 'min(100%, 26rem)',
+    marginInline: 'auto',
+    display: 'grid',
+    gap: '0.55rem',
+    minWidth: 0,
+  },
+  back: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '0.15rem',
+    color: 'var(--accent)',
+    textDecoration: 'none',
+    fontWeight: 800,
+    fontSize: '0.88rem',
+    padding: '0.35rem 0.5rem 0.35rem 0.15rem',
+    marginLeft: '-0.15rem',
+    borderRadius: 10,
+  },
+  backChev: { fontSize: '1.25rem', lineHeight: 1, marginTop: -1 },
+  stack: { display: 'grid', gap: '0.55rem' },
+  card: { display: 'grid', gap: '0.45rem', padding: '0.7rem 0.75rem', borderRadius: 14, background: 'var(--bg-elevated)', border: '1px solid var(--border)' },
   head: { display: 'flex', justifyContent: 'space-between', gap: '0.5rem', alignItems: 'center' },
   pill: { fontSize: '0.68rem', fontWeight: 800, letterSpacing: '0.03em', textTransform: 'uppercase', color: 'var(--accent-hover)', background: 'color-mix(in srgb, var(--accent) 14%, transparent)', borderRadius: 999, padding: '0.15rem 0.45rem' },
   shop: { margin: 0, fontWeight: 800 },
+  payNote: {
+    margin: 0,
+    padding: '0.4rem 0.5rem',
+    borderRadius: 10,
+    fontSize: '0.78rem',
+    fontWeight: 650,
+    lineHeight: 1.35,
+    background: 'color-mix(in srgb, var(--accent) 12%, transparent)',
+    border: '1px solid color-mix(in srgb, var(--accent) 22%, transparent)',
+  },
   muted: { margin: 0, color: 'var(--text-muted)', fontSize: '0.78rem' },
   line: { margin: 0, display: 'flex', justifyContent: 'space-between', gap: '0.6rem', fontSize: '0.82rem' },
   lines: { listStyle: 'none', margin: 0, padding: '0.35rem 0.45rem', display: 'grid', gap: '0.35rem', borderRadius: 10, background: 'var(--bg)', border: '1px solid var(--border)' },
   item: { display: 'grid', gridTemplateColumns: '1fr auto', gap: '0.1rem 0.6rem', fontSize: '0.84rem', fontWeight: 700 },
   bill: { display: 'grid', gridTemplateColumns: '1fr auto', gap: '0.12rem 0.8rem', maxWidth: 260, fontSize: '0.8rem' },
-  field: { display: 'grid', gap: '0.15rem', margin: 0, fontSize: '0.72rem', fontWeight: 800 },
-  input: { minHeight: 64, border: '1px solid var(--border)', borderRadius: 8, padding: '0.4rem 0.5rem', background: '#fff', color: '#111', colorScheme: 'light', resize: 'vertical', font: 'inherit' },
   note: { margin: 0, fontSize: '0.8rem' },
   actions: { display: 'flex', flexWrap: 'wrap', gap: '0.4rem', alignItems: 'center' },
-  primary: { display: 'inline-flex', alignItems: 'center', minHeight: 44, padding: '0 0.85rem', borderRadius: 10, background: 'var(--accent)', color: '#fff', fontWeight: 800, textDecoration: 'none' },
   primaryBtn: { display: 'inline-flex', alignItems: 'center', minHeight: 44, padding: '0 0.85rem', borderRadius: 10, border: 0, background: 'var(--accent)', color: '#fff', fontWeight: 800 },
-  secondary: { minHeight: 40, borderRadius: 10, border: '1px solid var(--border)', background: 'var(--bg-elevated)', color: 'var(--text)', fontWeight: 800, padding: '0 0.75rem', justifySelf: 'start' },
-  danger: { minHeight: 40, borderRadius: 10, border: 0, background: 'var(--danger-soft, #fee2e2)', color: 'var(--danger, #b91c1c)', fontWeight: 800, padding: '0 0.75rem' },
-  ghost: { minHeight: 40, border: 0, background: 'transparent', color: 'var(--text-muted)', fontWeight: 700 },
   error: { color: '#b91c1c', fontWeight: 700 },
 };

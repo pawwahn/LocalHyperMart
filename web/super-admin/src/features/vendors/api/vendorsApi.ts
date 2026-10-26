@@ -66,6 +66,8 @@ export type CreateRegistrationInput = {
   fssaiNumber?: string;
   bankAccount?: string;
   ifsc?: string;
+  vendorTermsAcknowledged: boolean;
+  acknowledgedLegalVersion: number;
 };
 
 export async function listRegistrationRequests(

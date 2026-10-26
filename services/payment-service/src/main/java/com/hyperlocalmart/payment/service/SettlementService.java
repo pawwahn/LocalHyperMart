@@ -141,6 +141,8 @@ public class SettlementService {
                             .subtotal(item.subtotal())
                             .pieceCount(item.pieceCount())
                             .platformFee(item.platformFee())
+                            .codFee(item.codFee())
+                            .membershipFee(item.membershipFee())
                             .alreadySettled(settled.contains(item.subOrderId()))
                             .build();
                 })
@@ -294,9 +296,18 @@ public class SettlementService {
         if (codFees.signum() < 0) {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, "COD charge cannot be negative");
         }
+        BigDecimal membershipFees = collection
+                ? resolved.stream()
+                .map(item -> item.membershipFee() == null ? BigDecimal.ZERO : item.membershipFee())
+                .reduce(BigDecimal.ZERO, BigDecimal::add)
+                .setScale(2, RoundingMode.HALF_UP)
+                : BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+        if (membershipFees.signum() < 0) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Membership charge cannot be negative");
+        }
         BigDecimal net;
         if (collection) {
-            net = commission.add(platformFees).add(codFees).add(otherCharges);
+            net = commission.add(platformFees).add(codFees).add(membershipFees).add(otherCharges);
             if (net.compareTo(BigDecimal.ZERO) <= 0) {
                 throw new BusinessException(ErrorCode.VALIDATION_ERROR,
                         "Nothing to collect — no commission, platform fee, or extra charge on this batch. Monthly subscription is billed on the Subscription tab.");
@@ -324,7 +335,9 @@ public class SettlementService {
                 .periodType(request.getPeriodType() == null
                         ? SettlementPeriodType.CUSTOM : request.getPeriodType())
                 .grossAmount(gross)
-                .commissionAmount(collection ? commission.add(platformFees).add(codFees) : commission)
+                .commissionAmount(collection
+                        ? commission.add(platformFees).add(codFees).add(membershipFees)
+                        : commission)
                 .netAmount(net)
                 .status(SettlementStatus.DRAFT)
                 .build();
@@ -389,6 +402,18 @@ public class SettlementService {
             codLine.setCreatedBy(actorId);
             codLine.setUpdatedBy(actorId);
             settlement.getLineItems().add(codLine);
+        }
+
+        if (collection && membershipFees.signum() > 0) {
+            SettlementLineItem membershipLine = SettlementLineItem.builder()
+                    .settlement(settlement)
+                    .lineType("MEMBERSHIP_FEE")
+                    .amount(membershipFees)
+                    .description("Buyer membership / delivery plan collected from shop-held cash")
+                    .build();
+            membershipLine.setCreatedBy(actorId);
+            membershipLine.setUpdatedBy(actorId);
+            settlement.getLineItems().add(membershipLine);
         }
 
         for (VendorSettlementAdjustment adj : pendingAdjustments) {
@@ -786,6 +811,44 @@ public class SettlementService {
         return toResponse(settlementRepository.save(settlement));
     }
 
+    /** Issue a draft shop-fee collection that was saved without sending the bill yet. */
+    @Transactional
+    public SettlementResponse sendVendorCollectionBill(UUID actorId, UUID settlementId) {
+        Settlement settlement = loadVendorBill(settlementId);
+        if (settlement.getPayeeType() != SettlementPayeeType.VENDOR) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Use hub billing for hub collection drafts");
+        }
+        if (settlement.getLineItems().stream().anyMatch(l -> "SUBSCRIPTION".equals(l.getLineType()))) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Send subscription bills from Accounts or Payouts subscription tab");
+        }
+        if (settlement.getBillSentAt() != null) {
+            throw new BusinessException(ErrorCode.CONFLICT, "This bill was already sent");
+        }
+        if (settlement.getStatus() == SettlementStatus.PAID) {
+            throw new BusinessException(ErrorCode.CONFLICT, "This bill is already paid");
+        }
+        if (settlement.getNetAmount() == null || settlement.getNetAmount().signum() <= 0) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Nothing to bill on this settlement");
+        }
+        Instant now = Instant.now();
+        settlement.setStatus(SettlementStatus.FINALIZED);
+        settlement.setBillSentAt(now);
+        if (settlement.getServiceInvoiceNumber() == null || settlement.getServiceInvoiceNumber().isBlank()) {
+            settlement.setServiceInvoiceNumber(serviceInvoiceNumberService.allocate(now));
+        }
+        settlement.setUpdatedBy(actorId);
+        Settlement saved = settlementRepository.save(settlement);
+        String shop = saved.getPayeeName() == null ? "" : saved.getPayeeName();
+        townClient.appendAdminAudit(
+                "settlements",
+                "VENDOR_BILL_SENT",
+                "Bill sent to vendor " + shop + " ₹" + saved.getNetAmount(),
+                actorId,
+                saved.getTownId(),
+                saved.getId());
+        return toResponse(saved);
+    }
+
     /** Ask the vendor again to pay a shop-fee bill that was sent and is still unpaid. */
     @Transactional
     public SettlementResponse remindVendorBill(UUID actorId, UUID settlementId) {
@@ -1110,10 +1173,20 @@ public class SettlementService {
         if (bill.getStatus() == SettlementStatus.PAID) {
             throw new BusinessException(ErrorCode.CONFLICT, "This bill is already confirmed as paid");
         }
-        String method = firstNonBlank(request == null ? null : request.getPayoutMethod(), bill.getVendorPaymentMethod());
-        String ref = firstNonBlank(request == null ? null : request.getTransactionReference(),
-                bill.getVendorPaymentReference());
-        String notes = firstNonBlank(request == null ? null : request.getTransactionNotes(), bill.getVendorPaymentNotes());
+        if (request == null) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Bank statement date is required");
+        }
+        LocalDate bankDay = request.getBankPaidOn();
+        if (bankDay == null) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Bank statement date is required");
+        }
+        if (bankDay.isAfter(LocalDate.now(ZoneId.of("Asia/Kolkata")))) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Bank date cannot be in the future");
+        }
+        String method = firstNonBlank(request.getPayoutMethod(), bill.getVendorPaymentMethod());
+        String ref = firstNonBlank(request.getTransactionReference(), bill.getVendorPaymentReference());
+        String notes = firstNonBlank(request.getTransactionNotes(), bill.getVendorPaymentNotes());
+        bill.setBankPaidOn(bankDay);
         applyPaid(bill, actorId, method, ref, notes, null);
         bill.setUpdatedBy(actorId);
         return settlementRepository.save(bill);
@@ -1130,6 +1203,14 @@ public class SettlementService {
         if (bill.getBillSentAt() == null) {
             bill.setBillSentAt(Instant.now());
         }
+        LocalDate bankDay = request.getBankPaidOn();
+        if (bankDay == null) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Bank statement date is required");
+        }
+        if (bankDay.isAfter(LocalDate.now(ZoneId.of("Asia/Kolkata")))) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Bank date cannot be in the future");
+        }
+        bill.setBankPaidOn(bankDay);
         applyPaid(bill, actorId, request.getPayoutMethod(), request.getTransactionReference(),
                 request.getTransactionNotes(), null);
         bill.setUpdatedBy(actorId);
@@ -1385,6 +1466,7 @@ public class SettlementService {
                         null,
                         null,
                         null,
+                        null,
                         null))
                 .toList();
 
@@ -1595,6 +1677,7 @@ public class SettlementService {
                 .vendorNotReceivedNote(settlement.getVendorNotReceivedNote())
                 .billSentAt(settlement.getBillSentAt())
                 .vendorPaidAt(settlement.getVendorPaidAt())
+                .bankPaidOn(settlement.getBankPaidOn())
                 .vendorPaymentMethod(settlement.getVendorPaymentMethod())
                 .vendorPaymentReference(settlement.getVendorPaymentReference())
                 .vendorPaymentNotes(settlement.getVendorPaymentNotes())
@@ -1788,16 +1871,24 @@ public class SettlementService {
             return false;
         }
         String loc = cashLocation == null || cashLocation.isBlank() ? "WITH_AGENT" : cashLocation;
-        if ("WITH_VENDOR".equals(loc) || "DECLARED_TO_VENDOR".equals(loc)) {
-            return true;
+        if ("WITH_COMPANY".equals(loc)) {
+            return false;
         }
         if (vendorAgentDelivery) {
-            return !"AT_HUB".equals(loc) && !"DECLARED_TO_HUB".equals(loc);
+            // Super-admin accounts: shop-route COD is fee-bill work regardless of agent handover state.
+            return true;
+        }
+        if ("WITH_VENDOR".equals(loc) || "DECLARED_TO_VENDOR".equals(loc)) {
+            return true;
         }
         return false;
     }
 
     private static boolean isCod(String paymentMethod) {
-        return paymentMethod != null && "COD".equalsIgnoreCase(paymentMethod.trim());
+        if (paymentMethod == null || paymentMethod.isBlank()) {
+            return false;
+        }
+        String key = paymentMethod.trim().toUpperCase();
+        return "COD".equals(key) || "CASH".equals(key);
     }
 }

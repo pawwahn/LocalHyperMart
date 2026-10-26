@@ -1,10 +1,24 @@
-import { Navigate, Outlet } from 'react-router-dom';
+import { Navigate, Outlet, useNavigate } from 'react-router-dom';
+import { LegalAcceptGate } from '@hlm-legal';
 import { useAuth } from '@/shared/auth/AuthContext';
 
 export function RequireAuth() {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, session, logout } = useAuth();
+  const navigate = useNavigate();
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />;
   }
-  return <Outlet />;
+  const token = session?.accessToken ?? '';
+  return (
+    <LegalAcceptGate
+      accessToken={token}
+      portalLabel="Super Admin"
+      onSignOut={() => {
+        logout();
+        navigate('/login', { replace: true });
+      }}
+    >
+      <Outlet />
+    </LegalAcceptGate>
+  );
 }

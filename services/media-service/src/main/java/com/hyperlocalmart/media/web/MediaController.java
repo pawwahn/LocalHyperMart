@@ -43,8 +43,9 @@ public class MediaController {
         if (principal.getRoles().contains("BUYER")
                 && !principal.getRoles().contains("VENDOR")
                 && !principal.getRoles().contains("SUPER_ADMIN")
-                && !"LAUNDRY_ITEM".equalsIgnoreCase(context)) {
-            throw new BusinessException(ErrorCode.FORBIDDEN, "Customers can upload a laundry item photo only");
+                && !"LAUNDRY_ITEM".equalsIgnoreCase(context)
+                && !"BEAUTY_REFERENCE".equalsIgnoreCase(context)) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "Customers can upload laundry or beauty reference photos only");
         }
         MediaUploadResponse uploaded = mediaService.upload(file, context, principal.getUserId());
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponses.ok(httpRequest, uploaded));
@@ -65,9 +66,10 @@ public class MediaController {
         }
         boolean staff = principal.getRoles().contains("SUPER_ADMIN")
                 || principal.getRoles().contains("VENDOR");
-        boolean buyerLaundry = "LAUNDRY_ITEM".equalsIgnoreCase(context == null ? "" : context)
+        String ctx = context == null ? "" : context;
+        boolean buyerUpload = ("LAUNDRY_ITEM".equalsIgnoreCase(ctx) || "BEAUTY_REFERENCE".equalsIgnoreCase(ctx))
                 && principal.getRoles().contains("BUYER");
-        if (!staff && !buyerLaundry) {
+        if (!staff && !buyerUpload) {
             throw new BusinessException(ErrorCode.FORBIDDEN, "Not allowed to upload this file");
         }
     }

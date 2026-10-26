@@ -20,7 +20,8 @@ import {
 } from '@hlm-dates/istReportPresets';
 
 import {
-  computeUnpaidDelivered,
+  computeAdminPayoutDue,
+  computeShopHeldFeeDue,
   isPayoutDueStatus,
   isRejectedSalesStatus,
 } from '@/features/payouts/vendorPayable';
@@ -148,13 +149,19 @@ export function useVendorReports() {
 
   const payoutSummary = useMemo(() => {
     if (!report) {
-      return { paidOrders: 0, unpaidOrders: 0, paidAmount: 0, unpaidAmount: 0, rejectedOrders: 0 };
+      return {
+        paidOrders: 0,
+        paidAmount: 0,
+        rejectedOrders: 0,
+        payoutDueCount: 0,
+        payoutDueAmount: 0,
+        feeDueCount: 0,
+        feeDuePassThrough: 0,
+      };
     }
     let paidOrders = 0;
-    let unpaidOrders = 0;
     let rejectedOrders = 0;
     let paidAmount = 0;
-    let unpaidAmount = 0;
     for (const row of report.rows) {
       if (isRejectedSalesStatus(row.status)) {
         rejectedOrders += 1;
@@ -166,26 +173,33 @@ export function useVendorReports() {
         paidAmount += Number(payout.amount ?? row.subtotal ?? 0);
       }
     }
-    const unpaid = computeUnpaidDelivered(report.rows, payoutsBySubOrder);
-    unpaidOrders = unpaid.count;
-    unpaidAmount = unpaid.amount;
-    return { paidOrders, unpaidOrders, paidAmount, unpaidAmount, rejectedOrders };
+    const payoutDue = computeAdminPayoutDue(report.rows, payoutsBySubOrder);
+    const feeDue = computeShopHeldFeeDue(report.rows, payoutsBySubOrder);
+    return {
+      paidOrders,
+      paidAmount,
+      rejectedOrders,
+      payoutDueCount: payoutDue.count,
+      payoutDueAmount: payoutDue.amount,
+      feeDueCount: feeDue.count,
+      feeDuePassThrough: feeDue.amount,
+    };
   }, [report, payoutsBySubOrder]);
 
   const moneyClarity = useMemo(() => {
     const gross = Number(report?.grossSales ?? 0);
-    const awaitingOrders = payoutSummary.unpaidAmount;
+    const payoutDue = payoutSummary.payoutDueAmount;
     const settledOrders = payoutSummary.paidAmount;
     const fee = settlementMoney.paidCommission + settlementMoney.awaitingSettlementCommission;
     const baseReceivable =
       settlementMoney.awaitingSettlementNet > 0
         ? settlementMoney.awaitingSettlementNet
-        : Math.max(0, awaitingOrders);
+        : Math.max(0, payoutDue);
     const netReceivable = Math.max(0, baseReceivable - pendingClaimDebitTotal);
     const netReceived = settlementMoney.paidNet;
     return {
       gross,
-      awaitingOrders,
+      payoutDue,
       settledOrders,
       fee,
       pendingClaimDebitTotal,
@@ -204,7 +218,6 @@ export function useVendorReports() {
       if (isRejectedSalesStatus(row.status)) return false;
       const paid = Boolean(payoutsBySubOrder[row.subOrderId]?.paid);
       if (payoutFilter === 'paid') return paid;
-      // Awaiting = delivered and not yet paid out (same rule as hub settlements).
       return !paid && isPayoutDueStatus(row.status);
     });
   }, [report, payoutFilter, payoutsBySubOrder]);

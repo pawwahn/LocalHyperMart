@@ -32,12 +32,12 @@ type Bucket = {
 };
 
 type Focus =
-  | { kind: 'span'; action: DueAction }
+  | { kind: 'window'; action: DueAction }
   | { kind: 'day'; day: string; action?: DueAction }
   | { kind: 'undated'; action: DueAction };
 
 function money(value: number): string {
-  return `₹${Number(value || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
+  return `₹${Number(value || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 function ymd(iso?: string | null): string | null {
@@ -169,15 +169,16 @@ export function TownDuesCalendar({
     return { from, to, days, month: first.slice(0, 7), monthFrom: first, monthTo: last };
   }, [mode, cursor]);
 
-  const spanWindow = mode === 'month'
+  const windowRange = mode === 'month'
     ? { from: range.monthFrom ?? range.from, to: range.monthTo ?? range.to }
     : { from: range.from, to: range.to };
 
   const undated = items.filter((item) => !pinDay(item));
-  const spanning = items.filter((item) => isSpan(item) && overlaps(item, spanWindow.from, spanWindow.to));
+  /** Every dated line whose period touches this week/month — matches list totals. */
+  const datedInWindow = items.filter((item) => pinDay(item) && overlaps(item, windowRange.from, windowRange.to));
   const byDay = new Map<string, DuesCalendarItem[]>();
-  for (const item of items) {
-    if (isSpan(item) || !pinDay(item)) continue;
+  for (const item of datedInWindow) {
+    if (isSpan(item)) continue;
     const day = pinDay(item)!;
     if (day < range.from || day > range.to) continue;
     if (mode === 'month' && range.month && !day.startsWith(range.month)) continue;
@@ -186,9 +187,9 @@ export function TownDuesCalendar({
     byDay.set(day, list);
   }
 
-  const spanBuckets = buckets(spanning);
+  const windowBuckets = buckets(datedInWindow);
   const undatedBuckets = buckets(undated);
-  const inView = spanning.length + [...byDay.values()].reduce((n, list) => n + list.length, 0) + undated.length;
+  const inView = datedInWindow.length + undated.length;
 
   useEffect(() => {
     setFocus(null);
@@ -197,8 +198,8 @@ export function TownDuesCalendar({
 
   const detail = useMemo(() => {
     if (!focus) return null;
-    if (focus.kind === 'span') {
-      const bucket = spanBuckets.find((row) => row.action === focus.action);
+    if (focus.kind === 'window') {
+      const bucket = windowBuckets.find((row) => row.action === focus.action);
       return bucket
         ? { title: `${mode === 'week' ? 'All week' : 'All month'} · ${ACTION_LABEL[focus.action]}`, items: bucket.items }
         : null;
@@ -209,7 +210,7 @@ export function TownDuesCalendar({
     }
     const dayItems = (byDay.get(focus.day) ?? []).filter((item) => !focus.action || item.action === focus.action);
     return { title: shortDay(focus.day), items: dayItems };
-  }, [focus, spanBuckets, undatedBuckets, byDay, mode]);
+  }, [focus, windowBuckets, undatedBuckets, byDay, mode]);
 
   const shown = useMemo(() => {
     const list = detail?.items ?? [];
@@ -267,15 +268,15 @@ export function TownDuesCalendar({
         </div>
       ) : null}
 
-      {spanBuckets.length > 0 ? (
+      {windowBuckets.length > 0 ? (
         <div className="dues-cal-band">
           <span>{mode === 'week' ? 'All week' : 'All month'}</span>
-          {spanBuckets.map((bucket) => (
+          {windowBuckets.map((bucket) => (
             <Pill
               key={bucket.action}
               bucket={bucket}
-              on={focus?.kind === 'span' && focus.action === bucket.action}
-              onClick={() => toggle({ kind: 'span', action: bucket.action })}
+              on={focus?.kind === 'window' && focus.action === bucket.action}
+              onClick={() => toggle({ kind: 'window', action: bucket.action })}
             />
           ))}
         </div>

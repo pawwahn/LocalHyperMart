@@ -1,5 +1,7 @@
 package com.hyperlocalmart.vendor.dto.request;
 
+import jakarta.validation.constraints.AssertTrue;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
@@ -45,4 +47,11 @@ public class CreateRegistrationRequest {
     private String bankAccount;
 
     private String ifsc;
+
+    /** Super-admin confirms vendor was shown platform Terms/Privacy/Refund. */
+    @AssertTrue(message = "Confirm vendor terms acknowledgement")
+    private Boolean vendorTermsAcknowledged;
+
+    @Min(1)
+    private Integer acknowledgedLegalVersion;
 }

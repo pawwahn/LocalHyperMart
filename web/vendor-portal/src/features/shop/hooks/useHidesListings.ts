@@ -10,9 +10,21 @@ function isLaundryService(name: string | undefined): boolean {
   return /laundry/i.test(name ?? '');
 }
 
+function isBeautyService(name: string | undefined): boolean {
+  return /beauty|makeup|glam/i.test(name ?? '');
+}
+
 export function catalogHiddenForVendor(me: MeHint | null | undefined): boolean {
   if (!me) return false;
-  return Boolean(me.hidesListings) || isLaundryService(me.serviceName);
+  return Boolean(me.hidesListings) || isLaundryService(me.serviceName) || isBeautyService(me.serviceName);
+}
+
+export function isGlamVendor(serviceName: string | undefined): boolean {
+  return isBeautyService(serviceName);
+}
+
+export function isLaundryVendor(serviceName: string | undefined): boolean {
+  return isLaundryService(serviceName);
 }
 
 function readCached(vendorId: string | undefined): boolean {

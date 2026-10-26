@@ -7,9 +7,21 @@ type Props = {
   open: boolean;
   onClose: () => void;
   onBought?: () => void;
+  mode?: 'purchase' | 'cart';
+  onAddToCart?: (slabCode: string) => Promise<void>;
+  onRemoveFromCart?: () => Promise<void>;
+  initialSlab?: string | null;
 };
 
-export function MembershipPlansSheet({ open, onClose, onBought }: Props) {
+export function MembershipPlansSheet({
+  open,
+  onClose,
+  onBought,
+  mode = 'purchase',
+  onAddToCart,
+  onRemoveFromCart,
+  initialSlab,
+}: Props) {
   useEffect(() => {
     if (!open) return;
     const prev = document.body.style.overflow;
@@ -36,14 +48,24 @@ export function MembershipPlansSheet({ open, onClose, onBought }: Props) {
             <h2 id="membership-sheet-title" style={styles.title}>
               Free delivery
             </h2>
-            <p style={styles.sub}>One plan. Free drops on orders that would have a delivery fee.</p>
+            <p style={styles.sub}>
+              {mode === 'cart'
+                ? 'Pick a plan — it’s added to your basket and paid with this order.'
+                : 'One plan. Free drops on orders that would have a delivery fee.'}
+            </p>
           </div>
           <button type="button" style={styles.close} onClick={onClose} aria-label="Close">
             ×
           </button>
         </header>
         <div style={styles.body}>
-          <MembershipPlansPanel onBought={onBought} />
+          <MembershipPlansPanel
+            mode={mode}
+            onBought={onBought}
+            onAddToCart={onAddToCart}
+            onRemoveFromCart={onRemoveFromCart}
+            initialSlab={initialSlab}
+          />
         </div>
       </div>
     </div>,

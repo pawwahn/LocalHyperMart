@@ -242,13 +242,13 @@ export function AgentHomePage() {
             title={vendorShop ? 'Shop deliveries' : 'To home'}
             flow={
               vendorShop
-                ? 'Shop → customer · OTP · Submit'
+                ? 'Shop / laundry → customer · finish trip'
                 : 'Take FULL order from hub → Give to customer → OTP → Submit'
             }
             detail={
               vendorShop
                 ? vendorOpen > 0
-                  ? `${vendorOpenAtShop} at shop · ${vendorEnRoute} on way`
+                  ? `${vendorOpenAtShop} ready · ${vendorEnRoute} on way`
                   : 'No deliveries open'
                 : deliveryCount > 0
                   ? `${workSummary.deliveryAtHub} at hub · ${workSummary.deliveryEnRoute} on way`

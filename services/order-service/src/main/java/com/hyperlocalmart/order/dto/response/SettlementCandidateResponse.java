@@ -42,7 +42,9 @@ public class SettlementCandidateResponse {
          * This is separate from the vendor billing quote.
          */
         BigDecimal platformFee;
-        /** Town COD charge the buyer paid. Billed back when the shop holds the cash. Null on grocery bags. */
+        /** Town COD charge the buyer paid. Billed back when the shop holds the cash. */
         BigDecimal codFee;
+        /** Buyer membership / delivery plan on the order. Billed back when the shop holds the cash. */
+        BigDecimal membershipFee;
     }
 }

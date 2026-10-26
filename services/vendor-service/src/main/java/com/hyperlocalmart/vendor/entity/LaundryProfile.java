@@ -12,6 +12,7 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.UUID;
 
 @Entity
@@ -51,4 +52,10 @@ public class LaundryProfile extends BaseAuditEntity {
     @Column(name = "pickup_and_drop_charge", nullable = false, precision = 12, scale = 2)
     @Builder.Default
     private BigDecimal pickupAndDropCharge = BigDecimal.ZERO;
+
+    @Column(name = "blocked_pickup_date")
+    private LocalDate blockedPickupDate;
+
+    @Column(name = "blocked_pickup_slots", nullable = false, length = 40)
+    private String blockedPickupSlots = "";
 }

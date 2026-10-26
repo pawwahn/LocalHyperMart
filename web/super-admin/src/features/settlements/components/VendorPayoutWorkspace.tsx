@@ -1,6 +1,7 @@
 import { type CSSProperties, type ReactNode } from 'react';
 import { Button, Card } from '@/shared/ui';
 import { formatMoney } from '../api/settlementsApi';
+import { SettlementPayStrip, SettlementScopeHeader } from './SettlementPayStrip';
 
 /** KoyaKart → vendor vs vendor → KoyaKart — never mixed on one screen. */
 export type VendorPayoutTab = 'app-to-vendor' | 'vendor-to-app' | 'subscription';
@@ -33,6 +34,8 @@ type Props = {
   saving: boolean;
   canSubmit: boolean;
   submitHint?: string | null;
+  /** Mode / txn ref / notes — shown on the pay-vendor action card. */
+  payoutTxnFields?: ReactNode;
   onRefresh: () => void;
   onSubmit: () => void;
   canSendBill: boolean;
@@ -71,6 +74,7 @@ export function VendorPayoutWorkspace({
   saving,
   canSubmit,
   submitHint,
+  payoutTxnFields,
   onRefresh,
   onSubmit,
   canSendBill,
@@ -124,51 +128,58 @@ export function VendorPayoutWorkspace({
       {tab === 'app-to-vendor' ? (
         <div style={styles.panel}>
           <Card padding="sm" style={styles.scopeCardApp}>
-            <div style={styles.scopeHeadRow}>
-              <div style={styles.scopeHeadText}>
-                <p style={styles.scopeTitle}>Pay for cash we hold</p>
-                <p style={styles.muted}>
+            <SettlementScopeHeader
+              title="Pay for cash we hold"
+              description={
+                <>
                   Online UPI and hub COD. Net = bag total − order commission / slabs − claims. Monthly subscription
                   is a separate bill.
-                </p>
-              </div>
-              <Button size="sm" variant="secondary" onClick={onRefresh} disabled={loading}>
-                {loading ? 'Loading…' : 'Refresh'}
-              </Button>
-            </div>
-            <div style={styles.scopeHero}>
-              <span style={styles.scopeLabel}>Selected to pay</span>
-              <strong style={styles.scopeAmount}>{netPending ? '…' : formatMoney(expectedNet)}</strong>
-              <span style={styles.muted}>
-                {selectedCount} of {payOpenCount} bags · {formatMoney(selectedGross)} gross
-              </span>
-            </div>
-            <Button size="sm" disabled={!canSubmit || saving} onClick={onSubmit}>
-              {saving ? 'Saving…' : netPending ? 'Calculating…' : `Mark paid · ${formatMoney(expectedNet)}`}
-            </Button>
-            {submitHint ? <p style={styles.submitHint}>{submitHint}</p> : null}
-            <nav style={styles.subTabsApp} role="tablist" aria-label="KoyaKart pays vendor">
-              <button
-                type="button"
-                role="tab"
-                aria-selected={appSubTab === 'pay'}
-                style={appSubTab === 'pay' ? styles.subTabOn : styles.subTabOff}
-                onClick={() => onAppSubTab('pay')}
-              >
-                Pay bags
-              </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={appSubTab === 'records'}
-                style={appSubTab === 'records' ? styles.subTabOn : styles.subTabOff}
-                onClick={() => onAppSubTab('records')}
-              >
-                Records
-                {needsActionCount > 0 ? <span style={styles.tabParen}> ({needsActionCount})</span> : null}
-              </button>
-            </nav>
+                </>
+              }
+              action={
+                <Button size="sm" variant="secondary" onClick={onRefresh} disabled={loading}>
+                  {loading ? 'Loading…' : 'Refresh'}
+                </Button>
+              }
+            />
+            <SettlementPayStrip
+              amountLabel="Selected to pay"
+              amount={netPending ? '…' : formatMoney(expectedNet)}
+              amountMeta={
+                <>
+                  {selectedCount} of {payOpenCount} bags · {formatMoney(selectedGross)} gross
+                </>
+              }
+              txnFields={payoutTxnFields}
+              action={
+                <Button size="sm" disabled={!canSubmit || saving} onClick={onSubmit}>
+                  {saving ? 'Saving…' : netPending ? 'Calculating…' : `Mark paid · ${formatMoney(expectedNet)}`}
+                </Button>
+              }
+              hint={submitHint}
+            />
           </Card>
+          <nav style={styles.subTabsApp} role="tablist" aria-label="KoyaKart pays vendor">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={appSubTab === 'pay'}
+              style={appSubTab === 'pay' ? styles.subTabOn : styles.subTabOff}
+              onClick={() => onAppSubTab('pay')}
+            >
+              Pay bags
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={appSubTab === 'records'}
+              style={appSubTab === 'records' ? styles.subTabOn : styles.subTabOff}
+              onClick={() => onAppSubTab('records')}
+            >
+              Records
+              {needsActionCount > 0 ? <span style={styles.tabParen}> ({needsActionCount})</span> : null}
+            </button>
+          </nav>
           {appSubTab === 'pay' ? workSection : payRecords}
         </div>
       ) : null}
@@ -256,7 +267,6 @@ export function CollectFeesCard({
   awaitingBillCount?: number;
   paidBillCount?: number;
   onConfirmReceived?: () => void;
-  /** Sits flush on the orders table — no gap, shared bottom edge. */
   attached?: boolean;
 }) {
   const vendorPaidWaiting = paidBillCount > 0 && awaitingBillCount === 0 && selectedCount === 0;
@@ -315,7 +325,7 @@ export function CollectFeesCard({
             ? 'Check the UTR, then confirm. Reject from Records if the details are wrong.'
             : billedOnly
             ? 'Vendor pays this bill in their portal. Confirm or reject it in Records.'
-            : 'Vendor pays in their portal. Confirm or reject in Records.'}
+            : 'Send bill first. Already received is only if they paid outside the portal.'}
         </span>
       </div>
       {!billedOnly && !canSendBill && sendBillHint ? <p style={styles.submitHint}>{sendBillHint}</p> : null}
@@ -452,9 +462,11 @@ const styles: Record<string, CSSProperties> = {
   },
   panel: { display: 'grid', gap: '0.55rem', minWidth: 0 },
   scopeCardApp: {
-    gap: '0.4rem',
-    border: '1px solid #a7f3d0',
-    background: 'color-mix(in srgb, #ecfdf5 40%, var(--bg-elevated))',
+    display: 'grid',
+    gap: '0.5rem',
+    border: '1px solid #86efac',
+    background: 'linear-gradient(165deg, #ecfdf5 0%, var(--bg-elevated) 55%)',
+    boxShadow: '0 1px 3px rgba(5, 150, 105, 0.06)',
   },
   scopeCardHub: {
     display: 'grid',
@@ -509,10 +521,7 @@ const styles: Record<string, CSSProperties> = {
   subTabsApp: {
     display: 'flex',
     flexWrap: 'wrap',
-    gap: '0.3rem',
-    marginTop: '0.15rem',
-    paddingTop: '0.45rem',
-    borderTop: '1px solid color-mix(in srgb, #a7f3d0 80%, var(--border))',
+    gap: '0.28rem',
   },
   subTabsHub: {
     display: 'flex',

@@ -1,3 +1,4 @@
+import { PickerDateField } from '@hlm-dates';
 import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { ApiError } from '@/shared/api/http';
 import { Banner, Button, Card } from '@/shared/ui';
@@ -348,17 +349,11 @@ export function AdsDateBoard({
             <div style={styles.book}>
               <label style={styles.field}>
                 From
-                <input style={styles.input} type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
+                <PickerDateField style={styles.input} value={fromDate} onChange={setFromDate} />
               </label>
               <label style={styles.field}>
                 Till
-                <input
-                  style={styles.input}
-                  type="date"
-                  value={toDate}
-                  min={fromDate}
-                  onChange={(e) => setToDate(e.target.value)}
-                />
+                <PickerDateField style={styles.input} value={toDate} min={fromDate} onChange={setToDate} />
               </label>
               <Button disabled={!canUpdate || busy} onClick={() => void saveDates()}>
                 {busy ? 'Saving…' : quoteText ? `Update dates · ${quoteText}` : 'Update dates'}
@@ -403,17 +398,11 @@ export function AdsDateBoard({
               </label>
               <label style={styles.field}>
                 From
-                <input style={styles.input} type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
+                <PickerDateField style={styles.input} value={fromDate} onChange={setFromDate} />
               </label>
               <label style={styles.field}>
                 Till
-                <input
-                  style={styles.input}
-                  type="date"
-                  value={toDate}
-                  min={fromDate}
-                  onChange={(e) => setToDate(e.target.value)}
-                />
+                <PickerDateField style={styles.input} value={toDate} min={fromDate} onChange={setToDate} />
               </label>
               <label style={styles.check}>
                 <input type="checkbox" checked={allTowns} onChange={(e) => setAllTowns(e.target.checked)} />

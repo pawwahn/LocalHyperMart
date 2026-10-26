@@ -1,34 +1,29 @@
-import { useState, type CSSProperties, type ReactNode } from 'react';
+import { useState, type CSSProperties } from 'react';
 import { CallPhoneLink } from '@/shared/ui/CallPhoneLink';
 import { DropMap } from './DropMap';
-import { formatPortalTime } from '@/shared/time/formatPortalTime';
-import { LegStepper } from './LegStepper';
 import { PickupItemsList } from './PickupItemsList';
-import type { AssignmentView, DeliveryManifestView, PickupManifestView } from '../api/agentApi';
+import type {
+  AssignmentView,
+  DeliveryManifestView,
+  LaundryCashOutcome,
+  PickupManifestView,
+} from '../api/agentApi';
 import {
   deliveryStep,
-  deliveryStepLabel,
   pickupHint,
   pickupStep,
   pickupStepLabel,
 } from '../lib/assignmentSteps';
 import { formatCollectRupee, resolveCodCollect } from '../lib/codCollect';
+import {
+  ConfirmLaundryAgentStepDialog,
+  type LaundryAgentConfirmStep,
+} from './ConfirmLaundryAgentStepDialog';
 
-const PICKUP_STEPS = [
-  { id: 'shop', label: 'Shop' },
-  { id: 'to_hub', label: 'Hub' },
-  { id: 'done', label: 'Done' },
-];
-
-const DELIVERY_STEPS = [
-  { id: 'hub', label: 'Hub' },
-  { id: 'en_route', label: 'Home' },
-  { id: 'done', label: 'Done' },
-];
-
-function stepIndex(step: string, steps: string[]): number {
-  const idx = steps.indexOf(step);
-  return idx < 0 ? 0 : idx;
+function tripAccentBar(step: 'hub' | 'en_route' | 'done'): string {
+  if (step === 'en_route') return '#ea580c';
+  if (step === 'hub') return 'var(--accent)';
+  return '#16a34a';
 }
 
 function splitDropAddress(raw: string): { near: string | null; lines: string } {
@@ -46,54 +41,147 @@ function mapsSearchUrl(query: string): string {
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
 }
 
-function latestMeta(task: AssignmentView): string | null {
-  const events = task.events ?? [];
-  if (events.length > 0) {
-    const last = events[events.length - 1];
-    return formatPortalTime(last.createdAt);
+function formatRupeeShort(amount: number): string {
+  return `₹${amount.toFixed(2).replace(/\.00$/, '')}`;
+}
+
+function LaundryCodBlock({
+  amount,
+  mode,
+  value,
+  onChange,
+  selectId,
+}: {
+  amount: number;
+  mode: 'pickup' | 'drop';
+  value: LaundryCashOutcome | '';
+  onChange: (v: LaundryCashOutcome) => void;
+  selectId: string;
+}) {
+  return (
+    <div style={styles.codBlock}>
+      <p style={styles.inlineAlert} role="status">
+        <span style={styles.inlineAlertIcon} aria-hidden>
+          ₹
+        </span>
+        Collect {formatCollectRupee(amount)} cash from the customer before you continue.
+      </p>
+      <label style={styles.laundryCashLabel} htmlFor={selectId}>
+        Cash payment (not the clothes)
+      </label>
+      <select
+        id={selectId}
+        style={styles.laundryCashSelect}
+        value={value}
+        onChange={(e) => onChange(e.target.value as LaundryCashOutcome)}
+      >
+        <option value="">Select…</option>
+        <option value="COLLECTED">Cash collected</option>
+        {mode === 'pickup' ? <option value="NOT_COLLECTED">Cash not collected</option> : null}
+      </select>
+    </div>
+  );
+}
+
+function deliveryItemsLine(manifest?: DeliveryManifestView): string | null {
+  if (!manifest) return null;
+  const n = manifest.totalItemCount ?? 0;
+  if (n <= 0) return null;
+  return `${n} item${n === 1 ? '' : 's'} · ${formatRupeeShort(manifest.subtotal ?? 0)}`;
+}
+
+function compactDropLine(task: AssignmentView): string {
+  if (task.destinationAddress) {
+    const { near, lines } = splitDropAddress(task.destinationAddress);
+    if (near) return `Near ${near}`;
+    const short = lines.split(',').map((p) => p.trim()).filter(Boolean).slice(0, 2).join(', ');
+    return short || task.destinationAddress;
   }
-  return task.assignedAt ? formatPortalTime(task.assignedAt) : null;
+  return task.destinationLabel?.trim() || 'Address on file';
 }
 
 function DropAddress({ label, address }: { label?: string | null; address: string }) {
+  const [mapOpen, setMapOpen] = useState(false);
   const { near, lines } = splitDropAddress(address);
   const house = label ? `${label} · ${lines}` : lines;
+  const addressLine = near ? `Near ${near} · ${house}` : house;
   return (
     <div style={styles.drop}>
-      {near ? <p style={styles.landmark}>Near {near}</p> : null}
-      {house ? <p style={styles.addressFull}>{house}</p> : null}
-      <DropMap address={address} />
-      <a href={mapsSearchUrl(address)} target="_blank" rel="noopener noreferrer" style={styles.mapsLink}>
-        Open in Maps
-      </a>
+      {addressLine ? <p style={styles.addressCompact}>{addressLine}</p> : null}
+      <div style={styles.mapLinks}>
+        <a href={mapsSearchUrl(address)} target="_blank" rel="noopener noreferrer" style={styles.mapsLinkInline}>
+          Open in Maps
+        </a>
+        <button type="button" style={styles.mapToggle} onClick={() => setMapOpen((v) => !v)}>
+          {mapOpen ? 'Hide map' : 'Show map'}
+        </button>
+      </div>
+      {mapOpen ? <DropMap address={address} height={100} /> : null}
     </div>
   );
 }
 
-function MiniBlock({
-  label,
-  summary,
-  children,
-}: {
-  label: string;
-  summary: string;
-  children: ReactNode;
-}) {
-  const [open, setOpen] = useState(false);
+function MinimizeTripButton({ onClick }: { onClick: () => void }) {
   return (
-    <div style={styles.mini}>
-      <button type="button" style={styles.miniBtn} onClick={() => setOpen((v) => !v)} aria-expanded={open}>
-        <span style={styles.miniLeft}>
-          <span style={styles.miniLabel}>{label}</span>
-          <span style={styles.miniSummary}>{summary}</span>
-        </span>
-        <span style={styles.miniChev} aria-hidden>
-          {open ? '▾' : '▸'}
-        </span>
-      </button>
-      {open ? <div style={styles.miniBody}>{children}</div> : null}
-    </div>
+    <button
+      type="button"
+      style={styles.minimizeBtn}
+      onClick={onClick}
+      aria-label="Minimize"
+      title="Minimize"
+    >
+      <span style={styles.minimizeIcon} aria-hidden>
+        ▴
+      </span>
+    </button>
   );
+}
+
+function CollapsedAssignmentCard({
+  statusLabel,
+  statusTone,
+  orderNumber,
+  title,
+  subtitle,
+  onExpand,
+}: {
+  statusLabel: string;
+  statusTone: CSSProperties;
+  orderNumber: string;
+  title: string;
+  subtitle?: string;
+  onExpand: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      style={styles.collapsedRowBtn}
+      onClick={onExpand}
+      aria-expanded={false}
+      title={`${orderNumber} — ${title}${subtitle ? ` — ${subtitle}` : ''}`}
+    >
+      <span style={{ ...styles.statusPill, ...styles.statusPillCompact, ...statusTone }}>{statusLabel}</span>
+      <span style={styles.collapsedTextCol}>
+        <span style={styles.collapsedTitle}>{title}</span>
+        {subtitle ? <span style={styles.collapsedSub}>{subtitle}</span> : null}
+      </span>
+      <span style={styles.expandChevCompact} aria-hidden>
+        ›
+      </span>
+    </button>
+  );
+}
+
+function collapsedDeliverySubtitle(
+  task: AssignmentView,
+  itemsLine: string | null,
+  cod: ReturnType<typeof resolveCodCollect>,
+): string | undefined {
+  const parts: string[] = [];
+  if (task.destinationName?.trim()) parts.push(compactDropLine(task));
+  if (itemsLine) parts.push(itemsLine);
+  if (cod) parts.push(`Collect ${formatCollectRupee(cod.amount)}`);
+  return parts.length > 0 ? parts.join(' · ') : undefined;
 }
 
 export function VendorPickupCard({
@@ -104,6 +192,9 @@ export function VendorPickupCard({
   manifestFailed,
   onRetryManifest,
   onPickVendor,
+  expanded = true,
+  onRequestExpand,
+  onRequestCollapse,
 }: {
   task: AssignmentView;
   busy: boolean;
@@ -112,9 +203,11 @@ export function VendorPickupCard({
   manifestFailed?: boolean;
   onRetryManifest?: () => void;
   onPickVendor: (id: string, status: string) => void;
+  expanded?: boolean;
+  onRequestExpand?: () => void;
+  onRequestCollapse?: () => void;
 }) {
   const step = pickupStep(task.status);
-  const currentIndex = step === 'done' ? PICKUP_STEPS.length : stepIndex(step, ['shop', 'to_hub', 'done']);
   const canPick = step === 'shop' && !busy;
   const shopName = manifest?.shopName?.trim() || 'Shop';
   const bagShort = task.subOrderNumber?.split('-').pop() || task.subOrderNumber || 'bag';
@@ -122,22 +215,55 @@ export function VendorPickupCard({
   const shopPhone = manifest?.shopPhone?.trim();
   const isDone = step === 'done';
   const stepLabel = pickupStepLabel(step);
+  const collapsible = onRequestExpand != null;
+  const isOpen = !collapsible || expanded;
+
+  const pickupSubtitle = [`Bag ${bagShort}`, !isDone ? pickupHint(step) : null].filter(Boolean).join(' · ');
+
+  const pickupStepKey = step === 'done' ? 'done' : step === 'to_hub' ? 'en_route' : 'hub';
 
   return (
-    <article style={styles.card}>
-      <div style={styles.cardTop}>
-        <span style={{ ...styles.statusPill, ...(isDone ? styles.statusDone : styles.statusPickup) }}>
-          {isDone ? 'Done' : stepLabel}
-        </span>
-        <span style={styles.orderId}>{task.orderNumber}</span>
-      </div>
+    <article
+      data-trip-card={isOpen ? 'open' : 'shut'}
+      style={{
+        ...styles.card,
+        ...(isOpen ? styles.cardOpen : styles.cardShut),
+        ...(isOpen ? { borderLeftColor: tripAccentBar(pickupStepKey) } : null),
+      }}
+    >
+      {collapsible && !isOpen && onRequestExpand ? (
+        <CollapsedAssignmentCard
+          statusLabel={isDone ? 'Done' : stepLabel}
+          statusTone={isDone ? styles.statusDone : styles.statusPickup}
+          orderNumber={task.orderNumber}
+          title={shopName}
+          subtitle={pickupSubtitle || undefined}
+          onExpand={onRequestExpand}
+        />
+      ) : null}
 
-      <div style={styles.headRow}>
-        <div style={styles.headMain}>
-          <p style={styles.customerName}>{shopName}</p>
-          <p style={styles.oneLine}>Bag {bagShort}{shopAddress ? ` · ${shopAddress}` : ''}</p>
+      {isOpen ? (
+        <>
+      <div style={styles.expandedHeader}>
+        <div style={styles.expandedHeaderRow}>
+          <span
+            style={{
+              ...styles.statusPill,
+              ...styles.statusPillCompact,
+              ...(isDone ? styles.statusDone : styles.statusPickup),
+            }}
+          >
+            {isDone ? 'Done' : stepLabel}
+          </span>
+          <span style={styles.orderIdCompact}>{task.orderNumber}</span>
+          <span style={styles.headerSpacer} />
+          {shopPhone ? <CallPhoneLink phone={shopPhone} label="Call" style={styles.callBtnFilled} /> : null}
+          {collapsible && onRequestCollapse ? <MinimizeTripButton onClick={onRequestCollapse} /> : null}
         </div>
-        {shopPhone ? <CallPhoneLink phone={shopPhone} label="Call" style={styles.callBtn} /> : null}
+        <p style={styles.addressCompact}>
+          {shopName} · Bag {bagShort}
+          {shopAddress ? ` · ${shopAddress}` : ''}
+        </p>
       </div>
 
       <PickupItemsList
@@ -145,17 +271,9 @@ export function VendorPickupCard({
         loading={manifestLoading}
         failed={manifestFailed}
         onRetry={onRetryManifest}
+        title="Items"
         defaultOpen={false}
       />
-
-      <MiniBlock label="Progress" summary={stepLabel}>
-        <LegStepper
-          steps={PICKUP_STEPS.map((s) => ({ ...s, label: pickupStepLabel(s.id as 'shop' | 'to_hub' | 'done') }))}
-          currentIndex={currentIndex}
-          tone="vendor"
-        />
-        {!isDone ? <p style={styles.hint}>{pickupHint(step)}</p> : null}
-      </MiniBlock>
 
       {step === 'shop' ? (
         <button
@@ -167,7 +285,9 @@ export function VendorPickupCard({
           I took the bag
         </button>
       ) : null}
-      {step === 'to_hub' ? <p style={styles.waitBanner}>Take bag to hub</p> : null}
+      {step === 'to_hub' ? <p style={styles.inlineAlert}>Take bag to hub</p> : null}
+        </>
+      ) : null}
     </article>
   );
 }
@@ -182,6 +302,9 @@ export function BuyerDeliveryCard({
   onPickHub,
   onPickVendor,
   onDeliver,
+  expanded = true,
+  onRequestExpand,
+  onRequestCollapse,
 }: {
   task: AssignmentView;
   busy: boolean;
@@ -190,133 +313,265 @@ export function BuyerDeliveryCard({
   manifestFailed?: boolean;
   onRetryManifest?: () => void;
   onPickHub: (id: string, status: string) => void;
-  onPickVendor?: (id: string, status: string) => void;
-  onDeliver: (id: string, status: string, otp: string, recipientName?: string) => void;
+  onPickVendor?: (id: string, status: string, cashOutcome?: LaundryCashOutcome) => void;
+  onDeliver: (
+    id: string,
+    status: string,
+    otp: string,
+    recipientName?: string,
+    cashOutcome?: LaundryCashOutcome,
+  ) => void;
+  expanded?: boolean;
+  onRequestExpand?: () => void;
+  onRequestCollapse?: () => void;
 }) {
-  const vendorDirect = task.legType === 'VENDOR_DIRECT';
+  const laundryTrip = task.legType === 'LAUNDRY_TRIP';
+  const laundryPickup = laundryTrip && task.laundryTripKind === 'PICKUP_FROM_CUSTOMER';
+  const laundryDrop = laundryTrip && task.laundryTripKind === 'DROP_TO_CUSTOMER';
+  const vendorDirect =
+    task.legType === 'VENDOR_DIRECT' || (laundryTrip && task.laundryTripKind === 'DROP_TO_CUSTOMER');
   const step = deliveryStep(task.status);
-  const currentIndex =
-    step === 'done' ? DELIVERY_STEPS.length : stepIndex(step, ['hub', 'en_route', 'done']);
   const [otp, setOtp] = useState('111111');
   const [showCodeBox, setShowCodeBox] = useState(false);
-  const when = latestMeta(task);
+  const [laundryCashOutcome, setLaundryCashOutcome] = useState<LaundryCashOutcome | ''>('');
+  const [laundryConfirm, setLaundryConfirm] = useState<LaundryAgentConfirmStep | null>(null);
+
   const statusLabel =
     step === 'hub'
-      ? vendorDirect
-        ? 'At shop'
-        : 'At hub'
+      ? laundryPickup
+        ? 'At customer'
+        : vendorDirect
+          ? 'At shop'
+          : 'At hub'
       : step === 'en_route'
         ? 'On the way'
         : 'Delivered';
   const cod = resolveCodCollect(task, manifest);
+  const collapsible = onRequestExpand != null;
+  const isOpen = !collapsible || expanded;
+  const itemsLine = deliveryItemsLine(manifest);
+  const collapsedTitle = task.destinationName?.trim() || compactDropLine(task);
+  const collapsedSubtitle = collapsedDeliverySubtitle(task, itemsLine, cod);
+  const statusTone =
+    step === 'hub' ? styles.statusHub : step === 'en_route' ? styles.statusRoute : styles.statusDone;
+
+  const awaitingOnlinePayment =
+    !cod &&
+    (task.paymentMethod ?? '').toUpperCase() === 'ONLINE' &&
+    (task.orderStatus ?? '').toUpperCase() === 'PAYMENT_PENDING';
+
+  const vendorMarkedPaid =
+    laundryTrip &&
+    (task.laundryPaymentStatus ?? '').toUpperCase() === 'COLLECTED' &&
+    (task.paymentMethod ?? '').toUpperCase() === 'CASH';
+  const laundryCashPickupStep = Boolean(cod && laundryPickup && step === 'hub' && !vendorMarkedPaid);
+  const laundryCashDropStep = Boolean(cod && laundryDrop && step === 'en_route' && !vendorMarkedPaid);
+  const laundryCashReady =
+    !laundryCashPickupStep && !laundryCashDropStep
+      ? true
+      : laundryCashPickupStep
+        ? laundryCashOutcome === 'COLLECTED' || laundryCashOutcome === 'NOT_COLLECTED'
+        : laundryCashOutcome === 'COLLECTED';
+
+  function laundryCashSummary(): string | null {
+    if (!cod) return null;
+    if (laundryCashOutcome === 'COLLECTED') {
+      return `Cash collected · ${formatCollectRupee(cod.amount)}`;
+    }
+    if (laundryCashOutcome === 'NOT_COLLECTED') return 'Cash not collected';
+    return null;
+  }
+
+  function confirmLaundryStep() {
+    if (!laundryConfirm) return;
+    const stepKind = laundryConfirm;
+    setLaundryConfirm(null);
+    if (stepKind === 'pickup_customer' && onPickVendor) {
+      void onPickVendor(
+        task.id,
+        task.status,
+        laundryCashPickupStep && laundryCashOutcome ? laundryCashOutcome : undefined,
+      );
+      return;
+    }
+    if (stepKind === 'at_shop') {
+      void onDeliver(task.id, task.status, '111111', task.destinationName ?? 'Customer');
+      return;
+    }
+    if (stepKind === 'drop_deliver') {
+      void onDeliver(
+        task.id,
+        task.status,
+        otp,
+        'Customer',
+        laundryCashDropStep && laundryCashOutcome === 'COLLECTED' ? 'COLLECTED' : undefined,
+      );
+    }
+  }
+
+  const stepKey = step === 'done' ? 'done' : step;
 
   return (
-    <article style={styles.card}>
-      <div style={styles.cardTop}>
-        <span
-          style={{
-            ...styles.statusPill,
-            ...(step === 'hub'
-              ? styles.statusHub
-              : step === 'en_route'
-                ? styles.statusRoute
-                : styles.statusDone),
-          }}
-        >
-          {statusLabel}
-        </span>
-        <span style={styles.orderId} title={task.orderNumber}>
-          {task.orderNumber}
-        </span>
-      </div>
-
-      <div style={styles.headRow}>
-        <div style={styles.headMain}>
-          {task.destinationName ? <p style={styles.customerName}>{task.destinationName}</p> : null}
-          {task.destinationAddress ? (
-            <DropAddress label={task.destinationLabel} address={task.destinationAddress} />
-          ) : task.destinationLabel ? (
-            <p style={styles.addressOnce}>{task.destinationLabel}</p>
-          ) : (
-            <p style={styles.addressWarn}>Address missing</p>
-          )}
-          {when ? <p style={styles.whenLine}>{when}</p> : null}
-        </div>
-        {task.destinationPhone ? (
-          <CallPhoneLink phone={task.destinationPhone} label="Call" style={styles.callBtn} />
-        ) : null}
-      </div>
-
-      {cod && step !== 'done' ? (
-        <div style={styles.codBanner} role="status">
-          <span style={styles.codBannerIcon} aria-hidden>
-            💵
-          </span>
-          <div style={styles.codBannerText}>
-            <strong style={styles.codBannerTitle}>Collect cash (COD)</strong>
-            <span style={styles.codBannerSub}>Take full amount from customer before OTP</span>
-          </div>
-          <span style={styles.codBannerAmount}>{formatCollectRupee(cod.amount)}</span>
-        </div>
+    <article
+      data-trip-card={isOpen ? 'open' : 'shut'}
+      style={{
+        ...styles.card,
+        ...(isOpen ? styles.cardOpen : styles.cardShut),
+        ...(isOpen ? { borderLeftColor: tripAccentBar(stepKey) } : null),
+      }}
+    >
+      {collapsible && !isOpen && onRequestExpand ? (
+        <CollapsedAssignmentCard
+          statusLabel={statusLabel}
+          statusTone={statusTone}
+          orderNumber={task.orderNumber}
+          title={collapsedTitle}
+          subtitle={collapsedSubtitle}
+          onExpand={onRequestExpand}
+        />
       ) : null}
 
-      <PickupItemsList
-        manifest={manifest}
-        loading={manifestLoading}
-        failed={manifestFailed}
-        onRetry={onRetryManifest}
-        title="Order items"
-        showShop
-        defaultOpen={false}
-        paymentMethod={cod ? 'COD' : task.paymentMethod ?? manifest?.paymentMethod}
-        collectCashAmount={cod?.amount ?? task.collectCashAmount ?? manifest?.collectCashAmount}
-      />
+      {isOpen ? (
+        <>
+      <div style={styles.expandedHeader}>
+        <div style={styles.expandedHeaderRow}>
+          <span style={{ ...styles.statusPill, ...styles.statusPillCompact, ...statusTone }}>{statusLabel}</span>
+          <span style={styles.orderIdCompact} title={task.orderNumber}>
+            {task.orderNumber}
+          </span>
+          <span style={styles.headerSpacer} />
+          {task.destinationPhone ? (
+            <CallPhoneLink phone={task.destinationPhone} label="Call" style={styles.callBtnFilled} />
+          ) : null}
+          {collapsible && onRequestCollapse ? <MinimizeTripButton onClick={onRequestCollapse} /> : null}
+        </div>
+        {task.sourceShopName ? (
+          <p style={styles.shopLineInline}>
+            <span style={styles.shopTag}>Shop</span>
+            {task.sourceShopName}
+            {laundryPickup ? ' · return to shop' : laundryTrip ? ' · laundry' : ''}
+          </p>
+        ) : null}
+        {task.destinationName?.trim() && task.destinationAddress ? (
+          <p style={styles.dropTitle}>{task.destinationName.trim()}</p>
+        ) : null}
+        {task.destinationAddress ? (
+          <DropAddress label={task.destinationLabel} address={task.destinationAddress} />
+        ) : task.destinationName ? (
+          <p style={styles.customerNameCompact}>{task.destinationName}</p>
+        ) : task.destinationLabel ? (
+          <p style={styles.addressOnce}>{task.destinationLabel}</p>
+        ) : (
+          <p style={styles.addressWarn}>Address missing</p>
+        )}
+      </div>
 
-      <MiniBlock label="Progress" summary={deliveryStepLabel(step, vendorDirect)}>
-        <LegStepper
-          steps={
-            vendorDirect
-              ? [
-                  { id: 'hub', label: 'Shop' },
-                  { id: 'en_route', label: 'Customer' },
-                  { id: 'done', label: 'Done' },
-                ]
-              : DELIVERY_STEPS
-          }
-          currentIndex={currentIndex}
-          tone="buyer"
+      {step !== 'done' && awaitingOnlinePayment ? (
+        <p style={{ ...styles.inlineAlert, ...styles.inlineAlertWarn }} role="status">
+          <span style={styles.inlineAlertIcon} aria-hidden>
+            !
+          </span>
+          Buyer has not paid online yet. Ask them to open the app, open this order, and complete payment — then you
+          can enter OTP.
+        </p>
+      ) : null}
+
+      {vendorMarkedPaid && laundryTrip && step !== 'done' ? (
+        <p style={styles.vendorPaidBanner} role="status">
+          Payment received marked by Vendor — no cash to collect on this trip.
+        </p>
+      ) : null}
+
+      {laundryCashPickupStep && cod ? (
+        <LaundryCodBlock
+          amount={cod.amount}
+          mode="pickup"
+          value={laundryCashOutcome}
+          onChange={setLaundryCashOutcome}
+          selectId={`laundry-cash-pickup-${task.id}`}
         />
-      </MiniBlock>
+      ) : null}
+
+      {laundryCashDropStep && cod ? (
+        <LaundryCodBlock
+          amount={cod.amount}
+          mode="drop"
+          value={laundryCashOutcome}
+          onChange={setLaundryCashOutcome}
+          selectId={`laundry-cash-drop-${task.id}`}
+        />
+      ) : null}
+
+      {!laundryTrip ? (
+        <PickupItemsList
+          manifest={manifest}
+          loading={manifestLoading}
+          failed={manifestFailed}
+          onRetry={onRetryManifest}
+          title="Items"
+          showShop={false}
+          defaultOpen={false}
+          paymentMethod={cod ? 'COD' : task.paymentMethod ?? manifest?.paymentMethod}
+          collectCashAmount={cod?.amount ?? task.collectCashAmount ?? manifest?.collectCashAmount}
+        />
+      ) : null}
 
       {step !== 'done' ? (
         <div style={styles.actions}>
           {step === 'hub' ? (
             <button
               type="button"
-              style={{ ...styles.cta, ...styles.ctaAccent }}
-              disabled={busy}
-              onClick={() =>
-                void (vendorDirect && onPickVendor
+              style={{
+                ...styles.cta,
+                ...styles.ctaAccent,
+                ...(laundryCashPickupStep && !laundryCashReady ? styles.ctaDisabled : null),
+              }}
+              disabled={busy || (laundryCashPickupStep && !laundryCashReady)}
+              onClick={() => {
+                if (laundryPickup) {
+                  setLaundryConfirm('pickup_customer');
+                  return;
+                }
+                void ((vendorDirect || laundryPickup) && onPickVendor
                   ? onPickVendor(task.id, task.status)
-                  : onPickHub(task.id, task.status))
-              }
+                  : onPickHub(task.id, task.status));
+              }}
             >
               {busy
                 ? 'Saving…'
-                : vendorDirect
-                  ? 'I took bag from shop'
-                  : 'I took order from hub'}
+                : laundryPickup
+                  ? 'Picked up laundry from customer'
+                  : vendorDirect
+                    ? 'I took bag from shop'
+                    : 'I took order from hub'}
             </button>
           ) : null}
 
-          {step === 'en_route' && !showCodeBox ? (
+          {step === 'en_route' && !showCodeBox && laundryPickup ? (
             <button
               type="button"
               style={{ ...styles.cta, ...styles.ctaAccent }}
               disabled={busy}
+              onClick={() => setLaundryConfirm('at_shop')}
+            >
+              Items reached shop
+            </button>
+          ) : null}
+
+          {step === 'en_route' && !showCodeBox && !laundryPickup ? (
+            <button
+              type="button"
+              style={{
+                ...styles.cta,
+                ...styles.ctaAccent,
+                ...(awaitingOnlinePayment || (laundryCashDropStep && !laundryCashReady)
+                  ? styles.ctaDisabled
+                  : null),
+              }}
+              disabled={busy || awaitingOnlinePayment || (laundryCashDropStep && !laundryCashReady)}
               onClick={() => setShowCodeBox(true)}
             >
-              Enter OTP & finish
+              {awaitingOnlinePayment ? 'Waiting for buyer payment' : 'Enter OTP & finish'}
             </button>
           ) : null}
 
@@ -335,7 +590,7 @@ export function BuyerDeliveryCard({
                 style={styles.otpInput}
                 autoFocus
               />
-              {cod ? (
+              {cod && !laundryTrip ? (
                 <p style={styles.otpCodReminder}>
                   Collect {formatCollectRupee(cod.amount)} cash first, then enter OTP.
                 </p>
@@ -343,11 +598,28 @@ export function BuyerDeliveryCard({
               <p style={styles.otpHelp}>Local/dev: 111111</p>
               <button
                 type="button"
-                style={{ ...styles.cta, ...styles.ctaAccent }}
-                disabled={busy || otp.trim().length < 4}
-                onClick={() => void onDeliver(task.id, task.status, otp, 'Customer')}
+                style={{
+                  ...styles.cta,
+                  ...styles.ctaAccent,
+                  ...(awaitingOnlinePayment || (laundryCashDropStep && !laundryCashReady)
+                    ? styles.ctaDisabled
+                    : null),
+                }}
+                disabled={
+                  busy ||
+                  awaitingOnlinePayment ||
+                  otp.trim().length < 4 ||
+                  (laundryCashDropStep && !laundryCashReady)
+                }
+                onClick={() => {
+                  if (laundryDrop) {
+                    setLaundryConfirm('drop_deliver');
+                    return;
+                  }
+                  void onDeliver(task.id, task.status, otp, 'Customer');
+                }}
               >
-                {busy ? 'Submitting…' : 'Submit delivery'}
+                {busy ? 'Submitting…' : awaitingOnlinePayment ? 'Waiting for buyer payment' : 'Submit delivery'}
               </button>
               <button
                 type="button"
@@ -361,6 +633,24 @@ export function BuyerDeliveryCard({
           ) : null}
         </div>
       ) : null}
+        </>
+      ) : null}
+
+      {laundryConfirm != null ? (
+        <ConfirmLaundryAgentStepDialog
+          open
+          step={laundryConfirm}
+          orderNumber={task.orderNumber}
+          customerName={task.destinationName}
+          shopName={task.sourceShopName}
+          cashSummary={laundryCashSummary()}
+          busy={busy}
+          onClose={() => {
+            if (!busy) setLaundryConfirm(null);
+          }}
+          onConfirm={confirmLaundryStep}
+        />
+      ) : null}
     </article>
   );
 }
@@ -368,18 +658,179 @@ export function BuyerDeliveryCard({
 const styles: Record<string, CSSProperties> = {
   card: {
     background: 'var(--bg-elevated)',
-    border: '1px solid var(--border)',
-    borderRadius: 12,
-    boxShadow: '0 2px 10px rgba(15, 23, 42, 0.04)',
+    border: '1px solid color-mix(in srgb, var(--border) 90%, transparent)',
+    borderRadius: 16,
+    boxShadow: 'var(--shadow-soft)',
     padding: '0.55rem 0.65rem',
     display: 'grid',
     gap: '0.35rem',
+    overflow: 'hidden',
   },
+  cardOpen: {
+    padding: '0.65rem 0.7rem 0.7rem',
+    gap: '0.45rem',
+    borderLeftWidth: 4,
+    borderLeftStyle: 'solid',
+    boxShadow: 'var(--shadow-elevated)',
+    background:
+      'linear-gradient(165deg, var(--bg-elevated) 0%, color-mix(in srgb, var(--accent-soft) 18%, var(--bg-elevated)) 100%)',
+  },
+  cardShut: {
+    padding: '0.45rem 0.55rem',
+    gap: 0,
+    borderRadius: 14,
+    boxShadow: 'var(--shadow-card)',
+  },
+  collapsedRowBtn: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.45rem',
+    width: '100%',
+    margin: 0,
+    padding: 0,
+    border: 'none',
+    background: 'transparent',
+    color: 'inherit',
+    cursor: 'pointer',
+    textAlign: 'left',
+    minHeight: 44,
+  },
+  collapsedTextCol: {
+    flex: 1,
+    minWidth: 0,
+    display: 'grid',
+    gap: 2,
+  },
+  collapsedTitle: {
+    fontSize: '0.8rem',
+    fontWeight: 800,
+    fontFamily: 'var(--font-display)',
+    letterSpacing: '-0.02em',
+    lineHeight: 1.2,
+    color: 'var(--text)',
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+  },
+  collapsedSub: {
+    fontSize: '0.68rem',
+    fontWeight: 600,
+    lineHeight: 1.25,
+    color: 'var(--text-muted)',
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+  },
+  statusPillCompact: {
+    padding: '0.2rem 0.45rem',
+    fontSize: '0.58rem',
+    letterSpacing: '0.06em',
+    flexShrink: 0,
+  },
+  orderIdCompact: {
+    fontSize: '0.58rem',
+    fontWeight: 700,
+    color: 'var(--text-muted)',
+    fontVariantNumeric: 'tabular-nums',
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    maxWidth: '46%',
+    flexShrink: 1,
+  },
+  expandChevCompact: {
+    flexShrink: 0,
+    width: 28,
+    height: 28,
+    borderRadius: 999,
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontSize: '1rem',
+    fontWeight: 400,
+    lineHeight: 1,
+    color: 'var(--accent)',
+    background: 'var(--accent-soft)',
+    border: '1px solid color-mix(in srgb, var(--accent) 18%, transparent)',
+  },
+  minimizeBtn: {
+    flexShrink: 0,
+    margin: 0,
+    padding: 0,
+    width: 34,
+    height: 34,
+    borderRadius: 999,
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    border: '1px solid color-mix(in srgb, var(--border) 90%, transparent)',
+    background: 'var(--bg-muted)',
+    color: 'var(--text-muted)',
+    cursor: 'pointer',
+  },
+  minimizeIcon: {
+    fontSize: '0.85rem',
+    lineHeight: 1,
+    fontWeight: 700,
+    marginTop: 2,
+  },
+  headerSpacer: { flex: 1, minWidth: 8 },
   cardTop: {
     display: 'grid',
     gridTemplateColumns: 'minmax(0, 1fr) auto',
     alignItems: 'center',
     gap: '0.45rem',
+  },
+  shopLine: {
+    margin: 0,
+    fontSize: '0.72rem',
+    fontWeight: 650,
+    color: 'var(--text-muted)',
+    lineHeight: 1.25,
+  },
+  shopLineInline: {
+    margin: 0,
+    fontSize: '0.66rem',
+    fontWeight: 700,
+    color: 'var(--text-muted)',
+    lineHeight: 1.2,
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+  },
+  expandedHeader: {
+    display: 'grid',
+    gap: '0.35rem',
+    minWidth: 0,
+    paddingBottom: '0.15rem',
+    borderBottom: '1px solid color-mix(in srgb, var(--border) 70%, transparent)',
+  },
+  dropTitle: {
+    margin: 0,
+    fontFamily: 'var(--font-display)',
+    fontSize: '1.05rem',
+    fontWeight: 800,
+    letterSpacing: '-0.03em',
+    lineHeight: 1.15,
+    color: 'var(--text)',
+  },
+  shopTag: {
+    display: 'inline-block',
+    marginRight: '0.35rem',
+    padding: '0.08rem 0.35rem',
+    borderRadius: 6,
+    background: 'var(--bg-muted)',
+    fontSize: '0.62rem',
+    fontWeight: 800,
+    letterSpacing: '0.04em',
+    textTransform: 'uppercase',
+    color: 'var(--text-muted)',
+  },
+  expandedHeaderRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.35rem',
+    minWidth: 0,
   },
   statusPill: {
     display: 'inline-flex',
@@ -392,20 +843,23 @@ const styles: Record<string, CSSProperties> = {
     textTransform: 'uppercase',
   },
   statusHub: {
-    background: 'color-mix(in srgb, var(--accent) 14%, transparent)',
+    background: 'linear-gradient(135deg, var(--accent-soft), #d1fae5)',
     color: 'var(--accent)',
+    border: '1px solid color-mix(in srgb, var(--accent) 22%, transparent)',
   },
   statusRoute: {
-    background: 'rgba(245, 158, 11, 0.16)',
-    color: '#b45309',
+    background: 'linear-gradient(135deg, #fff7ed, #ffedd5)',
+    color: '#c2410c',
+    border: '1px solid #fed7aa',
   },
   statusDone: {
     background: 'rgba(22, 163, 74, 0.14)',
     color: '#15803d',
   },
   statusPickup: {
-    background: 'rgba(22, 163, 74, 0.14)',
-    color: '#15803d',
+    background: 'linear-gradient(135deg, var(--accent-soft), #d1fae5)',
+    color: 'var(--accent)',
+    border: '1px solid color-mix(in srgb, var(--accent) 22%, transparent)',
   },
   orderId: {
     fontSize: '0.64rem',
@@ -425,26 +879,76 @@ const styles: Record<string, CSSProperties> = {
     justifyContent: 'space-between',
     gap: '0.45rem',
   },
-  codBanner: {
+  headRowCompact: {
     display: 'flex',
-    alignItems: 'center',
-    gap: '0.5rem',
-    padding: '0.55rem 0.65rem',
-    borderRadius: 10,
-    background: 'var(--warning-soft, #fffbeb)',
-    border: '1.5px solid #fbbf24',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: '0.35rem',
   },
-  codBannerIcon: { fontSize: '1.35rem', lineHeight: 1, flexShrink: 0 },
-  codBannerText: { display: 'grid', gap: '0.12rem', flex: '1 1 auto', minWidth: 0 },
-  codBannerTitle: { fontSize: '0.88rem', fontWeight: 900, color: '#92400e', lineHeight: 1.2 },
-  codBannerSub: { fontSize: '0.72rem', fontWeight: 650, color: '#b45309', lineHeight: 1.25 },
-  codBannerAmount: {
-    flexShrink: 0,
-    fontSize: '1.25rem',
-    fontWeight: 900,
+  vendorPaidBanner: {
+    margin: 0,
+    padding: '0.45rem 0.55rem',
+    borderRadius: 10,
+    background: 'linear-gradient(135deg, #ecfdf5, var(--accent-soft))',
+    border: '1px solid color-mix(in srgb, var(--accent) 22%, transparent)',
+    fontSize: '0.72rem',
+    fontWeight: 650,
+    lineHeight: 1.35,
+    color: '#065f46',
+  },
+  codBlock: {
+    display: 'grid',
+    gap: '0.35rem',
+  },
+  laundryCashLabel: {
+    margin: 0,
+    fontSize: '0.68rem',
+    fontWeight: 700,
+    color: 'var(--text-muted)',
+  },
+  laundryCashSelect: {
+    width: '100%',
+    padding: '0.5rem 0.55rem',
+    borderRadius: 10,
+    border: '1px solid var(--border)',
+    fontSize: '0.82rem',
+    fontWeight: 650,
+    background: '#fff',
+  },
+  inlineAlert: {
+    margin: 0,
+    padding: '0.45rem 0.55rem',
+    borderRadius: 10,
+    background: 'linear-gradient(135deg, #ecfdf5, var(--accent-soft))',
+    border: '1px solid color-mix(in srgb, var(--accent) 22%, transparent)',
+    fontSize: '0.72rem',
+    fontWeight: 650,
+    lineHeight: 1.35,
+    display: 'flex',
+    alignItems: 'flex-start',
+    gap: '0.35rem',
+    color: '#065f46',
+  },
+  inlineAlertWarn: {
+    background: 'linear-gradient(135deg, #fffbeb, #fef3c7)',
+    border: '1px solid #fde68a',
     color: '#92400e',
-    fontVariantNumeric: 'tabular-nums',
-    letterSpacing: '-0.02em',
+  },
+  ctaDisabled: {
+    opacity: 0.55,
+    boxShadow: 'none',
+  },
+  inlineAlertIcon: {
+    flexShrink: 0,
+    width: 18,
+    height: 18,
+    borderRadius: 999,
+    border: '2px solid currentColor',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontSize: '0.55rem',
+    marginTop: 1,
   },
   headMain: { minWidth: 0, flex: 1, display: 'grid', gap: 1 },
   customerName: {
@@ -454,6 +958,12 @@ const styles: Record<string, CSSProperties> = {
     fontFamily: 'var(--font-display)',
     letterSpacing: '-0.02em',
     lineHeight: 1.15,
+  },
+  customerNameCompact: {
+    margin: 0,
+    fontSize: '0.88rem',
+    fontWeight: 800,
+    lineHeight: 1.2,
   },
   oneLine: {
     margin: 0,
@@ -466,7 +976,7 @@ const styles: Record<string, CSSProperties> = {
     overflow: 'hidden',
     textOverflow: 'ellipsis',
   },
-  drop: { display: 'grid', gap: '0.12rem' },
+  drop: { display: 'grid', gap: '0.08rem' },
   landmark: {
     margin: 0,
     fontSize: '0.84rem',
@@ -474,12 +984,39 @@ const styles: Record<string, CSSProperties> = {
     color: 'var(--text)',
     lineHeight: 1.3,
   },
+  landmarkCompact: {
+    margin: 0,
+    fontSize: '0.76rem',
+    fontWeight: 800,
+    color: 'var(--text)',
+    lineHeight: 1.25,
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+  },
   addressFull: {
     margin: 0,
     fontSize: '0.78rem',
     fontWeight: 650,
     color: 'var(--text)',
     lineHeight: 1.35,
+  },
+  addressCompact: {
+    margin: 0,
+    fontSize: '0.78rem',
+    fontWeight: 600,
+    color: 'var(--text-muted)',
+    lineHeight: 1.35,
+    display: '-webkit-box',
+    WebkitLineClamp: 2,
+    WebkitBoxOrient: 'vertical',
+    overflow: 'hidden',
+  },
+  mapLinks: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.5rem',
+    flexWrap: 'wrap',
   },
   mapsLink: {
     justifySelf: 'start',
@@ -491,6 +1028,30 @@ const styles: Record<string, CSSProperties> = {
     minHeight: 32,
     display: 'inline-flex',
     alignItems: 'center',
+  },
+  mapsLinkInline: {
+    fontSize: '0.72rem',
+    fontWeight: 800,
+    color: 'var(--accent)',
+    textDecoration: 'none',
+    minHeight: 32,
+    display: 'inline-flex',
+    alignItems: 'center',
+    padding: '0.2rem 0.45rem',
+    borderRadius: 8,
+    background: 'var(--accent-soft)',
+  },
+  mapToggle: {
+    margin: 0,
+    padding: '0.2rem 0.45rem',
+    border: '1px solid var(--border)',
+    borderRadius: 8,
+    background: 'var(--bg-muted)',
+    color: 'var(--text)',
+    fontSize: '0.72rem',
+    fontWeight: 700,
+    cursor: 'pointer',
+    minHeight: 32,
   },
   addressOnce: {
     margin: 0,
@@ -526,6 +1087,37 @@ const styles: Record<string, CSSProperties> = {
     textDecoration: 'none',
     border: '1px solid color-mix(in srgb, var(--accent) 28%, transparent)',
   },
+  callBtnCompact: {
+    flexShrink: 0,
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: 40,
+    minHeight: 32,
+    padding: '0.22rem 0.45rem',
+    borderRadius: 8,
+    background: 'color-mix(in srgb, var(--accent) 12%, transparent)',
+    color: 'var(--accent)',
+    fontWeight: 800,
+    fontSize: '0.72rem',
+    textDecoration: 'none',
+    border: '1px solid color-mix(in srgb, var(--accent) 28%, transparent)',
+  },
+  callBtnFilled: {
+    flexShrink: 0,
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 34,
+    padding: '0.35rem 0.75rem',
+    borderRadius: 999,
+    background: 'var(--accent)',
+    color: '#fff',
+    fontWeight: 800,
+    fontSize: '0.75rem',
+    textDecoration: 'none',
+    boxShadow: '0 2px 8px color-mix(in srgb, var(--accent) 35%, transparent)',
+  },
   mini: {
     borderRadius: 10,
     border: '1.5px solid var(--border)',
@@ -539,13 +1131,13 @@ const styles: Record<string, CSSProperties> = {
     justifyContent: 'space-between',
     gap: '0.4rem',
     margin: 0,
-    padding: '0.4rem 0.55rem',
+    padding: '0.32rem 0.45rem',
     border: 'none',
     background: 'transparent',
     color: 'var(--text)',
     cursor: 'pointer',
     textAlign: 'left',
-    minHeight: 36,
+    minHeight: 32,
   },
   miniLeft: { minWidth: 0, display: 'grid', gap: 1 },
   miniLabel: { fontSize: '0.72rem', fontWeight: 800, lineHeight: 1.15 },
@@ -593,24 +1185,26 @@ const styles: Record<string, CSSProperties> = {
     lineHeight: 1.3,
     fontWeight: 650,
   },
-  actions: { display: 'grid', gap: '0.35rem' },
+  actions: { display: 'grid', gap: '0.28rem' },
   cta: {
     border: 'none',
-    borderRadius: 12,
-    padding: '0.75rem 0.85rem',
+    borderRadius: 10,
+    padding: '0.58rem 0.7rem',
     fontWeight: 800,
-    fontSize: '0.92rem',
+    fontSize: '0.86rem',
     cursor: 'pointer',
     width: '100%',
-    minHeight: 48,
+    minHeight: 44,
   },
   ctaAccent: {
-    background: 'var(--accent)',
+    background: 'linear-gradient(180deg, #0ea82a 0%, var(--accent) 55%, var(--accent-hover) 100%)',
     color: '#fff',
+    boxShadow: '0 4px 16px color-mix(in srgb, var(--accent) 38%, transparent)',
   },
   ctaGreen: {
-    background: '#0C831F',
+    background: 'linear-gradient(180deg, #0ea82a 0%, var(--accent) 55%, var(--accent-hover) 100%)',
     color: '#fff',
+    boxShadow: '0 4px 16px color-mix(in srgb, var(--accent) 38%, transparent)',
   },
   otpPanel: {
     display: 'grid',

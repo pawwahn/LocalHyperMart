@@ -1,3 +1,4 @@
+import { PickerDateField } from '@hlm-dates';
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { ApiError } from '@/shared/api/http';
 import { Button, Card, Toast } from '@/shared/ui';
@@ -353,11 +354,10 @@ export function HubPaymentRequestsAdminPanel({
         <div style={styles.row2}>
           <label style={styles.label}>
             From (IST)
-            <input
-              type="date"
+            <PickerDateField
               value={activeStart}
-              onChange={(e) => {
-                setCodStart(e.target.value);
+              onChange={(next) => {
+                setCodStart(next);
                 setCodPreset('custom');
                 setPreview(null);
               }}
@@ -366,13 +366,12 @@ export function HubPaymentRequestsAdminPanel({
           </label>
           <label style={styles.label}>
             To (IST)
-            <input
-              type="date"
+            <PickerDateField
               value={activeEnd}
               min={activeStart}
               disabled={hubCodPaymentPeriodKind(activePreset) === 'DAILY'}
-              onChange={(e) => {
-                setCodEnd(e.target.value);
+              onChange={(next) => {
+                setCodEnd(next);
                 setCodPreset('custom');
                 setPreview(null);
               }}

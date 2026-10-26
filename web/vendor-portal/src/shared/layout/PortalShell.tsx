@@ -9,7 +9,7 @@ import { useCodConfirmPendingCount } from '@/features/cod/hooks/useCodConfirmPen
 import { usePayoutActionCount } from '@/features/payouts/hooks/usePayoutActionCount';
 import { Banner } from '@/shared/ui';
 import { useIsNarrow } from '@/shared/hooks/useIsNarrow';
-import { useHidesListings } from '@/features/shop/hooks/useHidesListings';
+import { isGlamVendor, isLaundryVendor, useHidesListings } from '@/features/shop/hooks/useHidesListings';
 
 type ShopPauseControl = {
   acceptingOrders: boolean;
@@ -34,6 +34,7 @@ const NAV = [
   { to: '/payouts', label: 'Payouts', icon: '💵', end: false },
   { to: '/sellers', label: 'Sellers', icon: '🏆', end: false },
   { to: '/laundry', label: 'Laundry', icon: '👕', end: false },
+  { to: '/glam', label: 'Glam', icon: '💄', end: false },
   { to: '/settings', label: 'Settings', icon: '⚙️', end: false },
 ] as const;
 
@@ -48,9 +49,17 @@ export function PortalShell({ title, children, onRefresh, shopPause }: Props) {
   const payoutActionCount = usePayoutActionCount();
   const narrow = useIsNarrow(767);
   const hidesListings = useHidesListings();
-  const nav = hidesListings
+  const glamVendor = isGlamVendor(session?.serviceName);
+  const laundryVendor = isLaundryVendor(session?.serviceName);
+  let nav = hidesListings
     ? NAV.filter((item) => item.to !== '/listings' && item.to !== '/sellers')
-    : NAV;
+    : NAV.filter((item) => item.to !== '/laundry' && item.to !== '/glam');
+  if (hidesListings && glamVendor && !laundryVendor) {
+    nav = nav.filter((item) => item.to !== '/laundry');
+  }
+  if (hidesListings && laundryVendor && !glamVendor) {
+    nav = nav.filter((item) => item.to !== '/glam');
+  }
   const shopName = session?.shopName ?? 'Vendor shop';
   const phone = session?.phone;
   const townName = shopTownName ?? session?.townName ?? null;
@@ -93,7 +102,7 @@ export function PortalShell({ title, children, onRefresh, shopPause }: Props) {
                         : styles.navLink
                     }
                   >
-                    {navItemLabel(item.to, item.label, codConfirmPending, payoutActionCount)}
+                    {navItemLabel(item.to, item.label, codConfirmPending, payoutActionCount, glamVendor)}
                   </Link>
                 ))}
               </nav>
@@ -203,7 +212,7 @@ export function PortalShell({ title, children, onRefresh, shopPause }: Props) {
               <span style={styles.tabIcon} aria-hidden>
                 {item.icon}
               </span>
-              <span>{navItemLabel(item.to, item.label, codConfirmPending, payoutActionCount)}</span>
+              <span>{navItemLabel(item.to, item.label, codConfirmPending, payoutActionCount, glamVendor)}</span>
             </NavLink>
           ))}
         </nav>
@@ -212,10 +221,17 @@ export function PortalShell({ title, children, onRefresh, shopPause }: Props) {
   );
 }
 
-function navItemLabel(to: string, label: string, codConfirmPending: number, payoutActionCount: number): string {
-  if (to === '/cod-handover' && codConfirmPending > 0) return `${label} (${codConfirmPending})`;
-  if (to === '/payouts' && payoutActionCount > 0) return `${label} (${payoutActionCount})`;
-  return label;
+function navItemLabel(
+  to: string,
+  label: string,
+  codConfirmPending: number,
+  payoutActionCount: number,
+  glamVendor: boolean,
+): string {
+  const base = to === '/delivery-agents' && glamVendor ? 'Professionals' : label;
+  if (to === '/cod-handover' && codConfirmPending > 0) return `${base} (${codConfirmPending})`;
+  if (to === '/payouts' && payoutActionCount > 0) return `${base} (${payoutActionCount})`;
+  return base;
 }
 
 function isNavActive(pathname: string, to: string, end: boolean): boolean {

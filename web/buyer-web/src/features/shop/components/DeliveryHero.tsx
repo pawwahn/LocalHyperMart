@@ -13,8 +13,8 @@ const BAND_CSS = `
     border-radius: 16px;
     overflow: hidden;
     box-shadow:
-      0 10px 28px rgba(12, 131, 31, 0.2),
-      0 1px 0 rgba(255, 255, 255, 0.35) inset;
+      0 10px 28px rgba(140, 170, 70, 0.28),
+      0 1px 0 rgba(255, 255, 255, 0.45) inset;
     min-width: 0;
     align-items: stretch;
   }
@@ -26,10 +26,10 @@ const BAND_CSS = `
     gap: 0.55rem;
     padding: 0.7rem 0.8rem;
     background:
-      radial-gradient(ellipse 70% 90% at 0% 0%, rgba(247, 206, 70, 0.22), transparent 48%),
-      radial-gradient(ellipse 50% 80% at 100% 110%, rgba(4, 60, 16, 0.35), transparent 55%),
-      linear-gradient(128deg, #0A6E1C 0%, #0C831F 42%, #16A334 78%, #0B721C 100%);
-    color: #fff;
+      radial-gradient(ellipse 70% 90% at 0% 0%, rgba(255, 255, 255, 0.38), transparent 50%),
+      radial-gradient(ellipse 50% 80% at 100% 110%, rgba(120, 150, 60, 0.22), transparent 55%),
+      linear-gradient(128deg, #96b648 0%, #A7C957 48%, #b8d46a 100%);
+    color: #1f3312;
     min-width: 0;
   }
   .hlm-home-promo-band-primary::after {
@@ -53,7 +53,7 @@ const BAND_CSS = `
     font-size: clamp(0.78rem, 2.1vw, 0.98rem);
     line-height: 1.15;
     letter-spacing: -0.02em;
-    color: rgba(255, 255, 255, 0.92);
+    color: #1f3312;
   }
   .hlm-home-promo-pills {
     display: flex;
@@ -90,20 +90,20 @@ const BAND_CSS = `
     font-weight: 700;
     line-height: 1.25;
     letter-spacing: -0.02em;
-    color: rgba(255, 255, 255, 0.88);
+    color: #2d4a1e;
   }
   .hlm-promo-local {
     display: inline-block;
     padding: 0.02em 0.28em 0.05em;
     border-radius: 5px;
-    background: rgba(255, 255, 255, 0.18);
-    color: #fff;
+    background: rgba(255, 255, 255, 0.45);
+    color: #1f3312;
   }
   .hlm-home-promo-band-plans {
     justify-self: start;
-    border: 1px solid rgba(255, 255, 255, 0.28);
-    background: rgba(255, 255, 255, 0.16);
-    color: #fff;
+    border: 1px solid rgba(31, 51, 18, 0.28);
+    background: rgba(255, 255, 255, 0.35);
+    color: #1f3312;
     font-size: 0.68rem;
     font-weight: 800;
     border-radius: 999px;
@@ -114,7 +114,7 @@ const BAND_CSS = `
     backdrop-filter: blur(6px);
   }
   .hlm-home-promo-band-plans:hover {
-    background: rgba(255, 255, 255, 0.26);
+    background: rgba(255, 255, 255, 0.52);
   }
   .hlm-home-promo-band-art {
     position: relative;
@@ -129,10 +129,10 @@ const BAND_CSS = `
     border-radius: 50%;
     display: grid;
     place-items: center;
-    background: rgba(255, 255, 255, 0.14);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    color: #FFF6CC;
-    box-shadow: 0 4px 10px rgba(4, 40, 12, 0.18);
+    background: rgba(255, 255, 255, 0.38);
+    border: 1px solid rgba(31, 51, 18, 0.12);
+    color: #3d5224;
+    box-shadow: 0 4px 10px rgba(120, 150, 60, 0.2);
   }
   .hlm-home-promo-art-orb svg {
     width: 1.05rem;
@@ -148,7 +148,7 @@ const BAND_CSS = `
     min-width: 0;
     min-height: 100%;
     overflow: hidden;
-    border-left: 1px solid rgba(12, 131, 31, 0.1);
+    border-left: 1px solid rgba(167, 201, 87, 0.45);
     background:
       radial-gradient(ellipse 55% 90% at 100% 50%, rgba(247, 206, 70, 0.18), transparent 58%),
       radial-gradient(ellipse 80% 70% at 0% 100%, rgba(12, 131, 31, 0.12), transparent 52%),

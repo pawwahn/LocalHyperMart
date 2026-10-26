@@ -16,6 +16,8 @@ public interface VendorRepository extends JpaRepository<Vendor, UUID> {
 
     boolean existsByServiceId(UUID serviceId);
 
+    long countByServiceId(UUID serviceId);
+
     List<Vendor> findByTownIdOrderByCreatedAtDesc(UUID townId);
 
     List<Vendor> findByTownIdAndStatusOrderByCreatedAtDesc(UUID townId, VendorStatus status);

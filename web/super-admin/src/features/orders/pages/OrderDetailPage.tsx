@@ -111,12 +111,36 @@ export function OrderDetailPage() {
                 </div>
                 <div style={styles.moneyRow}>
                   <span style={styles.moneyLabel}>Delivery fee</span>
-                  <span>{money(Number(order.deliveryFee ?? 0))}</span>
+                  <span>
+                    {(order.membershipDeliveryWaived ?? 0) > 0 && Number(order.deliveryFee ?? 0) === 0 ? (
+                      <>
+                        <span style={styles.struck}>{money(Number(order.membershipDeliveryWaived))}</span>{' '}
+                        Free
+                      </>
+                    ) : (
+                      money(Number(order.deliveryFee ?? 0))
+                    )}
+                  </span>
                 </div>
                 <div style={styles.moneyRow}>
                   <span style={styles.moneyLabel}>Platform fee</span>
                   <span>{money(Number(order.platformFee ?? 0))}</span>
                 </div>
+                {Number(order.codFee ?? 0) > 0 ? (
+                  <div style={styles.moneyRow}>
+                    <span style={styles.moneyLabel}>COD charge</span>
+                    <span>{money(Number(order.codFee))}</span>
+                  </div>
+                ) : null}
+                {Number(order.membershipFee ?? 0) > 0 ? (
+                  <div style={styles.moneyRow}>
+                    <span style={styles.moneyLabel}>
+                      Delivery plan
+                      {order.membershipSlab ? ` (${order.membershipSlab.replace(/_/g, ' ').toLowerCase()})` : ''}
+                    </span>
+                    <span>{money(Number(order.membershipFee))}</span>
+                  </div>
+                ) : null}
                 {Number(order.promoDiscount ?? 0) > 0 ? (
                   <div style={styles.moneyRow}>
                     <span style={styles.moneyLabel}>
@@ -429,6 +453,7 @@ const styles: Record<string, CSSProperties> = {
     fontSize: '0.84rem',
   },
   moneyLabel: { color: 'var(--text-muted)', fontWeight: 600 },
+  struck: { textDecoration: 'line-through', color: 'var(--text-muted)', fontWeight: 600 },
   moneyCredit: { color: 'var(--accent)', fontWeight: 700 },
   moneyTotal: {
     marginTop: '0.25rem',

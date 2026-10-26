@@ -18,8 +18,12 @@ export type AssignmentView = {
   destinationName: string | null;
   destinationPhone: string | null;
   destinationAddress: string | null;
+  sourceShopName?: string | null;
+  laundryTripKind?: string | null;
   paymentMethod?: string | null;
   collectCashAmount?: number | null;
+  orderStatus?: string | null;
+  laundryPaymentStatus?: string | null;
   events: Array<{
     eventType: string;
     createdAt: string;
@@ -40,9 +44,11 @@ export function toAssignmentView(dto: AssignmentDto): AssignmentView {
     label:
       dto.legType === 'PICKUP'
         ? `Vendor → Hub · ${dto.status}`
-        : dto.legType === 'VENDOR_DIRECT'
-          ? `Shop → Buyer · ${dto.status}`
-          : `Hub → Buyer · ${dto.status}`,
+        : dto.legType === 'LAUNDRY_TRIP'
+          ? `${dto.sourceShopName ?? 'Laundry'} · ${dto.laundryTripKind === 'PICKUP_FROM_CUSTOMER' ? 'Pickup' : 'Drop'} · ${dto.status}`
+          : dto.legType === 'VENDOR_DIRECT'
+            ? `Shop → Buyer · ${dto.status}`
+            : `Hub → Buyer · ${dto.status}`,
     assignedAt: dto.assignedAt ?? null,
     startedAt: dto.startedAt ?? null,
     completedAt: dto.completedAt ?? null,
@@ -50,9 +56,13 @@ export function toAssignmentView(dto: AssignmentDto): AssignmentView {
     destinationName: dto.destinationName ?? null,
     destinationPhone: dto.destinationPhone ?? null,
     destinationAddress: dto.destinationAddress ?? null,
+    sourceShopName: dto.sourceShopName ?? null,
+    laundryTripKind: dto.laundryTripKind ?? null,
     paymentMethod: dto.paymentMethod ?? null,
     collectCashAmount:
       dto.collectCashAmount != null ? Number(dto.collectCashAmount) : null,
+    orderStatus: dto.orderStatus ?? null,
+    laundryPaymentStatus: dto.laundryPaymentStatus ?? null,
     events: (dto.events ?? []).map((e) => ({
       eventType: e.eventType,
       createdAt: e.createdAt,
@@ -427,10 +437,19 @@ export async function fetchDeliveryManifest(token: string, assignmentId: string)
   };
 }
 
-export async function pickFromVendor(token: string, assignmentId: string, note?: string): Promise<AssignmentView> {
+export type LaundryCashOutcome = 'COLLECTED' | 'NOT_COLLECTED';
+
+export async function pickFromVendor(
+  token: string,
+  assignmentId: string,
+  note?: string,
+  cashCollectionOutcome?: LaundryCashOutcome,
+): Promise<AssignmentView> {
+  const body: { note: string; cashCollectionOutcome?: LaundryCashOutcome } = { note: note || 'Picked' };
+  if (cashCollectionOutcome) body.cashCollectionOutcome = cashCollectionOutcome;
   const data = await apiRequest<AssignmentDto>(
     `/api/v1/delivery/assignments/${assignmentId}/picked-from-vendor`,
-    { method: 'POST', token, body: { note: note || 'Picked' } },
+    { method: 'POST', token, body },
   );
   return toAssignmentView(data);
 }
@@ -448,11 +467,17 @@ export async function deliverOrder(
   assignmentId: string,
   otp: string,
   recipientName: string,
+  cashCollectionOutcome?: LaundryCashOutcome,
 ): Promise<AssignmentView> {
+  const body: { otp: string; recipientName: string; cashCollectionOutcome?: LaundryCashOutcome } = {
+    otp,
+    recipientName,
+  };
+  if (cashCollectionOutcome) body.cashCollectionOutcome = cashCollectionOutcome;
   const data = await apiRequest<AssignmentDto>(`/api/v1/delivery/assignments/${assignmentId}/deliver`, {
     method: 'POST',
     token,
-    body: { otp, recipientName },
+    body,
   });
   return toAssignmentView(data);
 }

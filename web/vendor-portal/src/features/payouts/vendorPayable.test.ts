@@ -4,6 +4,7 @@ import {
   adminPayoutHint,
   awaitingDeliveredRows,
   computeAdminPayoutDue,
+  computeShopHeldFeeDue,
   computeUnpaidDelivered,
   isClosedSalesStatus,
   isPayoutDueStatus,
@@ -113,6 +114,18 @@ describe('shop-held COD vs admin payout', () => {
     expect(rowIsShopHeld(r)).toBe(true);
     expect(computeUnpaidDelivered([r])).toEqual({ amount: 275, count: 1 });
     expect(computeAdminPayoutDue([r])).toEqual({ amount: 0, count: 0 });
+  });
+
+  it('sales summary: shop COD counts fee pass-through, not goods GMV', () => {
+    const shopCod = (id: string, subtotal: number) => ({
+      ...row(id, 'DELIVERED', subtotal, { paymentMethod: 'COD', vendorAgentDelivery: true }),
+      platformFeeAmount: 2,
+      codFeeAmount: 10,
+      membershipFeeAmount: 0,
+    });
+    const rows = [shopCod('l1', 225), shopCod('l2', 243), shopCod('l3', 425)];
+    expect(computeAdminPayoutDue(rows)).toEqual({ amount: 0, count: 0 });
+    expect(computeShopHeldFeeDue(rows)).toEqual({ amount: 36, count: 3 });
   });
 
   it('API holder WITH_VENDOR wins over inference', () => {

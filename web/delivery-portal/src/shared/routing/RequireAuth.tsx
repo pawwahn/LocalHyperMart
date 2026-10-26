@@ -1,11 +1,13 @@
-import { Navigate, Outlet, useLocation } from 'react-router-dom';
+import { Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import type { CSSProperties } from 'react';
+import { LegalAcceptGate } from '@hlm-legal';
 import { useAuth } from '@/shared/auth/AuthContext';
 import { resolvePortalRole, type PortalRole } from '@/shared/auth/session';
 
 export function RequireAuth({ role }: { role?: PortalRole }) {
   const { isAuthenticated, session, logout } = useAuth();
   const location = useLocation();
+  const navigate = useNavigate();
 
   if (!isAuthenticated || !session) {
     return <Navigate to="/login" replace state={{ from: location.pathname }} />;
@@ -45,7 +47,18 @@ export function RequireAuth({ role }: { role?: PortalRole }) {
     );
   }
 
-  return <Outlet />;
+  return (
+    <LegalAcceptGate
+      accessToken={session.accessToken}
+      portalLabel="Delivery portal"
+      onSignOut={() => {
+        logout();
+        navigate('/login', { replace: true });
+      }}
+    >
+      <Outlet />
+    </LegalAcceptGate>
+  );
 }
 
 const styles: Record<string, CSSProperties> = {

@@ -169,7 +169,7 @@ public class OrderAdminController {
                         principal.getUserId(), principal.getRoles(), agentId, page, size)));
     }
 
-    @GetMapping("/{orderId}")
+    @GetMapping("/{orderId:[0-9a-fA-F\\-]{36}}")
     public ResponseEntity<ApiResponse<AdminOrderDetailResponse>> getOrder(
             @AuthenticationPrincipal AuthUserPrincipal principal,
             @PathVariable UUID orderId,

@@ -12,4 +12,7 @@ public class DeliverRequest {
     private String deliveryPhotoMediaId;
 
     private String recipientName;
+
+    /** Laundry cash: COLLECTED | NOT_COLLECTED (drop leg expects COLLECTED). */
+    private String cashCollectionOutcome;
 }

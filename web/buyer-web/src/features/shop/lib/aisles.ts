@@ -180,6 +180,58 @@ export function visualForCategory(name: string): Visual {
   return { icons: ['🛒'], tint: TINT };
 }
 
+type AisleTheme = { accent: string; glow: string; icon: string; tagline: string };
+
+const AISLE_THEMES: Record<string, AisleTheme> = {
+  'Fresh items': {
+    accent: '#0C831F',
+    glow: '#D4F5DC',
+    icon: '🥬',
+    tagline: 'Farm to your door',
+  },
+  'Grocery & Kitchen': {
+    accent: '#C17A0A',
+    glow: '#FFF0D0',
+    icon: '🌾',
+    tagline: 'Pantry essentials',
+  },
+  'Snacks & drinks': {
+    accent: '#E85D04',
+    glow: '#FFE8D6',
+    icon: '🥤',
+    tagline: 'Munchies & sips',
+  },
+  'Beauty & Wellness': {
+    accent: '#B83280',
+    glow: '#FCE4F0',
+    icon: '✨',
+    tagline: 'Care & wellness',
+  },
+  'Household & Lifestyle': {
+    accent: '#0C831F',
+    glow: '#E8E4FF',
+    icon: '🏠',
+    tagline: 'Home & more',
+  },
+  More: {
+    accent: '#64748B',
+    glow: '#EEF2F6',
+    icon: '🛍️',
+    tagline: 'Discover more',
+  },
+};
+
+const DEFAULT_AISLE_THEME: AisleTheme = {
+  accent: '#0C831F',
+  glow: '#EDE8FF',
+  icon: '🛒',
+  tagline: 'Shop local',
+};
+
+export function themeForAisle(title: string): AisleTheme {
+  return AISLE_THEMES[title] ?? DEFAULT_AISLE_THEME;
+}
+
 export function emojiForCategory(name: string): string {
   return visualForCategory(name).icons[0] ?? '🛒';
 }

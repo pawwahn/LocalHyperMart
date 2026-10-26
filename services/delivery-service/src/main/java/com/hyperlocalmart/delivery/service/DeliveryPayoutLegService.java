@@ -44,6 +44,7 @@ public class DeliveryPayoutLegService {
         Map<UUID, DeliveryAssignment> lastMiles = latestCompleted(ids, AssignmentLegType.LAST_MILE);
         Map<UUID, DeliveryAssignment> pickups = latestCompleted(ids, AssignmentLegType.PICKUP);
         Map<UUID, DeliveryAssignment> vendorDirect = latestCompleted(ids, AssignmentLegType.VENDOR_DIRECT);
+        Map<UUID, DeliveryAssignment> laundryDrop = latestCompletedLaundryDrop(ids);
         Map<UUID, UUID> hubByTown = new HashMap<>();
         List<OrderLegs> out = new ArrayList<>();
         for (UUID orderId : ids) {
@@ -60,7 +61,25 @@ public class DeliveryPayoutLegService {
                         false,
                         null,
                         true,
-                        vendorTrip.getCompletedAt()));
+                        vendorTrip.getCompletedAt(),
+                        false,
+                        null));
+                continue;
+            }
+            DeliveryAssignment laundryTrip = laundryDrop.get(orderId);
+            if (laundryTrip != null) {
+                out.add(new OrderLegs(
+                        orderId,
+                        null,
+                        laundryTrip.getAgentId(),
+                        false,
+                        null,
+                        false,
+                        null,
+                        false,
+                        null,
+                        true,
+                        laundryTrip.getCompletedAt()));
                 continue;
             }
             DeliveryAssignment last = lastMiles.get(orderId);
@@ -74,9 +93,29 @@ public class DeliveryPayoutLegService {
                     pick != null,
                     pick != null ? pick.getCompletedAt() : null,
                     false,
+                    null,
+                    false,
                     null));
         }
         return out;
+    }
+
+    private Map<UUID, DeliveryAssignment> latestCompletedLaundryDrop(List<UUID> orderIds) {
+        List<DeliveryAssignment> rows = deliveryAssignmentRepository.findByOrderIdInAndLegTypeAndStatus(
+                orderIds, AssignmentLegType.LAUNDRY_TRIP, AssignmentStatus.COMPLETED);
+        Map<UUID, DeliveryAssignment> latest = new HashMap<>();
+        for (DeliveryAssignment row : rows) {
+            if (row.getLaundryTripKind() == null
+                    || !"DROP_TO_CUSTOMER".equalsIgnoreCase(row.getLaundryTripKind())) {
+                continue;
+            }
+            latest.merge(row.getOrderId(), row, (a, b) -> {
+                Instant at = a.getCompletedAt() == null ? Instant.EPOCH : a.getCompletedAt();
+                Instant bt = b.getCompletedAt() == null ? Instant.EPOCH : b.getCompletedAt();
+                return bt.isAfter(at) ? b : a;
+            });
+        }
+        return latest;
     }
 
     private UUID resolveTownHubId(UUID townId) {
@@ -109,7 +148,9 @@ public class DeliveryPayoutLegService {
             boolean pickupCompleted,
             Instant pickupCompletedAt,
             boolean vendorDirectCompleted,
-            Instant vendorDirectCompletedAt
+            Instant vendorDirectCompletedAt,
+            boolean laundryDropCompleted,
+            Instant laundryDropCompletedAt
     ) {
     }
 }

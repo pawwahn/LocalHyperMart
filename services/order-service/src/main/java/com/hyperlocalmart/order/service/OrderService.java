@@ -19,6 +19,7 @@ import com.hyperlocalmart.order.dto.request.DeliverOrderRequest;
 import com.hyperlocalmart.order.dto.request.PaymentCallbackRequest;
 import com.hyperlocalmart.order.dto.response.*;
 import com.hyperlocalmart.order.entity.*;
+import com.hyperlocalmart.order.repository.LaundryOrderRepository;
 import com.hyperlocalmart.order.repository.OrderRepository;
 import com.hyperlocalmart.order.repository.OrderStatusHistoryRepository;
 import com.hyperlocalmart.order.repository.ProductRatingRepository;
@@ -69,6 +70,8 @@ public class OrderService {
     private final UserReferralClient userReferralClient;
     private final PlatformTransactionManager transactionManager;
     private final LaundryOrderService laundryOrderService;
+    private final BeautyOrderService beautyOrderService;
+    private final LaundryOrderRepository laundryOrderRepository;
 
     @Transactional(readOnly = true)
     public boolean buyerHasDeliveredOrder(UUID buyerId) {
@@ -287,6 +290,13 @@ public class OrderService {
     public void markDelivered(UUID orderId, DeliverOrderRequest request) {
         Order order = orderRepository.findWithSubOrdersById(orderId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Order not found"));
+        if (order.getStatus() == OrderStatus.PAYMENT_PENDING) {
+            if (order.getPaymentMethod() == PaymentMethod.ONLINE) {
+                throw new BusinessException(ErrorCode.CONFLICT,
+                        "Buyer has not completed online payment. Ask them to pay in the app before you finish delivery.");
+            }
+            throw new BusinessException(ErrorCode.CONFLICT, "Order payment is still pending");
+        }
         if (order.getStatus() != OrderStatus.PLACED) {
             throw new BusinessException(ErrorCode.CONFLICT, "Order cannot be marked delivered");
         }
@@ -428,7 +438,11 @@ public class OrderService {
     public void markPaymentSuccess(UUID orderId, PaymentCallbackRequest request) {
         var grocery = orderRepository.findByIdAndBuyerId(orderId, request.getBuyerId());
         if (grocery.isEmpty()) {
-            laundryOrderService.markOnlinePaid(orderId, request.getBuyerId());
+            if (laundryOrderRepository.existsById(orderId)) {
+                laundryOrderService.markOnlinePaid(orderId, request.getBuyerId());
+                return;
+            }
+            beautyOrderService.markOnlinePaid(orderId, request.getBuyerId(), request.getAmount());
             return;
         }
         Order order = grocery.get();
@@ -456,7 +470,11 @@ public class OrderService {
     public void markPaymentFailed(UUID orderId, PaymentCallbackRequest request) {
         var grocery = orderRepository.findByIdAndBuyerId(orderId, request.getBuyerId());
         if (grocery.isEmpty()) {
-            laundryOrderService.markOnlineFailed(orderId, request.getBuyerId());
+            if (laundryOrderRepository.existsById(orderId)) {
+                laundryOrderService.markOnlineFailed(orderId, request.getBuyerId());
+                return;
+            }
+            beautyOrderService.markOnlineFailed(orderId, request.getBuyerId());
             return;
         }
         Order order = grocery.get();
@@ -676,8 +694,8 @@ public class OrderService {
         }
     }
 
-    /** Matches checkout math using persisted order fee columns (after line cancels). */
-    static BigDecimal buyerPayableTotal(Order order) {
+    /** Buyer gross before checkout wallet credit (same fee columns as checkout). */
+    static BigDecimal grossBuyerTotal(Order order) {
         if (order == null) {
             return BigDecimal.ZERO;
         }
@@ -687,9 +705,17 @@ public class OrderService {
         BigDecimal delivery = order.getDeliveryFee() == null ? BigDecimal.ZERO : order.getDeliveryFee();
         BigDecimal platform = order.getPlatformFee() == null ? BigDecimal.ZERO : order.getPlatformFee();
         BigDecimal cod = order.getCodFee() == null ? BigDecimal.ZERO : order.getCodFee();
-        BigDecimal credit = order.getStoreCreditApplied() == null ? BigDecimal.ZERO : order.getStoreCreditApplied();
         BigDecimal membership = order.getMembershipFee() == null ? BigDecimal.ZERO : order.getMembershipFee();
-        return payableItems.add(delivery).add(platform).add(cod).add(membership).subtract(credit).max(BigDecimal.ZERO);
+        return payableItems.add(delivery).add(platform).add(cod).add(membership);
+    }
+
+    /** Matches checkout math using persisted order fee columns (after line cancels). */
+    static BigDecimal buyerPayableTotal(Order order) {
+        if (order == null) {
+            return BigDecimal.ZERO;
+        }
+        BigDecimal credit = order.getStoreCreditApplied() == null ? BigDecimal.ZERO : order.getStoreCreditApplied();
+        return grossBuyerTotal(order).subtract(credit).max(BigDecimal.ZERO);
     }
 
     private CheckoutTotals totalsFor(
@@ -838,11 +864,13 @@ public class OrderService {
                 .paymentMethod(order.getPaymentMethod())
                 .paymentStatus(order.getPaymentStatus())
                 .placedAt(order.getPlacedAt())
+                .createdAt(order.getCreatedAt())
                 .itemCount(itemCount)
                 .build();
     }
 
     private OrderDetailResponse toDetail(Order order) {
+        TownClient.BuyerCancelPolicy cancelPolicy = townClient.getBuyerCancelPolicy(order.getTownId());
         List<OrderItemDetailResponse> items = new ArrayList<>();
         boolean orderPlaced = order.getStatus() == OrderStatus.PLACED;
         boolean unpaidCancellable = order.getStatus() == OrderStatus.PAYMENT_PENDING
@@ -887,7 +915,7 @@ public class OrderService {
                         .cancelReason(item.getCancelReason())
                         .cancelledAt(item.getCancelledAt())
                         .storeCreditAmount(item.getStoreCreditAmount())
-                        .canCancel(subCancellable && active)
+                        .canCancel(subCancellable && active && cancelPolicy.cancelItemsEnabled())
                         .canFileClaim(claimable)
                         .canRate(rateable)
                         .myRating(rating == null ? null : (int) rating.getStars())
@@ -895,8 +923,9 @@ public class OrderService {
             }
         }
         List<DeliveryClient.OrderAssignment> assignments = deliveryClient.getAssignmentsForOrder(order.getId());
-        boolean canCancelOrder = (unpaidCancellable && hasActiveItems)
-                || (orderPlaced && !anyShopPastPlaced && hasActiveItems);
+        boolean canCancelOrder = cancelPolicy.cancelOrderEnabled()
+                && ((unpaidCancellable && hasActiveItems)
+                || (orderPlaced && !anyShopPastPlaced && hasActiveItems));
         boolean canFileClaim = order.getStatus() == OrderStatus.DELIVERED
                 && OrderClaimService.withinClaimWindow(order);
         return OrderDetailResponse.builder()
@@ -906,10 +935,14 @@ public class OrderService {
                 .displayStatus(buyerDisplayStatus(order, assignments))
                 .placedAt(order.getPlacedAt())
                 .itemsSubtotal(order.getItemsSubtotal())
+                .promoCode(order.getPromoCode())
+                .promoDiscount(order.getPromoDiscount() == null ? BigDecimal.ZERO : order.getPromoDiscount())
                 .deliveryFee(order.getDeliveryFee())
                 .membershipCreditUsed(order.isMembershipCreditUsed())
                 .membershipDeliveryWaived(order.getMembershipDeliveryWaived() == null
                         ? BigDecimal.ZERO : order.getMembershipDeliveryWaived())
+                .membershipFee(order.getMembershipFee() == null ? BigDecimal.ZERO : order.getMembershipFee())
+                .membershipSlab(order.getMembershipSlab())
                 .platformFee(order.getPlatformFee() == null ? BigDecimal.ZERO : order.getPlatformFee())
                 .codFee(order.getCodFee() == null ? BigDecimal.ZERO : order.getCodFee())
                 .storeCreditApplied(order.getStoreCreditApplied() == null ? BigDecimal.ZERO : order.getStoreCreditApplied())

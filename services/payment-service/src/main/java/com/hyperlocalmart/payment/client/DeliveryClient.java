@@ -226,7 +226,9 @@ public class DeliveryClient {
             boolean pickupCompleted,
             Instant pickupCompletedAt,
             boolean vendorDirectCompleted,
-            Instant vendorDirectCompletedAt
+            Instant vendorDirectCompletedAt,
+            boolean laundryDropCompleted,
+            Instant laundryDropCompletedAt
     ) {
     }
 

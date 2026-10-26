@@ -11,14 +11,19 @@ import {
   fetchSettlementCandidates,
   markSettlementPaid,
   rejectVendorBillPayment,
+  sendSubscriptionBill,
+  sendVendorCollectionBill,
   type SettlementCandidate,
   type SettlementVm,
 } from '@/features/settlements/api/settlementsApi';
+import {
+  createHubCodPaymentRequest,
+  createHubFranchisePaymentRequest,
+} from '@/features/settlements/api/hubPaymentRequestApi';
 import { rejectHubPaymentSubmission, verifyHubPaymentSubmission } from '@/features/settlements/api/hubPaymentApi';
 import { listTowns, type TownVm } from '@/features/towns/api/townsApi';
 import { listHubs } from '@/features/hubs/api/hubsApi';
 import { listAllAgents } from '@/features/agents/api/agentsApi';
-import { listVendors } from '@/features/vendors/api/vendorsApi';
 import { rangeForReportPreset, type ReportDatePreset } from '@/shared/dates/istReportPresets';
 import {
   fetchTownDues,
@@ -28,6 +33,8 @@ import {
   type TownDuesReport,
 } from '../api/townDuesApi';
 import { TownDuesCalendar, type DuesCalendarItem } from '../components/TownDuesCalendar';
+import { BankPaidOnField } from '@/features/settlements/BankPaidOnField';
+import { defaultBankPaidOn, todayIstDate, validateBankPaidOn } from '@/features/settlements/bankPaidOnUtils';
 
 type Preset = 'open' | ReportDatePreset;
 type LedgerTab = 'dues' | 'pay';
@@ -63,6 +70,11 @@ function money(value?: number | null): string {
   return `₹${Number(value ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
+function feeCell(value?: number | null): string {
+  if (value == null) return '—';
+  return money(value);
+}
+
 /** A blank total is not ₹0. Show the figure only after the report has arrived. */
 function figure(ready: boolean, value?: number | null): string {
   return ready ? money(value) : '…';
@@ -82,10 +94,38 @@ function day(iso?: string | null): string {
 
 function period(line: TownDueLine): string {
   if (!line.periodStart && !line.periodEnd) return '—';
-  if (line.periodStart && line.periodEnd && line.periodStart !== line.periodEnd) {
-    return `${day(line.periodStart)} – ${day(line.periodEnd)}`;
-  }
-  return day(line.periodStart || line.periodEnd);
+  const start = line.periodStart || line.periodEnd;
+  const end = line.periodEnd || line.periodStart;
+  if (!start || !end) return day(start || end);
+  if (start.slice(0, 10) === end.slice(0, 10)) return dayCompact(start);
+  return `${dayCompact(start)}–${dayCompact(end)}`;
+}
+
+function dayCompact(iso?: string | null): string {
+  if (!iso) return '';
+  const [y, m, d] = iso.slice(0, 10).split('-').map(Number);
+  if (!y || !m || !d) return iso;
+  return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString('en-IN', {
+    day: 'numeric',
+    month: 'short',
+    timeZone: 'UTC',
+  });
+}
+
+/** Detail for context only — fee amounts live in columns. */
+function compactDetail(line: TownDueLine): string | null {
+  const raw = line.detail?.trim();
+  if (!raw) return null;
+  const stripped = raw
+    .replace(/\s*·\s*commission\s*₹[\d,.]+/gi, '')
+    .replace(/\s*·\s*platform fee\s*₹[\d,.]+/gi, '')
+    .replace(/\s*·\s*COD fee\s*₹[\d,.]+/gi, '')
+    .replace(/\s*·\s*delivery plan\s*₹[\d,.]+/gi, '')
+    .replace(/\s*·\s*fees\s*₹[\d,.]+/gi, '')
+    .replace(/\s*·\s*membership\s*₹[\d,.]+/gi, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+  return stripped || null;
 }
 
 function partyLabel(party: DueParty): string {
@@ -99,11 +139,36 @@ function isSubscription(line: TownDueLine): boolean {
 }
 
 function actionLabel(line: TownDueLine): string {
-  if (line.action === 'PAY') return 'KoyaKart pays';
-  if (line.action === 'COLLECT') return 'Shop pays';
-  if (line.action === 'CONFIRM') return 'Confirm payment';
-  if (line.party === 'VENDOR' && (line.commission != null || isSubscription(line))) return 'Shop pays';
+  if (line.action === 'PAY') return 'Pay';
+  if (line.action === 'COLLECT') return 'Collect';
+  if (line.action === 'CONFIRM') return 'Confirm';
+  if (line.party === 'VENDOR' && (line.commission != null || isSubscription(line))) return 'Collect';
+  return 'Bill';
+}
+
+function sendBillButtonLabel(line: TownDueLine): string {
+  if (line.action !== 'SEND_BILL') return actionLabel(line);
+  if (isSubscription(line)) return 'Send bill';
+  if (line.party === 'VENDOR' && line.commission != null) return 'Send bill';
+  if (line.party === 'HUB') return 'Send bill';
   return 'Send bill';
+}
+
+function isHubFranchiseSend(line: TownDueLine): boolean {
+  return line.party === 'HUB' && (line.what || '').toLowerCase().includes('franchise');
+}
+
+function hubCodPeriodParams(line: TownDueLine): {
+  periodKind: string;
+  periodStart: string;
+  periodEnd?: string;
+} {
+  const start = line.periodStart!.slice(0, 10);
+  const end = (line.periodEnd || line.periodStart)!.slice(0, 10);
+  if (start === end) {
+    return { periodKind: 'DAILY', periodStart: start, periodEnd: start };
+  }
+  return { periodKind: 'CUSTOM', periodStart: start, periodEnd: end };
 }
 
 const PAY_METHODS: { value: string; label: string }[] = [
@@ -124,9 +189,9 @@ function shopHoldsCash(item: SettlementCandidate): boolean {
 }
 
 function whatHeadline(line: TownDueLine): string {
-  if (isSubscription(line)) return 'Monthly subscription. Not commission.';
+  if (isSubscription(line)) return 'Monthly subscription';
   if (line.party === 'VENDOR' && line.commission != null && line.action !== 'PAY') {
-    return 'Shop kept the customer’s cash, so the shop pays this commission. Not paid yet.';
+    return 'Shop-held COD — collect fees (right)';
   }
   if (line.party === 'VENDOR' && line.action === 'PAY') {
     return Number(line.commission ?? 0) > 0
@@ -156,29 +221,23 @@ export function TownDuesPage() {
   const [saving, setSaving] = useState(false);
   const [ask, setAsk] = useState<{ line: TownDueLine; who: string } | null>(null);
   const [comment, setComment] = useState('');
+  const [confirmBankPaidOn, setConfirmBankPaidOn] = useState('');
   const [pay, setPay] = useState<{ line: TownDueLine; who: string; townId: string } | null>(null);
   const [payMethod, setPayMethod] = useState('UPI');
   const [payRef, setPayRef] = useState('');
   const [payNotes, setPayNotes] = useState('');
+  const [billSend, setBillSend] = useState<{ line: TownDueLine; who: string; townId: string } | null>(null);
 
   const range = preset === 'open' ? undefined : rangeForReportPreset(preset);
-
-  const reload = useCallback(async () => {
+  const loadDirectory = useCallback(async () => {
     if (!token) return;
-    setLoading(true);
-    setError(null);
-    const townsPromise = listTowns(token).then((townList) => {
+    try {
+      const [townList, hubs, agents] = await Promise.all([
+        listTowns(token),
+        listHubs(token).catch(() => []),
+        listAllAgents(token).catch(() => []),
+      ]);
       setTowns(townList);
-      return townList;
-    });
-    const directory = Promise.all([
-      townsPromise,
-      listHubs(token).catch(() => []),
-      listAllAgents(token).catch(() => []),
-    ]).then(async ([townList, hubs, agents]) => {
-      const vendorGroups = await Promise.all(
-        townList.map((town) => listVendors(token, town.id).catch(() => [])),
-      );
       const phones = new Map<string, string>();
       for (const hub of hubs) {
         const login = (hub.adminPhone || hub.phone || '').trim();
@@ -188,14 +247,19 @@ export function TownDuesPage() {
         const login = agent.phone?.trim();
         if (agent.agentId && login) phones.set(agent.agentId, login);
       }
-      for (const vendor of vendorGroups.flat()) {
-        const login = vendor.phone?.trim();
-        if (vendor.id && login) phones.set(vendor.id, login);
-      }
-      return { hubs, phones };
-    });
+      setHubNames(new Map(hubs.map((hub) => [hub.hubId, hub.name])));
+      setLoginPhones(phones);
+    } catch {
+      // Shop names come from the dues report; phones are optional.
+    }
+  }, [token]);
+
+  const loadDues = useCallback(async () => {
+    if (!token) return;
+    setLoading(true);
+    setError(null);
     try {
-      const data = await fetchTownDues(token, range);
+      const data = await fetchTownDues(token, range, townId || undefined);
       setReport(data);
     } catch (err) {
       setReport(null);
@@ -203,18 +267,15 @@ export function TownDuesPage() {
     } finally {
       setLoading(false);
     }
-    try {
-      const { hubs, phones } = await directory;
-      setHubNames(new Map(hubs.map((hub) => [hub.hubId, hub.name])));
-      setLoginPhones(phones);
-    } catch {
-      // Names and phones fill in when the directory answers. The dues list does not wait on it.
-    }
-  }, [token, range?.from, range?.to]);
+  }, [token, range?.from, range?.to, townId]);
 
   useEffect(() => {
-    void reload();
-  }, [reload]);
+    void loadDirectory();
+  }, [loadDirectory]);
+
+  useEffect(() => {
+    void loadDues();
+  }, [loadDues]);
 
   const townName = useCallback(
     (id: string) => towns.find((town) => town.id === id)?.displayName || 'Town',
@@ -286,6 +347,12 @@ export function TownDuesPage() {
     return line.action === 'PAY' && Boolean(line.partyId && line.periodStart && line.periodEnd);
   }
 
+  function canSendBill(line: TownDueLine): boolean {
+    if (line.action !== 'SEND_BILL') return false;
+    if (!line.partyId || !line.periodStart || !line.periodEnd) return false;
+    return line.party === 'VENDOR' || line.party === 'HUB';
+  }
+
   function openPay(line: TownDueLine, who: string, townIdForLine: string) {
     setPayMethod('UPI');
     setPayRef('');
@@ -298,6 +365,87 @@ export function TownDuesPage() {
     if (party === 'HUB') return 'hub';
     if (party === 'AGENT') return 'agent';
     return 'vendor';
+  }
+
+  async function submitSendBill() {
+    if (!billSend || !token) return;
+    const { line, who, townId: tid } = billSend;
+    setSaving(true);
+    setError(null);
+    try {
+      if (line.party === 'HUB') {
+        if (isHubFranchiseSend(line)) {
+          const start = line.periodStart!.slice(0, 10);
+          const [y, m] = start.split('-').map(Number);
+          const created = await createHubFranchisePaymentRequest(token, {
+            townId: tid,
+            hubId: line.partyId!,
+            billingYear: y,
+            billingMonth: m,
+          });
+          setNotice(`Franchise bill ${created.documentRef ?? ''} sent to ${who} · ${money(line.amount)}`);
+        } else {
+          const created = await createHubCodPaymentRequest(token, {
+            townId: tid,
+            hubId: line.partyId!,
+            ...hubCodPeriodParams(line),
+          });
+          setNotice(`COD bill ${created.documentRef ?? ''} sent to ${who} · ${money(line.amount)}`);
+        }
+      } else if (isSubscription(line)) {
+        const month = line.periodStart!.slice(0, 7);
+        const sent = await sendSubscriptionBill(token, {
+          townId: tid,
+          vendorId: line.partyId!,
+          vendorName: who,
+          month,
+        });
+        setNotice(
+          `Subscription bill ${sent.invoiceNumber ?? ''} sent to ${who} · ${money(sent.amount)}. They pay in their portal — confirm here when it arrives.`,
+        );
+      } else if (line.settlementId) {
+        const created = await sendVendorCollectionBill(token, line.settlementId);
+        setNotice(
+          `Bill ${created.serviceInvoiceNumber ?? ''} for ${money(created.netAmount)} sent to ${who}. They pay in their portal — confirm in Accounts when it arrives.`,
+        );
+      } else {
+        const from = line.periodStart!.slice(0, 10);
+        const to = line.periodEnd!.slice(0, 10);
+        const candidates = await fetchSettlementCandidates(token, {
+          townId: tid,
+          vendorId: line.partyId!,
+          from,
+          to,
+        });
+        const subOrderIds = candidates.items
+          .filter((item) => !item.alreadySettled && shopHoldsCash(item))
+          .map((item) => item.subOrderId);
+        if (subOrderIds.length === 0) {
+          throw new Error('Nothing left to bill on this row. Refresh accounts.');
+        }
+        const created = await createSettlement(token, {
+          townId: tid,
+          vendorId: line.partyId!,
+          vendorName: who,
+          periodStart: from,
+          periodEnd: to,
+          periodType: 'CUSTOM',
+          direction: 'COLLECTION',
+          subOrderIds,
+          markPaid: false,
+          sendBill: true,
+        });
+        setNotice(
+          `Bill ${created.serviceInvoiceNumber ?? ''} for ${money(created.netAmount)} sent to ${who}. They pay in their portal — confirm in Accounts when it arrives.`,
+        );
+      }
+      setBillSend(null);
+      await loadDues();
+    } catch (err) {
+      setError(err instanceof ApiError || err instanceof Error ? err.message : 'Could not send the bill');
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function submitPay() {
@@ -382,7 +530,7 @@ export function TownDuesPage() {
         `Paid ${money(saved.netAmount)} to ${pay.who} · ${saved.payoutMethod || payMethod} · ref ${saved.transactionReference || reference}`,
       );
       setPay(null);
-      await reload();
+      await loadDues();
     } catch (err) {
       setError(err instanceof ApiError || err instanceof Error ? err.message : 'Could not record the payout');
     } finally {
@@ -408,7 +556,7 @@ export function TownDuesPage() {
       setNotice(`Told ${ask.who} the payment was not received`);
       setAsk(null);
       setComment('');
-      await reload();
+      await loadDues();
     } catch (err) {
       setError(err instanceof ApiError || err instanceof Error ? err.message : 'Could not send Not received');
       setAsk(null);
@@ -419,18 +567,28 @@ export function TownDuesPage() {
 
   async function confirmAsked() {
     if (!ask || !token) return;
+    if (ask.line.settlementId) {
+      const bankErr = validateBankPaidOn(confirmBankPaidOn);
+      if (bankErr) {
+        setError(bankErr);
+        return;
+      }
+    }
     setSaving(true);
     setError(null);
     try {
       if (ask.line.settlementId) {
-        await confirmVendorBillPayment(token, ask.line.settlementId);
+        await confirmVendorBillPayment(token, ask.line.settlementId, {
+          bankPaidOn: confirmBankPaidOn.trim(),
+          ...(comment.trim() ? { transactionNotes: comment.trim() } : {}),
+        });
       } else if (ask.line.submissionId) {
         await verifyHubPaymentSubmission(token, ask.line.submissionId);
       }
       const ref = ask.line.paymentReference || ask.line.reference;
       setNotice(`Payment ${money(ask.line.amount)} from ${ask.who} confirmed${ref ? ` · ${ref}` : ''}`);
       setAsk(null);
-      await reload();
+      await loadDues();
     } catch (err) {
       setError(err instanceof ApiError || err instanceof Error ? err.message : 'Could not confirm payment');
       setAsk(null);
@@ -443,7 +601,7 @@ export function TownDuesPage() {
     <PortalShell
       title="Accounts"
       subtitle="What KoyaKart should receive, and what KoyaKart should pay"
-      onRefresh={() => void reload()}
+      onRefresh={() => void loadDues()}
     >
       <style>{DUES_CSS}</style>
       {error ? <Banner tone="danger">{error}</Banner> : null}
@@ -543,12 +701,12 @@ export function TownDuesPage() {
               </button>
             ))}
           </div>
-          <Button type="button" size="sm" style={styles.refresh} disabled={loading} onClick={() => void reload()}>
+          <Button type="button" size="sm" style={styles.refresh} disabled={loading} onClick={() => void loadDues()}>
             {loading ? 'Loading…' : 'Refresh'}
           </Button>
         </div>
         <p style={styles.hint}>
-          All open includes unfinished bills and bags not billed yet. A date chip keeps work whose period falls in that range.
+          All open includes unfinished bills and bags not billed yet (delivery scan uses the last 120 days for speed). Pick a town or date chip to narrow the load. Bills waiting in the ledger are always included.
         </p>
       </Card>
 
@@ -586,37 +744,40 @@ export function TownDuesPage() {
             <h2 style={styles.townTitle}>{townName(town.townId)}</h2>
             <span style={styles.townMeta}>{town.lines.length} item{town.lines.length === 1 ? '' : 's'}</span>
           </header>
-          <div style={styles.tableWrap}>
+          <div className="dues-ledger-wrap" style={styles.tableWrap}>
             <table className="dues-ledger" style={styles.table}>
-              <colgroup>
-                <col className="dues-col-who" />
-                <col className="dues-col-do" />
-                <col />
-                <col className="dues-col-period" />
-                <col className="dues-col-commission" />
-                <col className="dues-col-amount" />
-              </colgroup>
               <thead>
                 <tr>
-                  <th style={styles.th}>Who</th>
-                  <th style={styles.th}>Do this</th>
-                  <th style={styles.th}>What</th>
-                  <th style={styles.th}>Period</th>
-                  <th style={styles.thNum}>Commission</th>
-                  <th style={styles.thNum}>Amount</th>
+                  <th className="dues-th dues-col-who">Who</th>
+                  <th className="dues-th dues-col-do">Do</th>
+                  <th className="dues-th dues-col-what">What</th>
+                  <th className="dues-th dues-col-period">Period</th>
+                  <th className="dues-th-num dues-col-fee" title="Commission">
+                    Comm
+                  </th>
+                  <th className="dues-th-num dues-col-fee" title="Platform fee">
+                    Plat
+                  </th>
+                  <th className="dues-th-num dues-col-fee" title="COD charge">
+                    COD
+                  </th>
+                  <th className="dues-th-num dues-col-fee" title="Delivery / membership plan">
+                    Plan
+                  </th>
+                  <th className="dues-th-num dues-col-fee" title="Penalty">
+                    Pen
+                  </th>
+                  <th className="dues-th-num dues-col-total">Total</th>
                 </tr>
               </thead>
               <tbody>
                 {town.lines.map((line, index) => (
                   <tr key={`${line.party}-${line.partyId}-${line.action}-${line.periodStart}-${index}`}>
-                    <td style={styles.tdStrong}>
-                      <div style={styles.whoLine}>
-                        <span>{partyName(line)}</span>
-                        {partyPhone(line) ? <span style={styles.whoPhone}>{partyPhone(line)}</span> : null}
-                      </div>
-                      <div style={styles.ref}>{partyLabel(line.party)}</div>
+                    <td className="dues-td dues-col-who">
+                      <div className="dues-who-name">{partyName(line)}</div>
+                      {partyPhone(line) ? <div className="dues-who-phone">{partyPhone(line)}</div> : null}
                     </td>
-                    <td style={styles.td}>
+                    <td className="dues-td dues-col-do">
                       {canConfirm(line) ? (
                         <button
                           type="button"
@@ -624,6 +785,7 @@ export function TownDuesPage() {
                           disabled={saving}
                           onClick={() => {
                             setComment('');
+                            setConfirmBankPaidOn(defaultBankPaidOn({}));
                             setAsk({ line, who: partyName(line) });
                           }}
                         >
@@ -638,20 +800,33 @@ export function TownDuesPage() {
                         >
                           KoyaKart pays
                         </button>
+                      ) : canSendBill(line) ? (
+                        <button
+                          type="button"
+                          className="dues-action SEND_BILL"
+                          disabled={saving}
+                          onClick={() => {
+                            setError(null);
+                            setBillSend({ line, who: partyName(line), townId: town.townId });
+                          }}
+                        >
+                          {sendBillButtonLabel(line)}
+                        </button>
                       ) : (
                         <span className={`dues-action ${line.action}`}>{actionLabel(line)}</span>
                       )}
                     </td>
-                    <td style={styles.tdWhat}>
-                      {whatHeadline(line)}
-                      {line.detail ? <div style={styles.ref}>{line.detail}</div> : null}
-                      {line.reference ? <div style={styles.ref}>{line.reference}</div> : null}
+                    <td className="dues-td dues-col-what">
+                      <div className="dues-what-head">{whatHeadline(line)}</div>
+                      {compactDetail(line) ? <div className="dues-what-detail">{compactDetail(line)}</div> : null}
                     </td>
-                    <td style={styles.tdMuted}>{period(line)}</td>
-                    <td style={styles.tdNum}>
-                      {line.commission == null ? '—' : money(line.commission)}
-                    </td>
-                    <td style={styles.tdNum}>{money(line.amount)}</td>
+                    <td className="dues-td dues-col-period">{period(line)}</td>
+                    <td className="dues-td-num">{feeCell(line.commission)}</td>
+                    <td className="dues-td-num">{feeCell(line.platformFee)}</td>
+                    <td className="dues-td-num">{feeCell(line.codFee)}</td>
+                    <td className="dues-td-num">{feeCell(line.membershipFee)}</td>
+                    <td className="dues-td-num">{feeCell(line.penalty)}</td>
+                    <td className="dues-td-num dues-total">{money(line.amount)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -681,6 +856,13 @@ export function TownDuesPage() {
                 <span>Period</span>
                 <strong>{period(ask.line)}</strong>
               </div>
+              {ask.line.settlementId ? (
+                <BankPaidOnField
+                  value={confirmBankPaidOn}
+                  max={todayIstDate()}
+                  onChange={setConfirmBankPaidOn}
+                />
+              ) : null}
               <label style={styles.dlgField}>
                 Comment for the {ask ? payerWord(ask.line.party) : 'payer'}
                 <textarea
@@ -693,7 +875,8 @@ export function TownDuesPage() {
                 />
               </label>
               <p style={styles.dlgNote}>
-                Not received sends this comment to the {ask ? payerWord(ask.line.party) : 'payer'}. Yes, received marks the money in.
+                Not received sends this comment to the {ask ? payerWord(ask.line.party) : 'payer'}. Yes, received marks the money in
+                {ask.line.settlementId ? ' with the bank statement date you enter above' : ''}.
               </p>
             </div>
           ) : (
@@ -707,13 +890,55 @@ export function TownDuesPage() {
         extraLabel="Not received"
         extraDisabled={!comment.trim()}
         onExtra={() => void markNotReceived()}
+        confirmDisabled={Boolean(ask?.line.settlementId) && !confirmBankPaidOn.trim()}
         onClose={() => {
           if (!saving) {
             setAsk(null);
             setComment('');
+            setConfirmBankPaidOn('');
           }
         }}
         onConfirm={() => void confirmAsked()}
+      />
+      <ConfirmDialog
+        open={billSend != null}
+        title="Send bill to shop?"
+        description={
+          billSend ? (
+            <div style={styles.dlgBody}>
+              <div style={styles.dlgHero}>
+                <span style={styles.dlgHeroLabel}>{whatHeadline(billSend.line)}</span>
+                <strong style={styles.dlgHeroValue}>{money(billSend.line.amount)}</strong>
+                <span>{billSend.who}</span>
+              </div>
+              <div style={styles.dlgRow}>
+                <span>Period</span>
+                <strong>{period(billSend.line)}</strong>
+              </div>
+              {billSend.line.itemCount > 0 ? (
+                <div style={styles.dlgRow}>
+                  <span>Items</span>
+                  <strong>
+                    {billSend.line.itemCount} bag{billSend.line.itemCount === 1 ? '' : 's'}
+                  </strong>
+                </div>
+              ) : null}
+              <p style={styles.dlgNote}>
+                Same as Payouts: the shop gets the bill in their portal, pays KoyaKart, and you confirm payment under Confirm when they submit the UTR.
+              </p>
+            </div>
+          ) : (
+            ''
+          )
+        }
+        confirmLabel={billSend ? `Send bill · ${money(billSend.line.amount)}` : 'Send bill'}
+        cancelLabel="Cancel"
+        danger={false}
+        busy={saving}
+        onClose={() => {
+          if (!saving) setBillSend(null);
+        }}
+        onConfirm={() => void submitSendBill()}
       />
       <ConfirmDialog
         open={pay != null}
@@ -801,7 +1026,69 @@ const DUES_CSS = `
 .dues-chip.SEND_BILL { color: #c2410c; }
 .dues-chip.COLLECT { color: #15803d; }
 .dues-chip.CONFIRM { color: #1d4ed8; }
-.dues-col-do { width: 8.25rem; }
+.dues-ledger-wrap { overflow: hidden; }
+.dues-ledger {
+  table-layout: fixed;
+  width: 100%;
+  font-size: 0.68rem;
+  line-height: 1.2;
+  border-collapse: collapse;
+}
+.dues-th, .dues-th-num {
+  padding: 0.2rem 0.22rem;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-muted);
+  font-weight: 800;
+  background: var(--bg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dues-th { text-align: left; }
+.dues-th-num { text-align: right; font-size: 0.62rem; letter-spacing: -0.02em; }
+.dues-td, .dues-td-num {
+  padding: 0.22rem 0.22rem;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+.dues-td-num {
+  text-align: right;
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.65rem;
+  white-space: nowrap;
+}
+.dues-total { font-weight: 800; }
+.dues-col-who { width: 10%; }
+.dues-col-do { width: 6.5%; }
+.dues-col-what { width: 19%; }
+.dues-col-period { width: 7.5%; }
+.dues-col-fee { width: 5.6%; }
+.dues-col-total { width: 6.5%; }
+.dues-who-name {
+  font-weight: 800;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dues-who-phone {
+  font-size: 0.6rem;
+  font-weight: 650;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.dues-what-head { font-weight: 700; font-size: 0.65rem; }
+.dues-what-detail {
+  margin-top: 0.08rem;
+  font-size: 0.6rem;
+  color: var(--text-muted);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  word-break: break-word;
+}
 .dues-filters { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: end; }
 .dues-field { display: grid; gap: 0.12rem; font-size: 0.68rem; font-weight: 700; color: var(--text-muted); }
 .dues-field select {
@@ -818,18 +1105,14 @@ const DUES_CSS = `
   font-size: 0.72rem; font-weight: 700; font-family: inherit; cursor: pointer;
 }
 .dues-chip.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 800; }
-.dues-action { cursor: default; }
-button.dues-action.CONFIRM, button.dues-action.PAY { cursor: pointer; }
-button.dues-action.CONFIRM:disabled, button.dues-action.PAY:disabled { opacity: 0.6; cursor: wait; }
+.dues-action { cursor: default; font-size: 0.58rem; padding: 0.1rem 0.22rem; max-width: 100%; }
+.dues-td .dues-action { display: inline-block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+button.dues-action.CONFIRM, button.dues-action.PAY, button.dues-action.SEND_BILL { cursor: pointer; }
+button.dues-action.CONFIRM:disabled, button.dues-action.PAY:disabled, button.dues-action.SEND_BILL:disabled { opacity: 0.6; cursor: wait; }
 .dues-action.SEND_BILL { color: #c2410c; border-color: #fdba74; background: #fff7ed; }
 .dues-action.COLLECT { color: #15803d; border-color: #86efac; background: #f0fdf4; }
 .dues-action.PAY { color: #b91c1c; border-color: #fecaca; background: #fef2f2; }
 .dues-action.CONFIRM { color: #1d4ed8; border-color: #bfdbfe; background: #eff6ff; }
-.dues-ledger { table-layout: fixed; }
-.dues-col-who { width: 16.5rem; }
-.dues-col-period { width: 12.5rem; }
-.dues-col-commission { width: 7rem; }
-.dues-col-amount { width: 6.75rem; }
 @media (max-width: 640px) {
   .dues-tabs { grid-template-columns: 1fr; }
 }
@@ -891,8 +1174,8 @@ const styles: Record<string, CSSProperties> = {
   townHead: { display: 'flex', alignItems: 'baseline', gap: '0.45rem' },
   townTitle: { margin: 0, fontSize: '0.95rem', fontWeight: 800 },
   townMeta: { fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 700 },
-  tableWrap: { overflowX: 'auto', border: '1px solid var(--border)', borderRadius: 10, background: 'var(--bg-elevated)' },
-  table: { width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem' },
+  tableWrap: { border: '1px solid var(--border)', borderRadius: 10, background: 'var(--bg-elevated)' },
+  table: {},
   th: {
     textAlign: 'left',
     padding: '0.32rem 0.45rem',

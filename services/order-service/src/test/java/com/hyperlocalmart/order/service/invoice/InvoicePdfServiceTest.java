@@ -137,4 +137,47 @@ class InvoicePdfServiceTest {
         assertThat(text).contains("SGST");
         assertThat(text).doesNotContain("Cess");
     }
+
+    @Test
+    void generate_listsEveryBuyerPayableLineIncludingMembershipPlan() throws Exception {
+        InvoiceDocument document = InvoiceDocument.builder()
+                .orderNumber("NRPT-00787")
+                .townName("Narsaraopet")
+                .placedAt(Instant.parse("2026-10-23T18:00:00Z"))
+                .paymentMethod(PaymentMethod.COD)
+                .paymentStatus(PaymentStatus.PAID)
+                .buyerPhone("9876543210")
+                .itemsSubtotal(new BigDecimal("576.00"))
+                .promoDiscount(BigDecimal.ZERO)
+                .deliveryFee(BigDecimal.ZERO)
+                .membershipDeliveryWaived(new BigDecimal("40.00"))
+                .platformFee(new BigDecimal("2.00"))
+                .codFee(new BigDecimal("10.00"))
+                .membershipFee(new BigDecimal("199.00"))
+                .membershipSlab("QUARTERLY")
+                .taxAmount(BigDecimal.ZERO)
+                .storeCreditApplied(BigDecimal.ZERO)
+                .totalAmount(new BigDecimal("787.00"))
+                .lineItems(List.of(
+                        InvoiceDocument.InvoiceLineItem.builder()
+                                .itemName("Atta 5kg")
+                                .quantity(2)
+                                .unitPrice(new BigDecimal("288.00"))
+                                .lineTotal(new BigDecimal("576.00"))
+                                .build()))
+                .build();
+
+        byte[] pdf = invoicePdfService.generate(document);
+        com.lowagie.text.pdf.PdfReader reader = new com.lowagie.text.pdf.PdfReader(pdf);
+        String text = new com.lowagie.text.pdf.parser.PdfTextExtractor(reader).getTextFromPage(1);
+        reader.close();
+
+        assertThat(text).contains("Free delivery plan (3 months)");
+        assertThat(text).contains("199.00");
+        assertThat(text).contains("COD charge");
+        assertThat(text).contains("Platform fee");
+        assertThat(text).contains("credit Rs. 40.00");
+        assertThat(text).contains("787.00");
+        assertThat(text).contains("Total paid");
+    }
 }

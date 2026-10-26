@@ -9,6 +9,7 @@ import com.hyperlocalmart.vendor.dto.response.LaundryShopResponse;
 import com.hyperlocalmart.vendor.entity.LaundryProfile;
 import com.hyperlocalmart.vendor.entity.LaundryRate;
 import com.hyperlocalmart.vendor.entity.LaundryRateHistory;
+import com.hyperlocalmart.vendor.entity.ServiceOffering;
 import com.hyperlocalmart.vendor.entity.Vendor;
 import com.hyperlocalmart.vendor.entity.VendorCommercialTerms;
 import com.hyperlocalmart.vendor.entity.VendorStatus;
@@ -17,6 +18,7 @@ import com.hyperlocalmart.vendor.laundry.LaundryServiceType;
 import com.hyperlocalmart.vendor.repository.LaundryProfileRepository;
 import com.hyperlocalmart.vendor.repository.LaundryRateHistoryRepository;
 import com.hyperlocalmart.vendor.repository.LaundryRateRepository;
+import com.hyperlocalmart.vendor.repository.ServiceOfferingRepository;
 import com.hyperlocalmart.vendor.repository.VendorCommercialTermsRepository;
 import com.hyperlocalmart.vendor.repository.VendorRepository;
 import lombok.RequiredArgsConstructor;
@@ -26,12 +28,16 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.DayOfWeek;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.EnumSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -41,8 +47,11 @@ import java.util.stream.Collectors;
 public class LaundryVendorService {
 
     private static final DateTimeFormatter CHANGED_AT = DateTimeFormatter.ISO_INSTANT;
+    private static final ZoneId IST = ZoneId.of("Asia/Kolkata");
+    private static final Set<String> PICKUP_SLOT_IDS = Set.of("08", "10", "12", "14", "16", "18");
 
     private final VendorRepository vendorRepository;
+    private final ServiceOfferingRepository offeringRepository;
     private final LaundryProfileRepository profileRepository;
     private final LaundryRateRepository rateRepository;
     private final LaundryRateHistoryRepository historyRepository;
@@ -59,8 +68,13 @@ public class LaundryVendorService {
                 .collect(Collectors.toMap(LaundryProfile::getVendorId, Function.identity()));
         Map<UUID, List<LaundryRate>> rates = rateRepository.findByVendorIdIn(ids).stream()
                 .collect(Collectors.groupingBy(LaundryRate::getVendorId));
+        Map<UUID, ServiceOffering> offerings = offeringRepository.findAll().stream()
+                .collect(Collectors.toMap(ServiceOffering::getId, Function.identity()));
         List<LaundryShopResponse> out = new ArrayList<>();
         for (Vendor vendor : vendors) {
+            if (!isLaundryVendor(vendor, offerings)) {
+                continue;
+            }
             LaundryProfile profile = profiles.get(vendor.getId());
             if (bookableOnly) {
                 if (profile == null || !profile.isEnabled() || vendor.getStatus() != VendorStatus.ACTIVE) {
@@ -70,6 +84,10 @@ public class LaundryVendorService {
             LaundryShopResponse row = toResponse(vendor, profile, rates.getOrDefault(vendor.getId(), List.of()), false, true);
             out.add(bookableOnly ? toBookable(row) : row);
         }
+        out.sort(Comparator.comparing(
+                        (LaundryShopResponse row) -> row.getBusinessName() == null ? "" : row.getBusinessName(),
+                        String.CASE_INSENSITIVE_ORDER)
+                .thenComparing(LaundryShopResponse::getVendorId));
         return out;
     }
 
@@ -126,7 +144,7 @@ public class LaundryVendorService {
         if (request.getPriceEditAllowed() != null) {
             profile.setPriceEditAllowed(request.getPriceEditAllowed());
         }
-        applyOps(profile, request.getDailyPieceCapacity(), request.getClearDailyPieceCapacity(), request.getClosedWeekdays());
+        applyOps(profile, request.getDailyPieceCapacity(), request.getClearDailyPieceCapacity(), request.getClosedWeekdays(), null);
         applyTripCharges(profile, request.getPickupCharge(), request.getDropCharge(), request.getPickupAndDropCharge());
         profile.setUpdatedBy(actorId);
         profileRepository.save(profile);
@@ -158,13 +176,13 @@ public class LaundryVendorService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Vendor not found"));
         LaundryProfile profile = profileRepository.findById(vendor.getId())
                 .orElseThrow(() -> new BusinessException(ErrorCode.VALIDATION_ERROR, "Laundry is not turned on for this shop"));
-        applyOps(profile, request.getDailyPieceCapacity(), request.getClearDailyPieceCapacity(), request.getClosedWeekdays());
+        applyOps(profile, request.getDailyPieceCapacity(), request.getClearDailyPieceCapacity(), request.getClosedWeekdays(), request.getBlockedPickupSlots());
         profile.setUpdatedBy(userId);
         profileRepository.save(profile);
         return get(vendor.getId(), false, true);
     }
 
-    private void applyOps(LaundryProfile profile, Integer capacity, Boolean clear, String closedWeekdays) {
+    private void applyOps(LaundryProfile profile, Integer capacity, Boolean clear, String closedWeekdays, String blockedPickupSlots) {
         if (Boolean.TRUE.equals(clear)) {
             profile.setDailyPieceCapacity(null);
         } else if (capacity != null) {
@@ -175,6 +193,11 @@ public class LaundryVendorService {
         }
         if (closedWeekdays != null) {
             profile.setClosedWeekdays(normalizeClosedDays(closedWeekdays));
+        }
+        if (blockedPickupSlots != null) {
+            String slots = normalizeBlockedSlots(blockedPickupSlots);
+            profile.setBlockedPickupSlots(slots);
+            profile.setBlockedPickupDate(slots.isEmpty() ? null : LocalDate.now(IST));
         }
     }
 
@@ -261,6 +284,8 @@ public class LaundryVendorService {
                 .priceEditAllowed(profile != null && profile.isPriceEditAllowed())
                 .dailyPieceCapacity(profile == null ? null : profile.getDailyPieceCapacity())
                 .closedWeekdays(profile == null ? "" : profile.getClosedWeekdays())
+                .blockedPickupDate(liveBlockedDate(profile))
+                .blockedPickupSlots(liveBlockedSlots(profile))
                 .pickupCharge(profile == null || profile.getPickupCharge() == null ? BigDecimal.ZERO : profile.getPickupCharge())
                 .dropCharge(profile == null || profile.getDropCharge() == null ? BigDecimal.ZERO : profile.getDropCharge())
                 .pickupAndDropCharge(profile == null || profile.getPickupAndDropCharge() == null ? BigDecimal.ZERO : profile.getPickupAndDropCharge())
@@ -319,6 +344,54 @@ public class LaundryVendorService {
         }
         return days.stream().sorted(Comparator.comparingInt(DayOfWeek::getValue)).map(DayOfWeek::name)
                 .collect(Collectors.joining(","));
+    }
+
+    static String normalizeBlockedSlots(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return "";
+        }
+        LinkedHashSet<String> slots = new LinkedHashSet<>();
+        for (String part : raw.split(",")) {
+            String id = part.trim();
+            if (id.isEmpty()) {
+                continue;
+            }
+            if (id.length() == 1) {
+                id = "0" + id;
+            }
+            if (!PICKUP_SLOT_IDS.contains(id)) {
+                throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Unknown pickup slot");
+            }
+            slots.add(id);
+        }
+        return String.join(",", slots);
+    }
+
+    private static String liveBlockedDate(LaundryProfile profile) {
+        if (profile == null || profile.getBlockedPickupDate() == null) {
+            return null;
+        }
+        if (profile.getBlockedPickupDate().isBefore(LocalDate.now(IST))) {
+            return null;
+        }
+        String slots = liveBlockedSlots(profile);
+        return slots.isEmpty() ? null : profile.getBlockedPickupDate().toString();
+    }
+
+    private static String liveBlockedSlots(LaundryProfile profile) {
+        if (profile == null || profile.getBlockedPickupDate() == null
+                || profile.getBlockedPickupDate().isBefore(LocalDate.now(IST))) {
+            return "";
+        }
+        return profile.getBlockedPickupSlots() == null ? "" : profile.getBlockedPickupSlots();
+    }
+
+    private static boolean isLaundryVendor(Vendor vendor, Map<UUID, ServiceOffering> offerings) {
+        if (vendor.getServiceId() == null) {
+            return false;
+        }
+        ServiceOffering offering = offerings.get(vendor.getServiceId());
+        return CatalogListingPolicy.isLaundryService(offering == null ? null : offering.getName());
     }
 
     private static LaundryServiceType parseService(String raw) {

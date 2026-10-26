@@ -40,4 +40,48 @@ public class TownShopSettingsResponse {
 
     @Builder.Default
     private boolean laundryEnabled = false;
+
+    @Builder.Default
+    private boolean beautyEnabled = false;
+
+    @Builder.Default
+    private BigDecimal beautyMinPrepayAmount = BigDecimal.ZERO;
+
+    @Builder.Default
+    private BigDecimal beautyParlourPaymentFee = BigDecimal.ZERO;
+
+    /** Glam scratch card (buyer checkout promo). */
+    @Builder.Default
+    private boolean beautyScratchEnabled = false;
+
+    @Builder.Default
+    private String beautyScratchPrepayFilter = "BOTH";
+
+    @Builder.Default
+    private BigDecimal beautyScratchRewardMax = BigDecimal.ZERO;
+
+    @Builder.Default
+    private BigDecimal beautyScratchRewardMin = BigDecimal.ZERO;
+
+    @Builder.Default
+    private BigDecimal beautyScratchMinOrderAmount = BigDecimal.ZERO;
+
+    @Builder.Default
+    private boolean beautyScratchPartialEnabled = false;
+
+    @Builder.Default
+    private BigDecimal beautyScratchPartialRewardMax = BigDecimal.ZERO;
+
+    @Builder.Default
+    private BigDecimal beautyScratchPartialRewardMin = BigDecimal.ZERO;
+
+    @Builder.Default
+    private BigDecimal beautyScratchPartialMinPrepayAmount = BigDecimal.ZERO;
+
+    /** Buyer checkout promo (may differ from actual scratch rewardMax). */
+    @Builder.Default
+    private BigDecimal beautyScratchRewardDisplayMax = BigDecimal.ZERO;
+
+    @Builder.Default
+    private BigDecimal beautyScratchPartialRewardDisplayMax = BigDecimal.ZERO;
 }

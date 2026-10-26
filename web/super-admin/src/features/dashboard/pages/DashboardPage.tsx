@@ -36,6 +36,11 @@ const LINKS = [
     body: 'Pay vendors, hubs, and agents. Collect hub franchise. Record UTR and mark paid.',
   },
   {
+    to: '/compliance',
+    title: 'Compliance',
+    body: 'Launch checklist: legal copy, grievance, ops DPAs, and policy previews.',
+  },
+  {
     to: '/settings',
     title: 'Platform settings',
     body: 'Legal policy URLs, grievance contact, maintenance flag.',

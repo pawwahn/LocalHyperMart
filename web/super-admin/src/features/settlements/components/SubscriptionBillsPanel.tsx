@@ -1,3 +1,4 @@
+import { PickerDateField } from '@hlm-dates';
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { Button, Card, ConfirmDialog } from '@/shared/ui';
 import { getPlatformSettings, type PlatformSettingsVm } from '@/features/settings/api/settingsApi';
@@ -14,6 +15,9 @@ import {
   type SubscriptionBill,
 } from '../api/settlementsApi';
 import { openSubscriptionBill, subscriptionBillHtml } from '../subscriptionBill';
+import { BankPaidOnField } from '../BankPaidOnField';
+import { defaultBankPaidOn, todayIstDate, validateBankPaidOn } from '../bankPaidOnUtils';
+import { PayoutTxnFields } from './PayoutTxnFields';
 
 type Props = {
   token: string;
@@ -22,15 +26,12 @@ type Props = {
   vendorName?: string;
   vendor?: VendorVm | null;
   town?: TownVm | null;
-  payoutMethod: string;
-  transactionReference: string;
-  transactionNotes: string;
   onCollected: (message: string) => void;
   onError: (message: string) => void;
   onDueCount?: (count: number) => void;
 };
 
-type PendingAction = { kind: 'send' | 'confirm' | 'reject' | 'record'; bill: SubscriptionBill };
+type PendingAction = { kind: 'send' | 'confirm' | 'record'; bill: SubscriptionBill };
 
 type EditDraft = {
   bill: SubscriptionBill;
@@ -107,9 +108,6 @@ export function SubscriptionBillsPanel({
   vendorName,
   vendor,
   town,
-  payoutMethod,
-  transactionReference,
-  transactionNotes,
   onCollected,
   onError,
   onDueCount,
@@ -117,10 +115,14 @@ export function SubscriptionBillsPanel({
   const [bills, setBills] = useState<SubscriptionBill[]>([]);
   const [loading, setLoading] = useState(false);
   const [pending, setPending] = useState<PendingAction | null>(null);
+  const [confirmBankPaidOn, setConfirmBankPaidOn] = useState('');
+  const [confirmDialogComment, setConfirmDialogComment] = useState('');
   const [saving, setSaving] = useState(false);
   const [billing, setBilling] = useState<string | null>(null);
-  const [rejectNotes, setRejectNotes] = useState<Record<string, string>>({});
   const [edit, setEdit] = useState<EditDraft | null>(null);
+  const [recordPayoutMethod, setRecordPayoutMethod] = useState('UPI');
+  const [recordTxnRef, setRecordTxnRef] = useState('');
+  const [recordNotes, setRecordNotes] = useState('');
   const settingsRef = useRef<PlatformSettingsVm | null>(null);
   const callbacks = useRef({ onDueCount, onError });
   callbacks.current = { onDueCount, onError };
@@ -146,8 +148,21 @@ export function SubscriptionBillsPanel({
   const due = bills.filter((b) => b.status !== 'PAID');
   const dueTotal = due.reduce((sum, b) => sum + Number(b.amount ?? 0), 0);
   const toConfirm = bills.filter((b) => b.status === 'PAYMENT_SUBMITTED').length;
-  const txnReady = transactionReference.trim().length > 0;
   const shopName = vendor?.shopName || vendor?.businessName || vendorName || 'vendor';
+
+  function openRecordPaid(b: SubscriptionBill) {
+    setRecordPayoutMethod('UPI');
+    setRecordTxnRef('');
+    setRecordNotes('');
+    setConfirmBankPaidOn(
+      defaultBankPaidOn({
+        bankPaidOn: b.bankPaidOn,
+        vendorPaidAt: b.vendorPaidAt,
+        paidAt: b.paidAt,
+      }),
+    );
+    setPending({ kind: 'record', bill: b });
+  }
 
   async function openBill(b: SubscriptionBill) {
     setBilling(b.month);
@@ -172,24 +187,40 @@ export function SubscriptionBillsPanel({
       if (kind === 'send') {
         const sent = await sendSubscriptionBill(token, { townId, vendorId, vendorName, month: bill.month });
         onCollected(`Bill ${sent.invoiceNumber ?? ''} sent to ${shopName} for ${monthLabel(bill.month)} · ${formatMoney(sent.amount)}`);
-      } else if (kind === 'reject' && bill.settlementId) {
-        await rejectSubscriptionPayment(token, bill.settlementId, (rejectNotes[bill.month] ?? '').trim());
-        setRejectNotes((m) => ({ ...m, [bill.month]: '' }));
-        onCollected(`Payment for ${monthLabel(bill.month)} rejected · ${shopName} can pay and resubmit`);
       } else if (kind === 'confirm' && bill.settlementId) {
-        const done = await confirmSubscriptionPayment(token, bill.settlementId);
+        const bankErr = validateBankPaidOn(confirmBankPaidOn);
+        if (bankErr) {
+          onError(bankErr);
+          return;
+        }
+        const done = await confirmSubscriptionPayment(token, bill.settlementId, {
+          bankPaidOn: confirmBankPaidOn.trim(),
+          payoutMethod: bill.vendorPaymentMethod ?? undefined,
+          transactionReference: bill.vendorPaymentReference ?? undefined,
+        });
         onCollected(
-          `Subscription ${monthLabel(bill.month)} confirmed · ${formatMoney(done.amount)} · ${done.payoutMethod} · ref ${done.transactionReference}`,
+          `Subscription ${monthLabel(bill.month)} confirmed · ${formatMoney(done.amount)} · bank ${dayLabel(done.bankPaidOn)} · ref ${done.transactionReference}`,
         );
       } else {
+        const bankErr = validateBankPaidOn(confirmBankPaidOn);
+        if (bankErr) {
+          onError(bankErr);
+          return;
+        }
+        const txnRef = recordTxnRef.trim();
+        if (!txnRef) {
+          onError('Txn ref is required (UTR / UPI / cheque number)');
+          return;
+        }
         const saved = await collectSubscriptionBill(token, {
           townId,
           vendorId,
           vendorName,
           month: bill.month,
-          payoutMethod,
-          transactionReference: transactionReference.trim(),
-          transactionNotes: transactionNotes.trim() || undefined,
+          payoutMethod: recordPayoutMethod,
+          transactionReference: txnRef,
+          transactionNotes: recordNotes.trim() || undefined,
+          bankPaidOn: confirmBankPaidOn.trim(),
         });
         onCollected(
           `Subscription ${monthLabel(bill.month)} recorded · ${formatMoney(saved.netAmount)} · ${saved.payoutMethod} · ref ${saved.transactionReference}`,
@@ -237,6 +268,28 @@ export function SubscriptionBillsPanel({
     }
   }
 
+  async function notReceivedPending() {
+    if (!pending || pending.kind !== 'confirm' || !pending.bill.settlementId) return;
+    const reason = confirmDialogComment.trim();
+    if (!reason) {
+      onError('Write a comment for the vendor before rejecting');
+      return;
+    }
+    setSaving(true);
+    try {
+      await rejectSubscriptionPayment(token, pending.bill.settlementId, reason);
+      onCollected(`Payment for ${monthLabel(pending.bill.month)} rejected · ${shopName} can pay and resubmit`);
+      setPending(null);
+      setConfirmDialogComment('');
+      setConfirmBankPaidOn('');
+      await load();
+    } catch (err) {
+      onError(err instanceof Error ? err.message : 'Could not reject payment');
+    } finally {
+      setSaving(false);
+    }
+  }
+
   const dialog: { title: string; description: ReactNode; confirmLabel: string; danger: boolean } | null = pending
     ? pending.kind === 'send'
       ? {
@@ -245,14 +298,7 @@ export function SubscriptionBillsPanel({
           confirmLabel: 'Send bill',
           danger: false,
         }
-      : pending.kind === 'reject'
-        ? {
-            title: 'Reject vendor payment?',
-            description: `${monthLabel(pending.bill.month)} · ${pending.bill.vendorPaymentMethod ?? '—'} · ref ${pending.bill.vendorPaymentReference ?? '—'}. Reason: "${(rejectNotes[pending.bill.month] ?? '').trim()}". The vendor sees this reason and can pay / resubmit.`,
-            confirmLabel: 'Yes, reject',
-            danger: true,
-          }
-        : pending.kind === 'confirm'
+      : pending.kind === 'confirm'
           ? {
               title: 'Confirm payment received?',
               description: (
@@ -272,7 +318,26 @@ export function SubscriptionBillsPanel({
                     <span>Acknowledged</span>
                     <strong>{formatWhen(pending.bill.vendorPaidAt)}</strong>
                   </div>
-                  <p style={styles.dlgNote}>Check the money reached KoyaKart&apos;s account before confirming.</p>
+                  <BankPaidOnField
+                    value={confirmBankPaidOn}
+                    max={todayIstDate()}
+                    onChange={setConfirmBankPaidOn}
+                  />
+                  <label style={styles.field}>
+                    Comment for vendor
+                    <textarea
+                      style={styles.dlgComment}
+                      maxLength={500}
+                      rows={2}
+                      placeholder="Required for Not received — what should they check or fix?"
+                      value={confirmDialogComment}
+                      onChange={(e) => setConfirmDialogComment(e.target.value)}
+                    />
+                  </label>
+                  <p style={styles.dlgNote}>
+                    Not received sends this comment to the vendor; they can update payment details and resubmit. Yes, received
+                    uses the bank statement date above.
+                  </p>
                 </div>
               ),
               confirmLabel: 'Yes, received',
@@ -280,7 +345,27 @@ export function SubscriptionBillsPanel({
             }
           : {
               title: 'Record payment directly',
-              description: `${monthLabel(pending.bill.month)} · ${formatMoney(pending.bill.amount)} · ${payoutMethod} · ref ${transactionReference.trim()}. Use this when the vendor paid you outside the portal.`,
+              description: (
+                <div style={styles.dlgBody}>
+                  <p style={styles.muted}>
+                    {monthLabel(pending.bill.month)} · {formatMoney(pending.bill.amount)} · {shopName}. Use when the
+                    vendor paid outside their portal.
+                  </p>
+                  <PayoutTxnFields
+                    payoutMethod={recordPayoutMethod}
+                    onPayoutMethodChange={setRecordPayoutMethod}
+                    transactionReference={recordTxnRef}
+                    onTransactionReferenceChange={setRecordTxnRef}
+                    transactionNotes={recordNotes}
+                    onTransactionNotesChange={setRecordNotes}
+                  />
+                  <BankPaidOnField
+                    value={confirmBankPaidOn}
+                    max={todayIstDate()}
+                    onChange={setConfirmBankPaidOn}
+                  />
+                </div>
+              ),
               confirmLabel: 'Record received',
               danger: false,
             }
@@ -308,7 +393,6 @@ export function SubscriptionBillsPanel({
           {toConfirm > 0 ? ` · ${toConfirm} waiting for your confirmation` : ''}
         </span>
       </div>
-
       {loading && bills.length === 0 ? (
         <p style={styles.muted}>Loading…</p>
       ) : bills.length === 0 ? (
@@ -327,14 +411,13 @@ export function SubscriptionBillsPanel({
                 <th style={styles.th}>Ack</th>
                 <th style={styles.th}>Bill</th>
                 <th style={styles.th}>Confirm</th>
-                <th style={styles.th}>Reject</th>
+                <th style={styles.th}>If rejected</th>
                 <th style={styles.thIcon} aria-label="Edit" />
               </tr>
             </thead>
             <tbody>
               {bills.map((b) => {
                 const s = b.status;
-                const reason = (rejectNotes[b.month] ?? '').trim();
                 const payment =
                   s === 'PAID'
                     ? [b.payoutMethod, b.transactionReference].filter(Boolean).join(' · ') || '—'
@@ -386,7 +469,17 @@ export function SubscriptionBillsPanel({
                           style={styles.cellBtnPrimary}
                           disabled={saving}
                           title="Confirm received"
-                          onClick={() => setPending({ kind: 'confirm', bill: b })}
+                          onClick={() => {
+                            setConfirmBankPaidOn(
+                              defaultBankPaidOn({
+                                bankPaidOn: b.bankPaidOn,
+                                vendorPaidAt: b.vendorPaidAt,
+                                paidAt: b.paidAt,
+                              }),
+                            );
+                            setConfirmDialogComment('');
+                            setPending({ kind: 'confirm', bill: b });
+                          }}
                         >
                           Confirm
                         </button>
@@ -394,9 +487,9 @@ export function SubscriptionBillsPanel({
                         <button
                           type="button"
                           style={styles.cellBtn}
-                          disabled={!txnReady || saving}
-                          title={txnReady ? 'Vendor paid outside the portal' : 'Enter Txn ref at the top first'}
-                          onClick={() => setPending({ kind: 'record', bill: b })}
+                          disabled={saving}
+                          title="Vendor paid outside the portal"
+                          onClick={() => openRecordPaid(b)}
                         >
                           Record paid
                         </button>
@@ -405,27 +498,7 @@ export function SubscriptionBillsPanel({
                       )}
                     </td>
                     <td style={styles.td}>
-                      {s === 'PAYMENT_SUBMITTED' ? (
-                        <div style={styles.rejectRow}>
-                          <input
-                            style={styles.rejectInput}
-                            placeholder="Reason"
-                            maxLength={500}
-                            aria-label={`Reject reason for ${monthLabel(b.month)}`}
-                            value={rejectNotes[b.month] ?? ''}
-                            onChange={(e) => setRejectNotes((m) => ({ ...m, [b.month]: e.target.value }))}
-                          />
-                          <button
-                            type="button"
-                            style={styles.cellBtn}
-                            disabled={saving || !reason}
-                            title={reason ? undefined : 'Enter a reason first'}
-                            onClick={() => setPending({ kind: 'reject', bill: b })}
-                          >
-                            Reject
-                          </button>
-                        </div>
-                      ) : s === 'REJECTED' ? (
+                      {s === 'REJECTED' ? (
                         <span style={styles.rejectWhy}>{b.rejectReason || '—'}</span>
                       ) : (
                         '—'
@@ -463,10 +536,6 @@ export function SubscriptionBillsPanel({
           </table>
         </div>
       )}
-      {bills.some((b) => b.status === 'SENT' || b.status === 'REJECTED') && !txnReady ? (
-        <p style={styles.hint}>Vendor paid outside the portal? Enter Txn ref at the top to use Record paid.</p>
-      ) : null}
-
       {edit ? (
         <div style={styles.overlay} role="presentation" onClick={() => !saving && setEdit(null)}>
           <form
@@ -488,13 +557,12 @@ export function SubscriptionBillsPanel({
             <div style={styles.fieldRow}>
               <label style={styles.field}>
                 Bank date
-                <input
-                  type="date"
+                <PickerDateField
                   required
                   max={todayIst()}
                   style={styles.fieldInput}
                   value={edit.bankPaidOn}
-                  onChange={(e) => setEdit({ ...edit, bankPaidOn: e.target.value })}
+                  onChange={(next) => setEdit({ ...edit, bankPaidOn: next })}
                 />
               </label>
               <label style={styles.field}>
@@ -543,7 +611,21 @@ export function SubscriptionBillsPanel({
         danger={dialog?.danger ?? false}
         busy={saving}
         onConfirm={() => void runPending()}
-        onClose={() => setPending(null)}
+        confirmDisabled={
+          pending != null &&
+          (pending.kind === 'confirm' || pending.kind === 'record') &&
+          (!confirmBankPaidOn.trim() || (pending.kind === 'record' && !recordTxnRef.trim()))
+        }
+        extraLabel={pending?.kind === 'confirm' ? 'Not received' : undefined}
+        extraDisabled={pending?.kind === 'confirm' ? !confirmDialogComment.trim() : undefined}
+        onExtra={pending?.kind === 'confirm' ? () => void notReceivedPending() : undefined}
+        onClose={() => {
+          setPending(null);
+          setConfirmBankPaidOn('');
+          setConfirmDialogComment('');
+          setRecordTxnRef('');
+          setRecordNotes('');
+        }}
       />
     </Card>
   );
@@ -683,6 +765,18 @@ const styles: Record<string, CSSProperties> = {
     borderBottom: '1px dashed var(--border)',
   },
   dlgNote: { margin: '0.25rem 0 0', fontSize: '0.8rem' },
+  dlgComment: {
+    minHeight: 52,
+    padding: '0.35rem 0.45rem',
+    borderRadius: 8,
+    border: '1px solid var(--border)',
+    background: 'var(--bg)',
+    color: 'var(--text)',
+    font: 'inherit',
+    fontSize: '0.82rem',
+    fontWeight: 650,
+    resize: 'vertical',
+  },
   overlay: {
     position: 'fixed',
     inset: 0,

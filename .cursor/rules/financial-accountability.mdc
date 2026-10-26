@@ -1,0 +1,41 @@
+---
+description: Every rupee must be accounted — owner, vendor, and agent perspectives
+alwaysApply: true
+---
+
+# Financial accountability (owner · vendor · agent)
+
+Think like the **app owner**, **vendor**, and **delivery/shop agent** on every money-related change. **Every rupee matters** and must be **accounted for end-to-end** — not just shown in UI copy.
+
+When touching orders, payments, COD/cash, handover, settlement, payouts, fees, wallets, or laundry vs grocery flows:
+
+- **Same rules for all verticals** — If grocery hub/shop agents get COD collect, handover, and ledger behavior, laundry (CASH) and other services must not be silently excluded from the same pipelines unless product explicitly differs (document why).
+- **Trace the full path** — Buyer payable → agent collect → cash with agent → handover/close-day → hub or vendor → settlement/payout. A gap in any step is a bug, not a nice-to-have.
+- **Three audiences** — Owner needs platform truth; vendor needs what they owe/are owed and what cash is still with agents; agent needs accurate “cash with you” and clear handover targets.
+- **No phantom zeros** — Delivered + COD/CASH collected must reconcile with stats, home banners, COD tab, and admin/hub reports unless an explicit remitted/declared state explains the difference.
+- **Prefer fixing the ledger/API** over UI-only banners; UI must reflect backend source of truth.
+- **Bank statement date on confirm** — Whenever super-admin (or ops) confirms payment **received** (vendor bill, subscription bill, shop-fee collection, etc.), capture **`bankPaidOn`** (yyyy-MM-dd, IST) on that confirm screen. It must match the date on KoyaKart’s bank statement; do not rely on “acknowledged at” or server `paidAt` alone for reconciliation.
+- **Shop-held COD collect** — Vendor owes **commission + buyer platform fee + buyer COD charge + bundled delivery plan** on cash they kept (pass-through fees belong to the app; commission is on **goods only**). Town dues, admin accounts, and vendor **Payouts → To KoyaKart** must match. Regression checklist: `docs/SHOP_HELD_COD_FEE_TEST_PLAN.md`.
+
+## Vendor COD ledger (apply before any money UI or API)
+
+State the model in plain language **first**, then wire code. Do not patch labels on internal pool numbers.
+
+| Line | Meaning |
+|------|--------|
+| **Goods** | Vendor’s item subtotal — **only** base for **commercial commission** (e.g. 9%). |
+| **Platform fee, COD charge, delivery plan** | **100% KoyaKart / app** — vendor may hold COD cash but must **remit** these; they are **not** shop revenue. |
+| **Buyer paid (COD)** | Must **equal the customer receipt total** (same lines as buyer order detail). |
+| **To KoyaKart** | Commission on goods + platform + COD + plan (and penalties if any). |
+| **Shop rider pay** | Town-config ₹/order on **vendor-agent delivery** — **vendor pays rider** from Payouts (goods − commission − rider). **Do not** also pay the same trip via KoyaKart delivery settlement (Mark paid to agent). |
+
+**Invariants (check one real order end-to-end before shipping):**
+
+1. Buyer paid = sum of displayed buyer-side lines (goods + app fees + plan ± promo/credit).
+2. Do **not** headline **`codCashCollected` / vendor pool** (e.g. collect − membership) as “buyer paid” — pool + **plan share on the bag** = receipt total when plan is bundled.
+3. **You keep** = buyer paid − to KoyaKart − rider pay (when applicable), equivalent to goods − commission − rider when pass-through is fully remitted.
+4. Cross-check **buyer app · vendor Payouts · super-admin order/accounts** on the same `orderNumber`.
+
+Internal splits (`CodCashAllocation`, settlement candidates) serve accounting — **human-facing money always follows owner/vendor/agent mental models above**.
+
+Do not wait for the user to repeat this reminder — apply it proactively when designing or fixing features.

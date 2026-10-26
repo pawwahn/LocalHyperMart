@@ -55,6 +55,9 @@ public final class CodCashAllocation {
         BigDecimal platform = nz(order.getPlatformFee());
         BigDecimal codFee = nz(order.getCodFee());
         BigDecimal wallet = nz(order.getStoreCreditApplied());
+        /** Bundled buyer membership is platform revenue — not shop goods cash for commission. */
+        BigDecimal membership = nz(order.getMembershipFee());
+        BigDecimal vendorPool = collect.subtract(membership).max(BigDecimal.ZERO);
 
         List<VendorSlice> slices = new ArrayList<>();
         BigDecimal allocatedSum = BigDecimal.ZERO;
@@ -67,7 +70,7 @@ public final class CodCashAllocation {
             BigDecimal walletShare = wallet.multiply(share);
             BigDecimal slice = payableGoods.add(feeShare).subtract(walletShare);
             if (i == active.size() - 1) {
-                slice = collect.subtract(allocatedSum);
+                slice = vendorPool.subtract(allocatedSum);
             } else {
                 slice = slice.setScale(2, RoundingMode.HALF_UP);
                 allocatedSum = allocatedSum.add(slice);

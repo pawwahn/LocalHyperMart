@@ -34,7 +34,7 @@ const RAIL_CSS = `
   .product-rail-viewport::-webkit-scrollbar { display: none; }
   .product-rail-track {
     display: flex;
-    gap: 0.5rem;
+    gap: 0.58rem;
     width: max-content;
   }
   @media (min-width: 1024px) {
@@ -163,7 +163,7 @@ export function ProductRail({
     const el = viewportRef.current;
     if (!el || items.length <= 1) return;
     pauseAuto(4000);
-    const distance = Math.max(Math.round(el.clientWidth * 0.82), 126);
+    const distance = Math.max(Math.round(el.clientWidth * 0.82), 142);
     el.scrollBy({ left: dir * distance, behavior: prefersReducedMotion() ? 'auto' : 'smooth' });
   }
 

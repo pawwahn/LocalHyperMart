@@ -1,3 +1,4 @@
+import { PickerDateField } from '@hlm-dates';
 import { useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
 import { PortalShell } from '@/shared/layout/PortalShell';
 import { useAuth } from '@/shared/auth/AuthContext';
@@ -338,11 +339,11 @@ export function FinanceLedgerPage() {
         <div style={styles.filterRow}>
           <label style={styles.label}>
             From
-            <input type="date" value={from} onChange={(e) => { setPreset('custom'); setFrom(e.target.value); }} style={styles.input} />
+            <PickerDateField value={from} onChange={(next) => { setPreset('custom'); setFrom(next); }} style={styles.input} />
           </label>
           <label style={styles.label}>
             To
-            <input type="date" value={to} onChange={(e) => { setPreset('custom'); setTo(e.target.value); }} style={styles.input} />
+            <PickerDateField value={to} onChange={(next) => { setPreset('custom'); setTo(next); }} style={styles.input} />
           </label>
           <Button type="button" onClick={() => void reload()} disabled={loading}>
             {loading ? 'Loading…' : 'Refresh'}
@@ -943,7 +944,7 @@ export function FinanceLedgerPage() {
               <Card style={{ display: 'grid', gap: '0.5rem', marginBottom: '0.65rem' }}>
                 <strong style={{ fontSize: '0.9rem' }}>Record Razorpay settlement (from dashboard)</strong>
                 <div style={styles.filterRow}>
-                  <label style={styles.label}>Settlement date<input type="date" value={rzpDate} onChange={(e) => setRzpDate(e.target.value)} style={styles.input} /></label>
+                  <label style={styles.label}>Settlement date<PickerDateField value={rzpDate} onChange={setRzpDate} style={styles.input} /></label>
                   <label style={styles.label}>UTR / settlement id<input value={rzpUtr} onChange={(e) => setRzpUtr(e.target.value)} style={styles.input} placeholder="UTR" /></label>
                   <label style={styles.label}>Gross ₹<input value={rzpGross} onChange={(e) => setRzpGross(e.target.value)} style={styles.input} /></label>
                   <label style={styles.label}>Fees ₹<input value={rzpFee} onChange={(e) => setRzpFee(e.target.value)} style={styles.input} /></label>

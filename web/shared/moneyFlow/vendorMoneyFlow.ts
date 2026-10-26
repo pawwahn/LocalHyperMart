@@ -211,13 +211,13 @@ export function buildMoneyTransferPlan(input: {
   const steps: MoneyTransferStep[] = [];
 
   if (collectFromVendor) {
-    const commission = round2(Math.max(0, fees - subscription));
-    if (commission > 0) {
+    const shopFees = round2(Math.max(0, fees - subscription));
+    if (shopFees > 0) {
       steps.push({
         from: 'Shop',
         to: 'KoyaKart',
-        amount: commission,
-        detail: 'Commission on shop-held COD',
+        amount: shopFees,
+        detail: 'Commission on goods + platform, COD, delivery plan (buyer COD they hold)',
       });
     }
     if (subscription > 0) {

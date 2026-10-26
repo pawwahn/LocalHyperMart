@@ -1,9 +1,13 @@
 package com.hyperlocalmart.user.web;
 
 import com.hyperlocalmart.common.api.ApiResponse;
+import com.hyperlocalmart.user.dto.request.AcceptLegalRequest;
+import com.hyperlocalmart.user.dto.request.DeleteAccountRequest;
+import com.hyperlocalmart.user.dto.request.UpdatePrivacyPreferencesRequest;
 import com.hyperlocalmart.user.dto.request.UpdateProfileRequest;
 import com.hyperlocalmart.user.dto.response.UserProfileResponse;
 import com.hyperlocalmart.user.security.AuthUserPrincipal;
+import com.hyperlocalmart.user.service.AccountPrivacyService;
 import com.hyperlocalmart.user.service.CodPinOtpService;
 import com.hyperlocalmart.user.service.UserService;
 import jakarta.servlet.http.HttpServletRequest;
@@ -19,6 +23,7 @@ import org.springframework.web.bind.annotation.*;
 public class UserController {
 
     private final UserService userService;
+    private final AccountPrivacyService accountPrivacyService;
     private final CodPinOtpService codPinOtpService;
 
     @GetMapping("/me")
@@ -34,6 +39,32 @@ public class UserController {
             @Valid @RequestBody UpdateProfileRequest request,
             HttpServletRequest httpRequest) {
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, userService.updateProfile(principal.getUserId(), request)));
+    }
+
+    @PostMapping("/me/accept-legal")
+    public ResponseEntity<ApiResponse<UserProfileResponse>> acceptLegal(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @Valid @RequestBody AcceptLegalRequest request,
+            HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest, userService.acceptLegal(principal.getUserId(), request)));
+    }
+
+    @PatchMapping("/me/privacy")
+    public ResponseEntity<ApiResponse<UserProfileResponse>> updatePrivacy(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @Valid @RequestBody UpdatePrivacyPreferencesRequest request,
+            HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                accountPrivacyService.updatePrivacyPreferences(principal.getUserId(), request)));
+    }
+
+    @PostMapping("/me/delete-account")
+    public ResponseEntity<ApiResponse<Void>> deleteAccount(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @Valid @RequestBody DeleteAccountRequest request,
+            HttpServletRequest httpRequest) {
+        accountPrivacyService.deleteBuyerAccount(principal.getUserId(), request);
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest, "Account deleted", null));
     }
 
     /** OTP to registered phone — required before setting hub/shop COD PIN. */

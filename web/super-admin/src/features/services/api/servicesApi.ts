@@ -5,6 +5,8 @@ export type ServiceOffering = {
   name: string;
   hidesListings: boolean;
   sortOrder: number;
+  vendorCount?: number;
+  pendingRegistrationCount?: number;
 };
 
 export async function listServices(token: string): Promise<ServiceOffering[]> {

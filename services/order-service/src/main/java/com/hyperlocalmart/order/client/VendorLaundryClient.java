@@ -86,6 +86,8 @@ public class VendorLaundryClient {
             boolean enabled,
             Integer dailyPieceCapacity,
             String closedWeekdays,
+            String blockedPickupDate,
+            String blockedPickupSlots,
             BigDecimal pickupCharge,
             BigDecimal dropCharge,
             BigDecimal pickupAndDropCharge,

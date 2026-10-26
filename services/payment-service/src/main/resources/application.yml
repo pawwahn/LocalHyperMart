@@ -41,6 +41,15 @@ hyperlocalmart:
       enabled: ${HLM_RAZORPAY_QUEUE:true}
       max-concurrent: ${HLM_RAZORPAY_QUEUE_WORKERS:8}
       queue-capacity: ${HLM_RAZORPAY_QUEUE_CAPACITY:512}
+    webhook-queue:
+      enabled: ${HLM_PAYMENT_WEBHOOK_ASYNC:false}
+      max-concurrent: ${HLM_PAYMENT_WEBHOOK_WORKERS:16}
+      queue-capacity: ${HLM_PAYMENT_WEBHOOK_QUEUE_CAPACITY:1024}
+    webhook-recovery:
+      fixed-delay-ms: ${HLM_PAYMENT_WEBHOOK_RECOVERY_MS:60000}
+    order-notify:
+      # SYNC (default) | KAFKA_WITH_SYNC_FALLBACK | KAFKA — enable consumer on order-service for Kafka modes
+      mode: ${HLM_PAYMENT_ORDER_NOTIFY_MODE:SYNC}
     razorpay-key-id: ${RAZORPAY_KEY_ID:}
     razorpay-key-secret: ${RAZORPAY_KEY_SECRET:}
     razorpay-webhook-secret: ${RAZORPAY_WEBHOOK_SECRET:}

@@ -1,3 +1,4 @@
+import { PickerDateField } from '@hlm-dates';
 import { Component, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { Link, useNavigate } from 'react-router-dom';
@@ -15,22 +16,17 @@ import {
   LAUNDRY_ITEMS,
   LAUNDRY_SERVICES,
   LOGISTICS,
+  PICKUP_SLOTS,
   fetchLaundryShops,
   laundryLabel,
+  parseBlockedSlotIds,
   placeLaundryOrder,
   uploadLaundryPhoto,
   type LaundryShop,
 } from '../api/laundryApi';
+import { LaundryBookingNote } from '@hlm-laundry';
 
 type Piece = { quantity: number; otherLabel: string; photoMediaId?: string };
-
-const PICKUP_SLOTS = [
-  { id: '08', label: '8–10 AM', start: '08:00', end: '10:00' },
-  { id: '10', label: '10–12', start: '10:00', end: '12:00' },
-  { id: '12', label: '12–2 PM', start: '12:00', end: '14:00' },
-  { id: '14', label: '2–4 PM', start: '14:00', end: '16:00' },
-  { id: '16', label: '4–6 PM', start: '16:00', end: '18:00' },
-] as const;
 
 function slotInstant(date: string, time: string): string {
   return new Date(`${date}T${time}:00+05:30`).toISOString();
@@ -45,9 +41,18 @@ function istDate(when: Date): string {
   }).format(when);
 }
 
-function slotBookable(date: string, end: string, now: Date): boolean {
+const PICKUP_LEAD_MS = 2 * 60 * 60 * 1000;
+
+function slotBlockedByShop(shop: LaundryShop | null, date: string, slotId: string): boolean {
+  if (!shop?.blockedPickupDate || shop.blockedPickupDate !== date) return false;
+  return parseBlockedSlotIds(shop.blockedPickupSlots).includes(slotId as (typeof PICKUP_SLOTS)[number]['id']);
+}
+
+function slotBookable(date: string, start: string, now: Date, shop: LaundryShop | null, slotId: string): boolean {
   if (!date || date < istDate(now)) return false;
-  return new Date(`${date}T${end}:00+05:30`).getTime() > now.getTime();
+  if (slotBlockedByShop(shop, date, slotId)) return false;
+  const startAt = new Date(`${date}T${start}:00+05:30`).getTime();
+  return startAt >= now.getTime() + PICKUP_LEAD_MS;
 }
 
 function nextIstDate(date: string): string {
@@ -139,7 +144,6 @@ function LaundryBooking() {
   const [pickupSlot, setPickupSlot] = useState('10');
   const [now, setNow] = useState(() => new Date());
   const [note, setNote] = useState('');
-  const [noteOpen, setNoteOpen] = useState(false);
   const [pieces, setPieces] = useState<Record<string, Piece>>({});
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -185,14 +189,14 @@ function LaundryBooking() {
   useEffect(() => {
     if (logistics !== 'PICKUP_AND_DROP' && logistics !== 'PICKUP_ONLY') return;
     if (!pickupDate) return;
-    const open = PICKUP_SLOTS.filter((item) => slotBookable(pickupDate, item.end, now));
+    const open = PICKUP_SLOTS.filter((item) => slotBookable(pickupDate, item.start, now, shop, item.id));
     if (open.length === 0 && pickupDate <= istDate(now)) {
       setPickupDate(nextIstDate(pickupDate));
       return;
     }
     if (open.some((item) => item.id === pickupSlot)) return;
     setPickupSlot(open[0]?.id ?? '');
-  }, [logistics, pickupDate, pickupSlot, now]);
+  }, [logistics, pickupDate, pickupSlot, now, shop]);
 
   function rateFor(service: string, item: string): number {
     const rate = (shop?.rates ?? []).find((row) => row.serviceType === service && row.itemType === item && !row.paused);
@@ -213,6 +217,16 @@ function LaundryBooking() {
   }
 
   const offered = LAUNDRY_ITEMS.filter((item) => rateFor(serviceType, item.id) > 0);
+  const liveServices = LAUNDRY_SERVICES.filter((service) =>
+    LAUNDRY_ITEMS.some((item) => rateFor(service.id, item.id) > 0),
+  );
+  const liveServiceIds = liveServices.map((service) => service.id).join(',');
+
+  useEffect(() => {
+    if (!liveServiceIds) return;
+    const ids = liveServiceIds.split(',');
+    if (!ids.includes(serviceType)) setServiceType(ids[0]);
+  }, [shopId, liveServiceIds, serviceType]);
 
   const basket = useMemo(() => {
     return Object.entries(pieces)
@@ -237,7 +251,7 @@ function LaundryBooking() {
   const otherMissing = basket.some((row) => row.item === 'OTHER' && !row.otherLabel.trim());
   const needsPickup = logistics === 'PICKUP_AND_DROP' || logistics === 'PICKUP_ONLY';
   const slot = PICKUP_SLOTS.find((item) => item.id === pickupSlot) ?? null;
-  const slotOk = !needsPickup || Boolean(pickupDate && slot && slotBookable(pickupDate, slot.end, now));
+  const slotOk = !needsPickup || Boolean(pickupDate && slot && slotBookable(pickupDate, slot.start, now, shop, slot.id));
   const canPlace = Boolean(shop && addressId && pieceTotal > 0 && tripChosen && !otherMissing && slotOk && payAllowed);
 
   useEffect(() => {
@@ -275,7 +289,6 @@ function LaundryBooking() {
       });
       setPieces({});
       setNote('');
-      setNoteOpen(false);
       setConfirming(false);
       let payError: string | null = null;
       if (paymentMethod === 'UPI') {
@@ -375,7 +388,7 @@ function LaundryBooking() {
           </div>
 
           <div className="laundry-services">
-            {LAUNDRY_SERVICES.map((service) => {
+            {liveServices.map((service) => {
               const look = SERVICE_LOOK[service.id] ?? { emoji: '🧺', tint: '#fff' };
               const on = serviceType === service.id;
               return (
@@ -395,7 +408,9 @@ function LaundryBooking() {
           </div>
 
           <div className="laundry-catalog">
-          {offered.length === 0 ? (
+          {liveServices.length === 0 ? (
+            <p style={styles.muted}>This shop has no services available right now.</p>
+          ) : offered.length === 0 ? (
             <p style={styles.muted}>This shop has not priced {laundryLabel('service', serviceType).toLowerCase()} yet.</p>
           ) : (
             <div className="laundry-grid">
@@ -491,11 +506,8 @@ function LaundryBooking() {
             <Link to="/addresses" style={styles.addressAdd}>{addresses.length ? 'Edit' : 'Add address'}</Link>
           </div>
 
-          <button type="button" style={styles.noteToggle} onClick={() => setNoteOpen((open) => !open)}>
-            {noteOpen || note ? 'Care note' : 'Add a care note'}
-          </button>
-          {noteOpen || note ? (
-            <input style={styles.note} placeholder="Starch, no bleach, separate colors" value={note} onChange={(e) => setNote(e.target.value)} />
+          {shop ? (
+            <LaundryBookingNote shopName={shop.businessName} value={note} onChange={setNote} />
           ) : null}
 
           {pieceCount > 0 ? (
@@ -517,13 +529,11 @@ function LaundryBooking() {
                 <div style={styles.slotBlock}>
                   <label style={styles.slotDate}>
                     Pickup date
-                    <input
+                    <PickerDateField
                       style={styles.dateInput}
-                      type="date"
                       value={pickupDate}
                       min={istDate(now)}
-                      onChange={(e) => {
-                        const next = e.target.value;
+                      onChange={(next) => {
                         if (next && next < istDate(new Date())) return;
                         setNow(new Date());
                         setPickupDate(next);
@@ -532,7 +542,8 @@ function LaundryBooking() {
                   </label>
                   <div style={styles.slotRow}>
                     {PICKUP_SLOTS.map((item) => {
-                      const open = !pickupDate || slotBookable(pickupDate, item.end, now);
+                      const blocked = Boolean(pickupDate) && slotBlockedByShop(shop, pickupDate, item.id);
+                      const open = !pickupDate || slotBookable(pickupDate, item.start, now, shop, item.id);
                       const selected = open && pickupSlot === item.id;
                       return (
                         <button
@@ -541,7 +552,7 @@ function LaundryBooking() {
                           className="laundry-hit"
                           disabled={!open}
                           aria-disabled={!open}
-                          title={open ? undefined : 'This time has passed'}
+                          title={open ? undefined : (blocked ? 'Shop blocked this slot today' : 'Pickup needs 2 hours’ notice')}
                           style={open ? (selected ? styles.slotOn : styles.slot) : styles.slotOff}
                           onClick={() => {
                             if (open) setPickupSlot(item.id);
@@ -552,9 +563,11 @@ function LaundryBooking() {
                       );
                     })}
                   </div>
-                  {pickupDate && pickupDate <= istDate(now) && !PICKUP_SLOTS.some((item) => slotBookable(pickupDate, item.end, now)) ? (
+                  {pickupDate && pickupDate <= istDate(now) && !PICKUP_SLOTS.some((item) => slotBookable(pickupDate, item.start, now, shop, item.id)) ? (
                     <p style={styles.slotHint}>No slots left today. Pick a later date.</p>
-                  ) : null}
+                  ) : (
+                    <p style={styles.slotHint}>Pickup needs 2 hours’ notice.</p>
+                  )}
                 </div>
               ) : null}
             </>

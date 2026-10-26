@@ -36,6 +36,8 @@ hyperlocalmart:
   security:
     jwt:
       secret: ${JWT_SECRET:hyperlocalmart-dev-secret-change-in-production-min-32-chars!!}
+  order:
+    payment-events-consumer-enabled: ${HLM_ORDER_PAYMENT_EVENTS_CONSUMER:false}
   cart-service:
     base-url: ${HLM_CART_SERVICE_URI:http://localhost:8085}
   catalog-service:

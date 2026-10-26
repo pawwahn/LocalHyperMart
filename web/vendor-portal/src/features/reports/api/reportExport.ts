@@ -2,6 +2,13 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
 import { formatMoney, type SalesReport } from './reportsApi';
+import { modeTxnFields, salesRowShopHeld } from '../reportModeTxn';
+import { isPayoutDueStatus } from '../hooks/useVendorReports';
+
+/** jsPDF built-in fonts cannot render U+20B9; use Rs. in PDFs (web UI still uses formatMoney). */
+export function formatPdfMoney(value: number | null | undefined): string {
+  return `Rs. ${Number(value ?? 0).toFixed(2)}`;
+}
 
 export type PayoutExportInfo = {
   paid?: boolean;
@@ -13,9 +20,11 @@ export type PayoutExportInfo = {
 
 export type ReportExportSummary = {
   paidAmount: number;
-  unpaidAmount: number;
   paidOrders: number;
-  unpaidOrders: number;
+  payoutDueAmount: number;
+  payoutDueCount: number;
+  feeDuePassThrough: number;
+  feeDueCount: number;
 };
 
 type ExportRow = {
@@ -76,6 +85,14 @@ function buildRows(
   const rows: ExportRow[] = [];
   for (const row of report.rows) {
     const payout = payoutsBySubOrder[row.subOrderId];
+    const modeTxn = modeTxnFields(row, payout);
+    const rejected =
+      row.status === 'VENDOR_REJECTED' || row.status === 'REJECTED' || row.status === 'BUYER_CANCELLED';
+    let payoutStatus = 'NOT DUE YET';
+    if (rejected) payoutStatus = 'NOT PAYABLE';
+    else if (payout?.paid) payoutStatus = 'SETTLED';
+    else if (isPayoutDueStatus(row.status) && salesRowShopHeld(row)) payoutStatus = 'UNSETTLED';
+    else if (isPayoutDueStatus(row.status)) payoutStatus = 'AWAITING';
     const base = {
       placedAt: row.placedAt ? new Date(row.placedAt).toLocaleString() : '',
       orderNumber: row.orderNumber,
@@ -83,17 +100,11 @@ function buildRows(
       status: row.status,
       yourAmount: Number(row.subtotal ?? 0),
       itemCount: row.itemCount,
-      payoutStatus: payout?.paid
-        ? 'SETTLED'
-        : row.status === 'DELIVERED'
-          ? 'AWAITING'
-          : row.status === 'VENDOR_REJECTED' || row.status === 'REJECTED' || row.status === 'BUYER_CANCELLED'
-            ? 'NOT PAYABLE'
-            : 'NOT DUE YET',
+      payoutStatus,
       paidAt: payout?.paidAt ? new Date(payout.paidAt).toLocaleString() : '',
-      payoutMode: payout?.payoutMethod ?? '',
-      transactionReference: payout?.transactionReference ?? '',
-      transactionNotes: payout?.transactionNotes ?? '',
+      payoutMode: modeTxn.primary,
+      transactionReference: payout?.paid ? modeTxn.secondary ?? '' : '',
+      transactionNotes: payout?.paid ? modeTxn.tertiary ?? '' : modeTxn.secondary ?? '',
     };
     if (report.includeItems && row.items && row.items.length > 0) {
       for (const item of row.items) {
@@ -173,7 +184,8 @@ export function exportSalesReportExcel(
     ['Orders', report.orderCount],
     ['Your sales', Number(report.grossSales ?? 0)],
     ['Settled to you', summary?.paidAmount ?? 0],
-    ['Awaiting payout', summary?.unpaidAmount ?? 0],
+    ['Payout due (KoyaKart pays you)', summary?.payoutDueAmount ?? 0],
+    ['Shop COD bill — pass-through (est.)', summary?.feeDuePassThrough ?? 0],
     ['Units sold', report.itemQuantityTotal],
     [],
   ];
@@ -186,25 +198,34 @@ export function exportSalesReportExcel(
   XLSX.writeFile(wb, `${fileBase(report)}.xlsx`);
 }
 
+export type SalesReportPdfOptions = {
+  title?: string;
+  filePrefix?: string;
+};
+
 export function exportSalesReportPdf(
   report: SalesReport,
   payoutsBySubOrder: Record<string, PayoutExportInfo> = {},
   summary?: ReportExportSummary,
+  options?: SalesReportPdfOptions,
 ): void {
   const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
   const margin = 36;
+  const title = options?.title ?? 'KoyaKart — Vendor sales report';
+  const filePrefix = options?.filePrefix ?? fileBase(report);
 
   doc.setFontSize(14);
-  doc.text('KoyaKart — Vendor sales report', margin, 40);
+  doc.text(title, margin, 40);
   doc.setFontSize(10);
   doc.setTextColor(80);
   doc.text(`Period: ${report.from} → ${report.to}`, margin, 58);
   doc.text(
     [
       `Orders: ${report.orderCount}`,
-      `Your sales: ${formatMoney(report.grossSales)}`,
-      `Settled: ${formatMoney(summary?.paidAmount ?? 0)} (${summary?.paidOrders ?? 0})`,
-      `Awaiting: ${formatMoney(summary?.unpaidAmount ?? 0)} (${summary?.unpaidOrders ?? 0})`,
+      `Your sales: ${formatPdfMoney(report.grossSales)}`,
+      `Settled: ${formatPdfMoney(summary?.paidAmount ?? 0)} (${summary?.paidOrders ?? 0})`,
+      `Payout due: ${formatPdfMoney(summary?.payoutDueAmount ?? 0)} (${summary?.payoutDueCount ?? 0})`,
+      `Fee due (pass-through): ${formatPdfMoney(summary?.feeDuePassThrough ?? 0)} (${summary?.feeDueCount ?? 0})`,
     ].join('   ·   '),
     margin,
     74,
@@ -230,7 +251,7 @@ export function exportSalesReportPdf(
         r.placedAt || '—',
         `${r.orderNumber}\n${r.subOrderNumber}`,
         r.status,
-        formatMoney(r.yourAmount),
+        formatPdfMoney(r.yourAmount),
         r.payoutStatus,
         r.paidAt || '—',
         r.payoutMode || '—',
@@ -239,7 +260,7 @@ export function exportSalesReportPdf(
       if (report.includeItems) {
         base.push(
           r.itemName
-            ? `${r.qty}× ${r.itemName}${r.unit ? ` (${r.unit})` : ''} · ${formatMoney(Number(r.lineTotal || 0))}`
+            ? `${r.qty}× ${r.itemName}${r.unit ? ` (${r.unit})` : ''} · ${formatPdfMoney(Number(r.lineTotal || 0))}`
             : '—',
         );
       }
@@ -251,5 +272,5 @@ export function exportSalesReportPdf(
     margin: { left: margin, right: margin },
   });
 
-  doc.save(`${fileBase(report)}.pdf`);
+  doc.save(`${filePrefix}.pdf`);
 }

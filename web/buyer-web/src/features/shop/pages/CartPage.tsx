@@ -92,12 +92,16 @@ export function CartPage() {
     doSwitchShop,
     doApplyPromo,
     doRemovePromo,
+    doAttachMembership,
+    doRemoveMembership,
     doCreateAddress,
     doCheckout,
+    prepareCartForCheckout,
     setError,
     setNotice,
   } = useShop();
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [checkoutPreparing, setCheckoutPreparing] = useState(false);
   const [promoInput, setPromoInput] = useState('');
   const [promoError, setPromoError] = useState<string | null>(null);
   const [useStoreCredit, setUseStoreCredit] = useState(false);
@@ -228,17 +232,23 @@ export function CartPage() {
 
   const needsAddress = hasCartItems && !selectedAddressId;
   const itemsPayable = cart?.payableSubtotal ?? 0;
+  const cartMembership = cart?.membershipAddon ?? null;
+  const membershipPlanFee = cartMembership?.price ?? 0;
   const { deliveryFee, platformFee, nudge: deliveryNudge, progress: unlockProgress } = useDeliveryQuote(
     itemsPayable,
     hasCartItems,
   );
   const starterPlan = cheapestPurchasable(membershipCatalog);
   const showMembershipOffer =
-    hasCartItems && Boolean(membershipCatalog?.platformEnabled) && memberCredits <= 0 && Boolean(starterPlan);
-  const membershipWaives = hasCartItems && memberCredits > 0 && deliveryFee > 0;
+    hasCartItems &&
+    Boolean(membershipCatalog?.platformEnabled) &&
+    memberCredits <= 0 &&
+    Boolean(starterPlan);
+  const membershipWaives =
+    hasCartItems && deliveryFee > 0 && (memberCredits > 0 || Boolean(cartMembership));
   const chargedDelivery = membershipWaives ? 0 : deliveryFee;
   const codFee = hasCartItems && paymentMethod === 'COD' && codEnabled ? Math.max(0, codCharge) : 0;
-  const extras = hasCartItems ? chargedDelivery + platformFee + codFee : 0;
+  const extras = hasCartItems ? chargedDelivery + platformFee + codFee + membershipPlanFee : 0;
   const orderGross = itemsPayable + extras;
   const creditToApply =
     useStoreCredit && storeCreditBalance > 0
@@ -251,7 +261,7 @@ export function CartPage() {
   const showUpiOption = upiEnabled && payOnDelivery > 0;
   const showPayMethods = showCodOption || showUpiOption;
   const showStickyMembershipOffer =
-    showMembershipOffer && !membershipCatalog?.mine?.active;
+    showMembershipOffer && !membershipCatalog?.mine?.active && !cartMembership;
 
   useEffect(() => {
     if (!hasCartItems || payOnDelivery <= 0) return;
@@ -369,7 +379,7 @@ export function CartPage() {
   const showDeliveryNudge = Boolean(deliveryNudge) && !membershipWaives;
 
   async function handleCheckout() {
-    if (!hasCartItems) return;
+    if (!hasCartItems || checkoutPreparing || checkoutBusy) return;
 
     if (blockedLine) {
       setError('Switch shop or remove items that are no longer sold before placing the order.');
@@ -386,7 +396,18 @@ export function CartPage() {
       return;
     }
 
-    setConfirmCheckout(true);
+    setCheckoutPreparing(true);
+    setError(null);
+    try {
+      const ready = await prepareCartForCheckout();
+      if (!ready.ok) {
+        setError(ready.error);
+        return;
+      }
+      setConfirmCheckout(true);
+    } finally {
+      setCheckoutPreparing(false);
+    }
   }
 
   async function confirmAndPlaceOrder() {
@@ -487,10 +508,10 @@ export function CartPage() {
                 type="button"
                 className="cart-place-btn"
                 style={styles.placeBtn}
-                disabled={busy || blockedLine}
+                disabled={busy || blockedLine || checkoutPreparing || checkoutBusy}
                 onClick={() => void handleCheckout()}
               >
-                Place order
+                {checkoutPreparing ? 'Syncing basket…' : checkoutBusy ? 'Placing order…' : 'Place order'}
               </button>
             </div>
           </div>
@@ -520,7 +541,9 @@ export function CartPage() {
                 selectedAddress?.label || 'your selected address'
               }?`
         }
-        confirmLabel={online ? 'Pay now' : 'Yes, place order'}
+        confirmLabel={
+          checkoutBusy ? 'Placing order…' : online ? 'Pay now' : 'Yes, place order'
+        }
         cancelLabel="Review order"
         busy={checkoutBusy}
         onConfirm={() => void confirmAndPlaceOrder()}
@@ -555,15 +578,18 @@ export function CartPage() {
       />
       <MembershipPlansSheet
         open={plansOpen}
+        mode="cart"
+        initialSlab={cartMembership?.slab ?? null}
         onClose={() => setPlansOpen(false)}
-        onBought={() => {
-          void fetchMembershipCatalog(session?.accessToken ?? '', townId || undefined)
-            .then((catalog) => {
-              setMembershipCatalog(catalog);
-              setMemberCredits(catalog.mine?.usableCredits ?? 0);
-            })
-            .catch(() => undefined);
+        onAddToCart={async (slab) => {
+          const ok = await doAttachMembership(slab);
+          if (!ok) throw new Error('Could not add plan to basket');
         }}
+        onRemoveFromCart={async () => {
+          const ok = await doRemoveMembership();
+          if (!ok) throw new Error('Could not remove plan');
+        }}
+        onBought={() => setPlansOpen(false)}
       />
 
       {error && error !== 'Cart is empty' ? (
@@ -657,6 +683,36 @@ export function CartPage() {
                 </Card>
               );
             })}
+            {cartMembership ? (
+              <Card key="membership-addon" padding="sm" style={styles.row}>
+                <div style={{ ...styles.thumb, background: '#E7F6EC' }} aria-hidden>
+                  🚚
+                </div>
+                <div style={styles.rowBody}>
+                  <p style={styles.name}>Free delivery · {cartMembership.label}</p>
+                  <p style={styles.meta}>
+                    {cartMembership.credits} deliveries · {cartMembership.priceLabel}
+                  </p>
+                  <button
+                    type="button"
+                    style={styles.switchBtn}
+                    disabled={busyKey === 'membership'}
+                    onClick={() => setPlansOpen(true)}
+                  >
+                    Change plan
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  style={styles.removePlan}
+                  disabled={busyKey === 'membership'}
+                  aria-label="Remove free delivery plan"
+                  onClick={() => void doRemoveMembership()}
+                >
+                  Remove
+                </button>
+              </Card>
+            ) : null}
           </div>
 
           {hasCartItems ? (
@@ -764,6 +820,22 @@ export function CartPage() {
                   <span style={styles.billAmt}>₹{codFee.toFixed(2)}</span>
                 </div>
               ) : null}
+              {cartMembership ? (
+                <div style={styles.billLineWithAction}>
+                  <span>Free delivery plan · {cartMembership.label}</span>
+                  <span style={styles.billLineActionGroup}>
+                    <span style={styles.billAmt}>{cartMembership.priceLabel}</span>
+                    <button
+                      type="button"
+                      style={styles.billRemoveLink}
+                      disabled={busyKey === 'membership'}
+                      onClick={() => void doRemoveMembership()}
+                    >
+                      Remove
+                    </button>
+                  </span>
+                </div>
+              ) : null}
               {storeCreditBalance > 0 ? (
                 <label style={styles.walletRow}>
                   <span style={styles.walletLabel}>
@@ -789,7 +861,29 @@ export function CartPage() {
                 <span style={styles.total}>{payLabel}</span>
               </div>
             </div>
-            {showMembershipOffer ? (
+            {cartMembership ? (
+              <div style={styles.memberOffer}>
+                <span style={styles.memberOfferCopy}>
+                  {cartMembership.label} in basket · delivery free on this order
+                </span>
+                <span style={styles.memberOfferActions}>
+                  <button type="button" style={styles.memberOfferCtaBtn} onClick={() => setPlansOpen(true)}>
+                    Change
+                  </button>
+                  <span style={styles.memberOfferSep} aria-hidden>
+                    ·
+                  </span>
+                  <button
+                    type="button"
+                    style={styles.memberOfferRemoveBtn}
+                    disabled={busyKey === 'membership'}
+                    onClick={() => void doRemoveMembership()}
+                  >
+                    Remove
+                  </button>
+                </span>
+              </div>
+            ) : showMembershipOffer ? (
               <button type="button" style={styles.memberOffer} onClick={() => setPlansOpen(true)}>
                 <span style={styles.memberOfferCopy}>
                   Make delivery free · from ₹{Number(starterPlan?.price ?? 0).toFixed(0)}
@@ -838,10 +932,16 @@ export function CartPage() {
                 type="button"
                 className="cart-place-btn"
                 style={styles.billPlaceBtn}
-                disabled={busy || blockedLine}
+                disabled={busy || blockedLine || checkoutPreparing || checkoutBusy}
                 onClick={() => void handleCheckout()}
               >
-                {online ? 'Pay now' : 'Place order'}
+                {checkoutPreparing
+                  ? 'Syncing basket…'
+                  : checkoutBusy
+                    ? 'Placing order…'
+                    : online
+                      ? 'Pay now'
+                      : 'Place order'}
               </button>
             ) : null}
           </Card>
@@ -909,6 +1009,17 @@ const styles: Record<string, CSSProperties> = {
     cursor: 'pointer',
     minHeight: 44,
   },
+  removePlan: {
+    border: 'none',
+    background: 'none',
+    color: '#6B7280',
+    fontSize: '0.72rem',
+    fontWeight: 800,
+    cursor: 'pointer',
+    minHeight: 44,
+    padding: '0 0.15rem',
+    flexShrink: 0,
+  },
   deliverValue: {
     fontWeight: 700,
     fontSize: '0.86rem',
@@ -958,9 +1069,35 @@ const styles: Record<string, CSSProperties> = {
     background: '#F3FBF5',
     color: '#14532D',
     textAlign: 'left',
-    cursor: 'pointer',
     minHeight: 32,
   },
+  memberOfferActions: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.2rem',
+    flexShrink: 0,
+  },
+  memberOfferCtaBtn: {
+    border: 'none',
+    background: 'none',
+    color: '#0C831F',
+    fontSize: '0.74rem',
+    fontWeight: 800,
+    cursor: 'pointer',
+    padding: '0.25rem 0.15rem',
+    minHeight: 44,
+  },
+  memberOfferRemoveBtn: {
+    border: 'none',
+    background: 'none',
+    color: '#9a3412',
+    fontSize: '0.74rem',
+    fontWeight: 800,
+    cursor: 'pointer',
+    padding: '0.25rem 0.15rem',
+    minHeight: 44,
+  },
+  memberOfferSep: { color: '#86a889', fontSize: '0.74rem', fontWeight: 700 },
   memberOfferCopy: {
     flex: 1,
     minWidth: 0,
@@ -971,6 +1108,32 @@ const styles: Record<string, CSSProperties> = {
     textOverflow: 'ellipsis',
   },
   memberOfferCta: { color: '#0C831F', fontSize: '0.74rem', flexShrink: 0 },
+  billLineWithAction: {
+    display: 'grid',
+    gridTemplateColumns: '1fr auto',
+    alignItems: 'center',
+    columnGap: '0.5rem',
+    minHeight: 28,
+    fontSize: '0.8rem',
+    fontWeight: 600,
+    color: 'var(--text-muted)',
+  },
+  billLineActionGroup: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '0.45rem',
+    justifyContent: 'flex-end',
+  },
+  billRemoveLink: {
+    border: 'none',
+    background: 'none',
+    color: '#9a3412',
+    fontSize: '0.74rem',
+    fontWeight: 800,
+    cursor: 'pointer',
+    padding: '0.2rem 0',
+    minHeight: 44,
+  },
   bill: {
     display: 'grid',
     gap: 0,

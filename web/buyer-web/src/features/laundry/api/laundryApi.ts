@@ -15,6 +15,8 @@ export type LaundryShop = {
   pickupCharge?: number | null;
   dropCharge?: number | null;
   pickupAndDropCharge?: number | null;
+  blockedPickupDate?: string | null;
+  blockedPickupSlots?: string | null;
   feeModel?: string | null;
   perPieceAmount?: number | null;
   perOrderFlatAmount?: number | null;
@@ -49,6 +51,8 @@ export type LaundryOrder = {
   platformFeeAmount?: number;
   codFee?: number | null;
   amountCollected: number;
+  agentCashPickupReport?: string | null;
+  agentCashDropReport?: string | null;
   pieceCount: number;
   specialInstructions?: string | null;
   addressText: string;
@@ -79,9 +83,9 @@ export type LaundryOrder = {
   } | null;
 };
 
-import { LAUNDRY_ITEMS, LAUNDRY_SERVICES } from '@hlm-laundry';
+import { LAUNDRY_ITEMS, LAUNDRY_SERVICES, PICKUP_SLOTS, parseBlockedSlotIds } from '@hlm-laundry';
 
-export { LAUNDRY_ITEMS, LAUNDRY_SERVICES };
+export { LAUNDRY_ITEMS, LAUNDRY_SERVICES, PICKUP_SLOTS, parseBlockedSlotIds };
 
 export const LOGISTICS = [
   { id: 'PICKUP_AND_DROP', label: 'Pickup and drop' },
@@ -92,6 +96,19 @@ export const LOGISTICS = [
 export function laundryLabel(kind: 'service' | 'item' | 'logistics', id: string): string {
   const list = kind === 'service' ? LAUNDRY_SERVICES : kind === 'item' ? LAUNDRY_ITEMS : LOGISTICS;
   return list.find((row) => row.id === id)?.label ?? id;
+}
+
+/** Agent-reported cash status (customer-facing copy). */
+export function laundryAgentCashBuyerNote(
+  pickup?: string | null,
+  drop?: string | null,
+): string | null {
+  if (pickup === 'NOT_COLLECTED') {
+    return 'Our agent could not collect cash at pickup. Please pay at the shop if you have not already.';
+  }
+  if (pickup === 'COLLECTED') return 'Cash was collected from you at pickup.';
+  if (drop === 'COLLECTED') return 'Cash was collected when your laundry was delivered.';
+  return null;
 }
 
 export async function fetchLaundryShops(token: string, townId: string): Promise<LaundryShop[]> {
@@ -116,14 +133,6 @@ export async function retryLaundryPayment(
     method: 'POST',
     token,
     headers: { 'Idempotency-Key': `laundry-retry-${orderId}-${Date.now()}` },
-  });
-}
-
-export async function saveLaundryComment(token: string, orderId: string, comment: string): Promise<LaundryOrder> {
-  return apiRequest<LaundryOrder>(`/api/v1/orders/laundry/${orderId}/comment`, {
-    method: 'POST',
-    token,
-    body: { comment },
   });
 }
 

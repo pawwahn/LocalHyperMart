@@ -210,6 +210,97 @@ public class DeliveryClient {
         }
     }
 
+    public List<VendorAgent> listVendorAgents(UUID vendorId) {
+        if (vendorId == null) {
+            return List.of();
+        }
+        try {
+            RestClient client = restClientBuilder.baseUrl(deliveryServiceProperties.getBaseUrl()).build();
+            ApiResponse<List<Map<String, Object>>> response = client.get()
+                    .uri("/api/v1/internal/vendors/{vendorId}/agents", vendorId)
+                    .retrieve()
+                    .body(new ParameterizedTypeReference<ApiResponse<List<Map<String, Object>>>>() {});
+            if (response == null || response.getData() == null) {
+                return List.of();
+            }
+            return response.getData().stream()
+                    .map(DeliveryClient::vendorAgentFromMap)
+                    .toList();
+        } catch (Exception ex) {
+            log.warn("Failed to list vendor agents for {}: {}", vendorId, ex.getMessage());
+            return List.of();
+        }
+    }
+
+    private static VendorAgent vendorAgentFromMap(Map<String, Object> row) {
+        UUID agentId = uuid(row.get("agentId"));
+        String name = text(row.get("name"));
+        String phone = text(row.get("phone"));
+        String status = text(row.get("status"));
+        return new VendorAgent(agentId, name, phone, status);
+    }
+
+    private static UUID uuid(Object raw) {
+        if (raw == null) {
+            return null;
+        }
+        if (raw instanceof UUID id) {
+            return id;
+        }
+        try {
+            return UUID.fromString(String.valueOf(raw));
+        } catch (IllegalArgumentException ex) {
+            return null;
+        }
+    }
+
+    private static String text(Object raw) {
+        if (raw == null) {
+            return null;
+        }
+        String value = String.valueOf(raw).trim();
+        return value.isEmpty() ? null : value;
+    }
+
+    public void assignLaundryTrip(
+            UUID laundryOrderId,
+            String orderNumber,
+            UUID townId,
+            UUID vendorId,
+            UUID agentId,
+            UUID assignedBy,
+            String shopName,
+            String contactName,
+            String contactPhone,
+            String addressText,
+            String tripKind,
+            String paymentMethod,
+            java.math.BigDecimal collectCashAmount) {
+        RestClient client = restClientBuilder.baseUrl(deliveryServiceProperties.getBaseUrl()).build();
+        java.util.Map<String, Object> body = new java.util.HashMap<>();
+        body.put("laundryOrderId", laundryOrderId);
+        body.put("orderNumber", orderNumber);
+        body.put("townId", townId);
+        body.put("vendorId", vendorId);
+        body.put("agentId", agentId);
+        body.put("assignedBy", assignedBy);
+        body.put("shopName", shopName);
+        body.put("contactName", contactName);
+        body.put("contactPhone", contactPhone);
+        body.put("addressText", addressText);
+        body.put("tripKind", tripKind);
+        body.put("paymentMethod", paymentMethod);
+        body.put("collectCashAmount", collectCashAmount);
+        client.post()
+                .uri("/api/v1/internal/laundry-trips/assign")
+                .body(body)
+                .retrieve()
+                .toBodilessEntity();
+    }
+
+    public record VendorAgent(UUID agentId, String name, String phone, String status) {
+    }
+
     public record HubAdminContext(UUID userId, UUID hubId, UUID townId) {
     }
 
@@ -225,7 +316,9 @@ public class DeliveryClient {
             boolean pickupCompleted,
             Instant pickupCompletedAt,
             boolean vendorDirectCompleted,
-            Instant vendorDirectCompletedAt
+            Instant vendorDirectCompletedAt,
+            boolean laundryDropCompleted,
+            Instant laundryDropCompletedAt
     ) {
     }
 

@@ -1,3 +1,4 @@
+import { PickerDateField } from '@hlm-dates';
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import { ApiError } from '@/shared/api/http';
@@ -354,17 +355,11 @@ export function AdsBillsPanel({ token, towns, offRooms, onChanged }: Props) {
           </label>
           <label style={styles.field}>
             From
-            <input style={styles.input} type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
+            <PickerDateField style={styles.input} value={fromDate} onChange={setFromDate} />
           </label>
           <label style={styles.field}>
             Till
-            <input
-              style={styles.input}
-              type="date"
-              value={toDate}
-              min={fromDate}
-              onChange={(e) => setToDate(e.target.value)}
-            />
+            <PickerDateField style={styles.input} value={toDate} min={fromDate} onChange={setToDate} />
           </label>
         </div>
         <div style={styles.quick}>

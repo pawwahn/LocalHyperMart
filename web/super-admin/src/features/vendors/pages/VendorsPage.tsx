@@ -8,6 +8,7 @@ import { AdminHistoryPanel } from '@/shared/audit/AdminHistoryPanel';
 import { listTowns, type TownVm } from '@/features/towns/api/townsApi';
 import { listServices, type ServiceOffering } from '@/features/services/api/servicesApi';
 import { Link } from 'react-router-dom';
+import { TermsAcceptBlock } from '@hlm-legal';
 import {
   approveRegistration,
   createRegistrationRequest,
@@ -83,6 +84,8 @@ export function VendorsPage() {
   const [editBankAccount, setEditBankAccount] = useState('');
   const [editIfsc, setEditIfsc] = useState('');
   const [editServiceId, setEditServiceId] = useState('');
+  const [vendorTermsAcknowledged, setVendorTermsAcknowledged] = useState(false);
+  const [acknowledgedLegalVersion, setAcknowledgedLegalVersion] = useState(1);
 
   const townById = useMemo(() => {
     const map = new Map<string, TownVm>();
@@ -182,6 +185,10 @@ export function VendorsPage() {
       setError('Select a service');
       return;
     }
+    if (!vendorTermsAcknowledged) {
+      setError('Confirm vendor was shown and agrees to platform policies');
+      return;
+    }
     const gst = gstNumber.trim().toUpperCase();
     if (gst && (!bankAccount.trim() || !ifsc.trim())) {
       setError('Bank account and IFSC are required when GST number is provided');
@@ -203,6 +210,8 @@ export function VendorsPage() {
         fssaiNumber: fssaiNumber.trim() || undefined,
         bankAccount: bankAccount.trim() || undefined,
         ifsc: ifsc.trim() || undefined,
+        vendorTermsAcknowledged: true,
+        acknowledgedLegalVersion,
       });
       setNotice('Request submitted — approve it under Pending');
       setBusinessName('');
@@ -215,6 +224,7 @@ export function VendorsPage() {
       setBankAccount('');
       setIfsc('');
       setServiceId('');
+      setVendorTermsAcknowledged(false);
       setShowAdd(false);
       setTab('pending');
       await reload();
@@ -490,9 +500,25 @@ export function VendorsPage() {
           <p style={styles.subtle}>
             GST and FSSAI are optional. Fee / subscription model is configured later under Billing (per vendor).
           </p>
+          <TermsAcceptBlock
+            accepted={vendorTermsAcknowledged}
+            onAcceptedChange={setVendorTermsAcknowledged}
+            onVersion={setAcknowledgedLegalVersion}
+          />
+          <p style={styles.subtle}>
+            Tick only after the shop owner has read Terms, Privacy and Refund (onboarding attestation).
+          </p>
           <div style={styles.formActions}>
             <Button
-              disabled={busy || !townId || !serviceId || !businessName.trim() || !shopName.trim() || !phone.trim()}
+              disabled={
+                busy ||
+                !townId ||
+                !serviceId ||
+                !businessName.trim() ||
+                !shopName.trim() ||
+                !phone.trim() ||
+                !vendorTermsAcknowledged
+              }
               onClick={() => void onSubmitRequest()}
             >
               {busy ? 'Submitting…' : 'Submit'}

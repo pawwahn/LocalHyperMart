@@ -12,4 +12,7 @@ public class UpsertLaundryOpsRequest {
     private Boolean clearDailyPieceCapacity;
 
     private String closedWeekdays;
+
+    /** Comma-separated pickup slot ids for today (08,10,12,14,16,18). Empty clears. Null leaves stored value. */
+    private String blockedPickupSlots;
 }

@@ -3,8 +3,9 @@ import { useLocation } from 'react-router-dom';
 import { usePortalChrome } from '@/shared/layout/PortalChromeContext';
 import { useAuth } from '@/shared/auth/AuthContext';
 import { Banner, Button } from '@/shared/ui';
-import { useHidesListings } from '@/features/shop/hooks/useHidesListings';
+import { isGlamVendor, isLaundryVendor, useHidesListings } from '@/features/shop/hooks/useHidesListings';
 import { LaundryRequests } from '@/features/laundry/components/LaundryRequests';
+import { BeautyBookings } from '@/features/beauty/components/BeautyBookings';
 import { useVendorOrders } from '../hooks/useVendorOrders';
 import { useVendorShop } from '@/features/shop/hooks/useVendorShop';
 import { DashboardStats } from '../components/DashboardStats';
@@ -73,9 +74,12 @@ export function DashboardPage({ active = true }: { active?: boolean }) {
     setAcceptingOrders,
   } = useVendorShop();
   const [prompt, setPrompt] = useState<PromptState>(null);
+  const [laundryTick, setLaundryTick] = useState(0);
   const location = useLocation();
   const { shop } = useVendorShop();
   const hidesListings = useHidesListings();
+  const glamVendor = isGlamVendor(session?.serviceName);
+  const laundryVendor = isLaundryVendor(session?.serviceName);
   const agentPendingCount = ordersNeedingAgent.length;
 
   useEffect(() => {
@@ -97,7 +101,9 @@ export function DashboardPage({ active = true }: { active?: boolean }) {
   usePortalChrome(
     {
       title: 'Seller home',
-      onRefresh: () => void reload(),
+      onRefresh: hidesListings
+        ? () => setLaundryTick((n) => n + 1)
+        : () => void reload(),
       shopPause: {
         acceptingOrders,
         busy: shopBusy,
@@ -131,10 +137,15 @@ export function DashboardPage({ active = true }: { active?: boolean }) {
       {hidesListings ? (
         <>
           {!acceptingOrders ? (
-            <Banner tone="warning">Shop is paused — buyers cannot send laundry requests.</Banner>
+            <Banner tone="warning">
+              Shop is paused — buyers cannot book{glamVendor && !laundryVendor ? ' glam' : laundryVendor && !glamVendor ? ' laundry' : ''} right now.
+            </Banner>
           ) : null}
           {shopError ? <Banner tone="danger">{shopError}</Banner> : null}
-          <LaundryRequests />
+          {glamVendor ? <BeautyBookings active={active} reloadToken={laundryTick} /> : null}
+          {laundryVendor || (!glamVendor && !laundryVendor) ? (
+            <LaundryRequests active={active && (laundryVendor || !glamVendor)} reloadToken={laundryTick} />
+          ) : null}
         </>
       ) : (
         <>

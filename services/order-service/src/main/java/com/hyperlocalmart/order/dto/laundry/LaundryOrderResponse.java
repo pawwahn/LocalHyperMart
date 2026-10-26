@@ -28,6 +28,10 @@ public class LaundryOrderResponse {
     private BigDecimal goodsAmount;
     private BigDecimal logisticsCharge;
     private BigDecimal amountCollected;
+    /** COLLECTED | NOT_COLLECTED — agent at customer pickup. */
+    private String agentCashPickupReport;
+    /** COLLECTED — agent at customer drop. */
+    private String agentCashDropReport;
     private BigDecimal platformFeeAmount;
     private BigDecimal codFee;
     private String platformFeeModel;
@@ -36,6 +40,9 @@ public class LaundryOrderResponse {
     private String addressText;
     private String contactName;
     private String contactPhone;
+    private UUID tripAgentId;
+    private String tripAgentName;
+    private String tripAgentPhone;
     private Instant requestedPickupStart;
     private Instant requestedPickupEnd;
     private Instant pickupSlotStart;

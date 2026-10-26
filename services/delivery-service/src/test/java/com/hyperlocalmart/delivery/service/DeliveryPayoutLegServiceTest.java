@@ -55,6 +55,9 @@ class DeliveryPayoutLegServiceTest {
         when(deliveryAssignmentRepository.findByOrderIdInAndLegTypeAndStatus(
                         eq(List.of(orderId)), eq(AssignmentLegType.PICKUP), eq(AssignmentStatus.COMPLETED)))
                 .thenReturn(List.of());
+        when(deliveryAssignmentRepository.findByOrderIdInAndLegTypeAndStatus(
+                        eq(List.of(orderId)), eq(AssignmentLegType.LAUNDRY_TRIP), eq(AssignmentStatus.COMPLETED)))
+                .thenReturn(List.of());
         when(deliveryHubRepository.findByTownId(townId))
                 .thenReturn(Optional.of(DeliveryHub.builder().id(hubId).townId(townId).name("Town Hub").build()));
 

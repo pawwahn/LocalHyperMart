@@ -138,7 +138,11 @@ public final class AdminOrderResponses {
         PaymentStatus paymentStatus;
         BigDecimal itemsSubtotal;
         BigDecimal deliveryFee;
+        BigDecimal membershipDeliveryWaived;
+        BigDecimal membershipFee;
+        String membershipSlab;
         BigDecimal platformFee;
+        BigDecimal codFee;
         BigDecimal storeCreditApplied;
         BigDecimal promoDiscount;
         String promoCode;

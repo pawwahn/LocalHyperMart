@@ -93,7 +93,8 @@ export function PickupItemsList({
   const itemLabel = `${unitCount} item${unitCount === 1 ? '' : 's'}`;
   const delivery = isDeliveryManifest(manifest) ? manifest : null;
   const resolvedMethod = paymentMethod ?? delivery?.paymentMethod;
-  const isCod = resolvedMethod === 'COD';
+  const methodKey = resolvedMethod?.trim().toUpperCase() ?? '';
+  const isCod = methodKey === 'COD' || methodKey === 'CASH';
   const resolvedCollect = collectCashAmount ?? delivery?.collectCashAmount;
   const collectAmount =
     isCod && resolvedCollect != null && resolvedCollect > 0 ? resolvedCollect : null;
@@ -106,13 +107,10 @@ export function PickupItemsList({
     <div style={styles.wrap}>
       <button type="button" style={styles.headerBtn} onClick={() => setOpen((v) => !v)} aria-expanded={open}>
         <span style={styles.headerLeft}>
-          <span style={styles.bagIcon} aria-hidden>
-            🛍️
-          </span>
           <span style={styles.headerText}>
             <span style={styles.title}>{title}</span>
             <span style={styles.itemCount}>
-              {isCod && collectAmount != null ? 'COD · collect at door · ' : ''}
+              {isCod && collectAmount != null ? `Collect ${formatRupee(collectAmount)} · ` : ''}
               {itemLabel}
             </span>
           </span>
@@ -163,10 +161,11 @@ export function PickupItemsList({
 
 const styles: Record<string, CSSProperties> = {
   wrap: {
-    borderRadius: 10,
-    background: 'var(--bg-elevated)',
-    border: '1.5px solid var(--border)',
+    borderRadius: 12,
+    background: 'linear-gradient(180deg, var(--bg-elevated), color-mix(in srgb, var(--bg-muted) 40%, var(--bg-elevated)))',
+    border: '1px solid color-mix(in srgb, var(--border) 88%, transparent)',
     overflow: 'hidden',
+    boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.6)',
   },
   headerBtn: {
     width: '100%',
@@ -175,13 +174,13 @@ const styles: Record<string, CSSProperties> = {
     justifyContent: 'space-between',
     gap: '0.4rem',
     margin: 0,
-    padding: '0.4rem 0.55rem',
+    padding: '0.38rem 0.5rem',
     border: 'none',
     background: 'transparent',
     color: 'var(--text)',
     cursor: 'pointer',
     textAlign: 'left',
-    minHeight: 36,
+    minHeight: 32,
   },
   headerLeft: { display: 'flex', alignItems: 'center', gap: '0.45rem', minWidth: 0, flex: '1 1 auto' },
   headerRight: {

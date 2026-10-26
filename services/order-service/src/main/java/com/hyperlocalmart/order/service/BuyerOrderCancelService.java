@@ -4,6 +4,7 @@ import com.hyperlocalmart.common.exception.BusinessException;
 import com.hyperlocalmart.common.exception.ErrorCode;
 import com.hyperlocalmart.order.client.NotificationClient;
 import com.hyperlocalmart.order.client.PaymentClient;
+import com.hyperlocalmart.order.client.TownClient;
 import com.hyperlocalmart.order.dto.request.CancelOrderItemRequest;
 import com.hyperlocalmart.order.dto.request.CancelOrderRequest;
 import com.hyperlocalmart.order.entity.*;
@@ -34,11 +35,18 @@ public class BuyerOrderCancelService {
     private final PaymentClient paymentClient;
     private final NotificationClient notificationClient;
     private final OrderMoneyUnwindService orderMoneyUnwindService;
+    private final OrderTotalsSyncService orderTotalsSyncService;
+    private final TownClient townClient;
 
     @Transactional
     public void cancelOrder(UUID buyerId, UUID orderId, CancelOrderRequest request) {
         Order order = orderRepository.findDetailedByIdAndBuyerId(orderId, buyerId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Order not found"));
+
+        TownClient.BuyerCancelPolicy policy = townClient.getBuyerCancelPolicy(order.getTownId());
+        if (!policy.cancelOrderEnabled()) {
+            throw new BusinessException(ErrorCode.CONFLICT, "Order cancellation is not available in this town");
+        }
 
         if (order.getStatus() == OrderStatus.CANCELLED) {
             throw new BusinessException(ErrorCode.CONFLICT, "Order is already cancelled");
@@ -158,6 +166,11 @@ public class BuyerOrderCancelService {
     public void cancelItem(UUID buyerId, UUID orderId, UUID itemId, CancelOrderItemRequest request) {
         Order order = orderRepository.findDetailedByIdAndBuyerId(orderId, buyerId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Order not found"));
+
+        TownClient.BuyerCancelPolicy policy = townClient.getBuyerCancelPolicy(order.getTownId());
+        if (!policy.cancelItemsEnabled()) {
+            throw new BusinessException(ErrorCode.CONFLICT, "Item cancellation is not available in this town");
+        }
 
         if (order.getStatus() != OrderStatus.PLACED) {
             throw new BusinessException(ErrorCode.CONFLICT,
@@ -361,13 +374,7 @@ public class BuyerOrderCancelService {
             newItemsSubtotal = BigDecimal.ZERO;
         }
         order.setItemsSubtotal(newItemsSubtotal);
-        boolean orderEmpty = newItemsSubtotal.compareTo(BigDecimal.ZERO) == 0;
-        if (orderEmpty) {
-            order.setDeliveryFee(BigDecimal.ZERO);
-            order.setPlatformFee(BigDecimal.ZERO);
-            order.setCodFee(BigDecimal.ZERO);
-        }
-        order.setTotalAmount(OrderService.buyerPayableTotal(order));
+        orderTotalsSyncService.syncAfterLineChange(order);
         orderRepository.save(order);
     }
 

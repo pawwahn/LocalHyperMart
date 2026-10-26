@@ -3,6 +3,8 @@ package com.hyperlocalmart.payment.dto.request;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
 
+import java.time.LocalDate;
+
 /**
  * Vendor submitting payment for a sent bill (method + reference required), or admin confirming it
  * (blank fields fall back to what the vendor submitted).
@@ -15,4 +17,6 @@ public class SubscriptionPaymentRequest {
     private String transactionReference;
     @Size(max = 500)
     private String transactionNotes;
+    /** yyyy-MM-dd on KoyaKart's bank statement — required when admin confirms payment received. */
+    private LocalDate bankPaidOn;
 }

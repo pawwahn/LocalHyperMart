@@ -1,0 +1,17 @@
+---
+description: Date inputs — calendar picker only, no typing (KoyaKart)
+globs: web/**/*.{tsx,ts,jsx,js}
+alwaysApply: false
+---
+
+# Date fields (KoyaKart)
+
+Do **not** use raw `<input type="date">` in buyer, vendor, delivery, or super-admin apps.
+
+Use **`PickerDateField`** from `@hlm-dates` (`web/shared/dates/PickerDateField.tsx`):
+
+- Tap/click anywhere on the control opens the native calendar (`showPicker` when supported).
+- Input is **`readOnly`** — users must not type or edit the date inline.
+- Super-admin **`TextField`** with `type="date"` already delegates to `PickerDateField`.
+
+Report date ranges should use **`DateRangePresetBar`** (also uses `PickerDateField` for From/To).

@@ -7,13 +7,14 @@ import { AuthProvider, useAuth } from '@/shared/auth/AuthContext';
 import { RequireAuth } from '@/shared/routing/RequireAuth';
 import { VendorChromeLayout } from '@/shared/layout/VendorChromeLayout';
 import { LoginPage } from '@/features/auth/pages/LoginPage';
-import { LegalDocumentPage } from '@hlm-legal';
+import { CookieNotice, LegalDocumentPage, OpenSourceNoticesPage } from '@hlm-legal';
 import { PayoutsPage } from '@/features/payouts/pages/PayoutsPage';
 import { SellersPage } from '@/features/sellers/pages/SellersPage';
 import { SettingsPage } from '@/features/settings/pages/SettingsPage';
 import { DeliveryAgentsPage } from '@/features/delivery/pages/DeliveryAgentsPage';
 import { VendorCodHandoverPage } from '@/features/cod/pages/VendorCodHandoverPage';
 import { LaundryDeskPage } from '@/features/laundry/pages/LaundryDeskPage';
+import { GlamDeskPage } from '@/features/beauty/pages/GlamDeskPage';
 
 function AuthBoundTheme({ children }: { children: ReactNode }) {
   const { isAuthenticated } = useAuth();
@@ -41,6 +42,7 @@ export function AppRouter() {
         <BrowserRouter basename={routerBasename()}>
           <Routes>
             <Route path="/login" element={<LoginPage />} />
+            <Route path="/legal/oss" element={<OpenSourceNoticesPage homeTo="/login" />} />
             <Route path="/legal/:doc" element={<LegalDocumentPage homeTo="/login" />} />
             <Route element={<RequireAuth />}>
               <Route element={<VendorChromeLayout />}>
@@ -51,12 +53,14 @@ export function AppRouter() {
                 <Route path="/sellers" element={<SellersPage />} />
                 <Route path="/settings" element={<SettingsPage />} />
                 <Route path="/laundry" element={<LaundryDeskPage />} />
+                <Route path="/glam" element={<GlamDeskPage />} />
                 <Route path="/delivery-agents" element={<DeliveryAgentsPage />} />
                 <Route path="/cod-handover" element={<VendorCodHandoverPage />} />
               </Route>
             </Route>
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>
+          <CookieNotice privacyTo="/legal/privacy" />
         </BrowserRouter>
       </AuthBoundTheme>
       </PlatformBrandProvider>

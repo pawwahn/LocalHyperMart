@@ -8,6 +8,16 @@ import { ConfirmTookBagDialog } from '../components/ConfirmTookBagDialog';
 import { useAgentWorkspace } from '../hooks/useAgentWorkspace';
 import { usePickupManifests } from '../hooks/usePickupManifests';
 import { groupPickupsByOrder } from '../lib/assignmentSteps';
+import { useSingleExpandedCard } from '../hooks/useSingleExpandedCard';
+import { agentAssignmentList, agentAssignmentRail } from '../layout/agentAssignmentRail';
+import {
+  agentTripChip,
+  agentTripChipActive,
+  agentTripSearch,
+  agentTripSearchIcon,
+  agentTripSearchWrap,
+  agentTripSegment,
+} from '../layout/agentTripFilterStyles';
 
 type PickupFilter = 'all' | 'at_shop' | 'to_hub';
 
@@ -32,6 +42,8 @@ export function AgentVendorPickupsPage() {
   }, [pickupTasks, filter]);
 
   const groups = useMemo(() => groupPickupsByOrder(filtered), [filtered]);
+  const flatTasks = useMemo(() => groups.flatMap((g) => g.subOrders), [groups]);
+  const [expandedId, setExpandedId] = useSingleExpandedCard(flatTasks, 'IN_PROGRESS');
   const { manifests, failedIds, loadingManifests, retryManifest } = usePickupManifests(pickupTasks);
 
   const atShopCount = pickupTasks.filter((t) => t.status === 'ASSIGNED').length;
@@ -44,10 +56,11 @@ export function AgentVendorPickupsPage() {
 
   return (
     <AgentShell title="From shop" subtitle="Take bag → bring to hub" onRefresh={() => void reload()}>
+      <div style={agentAssignmentRail}>
       {error ? <p style={styles.error}>{error}</p> : null}
       {notice ? <p style={styles.notice}>{notice}</p> : null}
 
-      <div style={styles.filters}>
+      <div style={agentTripSegment} role="tablist" aria-label="Filter pickups">
         <FilterChip active={filter === 'all'} label={`All ${pickupTasks.length}`} onClick={() => setFilter('all')} />
         <FilterChip
           active={filter === 'at_shop'}
@@ -61,13 +74,19 @@ export function AgentVendorPickupsPage() {
         />
       </div>
 
-      <input
-        type="search"
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-        placeholder="Type order number…"
-        style={styles.search}
-      />
+      <div style={agentTripSearchWrap}>
+        <span style={agentTripSearchIcon} aria-hidden>
+          ⌕
+        </span>
+        <input
+          type="search"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search order number"
+          className="agent-trip-search"
+          style={agentTripSearch}
+        />
+      </div>
 
       {loading && groups.length === 0 ? (
         <p style={styles.muted}>Loading…</p>
@@ -93,6 +112,9 @@ export function AgentVendorPickupsPage() {
                     key={task.id}
                     task={task}
                     busy={actionId === task.id}
+                    expanded={expandedId === task.id}
+                    onRequestExpand={() => setExpandedId(task.id)}
+                    onRequestCollapse={() => setExpandedId(null)}
                     manifest={manifests[task.id]}
                     manifestLoading={loadingManifests}
                     manifestFailed={Boolean(failedIds[task.id])}
@@ -113,6 +135,7 @@ export function AgentVendorPickupsPage() {
           ))}
         </div>
       )}
+      </div>
 
       <ConfirmTookBagDialog
         open={Boolean(tookPrompt)}
@@ -145,54 +168,30 @@ function FilterChip({
   onClick: () => void;
 }) {
   return (
-    <button type="button" style={active ? styles.chipActive : styles.chip} onClick={onClick}>
+    <button
+      type="button"
+      role="tab"
+      aria-selected={active}
+      style={active ? agentTripChipActive : agentTripChip}
+      onClick={onClick}
+    >
       {label}
     </button>
   );
 }
 
 const styles: Record<string, CSSProperties> = {
-  filters: { display: 'flex', gap: '0.35rem', flexWrap: 'wrap' },
-  chip: {
-    border: '1px solid var(--border)',
-    borderRadius: 999,
-    padding: '0.4rem 0.7rem',
-    background: 'transparent',
-    color: 'var(--text-muted)',
-    fontSize: '0.82rem',
-    fontWeight: 700,
-    cursor: 'pointer',
-  },
-  chipActive: {
-    border: '1px solid var(--success)',
-    borderRadius: 999,
-    padding: '0.4rem 0.7rem',
-    background: 'rgba(129, 199, 132, 0.2)',
-    color: 'var(--success)',
-    fontSize: '0.82rem',
-    fontWeight: 800,
-    cursor: 'pointer',
-  },
-  search: {
-    width: '100%',
-    boxSizing: 'border-box',
-    border: '1px solid var(--border)',
-    borderRadius: 10,
-    padding: '0.55rem 0.75rem',
-    background: 'var(--bg-muted)',
-    color: 'var(--text)',
-    fontSize: '0.95rem',
-  },
-  list: { display: 'grid', gap: '0.75rem' },
+  list: agentAssignmentList,
   orderGroup: {
-    border: '1px solid var(--border)',
-    borderRadius: 12,
-    padding: '0.75rem',
+    border: '1px solid color-mix(in srgb, var(--border) 88%, transparent)',
+    borderRadius: 14,
+    padding: '0.65rem 0.7rem',
     background: 'var(--bg-elevated)',
+    boxShadow: 'var(--shadow-soft)',
   },
   orderTitle: { margin: 0, fontSize: '0.98rem', fontWeight: 800 },
   orderMeta: { margin: '0.15rem 0 0.5rem', color: 'var(--text-muted)', fontSize: '0.8rem', fontWeight: 700 },
-  cards: { display: 'grid', gap: '0.55rem' },
+  cards: agentAssignmentList,
   error: { margin: 0, color: 'var(--danger)', fontWeight: 700 },
   notice: { margin: 0, color: 'var(--success)', fontWeight: 700 },
   muted: { color: 'var(--text-muted)', fontWeight: 700 },

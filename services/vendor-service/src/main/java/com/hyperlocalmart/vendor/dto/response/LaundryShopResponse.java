@@ -21,6 +21,8 @@ public class LaundryShopResponse {
     private boolean priceEditAllowed;
     private Integer dailyPieceCapacity;
     private String closedWeekdays;
+    private String blockedPickupDate;
+    private String blockedPickupSlots;
     private BigDecimal pickupCharge;
     private BigDecimal dropCharge;
     private BigDecimal pickupAndDropCharge;

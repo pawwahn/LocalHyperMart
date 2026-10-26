@@ -24,9 +24,11 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.Callable;
@@ -46,6 +48,8 @@ public class OpenAccountsService {
 
     private static final ZoneId IST = ZoneId.of("Asia/Kolkata");
     private static final LocalDate OPEN_START = LocalDate.of(2020, 1, 1);
+    /** When no from-date is set, only scan this many days of deliveries — open settlements still come from DB. */
+    private static final int UNBOUNDED_SCAN_DAYS = 120;
     private static final DateTimeFormatter MONTH = DateTimeFormatter.ofPattern("MMMM yyyy", Locale.ENGLISH);
 
     private final OrderClient orderClient;
@@ -55,27 +59,43 @@ public class OpenAccountsService {
     private final DeliveryClient deliveryClient;
     private final TownClient townClient;
     private final CodCloseDayLineItemRepository closeLineRepository;
-    private final ExecutorService workers = Executors.newFixedThreadPool(4, runnable -> {
-        Thread thread = new Thread(runnable, "open-accounts");
-        thread.setDaemon(true);
-        return thread;
-    });
+    private final HubCodCustodyService hubCodCustodyService;
+    private final ExecutorService workers = Executors.newFixedThreadPool(
+            Math.min(16, Math.max(4, Runtime.getRuntime().availableProcessors())),
+            runnable -> {
+                Thread thread = new Thread(runnable, "open-accounts");
+                thread.setDaemon(true);
+                return thread;
+            });
+
+    private final Map<UUID, String> vendorNameCache = new HashMap<>();
+    private final Map<UUID, String> hubNameCache = new HashMap<>();
 
     public List<Line> scan(LocalDate from, LocalDate to) {
-        LocalDate start = from == null ? OPEN_START : from;
+        return scan(from, to, null);
+    }
+
+    public List<Line> scan(LocalDate from, LocalDate to, UUID townId) {
         LocalDate end = to == null ? LocalDate.now(IST) : to;
+        LocalDate start = from == null ? end.minusDays(UNBOUNDED_SCAN_DAYS) : from;
+        if (start.isBefore(OPEN_START)) {
+            start = OPEN_START;
+        }
         if (end.isBefore(start)) {
             LocalDate swap = start;
             start = end;
             end = swap;
         }
+        vendorNameCache.clear();
+        hubNameCache.clear();
         orderClient.beginReplay();
         deliveryClient.beginReplay();
         townClient.beginReplay();
         List<Line> out = new ArrayList<>();
         try {
-            scanVendors(out, from, to, start, end);
-            scanHubsAndAgents(out, start, end);
+            scanVendors(out, from, to, start, end, townId);
+            scanHubsAndAgents(out, start, end, townId);
+            scanDeliveredCodAccounts(out, start, end, townId);
         } finally {
             orderClient.endReplay();
             deliveryClient.endReplay();
@@ -84,7 +104,13 @@ public class OpenAccountsService {
         return out;
     }
 
-    private void scanVendors(List<Line> out, LocalDate requestedFrom, LocalDate requestedTo, LocalDate start, LocalDate end) {
+    private void scanVendors(
+            List<Line> out,
+            LocalDate requestedFrom,
+            LocalDate requestedTo,
+            LocalDate start,
+            LocalDate end,
+            UUID townFilter) {
         List<OrderClient.BagKey> keys = null;
         try {
             keys = orderClient.settlementBagKeys(start, end);
@@ -92,7 +118,7 @@ public class OpenAccountsService {
             log.warn("Could not list delivered bag keys: {}", ex.toString());
         }
         if (keys == null) {
-            scanVendorsOneByOne(out, requestedFrom, requestedTo, start, end);
+            scanVendorsOneByOne(out, requestedFrom, requestedTo, start, end, townFilter);
             return;
         }
         Map<String, UUID> vendorByPair = new LinkedHashMap<>();
@@ -101,6 +127,9 @@ public class OpenAccountsService {
         List<UUID> allIds = new ArrayList<>();
         for (OrderClient.BagKey key : keys) {
             if (key == null || key.vendorId() == null || key.townId() == null || key.subOrderId() == null) {
+                continue;
+            }
+            if (townFilter != null && !townFilter.equals(key.townId())) {
                 continue;
             }
             String pair = key.vendorId() + "|" + key.townId();
@@ -153,7 +182,12 @@ public class OpenAccountsService {
 
     /** Used when bag keys are not available. One shop at a time. */
     private void scanVendorsOneByOne(
-            List<Line> out, LocalDate requestedFrom, LocalDate requestedTo, LocalDate start, LocalDate end) {
+            List<Line> out,
+            LocalDate requestedFrom,
+            LocalDate requestedTo,
+            LocalDate start,
+            LocalDate end,
+            UUID townFilter) {
         List<OrderClient.VendorTown> pairs;
         try {
             pairs = orderClient.deliveredVendorTowns(start, end);
@@ -164,6 +198,9 @@ public class OpenAccountsService {
         Set<UUID> subscriptionsDone = new HashSet<>();
         for (OrderClient.VendorTown pair : pairs) {
             if (pair == null || pair.vendorId() == null || pair.townId() == null) {
+                continue;
+            }
+            if (townFilter != null && !townFilter.equals(pair.townId())) {
                 continue;
             }
             try {
@@ -221,22 +258,26 @@ public class OpenAccountsService {
         if (!collect.isEmpty()) {
             VendorClient.CommercialTermsQuote quote = vendorClient.quoteCommercialTerms(
                     vendorId, start, end, orderLines(collect), false, true);
-            BigDecimal fee = money(quote.totalFeeAmount()).add(platformFees(collect));
+            BigDecimal commissionOnly = money(quote.totalFeeAmount());
+            BigDecimal platform = platformFees(collect);
+            BigDecimal cod = codFees(collect);
+            BigDecimal membership = membershipFees(collect);
+            BigDecimal fee = commissionOnly.add(platform).add(cod).add(membership);
             if (fee.signum() > 0) {
-                String extra = "commission " + inr(money(quote.totalFeeAmount()));
-                BigDecimal platform = platformFees(collect);
-                if (platform.signum() > 0) {
-                    extra = extra + " · platform fee " + inr(platform);
-                }
+                String extra = "";
                 if (quote.appliedSlabLabel() != null && !quote.appliedSlabLabel().isBlank()) {
-                    extra = extra + " · " + quote.appliedSlabLabel().trim();
+                    extra = quote.appliedSlabLabel().trim();
                 }
-                extra = extra + " · " + cashNote(collect);
+                if (!extra.isBlank()) {
+                    extra = extra + " · ";
+                }
+                extra = extra + cashNote(collect);
                 out.add(line(townId, "VENDOR", vendorId, shop, "SEND_BILL",
-                        "Shop holds the cash — bill the commission",
+                        "Shop holds the cash — bill commission + platform fee",
                         bagsDetail(collect, extra),
                         periodStart(collect, start), periodEnd(collect, end),
-                        fee, collect.size(), firstOrder(collect), fee));
+                        fee, collect.size(), firstOrder(collect), commissionOnly,
+                        feePart(platform), feePart(cod), feePart(membership), null));
             }
         }
         if (!pay.isEmpty()) {
@@ -258,7 +299,7 @@ public class OpenAccountsService {
                         "Pay the shop — commission already taken off",
                         bagsDetail(pay, extra),
                         periodStart(pay, start), periodEnd(pay, end),
-                        net, pay.size(), firstOrder(pay), commission));
+                        net, pay.size(), firstOrder(pay), commission, null, null, null, null));
             }
         }
     }
@@ -284,11 +325,11 @@ public class OpenAccountsService {
                     "Monthly subscription — send the bill",
                     month + " · not billed yet · not commission",
                     bill.getPeriodStart(), bill.getPeriodEnd(),
-                    money(bill.getAmount()), 1, null, null));
+                    money(bill.getAmount()), 1, null, null, null, null, null, null));
         }
     }
 
-    private void scanHubsAndAgents(List<Line> out, LocalDate start, LocalDate end) {
+    private void scanHubsAndAgents(List<Line> out, LocalDate start, LocalDate end, UUID townFilter) {
         List<Object[]> hubs;
         try {
             hubs = closeLineRepository.distinctHubTowns();
@@ -304,6 +345,9 @@ public class OpenAccountsService {
             UUID townId = uuid(row[0]);
             UUID hubId = uuid(row[1]);
             if (townId == null || hubId == null) {
+                continue;
+            }
+            if (townFilter != null && !townFilter.equals(townId)) {
                 continue;
             }
             try {
@@ -331,6 +375,348 @@ public class OpenAccountsService {
                     log.warn("Skipped open agent payout for {}: {}", agent.agentId(), ex.toString());
                 }
             }
+        }
+    }
+
+    /**
+     * Delivered COD that is not yet on a vendor settlement or hub remittance — independent of agent handover.
+     */
+    private void scanDeliveredCodAccounts(List<Line> out, LocalDate start, LocalDate end, UUID townFilter) {
+        Set<UUID> townIds = new LinkedHashSet<>();
+        if (townFilter != null) {
+            townIds.add(townFilter);
+        } else {
+            try {
+                for (OrderClient.VendorTown pair : orderClient.deliveredVendorTowns(start, end)) {
+                    if (pair != null && pair.townId() != null) {
+                        townIds.add(pair.townId());
+                    }
+                }
+            } catch (RuntimeException ex) {
+                log.warn("Could not list towns for delivered COD accounts: {}", ex.toString());
+            }
+            try {
+                for (Object[] row : closeLineRepository.distinctHubTowns()) {
+                    UUID townId = uuid(row[0]);
+                    if (townId != null) {
+                        townIds.add(townId);
+                    }
+                }
+            } catch (RuntimeException ex) {
+                log.warn("Could not list hub towns for delivered COD accounts: {}", ex.toString());
+            }
+        }
+        if (townIds.isEmpty()) {
+            return;
+        }
+
+        Set<UUID> deliveredBagSubOrders = deliveredBagSubOrderIds(start, end, townFilter);
+        Map<String, VendorCodGap> vendorGaps = new LinkedHashMap<>();
+        Map<String, HubCodGap> hubGaps = new LinkedHashMap<>();
+
+        for (UUID townId : townIds) {
+            OrderClient.CodDeliveredOrders delivered;
+            try {
+                delivered = orderClient.getCodDeliveredRange(townId, null, start, end, null);
+            } catch (RuntimeException ex) {
+                log.warn("Skipped delivered COD scan for town {}: {}", townId, ex.toString());
+                continue;
+            }
+            List<OrderClient.CodDeliveredItem> items =
+                    delivered.items() == null ? List.of() : delivered.items();
+            if (items.isEmpty()) {
+                continue;
+            }
+            List<UUID> orderIds = items.stream()
+                    .map(OrderClient.CodDeliveredItem::orderId)
+                    .filter(Objects::nonNull)
+                    .toList();
+            if (orderIds.isEmpty()) {
+                continue;
+            }
+            Set<UUID> onCloseDay = new HashSet<>(closeLineRepository.findClosedOrderIds(orderIds));
+            Set<UUID> withCompany = hubCodCustodyService.ordersAlreadyWithCompany(orderIds);
+            List<OrderClient.CodCashBreakdown> breakdowns;
+            try {
+                breakdowns = orderClient.codCashBreakdown(orderIds);
+            } catch (RuntimeException ex) {
+                log.warn("Skipped COD breakdown for town {}: {}", townId, ex.toString());
+                continue;
+            }
+            List<UUID> subOrderIds = breakdowns.stream()
+                    .flatMap(b -> b.vendorAllocations() == null ? java.util.stream.Stream.empty()
+                            : b.vendorAllocations().stream())
+                    .map(OrderClient.VendorAllocation::subOrderId)
+                    .filter(Objects::nonNull)
+                    .toList();
+            Set<UUID> settledSubOrders;
+            try {
+                settledSubOrders = settlementService.settledSubOrderIds(subOrderIds);
+            } catch (RuntimeException ex) {
+                settledSubOrders = Set.of();
+            }
+
+            for (OrderClient.CodCashBreakdown breakdown : breakdowns) {
+                UUID orderId = breakdown.orderId();
+                if (orderId == null || onCloseDay.contains(orderId) || withCompany.contains(orderId)) {
+                    continue;
+                }
+                if ("HUB".equalsIgnoreCase(breakdown.custodianType())) {
+                    UUID hubId = breakdown.hubId();
+                    if (hubId == null || breakdown.collectAmount() == null
+                            || breakdown.collectAmount().signum() <= 0) {
+                        continue;
+                    }
+                    String key = townId + "|" + hubId;
+                    hubGaps.computeIfAbsent(key, ignored -> new HubCodGap(townId, hubId))
+                            .add(breakdown);
+                    continue;
+                }
+                if (!"VENDOR".equalsIgnoreCase(breakdown.custodianType())) {
+                    continue;
+                }
+                List<OrderClient.VendorAllocation> gapAllocations = gapAllocations(
+                        breakdown, deliveredBagSubOrders, settledSubOrders);
+                if (gapAllocations.isEmpty()) {
+                    continue;
+                }
+                for (OrderClient.VendorAllocation allocation : gapAllocations) {
+                    if (allocation.vendorId() == null) {
+                        continue;
+                    }
+                    String key = townId + "|" + allocation.vendorId();
+                    vendorGaps.computeIfAbsent(key, ignored -> new VendorCodGap(townId, allocation.vendorId()))
+                            .add(breakdown, allocation);
+                }
+            }
+        }
+
+        for (VendorCodGap gap : vendorGaps.values()) {
+            appendVendorCodGap(out, gap, start, end);
+        }
+        for (HubCodGap gap : hubGaps.values()) {
+            appendHubCodGap(out, gap, start, end);
+        }
+    }
+
+    private Set<UUID> deliveredBagSubOrderIds(LocalDate start, LocalDate end, UUID townFilter) {
+        Set<UUID> ids = new HashSet<>();
+        try {
+            List<OrderClient.BagKey> keys = orderClient.settlementBagKeys(start, end);
+            if (keys == null) {
+                return ids;
+            }
+            for (OrderClient.BagKey key : keys) {
+                if (key != null && key.subOrderId() != null) {
+                    if (townFilter != null && key.townId() != null && !townFilter.equals(key.townId())) {
+                        continue;
+                    }
+                    ids.add(key.subOrderId());
+                }
+            }
+        } catch (RuntimeException ex) {
+            log.warn("Could not list delivered bag keys for COD accounts: {}", ex.toString());
+        }
+        return ids;
+    }
+
+    private static List<OrderClient.VendorAllocation> gapAllocations(
+            OrderClient.CodCashBreakdown breakdown,
+            Set<UUID> deliveredBagSubOrders,
+            Set<UUID> settledSubOrders) {
+        if (breakdown.vendorAllocations() == null || breakdown.vendorAllocations().isEmpty()) {
+            return List.of();
+        }
+        List<OrderClient.VendorAllocation> out = new ArrayList<>();
+        for (OrderClient.VendorAllocation allocation : breakdown.vendorAllocations()) {
+            UUID subOrderId = allocation.subOrderId();
+            if (subOrderId != null && settledSubOrders.contains(subOrderId)) {
+                continue;
+            }
+            if (subOrderId != null && deliveredBagSubOrders.contains(subOrderId)) {
+                continue;
+            }
+            out.add(allocation);
+        }
+        return out;
+    }
+
+    private void appendVendorCodGap(List<Line> out, VendorCodGap gap, LocalDate start, LocalDate end) {
+        List<VendorClient.OrderLine> quoteLines = new ArrayList<>();
+        BigDecimal feeShare = BigDecimal.ZERO;
+        BigDecimal membership = BigDecimal.ZERO;
+        Set<UUID> membershipOrders = new HashSet<>();
+        List<String> orderNumbers = new ArrayList<>();
+        for (VendorCodGap.OrderSlice slice : gap.slices()) {
+            Instant when = slice.breakdown().deliveredAt() != null
+                    ? slice.breakdown().deliveredAt()
+                    : Instant.now();
+            quoteLines.add(new VendorClient.OrderLine(
+                    money(slice.allocation().goodsSubtotal()), when, null));
+            feeShare = feeShare.add(money(slice.allocation().allocatedCash())
+                    .subtract(money(slice.allocation().goodsSubtotal())).max(BigDecimal.ZERO));
+            UUID orderId = slice.breakdown().orderId();
+            if (orderId != null && membershipOrders.add(orderId)) {
+                BigDecimal allocated = slice.breakdown().vendorAllocations() == null
+                        ? BigDecimal.ZERO
+                        : slice.breakdown().vendorAllocations().stream()
+                        .map(OrderClient.VendorAllocation::allocatedCash)
+                        .map(OpenAccountsService::money)
+                        .reduce(BigDecimal.ZERO, BigDecimal::add);
+                membership = membership.add(
+                        money(slice.breakdown().collectAmount()).subtract(allocated).max(BigDecimal.ZERO));
+            }
+            if (slice.breakdown().orderNumber() != null && !slice.breakdown().orderNumber().isBlank()) {
+                orderNumbers.add(slice.breakdown().orderNumber().trim());
+            }
+        }
+        VendorClient.CommercialTermsQuote quote;
+        try {
+            quote = vendorClient.quoteCommercialTerms(
+                    gap.vendorId(), start, end, quoteLines, false, true);
+        } catch (RuntimeException ex) {
+            log.warn("Skipped COD gap quote for vendor {}: {}", gap.vendorId(), ex.toString());
+            return;
+        }
+        BigDecimal commission = money(quote.totalFeeAmount());
+        BigDecimal amount = commission.add(feeShare).add(membership);
+        if (amount.signum() <= 0) {
+            return;
+        }
+        String shop = shopName(gap.vendorId());
+        String orders = orderNumbers.stream().distinct().limit(3).reduce((a, b) -> a + ", " + b).orElse("");
+        long extra = orderNumbers.stream().distinct().count() - Math.min(3, orderNumbers.size());
+        if (extra > 0) {
+            orders = orders + " +" + extra;
+        }
+        String detail = gap.slices().size() + " delivered COD order"
+                + (gap.slices().size() == 1 ? "" : "s")
+                + " · commission " + inr(commission);
+        if (feeShare.signum() > 0) {
+            detail = detail + " · fees " + inr(feeShare);
+        }
+        if (membership.signum() > 0) {
+            detail = detail + " · membership " + inr(membership);
+        }
+        if (!orders.isBlank()) {
+            detail = detail + " · " + orders;
+        }
+        LocalDate periodFrom = gap.slices().stream()
+                .map(s -> istDay(s.breakdown().deliveredAt()))
+                .filter(Objects::nonNull)
+                .min(LocalDate::compareTo)
+                .orElse(start);
+        LocalDate periodTo = gap.slices().stream()
+                .map(s -> istDay(s.breakdown().deliveredAt()))
+                .filter(Objects::nonNull)
+                .max(LocalDate::compareTo)
+                .orElse(end);
+        out.add(line(gap.townId(), "VENDOR", gap.vendorId(), shop, "SEND_BILL",
+                "Delivered COD — platform fees (not on settlement yet)",
+                detail, periodFrom, periodTo, amount, gap.slices().size(),
+                gap.slices().size() == 1 ? orderNumbers.get(0) : null, commission,
+                feePart(feeShare.max(BigDecimal.ZERO)), null, feePart(membership), null));
+    }
+
+    private void appendHubCodGap(List<Line> out, HubCodGap gap, LocalDate start, LocalDate end) {
+        BigDecimal amount = gap.breakdowns().stream()
+                .map(OrderClient.CodCashBreakdown::collectAmount)
+                .map(OpenAccountsService::money)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        if (amount.signum() <= 0) {
+            return;
+        }
+        String name = hubName(gap.hubId());
+        List<String> orderNumbers = gap.breakdowns().stream()
+                .map(OrderClient.CodCashBreakdown::orderNumber)
+                .filter(n -> n != null && !n.isBlank())
+                .distinct()
+                .limit(3)
+                .toList();
+        long extra = gap.breakdowns().stream()
+                .map(OrderClient.CodCashBreakdown::orderNumber)
+                .filter(n -> n != null && !n.isBlank())
+                .distinct()
+                .count() - orderNumbers.size();
+        String orders = String.join(", ", orderNumbers);
+        if (extra > 0) {
+            orders = orders + " +" + extra;
+        }
+        String detail = gap.breakdowns().size() + " delivered COD order"
+                + (gap.breakdowns().size() == 1 ? "" : "s")
+                + " · buyer cash " + inr(amount);
+        if (!orders.isBlank()) {
+            detail = detail + " · " + orders;
+        }
+        LocalDate periodFrom = gap.breakdowns().stream()
+                .map(b -> istDay(b.deliveredAt()))
+                .filter(Objects::nonNull)
+                .min(LocalDate::compareTo)
+                .orElse(start);
+        LocalDate periodTo = gap.breakdowns().stream()
+                .map(b -> istDay(b.deliveredAt()))
+                .filter(Objects::nonNull)
+                .max(LocalDate::compareTo)
+                .orElse(end);
+        out.add(line(gap.townId(), "HUB", gap.hubId(), name, "SEND_BILL",
+                "Delivered hub-route COD — not remitted to platform yet",
+                detail, periodFrom, periodTo, amount, gap.breakdowns().size(),
+                gap.breakdowns().size() == 1 && !orderNumbers.isEmpty() ? orderNumbers.get(0) : null, null));
+    }
+
+    private static final class VendorCodGap {
+        private final UUID townId;
+        private final UUID vendorId;
+        private final List<OrderSlice> slices = new ArrayList<>();
+
+        VendorCodGap(UUID townId, UUID vendorId) {
+            this.townId = townId;
+            this.vendorId = vendorId;
+        }
+
+        void add(OrderClient.CodCashBreakdown breakdown, OrderClient.VendorAllocation allocation) {
+            slices.add(new OrderSlice(breakdown, allocation));
+        }
+
+        UUID townId() {
+            return townId;
+        }
+
+        UUID vendorId() {
+            return vendorId;
+        }
+
+        List<OrderSlice> slices() {
+            return slices;
+        }
+
+        record OrderSlice(OrderClient.CodCashBreakdown breakdown, OrderClient.VendorAllocation allocation) {}
+    }
+
+    private static final class HubCodGap {
+        private final UUID townId;
+        private final UUID hubId;
+        private final List<OrderClient.CodCashBreakdown> breakdowns = new ArrayList<>();
+
+        HubCodGap(UUID townId, UUID hubId) {
+            this.townId = townId;
+            this.hubId = hubId;
+        }
+
+        void add(OrderClient.CodCashBreakdown breakdown) {
+            breakdowns.add(breakdown);
+        }
+
+        UUID townId() {
+            return townId;
+        }
+
+        UUID hubId() {
+            return hubId;
+        }
+
+        List<OrderClient.CodCashBreakdown> breakdowns() {
+            return breakdowns;
         }
     }
 
@@ -378,21 +764,39 @@ public class OpenAccountsService {
     }
 
     private String shopName(UUID vendorId) {
-        try {
-            String name = vendorClient.getVendorShopDisplayName(vendorId);
-            return name == null || name.isBlank() ? "Vendor" : name;
-        } catch (RuntimeException ex) {
+        if (vendorId == null) {
             return "Vendor";
         }
+        String cached = vendorNameCache.get(vendorId);
+        if (cached != null) {
+            return cached;
+        }
+        try {
+            String name = vendorClient.getVendorShopDisplayName(vendorId);
+            cached = name == null || name.isBlank() ? "Vendor" : name;
+        } catch (RuntimeException ex) {
+            cached = "Vendor";
+        }
+        vendorNameCache.put(vendorId, cached);
+        return cached;
     }
 
     private String hubName(UUID hubId) {
-        try {
-            String name = deliveryClient.getHubDisplayName(hubId);
-            return name == null || name.isBlank() ? "Hub" : name;
-        } catch (RuntimeException ex) {
+        if (hubId == null) {
             return "Hub";
         }
+        String cached = hubNameCache.get(hubId);
+        if (cached != null) {
+            return cached;
+        }
+        try {
+            String name = deliveryClient.getHubDisplayName(hubId);
+            cached = name == null || name.isBlank() ? "Hub" : name;
+        } catch (RuntimeException ex) {
+            cached = "Hub";
+        }
+        hubNameCache.put(hubId, cached);
+        return cached;
     }
 
     private static String agentName(DeliveryClient.AgentSummary agent) {
@@ -418,6 +822,18 @@ public class OpenAccountsService {
     private static BigDecimal platformFees(List<SettlementCandidateView.Item> items) {
         return items.stream()
                 .map(item -> money(item.getPlatformFee()))
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
+    private static BigDecimal codFees(List<SettlementCandidateView.Item> items) {
+        return items.stream()
+                .map(item -> money(item.getCodFee()))
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
+    private static BigDecimal membershipFees(List<SettlementCandidateView.Item> items) {
+        return items.stream()
+                .map(item -> money(item.getMembershipFee()))
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
     }
 
@@ -543,6 +959,13 @@ public class OpenAccountsService {
         return UUID.fromString(text);
     }
 
+    private static BigDecimal feePart(BigDecimal value) {
+        if (value == null || value.signum() <= 0) {
+            return null;
+        }
+        return money(value);
+    }
+
     private static Line line(
             UUID townId,
             String party,
@@ -557,8 +980,31 @@ public class OpenAccountsService {
             int itemCount,
             String reference,
             BigDecimal commission) {
+        return line(townId, party, partyId, partyName, action, what, detail, periodStart, periodEnd, amount,
+                itemCount, reference, commission, null, null, null, null);
+    }
+
+    private static Line line(
+            UUID townId,
+            String party,
+            UUID partyId,
+            String partyName,
+            String action,
+            String what,
+            String detail,
+            LocalDate periodStart,
+            LocalDate periodEnd,
+            BigDecimal amount,
+            int itemCount,
+            String reference,
+            BigDecimal commission,
+            BigDecimal platformFee,
+            BigDecimal codFee,
+            BigDecimal membershipFee,
+            BigDecimal penalty) {
         return new Line(townId, party, partyId, partyName, action, what, detail,
-                periodStart, periodEnd, amount, itemCount, reference, commission);
+                periodStart, periodEnd, amount, itemCount, reference, commission,
+                platformFee, codFee, membershipFee, penalty);
     }
 
     public record Line(
@@ -574,6 +1020,10 @@ public class OpenAccountsService {
             BigDecimal amount,
             int itemCount,
             String reference,
-            BigDecimal commission) {
+            BigDecimal commission,
+            BigDecimal platformFee,
+            BigDecimal codFee,
+            BigDecimal membershipFee,
+            BigDecimal penalty) {
     }
 }

@@ -5,13 +5,19 @@ export type CodCollectInfo = {
   isCod: true;
 };
 
+function isCollectOnDelivery(method: string | null | undefined): boolean {
+  if (!method) return false;
+  const key = method.trim().toUpperCase();
+  return key === 'COD' || key === 'CASH';
+}
+
 /** Merge assignment + manifest so COD shows even before manifest loads. */
 export function resolveCodCollect(
   task: AssignmentView,
   manifest?: DeliveryManifestView | null,
 ): CodCollectInfo | null {
   const method = manifest?.paymentMethod ?? task.paymentMethod;
-  if (method !== 'COD') return null;
+  if (!isCollectOnDelivery(method)) return null;
 
   const fromTask = task.collectCashAmount;
   const fromManifest = manifest?.collectCashAmount;

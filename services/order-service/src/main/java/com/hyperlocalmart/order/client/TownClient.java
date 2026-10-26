@@ -2,6 +2,7 @@ package com.hyperlocalmart.order.client;
 
 import com.hyperlocalmart.common.api.ApiResponse;
 import com.hyperlocalmart.order.config.TownServiceProperties;
+import com.hyperlocalmart.order.scratch.ScratchServiceKind;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Component;
@@ -78,6 +79,27 @@ public class TownClient {
         }
     }
 
+    public BuyerCancelPolicy getBuyerCancelPolicy(UUID townId) {
+        try {
+            RestClient client = restClientBuilder.baseUrl(townServiceProperties.getBaseUrl()).build();
+            ApiResponse<Map<String, Object>> response = client.get()
+                    .uri("/api/v1/internal/towns/{townId}/buyer-cancel-policy", townId)
+                    .retrieve()
+                    .body(new ParameterizedTypeReference<ApiResponse<Map<String, Object>>>() {});
+            if (response == null || response.getData() == null) {
+                return BuyerCancelPolicy.defaults();
+            }
+            Map<String, Object> data = response.getData();
+            boolean cancelOrder = !Boolean.FALSE.equals(data.get("cancelOrderEnabled"))
+                    && !"false".equalsIgnoreCase(String.valueOf(data.get("cancelOrderEnabled")));
+            boolean cancelItems = !Boolean.FALSE.equals(data.get("cancelItemsEnabled"))
+                    && !"false".equalsIgnoreCase(String.valueOf(data.get("cancelItemsEnabled")));
+            return new BuyerCancelPolicy(cancelOrder, cancelItems);
+        } catch (Exception ex) {
+            return BuyerCancelPolicy.defaults();
+        }
+    }
+
     public PaymentSettings getPaymentSettings(UUID townId) {
         try {
             RestClient client = restClientBuilder.baseUrl(townServiceProperties.getBaseUrl()).build();
@@ -103,7 +125,36 @@ public class TownClient {
         }
     }
 
+    public BeautyBookingSettings getBeautyBookingSettings(UUID townId) {
+        try {
+            RestClient client = restClientBuilder.baseUrl(townServiceProperties.getBaseUrl()).build();
+            ApiResponse<Map<String, Object>> response = client.get()
+                    .uri("/api/v1/internal/towns/{townId}/operational-config", townId)
+                    .retrieve()
+                    .body(new ParameterizedTypeReference<ApiResponse<Map<String, Object>>>() {});
+            if (response == null || response.getData() == null) {
+                return BeautyBookingSettings.defaults();
+            }
+            Map<String, Object> data = response.getData();
+            BigDecimal minPrepay = money(data.get("beautyMinPrepayAmount"));
+            BigDecimal parlourFee = money(data.get("beautyParlourPaymentFee"));
+            if (minPrepay == null || minPrepay.compareTo(BigDecimal.ZERO) < 0) {
+                minPrepay = BigDecimal.ZERO;
+            }
+            if (parlourFee == null || parlourFee.compareTo(BigDecimal.ZERO) < 0) {
+                parlourFee = BigDecimal.ZERO;
+            }
+            return new BeautyBookingSettings(minPrepay, parlourFee);
+        } catch (Exception ex) {
+            return BeautyBookingSettings.defaults();
+        }
+    }
+
     public ScratchSettings getScratchSettings(UUID townId) {
+        return getScratchSettings(townId, ScratchServiceKind.GROCERY.name());
+    }
+
+    public ScratchSettings getScratchSettings(UUID townId, String serviceKind) {
         try {
             RestClient client = restClientBuilder.baseUrl(townServiceProperties.getBaseUrl()).build();
             ApiResponse<Map<String, Object>> response = client.get()
@@ -114,18 +165,87 @@ public class TownClient {
                 return ScratchSettings.disabled();
             }
             Map<String, Object> data = response.getData();
-            boolean enabled = Boolean.TRUE.equals(data.get("scratchCardEnabled"))
-                    || "true".equalsIgnoreCase(String.valueOf(data.get("scratchCardEnabled")));
-            BigDecimal min = money(data.get("scratchRewardMin"));
-            BigDecimal max = money(data.get("scratchRewardMax"));
-            BigDecimal threshold = money(data.get("scratchMinGoodsAmount"));
-            if (!enabled || min == null || max == null || threshold == null || max.compareTo(min) < 0) {
-                return ScratchSettings.disabled();
+            String kind = ScratchServiceKind.parse(serviceKind).name();
+            Object byServiceRaw = data.get("scratchByService");
+            if (byServiceRaw instanceof Map<?, ?> byService) {
+                Object row = byService.get(kind);
+                if (row instanceof Map<?, ?> rule) {
+                    ScratchSettings parsed = scratchFromRuleMap(rule);
+                    if (parsed != null) {
+                        return parsed;
+                    }
+                }
             }
-            return new ScratchSettings(true, min, max, threshold);
+            if (ScratchServiceKind.GROCERY.name().equals(kind)) {
+                boolean enabled = Boolean.TRUE.equals(data.get("scratchCardEnabled"))
+                        || "true".equalsIgnoreCase(String.valueOf(data.get("scratchCardEnabled")));
+                BigDecimal min = money(data.get("scratchRewardMin"));
+                BigDecimal max = money(data.get("scratchRewardMax"));
+                BigDecimal threshold = money(data.get("scratchMinGoodsAmount"));
+                if (!enabled || min == null || max == null || threshold == null || max.compareTo(min) < 0) {
+                    return ScratchSettings.disabled();
+                }
+                return new ScratchSettings(true, min, max, threshold, "BOTH", false, false, null, null, null);
+            }
+            return ScratchSettings.disabled();
         } catch (Exception ex) {
             return ScratchSettings.disabled();
         }
+    }
+
+    private static ScratchSettings scratchFromRuleMap(Map<?, ?> rule) {
+        boolean enabled = Boolean.TRUE.equals(rule.get("enabled"))
+                || "true".equalsIgnoreCase(String.valueOf(rule.get("enabled")));
+        BigDecimal min = money(rule.get("rewardMin"));
+        BigDecimal max = money(rule.get("rewardMax"));
+        BigDecimal threshold = money(rule.get("minOrderAmount"));
+        if (!enabled || min == null || max == null || threshold == null || max.compareTo(min) < 0) {
+            return ScratchSettings.disabled();
+        }
+        String prepay = rule.get("prepayModeFilter") == null
+                ? "BOTH"
+                : String.valueOf(rule.get("prepayModeFilter")).trim().toUpperCase();
+        boolean issueAfterRating = Boolean.TRUE.equals(rule.get("issueAfterRating"))
+                || "true".equalsIgnoreCase(String.valueOf(rule.get("issueAfterRating")));
+        boolean partialEnabled = readJsonBool(rule.get("partialPrepayEnabled"), false);
+        BigDecimal partialMin = money(rule.get("partialRewardMin"));
+        BigDecimal partialMax = money(rule.get("partialRewardMax"));
+        BigDecimal partialThreshold = money(rule.get("partialMinPrepayAmount"));
+        if (partialEnabled && (partialMin == null || partialMax == null || partialThreshold == null
+                || partialMax.compareTo(partialMin) < 0)) {
+            partialEnabled = false;
+        }
+        return new ScratchSettings(
+                true,
+                min,
+                max,
+                threshold,
+                prepay,
+                issueAfterRating,
+                partialEnabled,
+                partialMin,
+                partialMax,
+                partialThreshold);
+    }
+
+    private static boolean readJsonBool(Object raw, boolean fallback) {
+        if (raw instanceof Boolean b) {
+            return b;
+        }
+        if (raw instanceof Number n) {
+            return n.intValue() != 0;
+        }
+        if (raw == null) {
+            return fallback;
+        }
+        String text = String.valueOf(raw).trim();
+        if ("true".equalsIgnoreCase(text) || "1".equals(text)) {
+            return true;
+        }
+        if ("false".equalsIgnoreCase(text) || "0".equals(text)) {
+            return false;
+        }
+        return fallback;
     }
 
     private static BigDecimal money(Object raw) {
@@ -185,6 +305,15 @@ public class TownClient {
 
     /** False when the town has laundry off, or when town-service cannot be read. */
     public boolean isLaundryEnabled(UUID townId) {
+        return shopFlag(townId, "laundryEnabled");
+    }
+
+    /** False when makeup & beauty is off for the town, or when town-service cannot be read. */
+    public boolean isBeautyEnabled(UUID townId) {
+        return shopFlag(townId, "beautyEnabled");
+    }
+
+    private boolean shopFlag(UUID townId, String key) {
         try {
             RestClient client = restClientBuilder.baseUrl(townServiceProperties.getBaseUrl()).build();
             ApiResponse<Map<String, Object>> response = client.get()
@@ -194,7 +323,7 @@ public class TownClient {
             if (response == null || response.getData() == null) {
                 return false;
             }
-            Object flag = response.getData().get("laundryEnabled");
+            Object flag = response.getData().get(key);
             return Boolean.TRUE.equals(flag) || "true".equalsIgnoreCase(String.valueOf(flag));
         } catch (Exception ex) {
             return false;
@@ -238,15 +367,38 @@ public class TownClient {
     public record CheckoutFees(BigDecimal deliveryFee, BigDecimal platformFee) {
     }
 
+    public record BeautyBookingSettings(BigDecimal beautyMinPrepayAmount, BigDecimal beautyParlourPaymentFee) {
+        static BeautyBookingSettings defaults() {
+            return new BeautyBookingSettings(BigDecimal.ZERO.setScale(2, java.math.RoundingMode.HALF_UP),
+                    BigDecimal.ZERO.setScale(2, java.math.RoundingMode.HALF_UP));
+        }
+    }
+
     public record PaymentSettings(boolean codEnabled, boolean upiEnabled, BigDecimal codCharge) {
         static PaymentSettings defaults() {
             return new PaymentSettings(true, true, BigDecimal.ZERO);
         }
     }
 
-    public record ScratchSettings(boolean enabled, BigDecimal rewardMin, BigDecimal rewardMax, BigDecimal minGoodsAmount) {
+    public record ScratchSettings(
+            boolean enabled,
+            BigDecimal rewardMin,
+            BigDecimal rewardMax,
+            BigDecimal minGoodsAmount,
+            String prepayModeFilter,
+            boolean issueAfterRating,
+            boolean partialPrepayEnabled,
+            BigDecimal partialRewardMin,
+            BigDecimal partialRewardMax,
+            BigDecimal partialMinPrepayAmount) {
         static ScratchSettings disabled() {
-            return new ScratchSettings(false, null, null, null);
+            return new ScratchSettings(false, null, null, null, "BOTH", false, false, null, null, null);
+        }
+    }
+
+    public record BuyerCancelPolicy(boolean cancelOrderEnabled, boolean cancelItemsEnabled) {
+        static BuyerCancelPolicy defaults() {
+            return new BuyerCancelPolicy(true, true);
         }
     }
 }

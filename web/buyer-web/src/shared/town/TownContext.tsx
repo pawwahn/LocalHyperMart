@@ -35,6 +35,23 @@ type TownContextValue = {
   laundryEnabled: boolean;
   /** False while shop settings for the current town are still loading. */
   laundryReady: boolean;
+  beautyEnabled: boolean;
+  beautyReady: boolean;
+  /** Town admin minimum online prepay for pay-at-parlour glam bookings. */
+  beautyMinPrepayAmount: number;
+  /** Extra fee on pay-at-parlour glam bookings. */
+  beautyParlourPaymentFee: number;
+  beautyScratchEnabled: boolean;
+  beautyScratchPrepayFilter: 'BOTH' | 'FULL' | 'PARTIAL';
+  beautyScratchRewardMax: number;
+  beautyScratchRewardDisplayMax: number;
+  beautyScratchRewardMin: number;
+  beautyScratchMinOrderAmount: number;
+  beautyScratchPartialEnabled: boolean;
+  beautyScratchPartialRewardMax: number;
+  beautyScratchPartialRewardMin: number;
+  beautyScratchPartialMinPrepayAmount: number;
+  beautyScratchPartialRewardDisplayMax: number;
   deliveryWindowLabel: string;
   loading: boolean;
   error: string | null;
@@ -82,6 +99,21 @@ export function TownProvider({ children }: { children: ReactNode }) {
   const [platformFee, setPlatformFee] = useState(0);
   const [laundryEnabled, setLaundryEnabled] = useState(false);
   const [laundryReady, setLaundryReady] = useState(false);
+  const [beautyEnabled, setBeautyEnabled] = useState(false);
+  const [beautyReady, setBeautyReady] = useState(false);
+  const [beautyMinPrepayAmount, setBeautyMinPrepayAmount] = useState(0);
+  const [beautyParlourPaymentFee, setBeautyParlourPaymentFee] = useState(0);
+  const [beautyScratchEnabled, setBeautyScratchEnabled] = useState(false);
+  const [beautyScratchPrepayFilter, setBeautyScratchPrepayFilter] = useState<'BOTH' | 'FULL' | 'PARTIAL'>('BOTH');
+  const [beautyScratchRewardMax, setBeautyScratchRewardMax] = useState(0);
+  const [beautyScratchRewardDisplayMax, setBeautyScratchRewardDisplayMax] = useState(0);
+  const [beautyScratchRewardMin, setBeautyScratchRewardMin] = useState(0);
+  const [beautyScratchMinOrderAmount, setBeautyScratchMinOrderAmount] = useState(0);
+  const [beautyScratchPartialEnabled, setBeautyScratchPartialEnabled] = useState(false);
+  const [beautyScratchPartialRewardMax, setBeautyScratchPartialRewardMax] = useState(0);
+  const [beautyScratchPartialRewardMin, setBeautyScratchPartialRewardMin] = useState(0);
+  const [beautyScratchPartialMinPrepayAmount, setBeautyScratchPartialMinPrepayAmount] = useState(0);
+  const [beautyScratchPartialRewardDisplayMax, setBeautyScratchPartialRewardDisplayMax] = useState(0);
   const [windowStart, setWindowStart] = useState('17:00');
   const [windowEnd, setWindowEnd] = useState('19:00');
   const [clock, setClock] = useState(() => Date.now());
@@ -151,13 +183,17 @@ export function TownProvider({ children }: { children: ReactNode }) {
       setWindowStart('17:00');
       setWindowEnd('19:00');
       setLaundryEnabled(false);
+      setBeautyEnabled(false);
       setLaundryReady(true);
+      setBeautyReady(true);
       applyTownTheme(DEFAULT_TOWN_THEME);
       return;
     }
     let cancelled = false;
     setLaundryEnabled(false);
+    setBeautyEnabled(false);
     setLaundryReady(false);
+    setBeautyReady(false);
     void apiRequest<{
       themeColor?: string;
       bestDealsEnabled?: boolean;
@@ -168,6 +204,20 @@ export function TownProvider({ children }: { children: ReactNode }) {
       deliveryWindowStart?: string;
       deliveryWindowEnd?: string;
       laundryEnabled?: boolean;
+      beautyEnabled?: boolean;
+      beautyMinPrepayAmount?: number;
+      beautyParlourPaymentFee?: number;
+      beautyScratchEnabled?: boolean;
+      beautyScratchPrepayFilter?: string;
+      beautyScratchRewardMax?: number;
+      beautyScratchRewardDisplayMax?: number;
+      beautyScratchRewardMin?: number;
+      beautyScratchMinOrderAmount?: number;
+      beautyScratchPartialEnabled?: boolean;
+      beautyScratchPartialRewardMax?: number;
+      beautyScratchPartialRewardMin?: number;
+      beautyScratchPartialMinPrepayAmount?: number;
+      beautyScratchPartialRewardDisplayMax?: number;
       platformFee?: number;
     }>(
       `/api/v1/towns/${townId}/shop-settings`,
@@ -188,7 +238,41 @@ export function TownProvider({ children }: { children: ReactNode }) {
         setWindowStart(data?.deliveryWindowStart || '17:00');
         setWindowEnd(data?.deliveryWindowEnd || '19:00');
         setLaundryEnabled(data?.laundryEnabled === true);
+        setBeautyEnabled(data?.beautyEnabled === true);
+        const glamMin = Number(data?.beautyMinPrepayAmount);
+        setBeautyMinPrepayAmount(Number.isFinite(glamMin) && glamMin >= 0 ? glamMin : 0);
+        const parlourFee = Number(data?.beautyParlourPaymentFee);
+        setBeautyParlourPaymentFee(Number.isFinite(parlourFee) && parlourFee >= 0 ? parlourFee : 0);
+        setBeautyScratchEnabled(data?.beautyScratchEnabled === true);
+        const prepayFilter = String(data?.beautyScratchPrepayFilter ?? 'BOTH').toUpperCase();
+        setBeautyScratchPrepayFilter(
+          prepayFilter === 'FULL' || prepayFilter === 'PARTIAL' ? prepayFilter : 'BOTH',
+        );
+        const scratchMax = Number(data?.beautyScratchRewardMax);
+        setBeautyScratchRewardMax(Number.isFinite(scratchMax) && scratchMax > 0 ? scratchMax : 0);
+        const scratchDisplayMax = Number(data?.beautyScratchRewardDisplayMax);
+        setBeautyScratchRewardDisplayMax(
+          Number.isFinite(scratchDisplayMax) && scratchDisplayMax > 0 ? scratchDisplayMax : 0,
+        );
+        const scratchMin = Number(data?.beautyScratchRewardMin);
+        setBeautyScratchRewardMin(Number.isFinite(scratchMin) && scratchMin > 0 ? scratchMin : 0);
+        const scratchThreshold = Number(data?.beautyScratchMinOrderAmount);
+        setBeautyScratchMinOrderAmount(Number.isFinite(scratchThreshold) && scratchThreshold > 0 ? scratchThreshold : 0);
+        setBeautyScratchPartialEnabled(data?.beautyScratchPartialEnabled === true);
+        const partialMax = Number(data?.beautyScratchPartialRewardMax);
+        setBeautyScratchPartialRewardMax(Number.isFinite(partialMax) && partialMax > 0 ? partialMax : 0);
+        const partialMin = Number(data?.beautyScratchPartialRewardMin);
+        setBeautyScratchPartialRewardMin(Number.isFinite(partialMin) && partialMin > 0 ? partialMin : 0);
+        const partialThreshold = Number(data?.beautyScratchPartialMinPrepayAmount);
+        setBeautyScratchPartialMinPrepayAmount(
+          Number.isFinite(partialThreshold) && partialThreshold > 0 ? partialThreshold : 0,
+        );
+        const partialDisplayMax = Number(data?.beautyScratchPartialRewardDisplayMax);
+        setBeautyScratchPartialRewardDisplayMax(
+          Number.isFinite(partialDisplayMax) && partialDisplayMax > 0 ? partialDisplayMax : 0,
+        );
         setLaundryReady(true);
+        setBeautyReady(true);
         applyTownTheme(color);
       })
       .catch(() => {
@@ -203,7 +287,16 @@ export function TownProvider({ children }: { children: ReactNode }) {
         setWindowStart('17:00');
         setWindowEnd('19:00');
         setLaundryEnabled(false);
+        setBeautyEnabled(false);
+        setBeautyMinPrepayAmount(0);
+        setBeautyParlourPaymentFee(0);
+        setBeautyScratchEnabled(false);
+        setBeautyScratchPrepayFilter('BOTH');
+        setBeautyScratchRewardMax(0);
+        setBeautyScratchRewardMin(0);
+        setBeautyScratchMinOrderAmount(0);
         setLaundryReady(true);
+        setBeautyReady(true);
         applyTownTheme(DEFAULT_TOWN_THEME);
       });
     return () => {
@@ -274,6 +367,21 @@ export function TownProvider({ children }: { children: ReactNode }) {
       platformFee,
       laundryEnabled,
       laundryReady,
+      beautyEnabled,
+      beautyReady,
+      beautyMinPrepayAmount,
+      beautyParlourPaymentFee,
+      beautyScratchEnabled,
+      beautyScratchPrepayFilter,
+      beautyScratchRewardMax,
+      beautyScratchRewardDisplayMax,
+      beautyScratchRewardMin,
+      beautyScratchMinOrderAmount,
+      beautyScratchPartialEnabled,
+      beautyScratchPartialRewardDisplayMax,
+      beautyScratchPartialRewardMax,
+      beautyScratchPartialRewardMin,
+      beautyScratchPartialMinPrepayAmount,
       deliveryWindowLabel,
       loading,
       error,
@@ -303,6 +411,21 @@ export function TownProvider({ children }: { children: ReactNode }) {
       platformFee,
       laundryEnabled,
       laundryReady,
+      beautyEnabled,
+      beautyReady,
+      beautyMinPrepayAmount,
+      beautyParlourPaymentFee,
+      beautyScratchEnabled,
+      beautyScratchPrepayFilter,
+      beautyScratchRewardMax,
+      beautyScratchRewardDisplayMax,
+      beautyScratchRewardMin,
+      beautyScratchMinOrderAmount,
+      beautyScratchPartialEnabled,
+      beautyScratchPartialRewardDisplayMax,
+      beautyScratchPartialRewardMax,
+      beautyScratchPartialRewardMin,
+      beautyScratchPartialMinPrepayAmount,
       deliveryWindowLabel,
       loading,
       error,

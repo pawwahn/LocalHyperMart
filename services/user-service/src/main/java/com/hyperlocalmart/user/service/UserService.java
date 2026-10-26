@@ -4,6 +4,7 @@ import com.hyperlocalmart.common.exception.BusinessException;
 import com.hyperlocalmart.common.exception.ErrorCode;
 import com.hyperlocalmart.user.dto.request.BindStaffContextRequest;
 import com.hyperlocalmart.user.dto.request.CreateStaffUserRequest;
+import com.hyperlocalmart.user.dto.request.AcceptLegalRequest;
 import com.hyperlocalmart.user.dto.request.UpdateProfileRequest;
 import com.hyperlocalmart.user.dto.request.UpdateUserStatusRequest;
 import com.hyperlocalmart.user.dto.response.StaffUserResponse;
@@ -20,6 +21,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
@@ -152,6 +154,21 @@ public class UserService {
     }
 
     @Transactional
+    public UserProfileResponse acceptLegal(UUID userId, AcceptLegalRequest request) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "User not found"));
+        if (user.getStatus() == UserStatus.DISABLED) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "Account is disabled");
+        }
+        int version = request.getLegalVersion() == null || request.getLegalVersion() < 1
+                ? 1
+                : request.getLegalVersion();
+        user.setTermsAcceptedAt(Instant.now());
+        user.setTermsVersion(version);
+        return toProfile(userRepository.save(user));
+    }
+
+    @Transactional
     public UserProfileResponse updateProfile(UUID userId, UpdateProfileRequest request) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "User not found"));
@@ -192,6 +209,10 @@ public class UserService {
                 .defaultTownId(user.getDefaultTownId())
                 .status(user.getStatus() == null ? null : user.getStatus().name())
                 .lastLoginAt(user.getLastLoginAt())
+                .marketingConsent(user.isMarketingConsent())
+                .marketingConsentAt(user.getMarketingConsentAt())
+                .termsAcceptedAt(user.getTermsAcceptedAt())
+                .termsVersion(user.getTermsVersion())
                 .build();
     }
 

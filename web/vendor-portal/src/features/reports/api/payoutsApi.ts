@@ -84,6 +84,39 @@ export async function payVendorBill(
 }
 
 /** COLLECTION bill sent to the vendor and not yet confirmed paid. */
+/** Shop-held cash bill: commercial commission + platform + COD lines. */
+export function collectionFeeBreakdown(s: VendorSettlement): {
+  commission: number;
+  platform: number;
+  cod: number;
+  plan: number;
+  total: number;
+} {
+  let commission = 0;
+  let platform = 0;
+  let cod = 0;
+  let plan = 0;
+  for (const line of s.lines ?? []) {
+    const t = (line.lineType ?? '').toUpperCase();
+    const amt = Number(line.amount ?? 0);
+    if (t === 'COMMISSION') commission += amt;
+    else if (t === 'PLATFORM_FEE') platform += amt;
+    else if (t === 'COD_FEE') cod += amt;
+    else if (t === 'MEMBERSHIP_FEE') plan += amt;
+  }
+  if (commission === 0 && platform === 0 && cod === 0 && plan === 0) {
+    const total = Number(s.commissionAmount ?? 0);
+    return { commission: total, platform: 0, cod: 0, plan: 0, total };
+  }
+  return {
+    commission,
+    platform,
+    cod,
+    plan,
+    total: commission + platform + cod + plan,
+  };
+}
+
 export function isOpenVendorBill(s: VendorSettlement): boolean {
   return (
     (s.direction ?? '').toUpperCase() === 'COLLECTION' &&
@@ -349,7 +382,7 @@ export type VendorFeeQuote = {
 export async function quoteMyFees(
   token: string,
   vendorId: string,
-  lines: Array<{ amount: number; placedAt?: string | null }>,
+  lines: Array<{ amount: number; placedAt?: string | null; pieceCount?: number | null }>,
   opts?: { includeSubscription?: boolean },
 ): Promise<VendorFeeQuote> {
   return apiRequest<VendorFeeQuote>('/api/v1/vendors/me/commercial-terms/quote', {

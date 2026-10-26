@@ -45,6 +45,10 @@ export type PlatformSettingsVm = {
   mealPlannerIconUrl?: string;
   mealPlannerIconMediaId?: string;
   hubAdminCanSeeAgentRatings?: boolean;
+  /** Platform-wide: buyers can cancel entire orders (town must also allow). */
+  buyerCancelOrderEnabled?: boolean;
+  /** Platform-wide: buyers can cancel individual items (town must also allow). */
+  buyerCancelItemsEnabled?: boolean;
   referralReferrerRewardAmount?: number;
   referralRefereeRewardAmount?: number;
   referralShareBaseUrl?: string;
@@ -109,6 +113,8 @@ function mapSettings(data: SettingsDto): PlatformSettingsVm {
     mealPlannerIconUrl: asString(data.mealPlannerIconUrl),
     mealPlannerIconMediaId: asString(data.mealPlannerIconMediaId),
     hubAdminCanSeeAgentRatings: asBool(data.hubAdminCanSeeAgentRatings, true),
+    buyerCancelOrderEnabled: asBool(data.buyerCancelOrderEnabled, true),
+    buyerCancelItemsEnabled: asBool(data.buyerCancelItemsEnabled, true),
     referralReferrerRewardAmount: asNumber(data.referralReferrerRewardAmount, 0),
     referralRefereeRewardAmount: asNumber(data.referralRefereeRewardAmount, 0),
     referralShareBaseUrl: asString(data.referralShareBaseUrl),

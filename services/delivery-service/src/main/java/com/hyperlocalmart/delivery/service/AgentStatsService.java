@@ -102,7 +102,9 @@ public class AgentStatsService {
         long homeDelivered = deliveryAssignmentRepository.countByAgentIdAndLegTypeAndStatus(
                 agentId, AssignmentLegType.LAST_MILE, AssignmentStatus.COMPLETED)
                 + deliveryAssignmentRepository.countByAgentIdAndLegTypeAndStatus(
-                        agentId, AssignmentLegType.VENDOR_DIRECT, AssignmentStatus.COMPLETED);
+                        agentId, AssignmentLegType.VENDOR_DIRECT, AssignmentStatus.COMPLETED)
+                + deliveryAssignmentRepository.countByAgentIdAndLegTypeAndStatus(
+                        agentId, AssignmentLegType.LAUNDRY_TRIP, AssignmentStatus.COMPLETED);
         long returns = deliveryAssignmentRepository.countBuyerRejectedByAgentId(agentId);
         long cancelledPickups = deliveryAssignmentRepository.countByAgentIdAndLegTypeAndStatus(
                 agentId, AssignmentLegType.PICKUP, AssignmentStatus.CANCELLED);
@@ -119,13 +121,17 @@ public class AgentStatsService {
         return deliveryAssignmentRepository.countByAgentIdAndLegTypeAndStatusIn(
                         agentId, AssignmentLegType.LAST_MILE, OPEN)
                 + deliveryAssignmentRepository.countByAgentIdAndLegTypeAndStatusIn(
-                        agentId, AssignmentLegType.VENDOR_DIRECT, OPEN);
+                        agentId, AssignmentLegType.VENDOR_DIRECT, OPEN)
+                + deliveryAssignmentRepository.countByAgentIdAndLegTypeAndStatusIn(
+                        agentId, AssignmentLegType.LAUNDRY_TRIP, OPEN);
     }
 
     private long completedHomeDeliveries(UUID agentId, Instant start, Instant end) {
         return deliveryAssignmentRepository.countCompletedByAgentIdAndLegTypeBetween(
                         agentId, AssignmentLegType.LAST_MILE, start, end)
                 + deliveryAssignmentRepository.countCompletedByAgentIdAndLegTypeBetween(
-                        agentId, AssignmentLegType.VENDOR_DIRECT, start, end);
+                        agentId, AssignmentLegType.VENDOR_DIRECT, start, end)
+                + deliveryAssignmentRepository.countCompletedByAgentIdAndLegTypeBetween(
+                        agentId, AssignmentLegType.LAUNDRY_TRIP, start, end);
     }
 }

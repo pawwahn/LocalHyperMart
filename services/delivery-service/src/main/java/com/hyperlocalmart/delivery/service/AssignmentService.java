@@ -11,6 +11,7 @@ import com.hyperlocalmart.delivery.dto.request.AssignLastMileRequest;
 import com.hyperlocalmart.delivery.dto.request.AssignPickupRequest;
 import com.hyperlocalmart.delivery.dto.request.BuyerRejectedRequest;
 import com.hyperlocalmart.delivery.dto.request.DeliverRequest;
+import com.hyperlocalmart.delivery.dto.request.AssignLaundryTripRequest;
 import com.hyperlocalmart.delivery.dto.request.PickedFromVendorRequest;
 import com.hyperlocalmart.delivery.dto.response.AdminAgentAssignmentPage;
 import com.hyperlocalmart.delivery.dto.response.AssignmentResponse;
@@ -117,6 +118,14 @@ public class AssignmentService {
                 subOrder.subOrderId(), AssignmentLegType.VENDOR_DIRECT, ACTIVE_STATUSES)) {
             throw new BusinessException(ErrorCode.CONFLICT, "Active vendor-direct assignment already exists");
         }
+        OrderClient.DeliveryOrderSnapshot orderCheck = orderClient.getDeliveryOrder(subOrder.orderId());
+        if (!ORDER_PLACED.equals(orderCheck.status())) {
+            if ("PAYMENT_PENDING".equals(orderCheck.status()) && "ONLINE".equalsIgnoreCase(orderCheck.paymentMethod())) {
+                throw new BusinessException(ErrorCode.CONFLICT,
+                        "Buyer has not completed online payment. They must pay in the app before delivery is assigned.");
+            }
+            throw new BusinessException(ErrorCode.CONFLICT, "Order is not ready for shop delivery");
+        }
 
         DeliveryAssignment assignment = DeliveryAssignment.builder()
                 .assignmentNumber(AssignmentNumberFormatter.vendorDirect(subOrder.subOrderNumber()))
@@ -148,6 +157,118 @@ public class AssignmentService {
         ));
 
         return toResponse(assignment);
+    }
+
+    @Transactional
+    public AssignmentResponse assignLaundryTrip(AssignLaundryTripRequest request) {
+        enrichLaundryCollectFromOrder(request);
+        DeliveryAgent agent = resolveActiveVendorAgent(request.getAgentId(), request.getVendorId());
+        List<DeliveryAssignment> active = deliveryAssignmentRepository.findByOrderIdAndLegTypeAndStatusIn(
+                request.getLaundryOrderId(), AssignmentLegType.LAUNDRY_TRIP, ACTIVE_STATUSES);
+
+        DeliveryAssignment assignment;
+        if (!active.isEmpty()) {
+            assignment = active.get(0);
+            for (int i = 1; i < active.size(); i++) {
+                cancelLaundryTripAssignment(active.get(i), request.getAssignedBy());
+            }
+            applyLaundryTripSnapshot(assignment, request, agent);
+            deliveryAssignmentRepository.save(assignment);
+        } else {
+            assignment = DeliveryAssignment.builder()
+                    .assignmentNumber(AssignmentNumberFormatter.laundry(
+                            request.getOrderNumber(), request.getTripKind()))
+                    .orderNumber(request.getOrderNumber())
+                    .orderId(request.getLaundryOrderId())
+                    .townId(request.getTownId())
+                    .hubId(null)
+                    .agentId(agent.getId())
+                    .legType(AssignmentLegType.LAUNDRY_TRIP)
+                    .status(AssignmentStatus.ASSIGNED)
+                    .assignedBy(request.getAssignedBy())
+                    .assignedAt(Instant.now())
+                    .sourceShopName(request.getShopName())
+                    .destinationName(request.getContactName())
+                    .destinationPhone(request.getContactPhone())
+                    .destinationAddress(request.getAddressText())
+                    .laundryTripKind(request.getTripKind())
+                    .tripPaymentMethod(request.getPaymentMethod())
+                    .tripCollectCash(request.getCollectCashAmount())
+                    .build();
+            assignment.setCreatedBy(request.getAssignedBy());
+            assignment.setUpdatedBy(request.getAssignedBy());
+            deliveryAssignmentRepository.save(assignment);
+        }
+
+        if ("DROP_TO_CUSTOMER".equalsIgnoreCase(request.getTripKind())) {
+            deliveryOtpService.issueOtp(request.getLaundryOrderId());
+        }
+
+        logEvent(assignment.getId(), "LAUNDRY_TRIP_ASSIGNED", request.getAssignedBy(), Map.of(
+                "laundryOrderId", request.getLaundryOrderId().toString(),
+                "tripKind", request.getTripKind(),
+                "shopName", request.getShopName() == null ? "" : request.getShopName()));
+
+        return toResponse(assignment);
+    }
+
+    private void applyLaundryTripSnapshot(
+            DeliveryAssignment assignment, AssignLaundryTripRequest request, DeliveryAgent agent) {
+        assignment.setAgentId(agent.getId());
+        assignment.setStatus(AssignmentStatus.ASSIGNED);
+        assignment.setAssignedBy(request.getAssignedBy());
+        assignment.setAssignedAt(Instant.now());
+        assignment.setCompletedAt(null);
+        assignment.setSourceShopName(request.getShopName());
+        assignment.setDestinationName(request.getContactName());
+        assignment.setDestinationPhone(request.getContactPhone());
+        assignment.setDestinationAddress(request.getAddressText());
+        assignment.setLaundryTripKind(request.getTripKind());
+        assignment.setTripPaymentMethod(request.getPaymentMethod());
+        assignment.setTripCollectCash(request.getCollectCashAmount());
+        assignment.setUpdatedBy(request.getAssignedBy());
+    }
+
+    private void enrichLaundryCollectFromOrder(AssignLaundryTripRequest request) {
+        if (request.getCollectCashAmount() != null && request.getCollectCashAmount().signum() > 0) {
+            return;
+        }
+        try {
+            OrderClient.LaundryAgentCollect snap = orderClient.getLaundryAgentCollect(
+                    request.getLaundryOrderId(), request.getTripKind());
+            request.setPaymentMethod(snap.paymentMethod());
+            request.setCollectCashAmount(snap.collectCashAmount());
+        } catch (RuntimeException ex) {
+            log.warn("Could not enrich laundry collect for {}: {}",
+                    request.getLaundryOrderId(), ex.getMessage());
+        }
+    }
+
+    private static boolean needsLaundryCollectEnrich(DeliveryAssignment assignment) {
+        String kind = assignment.getLaundryTripKind();
+        if (!"DROP_TO_CUSTOMER".equalsIgnoreCase(kind) && !"PICKUP_FROM_CUSTOMER".equalsIgnoreCase(kind)) {
+            return false;
+        }
+        java.math.BigDecimal stored = assignment.getTripCollectCash();
+        if (stored != null && stored.signum() > 0) {
+            return false;
+        }
+        String pm = assignment.getTripPaymentMethod();
+        if (pm != null && !pm.isBlank()) {
+            String key = pm.trim().toUpperCase();
+            if (!"CASH".equals(key) && !"COD".equals(key)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private void cancelLaundryTripAssignment(DeliveryAssignment open, UUID actorId) {
+        open.setAssignmentNumber(AssignmentNumberFormatter.releasedUnique(open.getAssignmentNumber(), open.getId()));
+        open.setStatus(AssignmentStatus.CANCELLED);
+        open.setCompletedAt(Instant.now());
+        open.setUpdatedBy(actorId);
+        deliveryAssignmentRepository.save(open);
     }
 
     @Transactional
@@ -443,7 +564,8 @@ public class AssignmentService {
             throw new BusinessException(ErrorCode.FORBIDDEN, "Assignment does not belong to agent");
         }
         if (assignment.getLegType() != AssignmentLegType.PICKUP
-                && assignment.getLegType() != AssignmentLegType.VENDOR_DIRECT) {
+                && assignment.getLegType() != AssignmentLegType.VENDOR_DIRECT
+                && assignment.getLegType() != AssignmentLegType.LAUNDRY_TRIP) {
             throw new BusinessException(ErrorCode.CONFLICT, "Assignment is not a shop pickup leg");
         }
         if (assignment.getStatus() != AssignmentStatus.ASSIGNED) {
@@ -458,10 +580,32 @@ public class AssignmentService {
         if (request != null && request.getNote() != null && !request.getNote().isBlank()) {
             metadata.put("note", request.getNote());
         }
-        String eventType = assignment.getLegType() == AssignmentLegType.VENDOR_DIRECT
-                ? "VENDOR_DIRECT_PICKED_FROM_SHOP"
-                : "PICKED_FROM_VENDOR";
+        String eventType = switch (assignment.getLegType()) {
+            case VENDOR_DIRECT -> "VENDOR_DIRECT_PICKED_FROM_SHOP";
+            case LAUNDRY_TRIP -> "LAUNDRY_TRIP_STARTED";
+            default -> "PICKED_FROM_VENDOR";
+        };
         logEvent(assignment.getId(), eventType, agentUserId, metadata);
+
+        if (assignment.getLegType() == AssignmentLegType.LAUNDRY_TRIP
+                && "PICKUP_FROM_CUSTOMER".equalsIgnoreCase(assignment.getLaundryTripKind())) {
+            if (isLaundryCashTrip(assignment)) {
+                String outcome = request == null ? null : request.getCashCollectionOutcome();
+                if (outcome == null || outcome.isBlank()) {
+                    throw new BusinessException(ErrorCode.CONFLICT, "Select whether cash was collected");
+                }
+                orderClient.recordLaundryAgentCash(
+                        assignment.getOrderId(), agentUserId, "PICKUP_FROM_CUSTOMER", outcome);
+            } else if (request != null
+                    && request.getCashCollectionOutcome() != null
+                    && !request.getCashCollectionOutcome().isBlank()) {
+                orderClient.recordLaundryAgentCash(
+                        assignment.getOrderId(),
+                        agentUserId,
+                        "PICKUP_FROM_CUSTOMER",
+                        request.getCashCollectionOutcome());
+            }
+        }
 
         return toResponse(assignment);
     }
@@ -533,7 +677,20 @@ public class AssignmentService {
             throw new BusinessException(ErrorCode.CONFLICT, "Assignment is not in progress");
         }
 
-        deliveryOtpService.verifyOtp(assignment.getOrderId(), request.getOtp());
+        if (assignment.getLegType() != AssignmentLegType.LAUNDRY_TRIP) {
+            OrderClient.DeliveryOrderSnapshot order = orderClient.getDeliveryOrder(assignment.getOrderId());
+            if ("PAYMENT_PENDING".equals(order.status()) && "ONLINE".equalsIgnoreCase(order.paymentMethod())) {
+                throw new BusinessException(ErrorCode.CONFLICT,
+                        "Buyer has not completed online payment. Ask them to pay in the app before you finish delivery.");
+            }
+        }
+
+        if (assignment.getLegType() == AssignmentLegType.LAUNDRY_TRIP
+                && "PICKUP_FROM_CUSTOMER".equalsIgnoreCase(assignment.getLaundryTripKind())) {
+            // Shop pickup leg — no buyer OTP.
+        } else {
+            deliveryOtpService.verifyOtp(assignment.getOrderId(), request.getOtp());
+        }
 
         assignment.setStatus(AssignmentStatus.COMPLETED);
         assignment.setCompletedAt(Instant.now());
@@ -549,10 +706,35 @@ public class AssignmentService {
         }
         logEvent(assignment.getId(), "DELIVERED", agentUserId, metadata);
 
-        UUID bagId = assignment.getLegType() == AssignmentLegType.VENDOR_DIRECT
-                ? assignment.getVendorSubOrderId()
-                : null;
-        orderClient.markDelivered(assignment.getOrderId(), agentUserId, request.getRecipientName(), bagId);
+        if (assignment.getLegType() == AssignmentLegType.LAUNDRY_TRIP) {
+            String tripKind = assignment.getLaundryTripKind();
+            boolean laundryCash = isLaundryCashTrip(assignment);
+            String cashOutcome = request.getCashCollectionOutcome();
+            if (laundryCash && "DROP_TO_CUSTOMER".equalsIgnoreCase(tripKind)) {
+                OrderClient.LaundryAgentCollect snap = orderClient.getLaundryAgentCollect(
+                        assignment.getOrderId(), tripKind);
+                boolean cashStillDue = snap.collectCashAmount() != null && snap.collectCashAmount().signum() > 0;
+                if (cashStillDue) {
+                    if (cashOutcome == null || cashOutcome.isBlank()) {
+                        throw new BusinessException(ErrorCode.CONFLICT, "Select cash collected before finishing delivery");
+                    }
+                    orderClient.recordLaundryAgentCash(
+                            assignment.getOrderId(), agentUserId, "DROP_TO_CUSTOMER", cashOutcome);
+                }
+            } else if (cashOutcome != null && !cashOutcome.isBlank() && "PICKUP_FROM_CUSTOMER".equalsIgnoreCase(tripKind)) {
+                orderClient.recordLaundryAgentCash(
+                        assignment.getOrderId(), agentUserId, "PICKUP_FROM_CUSTOMER", cashOutcome);
+            }
+            orderClient.completeLaundryAgentTrip(
+                    assignment.getOrderId(),
+                    agentUserId,
+                    tripKind);
+        } else {
+            UUID bagId = assignment.getLegType() == AssignmentLegType.VENDOR_DIRECT
+                    ? assignment.getVendorSubOrderId()
+                    : null;
+            orderClient.markDelivered(assignment.getOrderId(), agentUserId, request.getRecipientName(), bagId);
+        }
         return toResponse(assignment);
     }
 
@@ -615,7 +797,8 @@ public class AssignmentService {
             throw new BusinessException(ErrorCode.FORBIDDEN, "Assignment does not belong to agent");
         }
         if (assignment.getLegType() != AssignmentLegType.LAST_MILE
-                && assignment.getLegType() != AssignmentLegType.VENDOR_DIRECT) {
+                && assignment.getLegType() != AssignmentLegType.VENDOR_DIRECT
+                && assignment.getLegType() != AssignmentLegType.LAUNDRY_TRIP) {
             throw new BusinessException(ErrorCode.CONFLICT, "Assignment is not a home delivery leg");
         }
         return assignment;
@@ -720,7 +903,35 @@ public class AssignmentService {
         String destinationName = null;
         String destinationPhone = null;
         String destinationAddress = null;
-        if ((assignment.getLegType() == AssignmentLegType.LAST_MILE
+        String paymentMethod = null;
+        java.math.BigDecimal collectCash = null;
+        String orderStatus = null;
+        String laundryPaymentStatus = null;
+        String sourceShopName = null;
+        String laundryTripKind = null;
+        if (assignment.getLegType() == AssignmentLegType.LAUNDRY_TRIP) {
+            destinationName = assignment.getDestinationName();
+            destinationPhone = assignment.getDestinationPhone();
+            destinationAddress = assignment.getDestinationAddress();
+            destinationLabel = assignment.getSourceShopName();
+            sourceShopName = assignment.getSourceShopName();
+            laundryTripKind = assignment.getLaundryTripKind();
+            paymentMethod = assignment.getTripPaymentMethod();
+            collectCash = assignment.getTripCollectCash();
+            try {
+                OrderClient.LaundryAgentCollect snap = orderClient.getLaundryAgentCollect(
+                        assignment.getOrderId(), assignment.getLaundryTripKind());
+                paymentMethod = snap.paymentMethod();
+                collectCash = snap.collectCashAmount();
+                if (snap.laundryStatus() != null && !snap.laundryStatus().isBlank()) {
+                    orderStatus = snap.laundryStatus();
+                }
+                laundryPaymentStatus = snap.paymentStatus();
+            } catch (RuntimeException ex) {
+                log.warn("Could not load laundry snapshot for {}: {}",
+                        assignment.getOrderId(), ex.getMessage());
+            }
+        } else if ((assignment.getLegType() == AssignmentLegType.LAST_MILE
                 || assignment.getLegType() == AssignmentLegType.VENDOR_DIRECT)
                 && delivery != null) {
             destinationLabel = delivery.addressLabel();
@@ -731,6 +942,9 @@ public class AssignmentService {
                     delivery.addressLine2(),
                     delivery.landmark(),
                     delivery.pincode());
+            paymentMethod = delivery.paymentMethod();
+            collectCash = delivery.collectCashAmount();
+            orderStatus = delivery.status();
         }
         return AssignmentResponse.builder()
                 .assignmentId(assignment.getId())
@@ -753,8 +967,12 @@ public class AssignmentService {
                 .destinationName(destinationName)
                 .destinationPhone(destinationPhone)
                 .destinationAddress(destinationAddress)
-                .paymentMethod(delivery != null ? delivery.paymentMethod() : null)
-                .collectCashAmount(delivery != null ? delivery.collectCashAmount() : null)
+                .sourceShopName(sourceShopName)
+                .laundryTripKind(laundryTripKind)
+                .paymentMethod(paymentMethod)
+                .collectCashAmount(collectCash)
+                .orderStatus(orderStatus)
+                .laundryPaymentStatus(laundryPaymentStatus)
                 .build();
     }
 
@@ -802,6 +1020,18 @@ public class AssignmentService {
             return fallback.trim();
         }
         return null;
+    }
+
+    private static boolean isLaundryCashTrip(DeliveryAssignment assignment) {
+        if (assignment.getLegType() != AssignmentLegType.LAUNDRY_TRIP) {
+            return false;
+        }
+        String pm = assignment.getTripPaymentMethod();
+        if (pm == null || pm.isBlank()) {
+            return false;
+        }
+        String key = pm.trim().toUpperCase();
+        return "CASH".equals(key) || "COD".equals(key);
     }
 
     private Map<UUID, List<DeliveryEventResponse>> loadEventResponses(List<UUID> assignmentIds) {

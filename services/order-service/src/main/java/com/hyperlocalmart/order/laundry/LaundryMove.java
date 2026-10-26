@@ -4,6 +4,7 @@ public enum LaundryMove {
     ACCEPT,
     SCHEDULE_PICKUP,
     MARK_PICKED_UP,
+    MARK_AT_SHOP,
     MARK_RECEIVED,
     START,
     MARK_READY,

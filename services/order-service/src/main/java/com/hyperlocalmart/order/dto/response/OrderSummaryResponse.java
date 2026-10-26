@@ -22,5 +22,7 @@ public class OrderSummaryResponse {
     private PaymentMethod paymentMethod;
     private PaymentStatus paymentStatus;
     private Instant placedAt;
+    /** Checkout time; used when {@link #placedAt} is null (online awaiting payment). */
+    private Instant createdAt;
     private int itemCount;
 }

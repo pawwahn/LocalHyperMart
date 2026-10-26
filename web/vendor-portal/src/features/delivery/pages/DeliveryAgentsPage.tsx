@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type CSSProperties, type For
 import { Link } from 'react-router-dom';
 import { usePortalChrome } from '@/shared/layout/PortalChromeContext';
 import { useAuth } from '@/shared/auth/AuthContext';
+import { isGlamVendor } from '@/features/shop/hooks/useHidesListings';
 import { useVendorShop } from '@/features/shop/hooks/useVendorShop';
 import { ApiError } from '@/shared/api/http';
 import { Banner, Button, Card, TextField } from '@/shared/ui';
@@ -31,7 +32,8 @@ export function DeliveryAgentsPage() {
   const [reference2Name, setReference2Name] = useState('');
   const [reference2Phone, setReference2Phone] = useState('');
 
-  usePortalChrome({ title: 'Delivery agents' });
+  const glamVendor = isGlamVendor(session?.serviceName);
+  usePortalChrome({ title: glamVendor ? 'Professionals' : 'Delivery agents' });
 
   const scope = useMemo(() => {
     if (!session || !shop?.shopId || !shop?.townId) return null;

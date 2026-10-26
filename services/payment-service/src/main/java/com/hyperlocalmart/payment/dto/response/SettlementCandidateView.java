@@ -65,6 +65,10 @@ public class SettlementCandidateView {
         Integer pieceCount;
         /** Buyer platform fee sitting in shop-held cash. Null on payout bags and on laundry. */
         BigDecimal platformFee;
+        /** Buyer COD surcharge in shop-held cash. */
+        BigDecimal codFee;
+        /** Buyer membership / delivery plan in shop-held cash. */
+        BigDecimal membershipFee;
         boolean alreadySettled;
     }
 }

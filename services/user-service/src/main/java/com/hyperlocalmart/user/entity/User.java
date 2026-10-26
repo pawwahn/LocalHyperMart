@@ -60,6 +60,16 @@ public class User extends BaseAuditEntity {
     @Column(name = "terms_version")
     private Integer termsVersion;
 
+    @Column(name = "marketing_consent", nullable = false)
+    @Builder.Default
+    private boolean marketingConsent = false;
+
+    @Column(name = "marketing_consent_at")
+    private Instant marketingConsentAt;
+
+    @Column(name = "account_deleted_at")
+    private Instant accountDeletedAt;
+
     @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
     @Builder.Default
     private Set<UserRole> userRoles = new HashSet<>();

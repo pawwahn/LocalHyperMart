@@ -36,5 +36,29 @@ The Platform is for adults placing grocery orders. Do not register a child under
 8. UPDATES
 Super Admin may edit this policy in Platform settings. The in-app version and date control.
 
-9. CONTACT
+9. CONTACT & GRIEVANCE (DPDP)
+The platform operator (data fiduciary) is named in Super Admin → Settings as supplier legal name. For privacy questions, correction, or complaints, use the support phone and grievance officer shown on login and legal screens. We will acknowledge grievances within a reasonable time and work to resolve them under Indian law, including the Digital Personal Data Protection Act, 2023 where it applies.
+
+10. LEGAL BASIS (PLAIN LANGUAGE)
+• Contract: account, orders, delivery, payments, wallet, membership, and vendor settlement.
+• Legitimate interest: fraud prevention, security logs, and improving town operations (balanced against your rights).
+• Consent: optional promotional SMS/push where we ask separately in the app; you can turn marketing off in Privacy & data.
+• Legal obligation: tax, accounting, and records we must keep after a transaction.
+
+11. MARKETING
+We may send order and security messages without a separate marketing opt-in. Promotional offers (deals, referral nudges, scratch-card reminders) use the marketing preference in your account when that channel is enabled. Turning marketing off does not stop transactional messages.
+
+12. COOKIES & DEVICE STORAGE
+Web portals store login tokens and preferences (theme, town, cart) in your browser or app storage. We do not use third-party advertising cookies in the default product. If we add analytics or ad pixels later, we will update this policy and the cookie notice before turning them on.
+
+13. THIRD-PARTY PROCESSORS
+We use service providers that process data on our instructions, including cloud hosting (India region target), payment gateways (Razorpay and/or PhonePe/Cashfree when enabled), SMS for OTP, and push notification delivery (FCM). They receive only what is needed for their service. We do not sell your personal data.
+
+14. YOUR RIGHTS
+You may update profile and addresses in the app. You may turn off marketing consent in Privacy & data. You may delete your buyer account there (password required); we anonymize your login profile and remove saved addresses while keeping order and payment records we must retain. For data not available in self-service, contact the grievance officer. Export of a full machine-readable dump may be provided on verified request where feasible.
+
+15. DATA BREACH
+If a personal-data breach affects you, we will investigate, mitigate, and notify you and authorities as required by applicable Indian law and the severity of the incident.
+
+16. CONTACT
 Use the support phone and grievance officer named in Super Admin → Settings / login screen.

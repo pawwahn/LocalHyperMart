@@ -31,6 +31,9 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class VendorAdminController {
 
+    /** Keeps literal paths like `/vendors/beauty` from matching `{vendorId}`. */
+    private static final String VENDOR_ID = "{vendorId:[0-9a-fA-F\\-]{36}}";
+
     private final VendorRegistrationService vendorRegistrationService;
 
     @GetMapping
@@ -44,7 +47,7 @@ public class VendorAdminController {
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, vendorRegistrationService.listVendors(townId, parsed)));
     }
 
-    @PutMapping("/{vendorId}")
+    @PutMapping(VENDOR_ID)
     public ResponseEntity<ApiResponse<VendorResponse>> updateProfile(
             @AuthenticationPrincipal AuthUserPrincipal principal,
             @PathVariable UUID vendorId,
@@ -56,7 +59,7 @@ public class VendorAdminController {
                 vendorRegistrationService.updateVendorProfile(vendorId, principal.getUserId(), request)));
     }
 
-    @PatchMapping("/{vendorId}/status")
+    @PatchMapping(VENDOR_ID + "/status")
     public ResponseEntity<ApiResponse<VendorResponse>> updateStatus(
             @AuthenticationPrincipal AuthUserPrincipal principal,
             @PathVariable UUID vendorId,

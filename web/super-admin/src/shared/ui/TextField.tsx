@@ -1,10 +1,12 @@
 import { useState, type CSSProperties, type InputHTMLAttributes, type ReactNode } from 'react';
+import { PickerDateField } from '@hlm-dates';
 
 type Props = InputHTMLAttributes<HTMLInputElement> & { label?: ReactNode };
 
-export function TextField({ label, style, id, type, className, ...rest }: Props) {
+export function TextField({ label, style, id, type, className, value, onChange, min, max, disabled, required, ...rest }: Props) {
   const [revealed, setRevealed] = useState(false);
   const isPassword = type === 'password';
+  const isDate = type === 'date';
   const inputId = id ?? (typeof label === 'string' ? label.toLowerCase().replace(/\s+/g, '-') : undefined);
   const inputType = isPassword && revealed ? 'text' : type;
 
@@ -12,13 +14,37 @@ export function TextField({ label, style, id, type, className, ...rest }: Props)
     <label style={styles.label} htmlFor={inputId}>
       {label ? <span>{label}</span> : null}
       <div style={styles.inputWrap}>
+        {isDate ? (
+          <PickerDateField
+            id={inputId}
+            className={className}
+            style={{ ...styles.input, ...style }}
+            value={typeof value === 'string' ? value : ''}
+            min={typeof min === 'string' ? min : undefined}
+            max={typeof max === 'string' ? max : undefined}
+            disabled={disabled}
+            required={required}
+            onChange={(next) => {
+              if (typeof onChange === 'function') {
+                onChange({ target: { value: next } } as React.ChangeEvent<HTMLInputElement>);
+              }
+            }}
+          />
+        ) : (
         <input
           id={inputId}
           type={inputType}
           className={[className, isPassword ? 'hlm-pw' : null].filter(Boolean).join(' ') || undefined}
           style={{ ...styles.input, ...(isPassword ? styles.inputWithToggle : null), ...style }}
+          value={value}
+          onChange={onChange}
+          min={min}
+          max={max}
+          disabled={disabled}
+          required={required}
           {...rest}
         />
+        )}
         {isPassword ? (
           <button
             type="button"

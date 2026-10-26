@@ -525,7 +525,7 @@ public class CodCustodianReceivableService {
                         && !hubId.equals(leg.hubId())) {
                     continue;
                 }
-                if (leg.vendorDirectCompleted() || leg.lastMileCompleted()) {
+                if (leg.vendorDirectCompleted() || leg.lastMileCompleted() || leg.laundryDropCompleted()) {
                     map.put(leg.orderId(), leg.agentId());
                 }
             }

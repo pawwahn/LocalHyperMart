@@ -5,18 +5,25 @@ import com.hyperlocalmart.common.exception.ErrorCode;
 import com.hyperlocalmart.order.dto.response.VendorSalesReportResponse;
 import com.hyperlocalmart.order.dto.response.VendorSalesReportResponse.VendorSalesReportItem;
 import com.hyperlocalmart.order.dto.response.VendorSalesReportResponse.VendorSalesReportRow;
+import com.hyperlocalmart.order.entity.LaundryOrder;
 import com.hyperlocalmart.order.entity.OrderItem;
 import com.hyperlocalmart.order.entity.OrderItemStatus;
 import com.hyperlocalmart.order.entity.PaymentMethod;
 import com.hyperlocalmart.order.entity.PaymentStatus;
 import com.hyperlocalmart.order.entity.VendorSubOrder;
 import com.hyperlocalmart.order.entity.VendorSubOrderStatus;
+import com.hyperlocalmart.order.laundry.LaundryOrderStatus;
+import com.hyperlocalmart.order.laundry.LaundryPaymentMethod;
+import com.hyperlocalmart.order.laundry.LaundryPaymentStatus;
+import com.hyperlocalmart.order.client.TownClient;
+import com.hyperlocalmart.order.repository.LaundryOrderRepository;
 import com.hyperlocalmart.order.repository.VendorSubOrderRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -38,6 +45,8 @@ public class VendorSalesReportService {
     private static final int ITEM_RANK_LIMIT = 10;
 
     private final VendorSubOrderRepository vendorSubOrderRepository;
+    private final LaundryOrderRepository laundryOrderRepository;
+    private final TownClient townClient;
 
     @Transactional(readOnly = true)
     public VendorSalesReportResponse getSalesReport(
@@ -55,6 +64,10 @@ public class VendorSalesReportService {
 
         List<VendorSubOrder> subOrders = vendorSubOrderRepository.findSalesReportByVendorId(
                 vendorId, rangeStart, rangeEnd, paymentStatus);
+        List<UUID> orderIds = OrderSiblingBags.distinctOrderIds(subOrders);
+        if (!orderIds.isEmpty()) {
+            OrderSiblingBags.attach(subOrders, vendorSubOrderRepository.findByOrderIdIn(orderIds));
+        }
 
         Map<String, Long> statusCounts = zeroStatusCounts();
         Map<String, Long> paymentStatusCounts = new HashMap<>();
@@ -69,6 +82,86 @@ public class VendorSalesReportService {
 
         List<VendorSalesReportRow> rows = new ArrayList<>();
         Map<String, ItemAgg> itemAggs = new HashMap<>();
+
+        for (LaundryOrder laundryOrder : laundryOrderRepository.findSalesReportByVendorId(
+                vendorId, rangeStart, rangeEnd)) {
+            PaymentStatus payStatus = laundryPaymentStatus(laundryOrder.getPaymentStatus());
+            if (paymentStatus != null && payStatus != paymentStatus) {
+                continue;
+            }
+            PaymentMethod payMethod = laundryOrder.getPaymentMethod() == LaundryPaymentMethod.UPI
+                    ? PaymentMethod.ONLINE
+                    : PaymentMethod.COD;
+            boolean delivered = laundryOrder.getStatus() == LaundryOrderStatus.DELIVERED;
+            statusCounts.merge(
+                    delivered ? VendorSubOrderStatus.DELIVERED.name() : laundryOrder.getStatus().name(),
+                    1L,
+                    Long::sum);
+            paymentStatusCounts.merge(payStatus.name(), 1L, Long::sum);
+            paymentMethodCounts.merge(payMethod.name(), 1L, Long::sum);
+
+            BigDecimal subtotal = laundryOrder.getGoodsAmount() != null
+                    ? laundryOrder.getGoodsAmount()
+                    : BigDecimal.ZERO;
+            if (delivered) {
+                grossSales = grossSales.add(subtotal);
+                if (payStatus == PaymentStatus.PAID) {
+                    paidAmount = paidAmount.add(subtotal);
+                } else if (payStatus == PaymentStatus.REFUNDED) {
+                    refundedAmount = refundedAmount.add(subtotal);
+                } else {
+                    pendingAmount = pendingAmount.add(subtotal);
+                }
+            }
+
+            int itemCount = Math.max(laundryOrder.getPieceCount(), 0);
+            itemQuantityTotal += itemCount;
+            List<VendorSalesReportItem> items = null;
+            if (includeItems) {
+                items = List.of(VendorSalesReportItem.builder()
+                        .name("Laundry")
+                        .unit("piece")
+                        .quantity(itemCount)
+                        .unitPrice(null)
+                        .discountPrice(null)
+                        .lineTotal(subtotal)
+                        .build());
+            }
+            if (delivered) {
+                ItemAgg agg = itemAggs.computeIfAbsent("Laundry|piece", k -> new ItemAgg("Laundry", "piece"));
+                agg.quantitySold += itemCount;
+                agg.revenue = agg.revenue.add(subtotal);
+                agg.orderIds.add(laundryOrder.getId());
+            }
+
+            BigDecimal platformFee = payMethod == PaymentMethod.COD && laundryOrder.getPlatformFeeAmount() != null
+                    ? laundryOrder.getPlatformFeeAmount()
+                    : BigDecimal.ZERO;
+            BigDecimal codFee = payMethod == PaymentMethod.COD && laundryOrder.getCodFee() != null
+                    ? laundryOrder.getCodFee()
+                    : BigDecimal.ZERO;
+            rows.add(VendorSalesReportRow.builder()
+                    .subOrderId(laundryOrder.getId())
+                    .subOrderNumber(laundryOrder.getOrderNumber())
+                    .orderId(laundryOrder.getId())
+                    .orderNumber(laundryOrder.getOrderNumber())
+                    .placedAt(laundryOrder.getPlacedAt())
+                    .deliveredAt(laundryOrder.getDeliveredAt())
+                    .status(delivered ? VendorSubOrderStatus.DELIVERED : VendorSubOrderStatus.READY_FOR_PICKUP)
+                    .paymentMethod(payMethod)
+                    .paymentStatus(payStatus)
+                    .vendorAgentDelivery(payMethod == PaymentMethod.COD)
+                    .subtotal(subtotal)
+                    .itemCount(itemCount)
+                    .platformFeeAmount(platformFee.setScale(2, RoundingMode.HALF_UP))
+                    .codFeeAmount(codFee.setScale(2, RoundingMode.HALF_UP))
+                    .membershipFeeAmount(BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP))
+                    .items(items)
+                    .build());
+        }
+
+        Map<UUID, CodCashAllocation.OrderBreakdown> codSplitCache = new HashMap<>();
+        Map<UUID, BigDecimal> shopRiderPayByTown = new HashMap<>();
 
         for (VendorSubOrder subOrder : subOrders) {
             statusCounts.merge(subOrder.getStatus().name(), 1L, Long::sum);
@@ -142,6 +235,42 @@ public class VendorSalesReportService {
             }
             itemQuantityTotal += itemCount;
 
+            BigDecimal deliveryFeeAmount = BigDecimal.ZERO;
+            BigDecimal platformFeeAmount = BigDecimal.ZERO;
+            BigDecimal codFeeAmount = BigDecimal.ZERO;
+            BigDecimal membershipFeeAmount = BigDecimal.ZERO;
+            if (payMethod == PaymentMethod.COD && !rejected && !buyerCancelled) {
+                deliveryFeeAmount = OrderBuyerFeeShare.deliveryFee(subOrder);
+                platformFeeAmount = OrderBuyerFeeShare.platformFee(subOrder);
+                codFeeAmount = OrderBuyerFeeShare.codFee(subOrder);
+                membershipFeeAmount = OrderBuyerFeeShare.membershipFee(subOrder);
+            }
+
+            BigDecimal codCashCollected = null;
+            if (payMethod == PaymentMethod.COD
+                    && !rejected
+                    && !buyerCancelled
+                    && subOrder.getStatus() == VendorSubOrderStatus.DELIVERED) {
+                codCashCollected = codCashForBag(subOrder, codSplitCache);
+            }
+
+            BigDecimal shopRiderPay = BigDecimal.ZERO;
+            if (subOrder.getOrder().isVendorAgentDelivery()
+                    && payMethod == PaymentMethod.COD
+                    && !rejected
+                    && !buyerCancelled
+                    && subOrder.getStatus() == VendorSubOrderStatus.DELIVERED) {
+                UUID townId = subOrder.getOrder().getTownId();
+                if (townId != null) {
+                    shopRiderPay = shopRiderPayByTown.computeIfAbsent(townId, id -> {
+                        TownClient.VendorAgentDeliverySettings cfg = townClient.getVendorAgentDeliverySettings(id);
+                        return cfg.enabled()
+                                ? cfg.vendorAgentPayoutAmount()
+                                : BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+                    });
+                }
+            }
+
             rows.add(VendorSalesReportRow.builder()
                     .subOrderId(subOrder.getId())
                     .subOrderNumber(subOrder.getSubOrderNumber())
@@ -155,6 +284,15 @@ public class VendorSalesReportService {
                     .vendorAgentDelivery(subOrder.getOrder().isVendorAgentDelivery())
                     .subtotal(rejected ? rejectedDisplay : subtotal)
                     .itemCount(itemCount)
+                    .deliveryFeeAmount(deliveryFeeAmount.setScale(2, RoundingMode.HALF_UP))
+                    .shopRiderPayAmount(shopRiderPay.setScale(2, RoundingMode.HALF_UP))
+                    .platformFeeAmount(platformFeeAmount.setScale(2, RoundingMode.HALF_UP))
+                    .codFeeAmount(codFeeAmount.setScale(2, RoundingMode.HALF_UP))
+                    .membershipFeeAmount(membershipFeeAmount.setScale(2, RoundingMode.HALF_UP))
+                    .codCashCollectedAmount(
+                            codCashCollected == null
+                                    ? null
+                                    : codCashCollected.setScale(2, RoundingMode.HALF_UP))
                     .items(items)
                     .build());
         }
@@ -203,6 +341,21 @@ public class VendorSalesReportService {
                 .build();
     }
 
+    private static BigDecimal codCashForBag(
+            VendorSubOrder subOrder, Map<UUID, CodCashAllocation.OrderBreakdown> cache) {
+        var order = subOrder.getOrder();
+        List<VendorSubOrder> bags =
+                order.getVendorSubOrders() == null ? List.of(subOrder) : order.getVendorSubOrders();
+        CodCashAllocation.OrderBreakdown split =
+                cache.computeIfAbsent(order.getId(), id -> CodCashAllocation.split(order, bags));
+        for (CodCashAllocation.VendorSlice slice : split.vendorSlices()) {
+            if (slice.subOrderId().equals(subOrder.getId())) {
+                return slice.allocatedCash();
+            }
+        }
+        return BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+    }
+
     private static final class ItemAgg {
         private final String name;
         private final String unit;
@@ -233,5 +386,15 @@ public class VendorSalesReportService {
             counts.put(status.name(), 0L);
         }
         return counts;
+    }
+
+    private static PaymentStatus laundryPaymentStatus(LaundryPaymentStatus status) {
+        if (status == LaundryPaymentStatus.COLLECTED) {
+            return PaymentStatus.PAID;
+        }
+        if (status == LaundryPaymentStatus.REFUNDED || status == LaundryPaymentStatus.REFUND_DUE) {
+            return PaymentStatus.REFUNDED;
+        }
+        return PaymentStatus.PENDING;
     }
 }

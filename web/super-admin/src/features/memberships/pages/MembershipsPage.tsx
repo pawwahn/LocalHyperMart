@@ -1,3 +1,4 @@
+import { PickerDateField } from '@hlm-dates';
 import { useCallback, useEffect, useState, type CSSProperties } from 'react';
 import { PortalShell } from '@/shared/layout/PortalShell';
 import { useAuth } from '@/shared/auth/AuthContext';
@@ -525,7 +526,7 @@ export function MembershipsPage() {
         </label>
         <label style={styles.field}>
           To
-          <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} style={styles.input} />
+          <PickerDateField value={toDate} onChange={setToDate} style={styles.input} />
         </label>
         <Button size="sm" onClick={() => void reload()} disabled={busy}>
           Run report

@@ -1,0 +1,16 @@
+---
+description: KoyaKart — confirm before destructive or state-changing button actions
+globs: web/**/*.{tsx,ts}
+alwaysApply: false
+---
+
+# Confirm before action (KoyaKart)
+
+For **buyer-web**, **vendor-portal**, **delivery-portal**, and **super-admin**:
+
+- Any button that **changes server state** (save, submit, pay, cancel, reject, assign, mark picked up, deliver, handover, etc.) must **not** call the API directly on first click.
+- Show a themed **ConfirmDialog** (or existing yes/no dialog). Never use `window.confirm` / `window.alert` for these flows.
+- **Danger** actions (reject, cancel order, delete): use `danger` styling and explicit copy (“This cannot be undone” when true).
+- **Low-friction exceptions** (document in code if used): pure navigation links, expand/collapse, copy-to-clipboard, filter tabs, quantity steppers before checkout.
+
+Reuse each app’s `ConfirmDialog` component. Pattern: hold `{ title, description, danger?, run }` in state; on confirm call `run()` then close.

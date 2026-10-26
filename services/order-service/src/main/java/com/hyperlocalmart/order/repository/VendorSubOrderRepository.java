@@ -157,6 +157,13 @@ public interface VendorSubOrderRepository extends JpaRepository<VendorSubOrder, 
             @Param("start") Instant start,
             @Param("end") Instant end);
 
+    @Query("""
+            SELECT v FROM VendorSubOrder v
+            JOIN FETCH v.order o
+            WHERE o.id IN :orderIds
+            """)
+    List<VendorSubOrder> findByOrderIdIn(@Param("orderIds") Collection<UUID> orderIds);
+
     /**
      * Delivered bags in the window as keys only, so accounts can skip shops whose bags are already settled
      * without loading every order.

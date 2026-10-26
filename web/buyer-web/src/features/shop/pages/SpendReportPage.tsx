@@ -1,3 +1,4 @@
+import { PickerDateField } from '@hlm-dates';
 import { useCallback, useEffect, useState, type CSSProperties } from 'react';
 import { PortalShell } from '@/shared/layout/PortalShell';
 import { useAuth } from '@/shared/auth/AuthContext';
@@ -70,7 +71,7 @@ export function SpendReportPage() {
       <div style={styles.filters}>
         <label style={styles.field}>
           From
-          <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} style={styles.input} />
+          <PickerDateField value={from} onChange={setFrom} style={styles.input} />
         </label>
         <span style={styles.to}>to {to}</span>
       </div>

@@ -6,9 +6,13 @@ import com.hyperlocalmart.order.client.TownClient;
 import com.hyperlocalmart.order.dto.response.ScratchCardGiftReportResponse;
 import com.hyperlocalmart.order.dto.response.ScratchCardGiftReportResponse.Line;
 import com.hyperlocalmart.order.dto.response.ScratchCardGiftReportResponse.TownRow;
+import com.hyperlocalmart.order.entity.BeautyOrder;
+import com.hyperlocalmart.order.entity.LaundryOrder;
 import com.hyperlocalmart.order.entity.Order;
 import com.hyperlocalmart.order.entity.OrderScratchCard;
 import com.hyperlocalmart.order.entity.ScratchCardStatus;
+import com.hyperlocalmart.order.repository.BeautyOrderRepository;
+import com.hyperlocalmart.order.repository.LaundryOrderRepository;
 import com.hyperlocalmart.order.repository.OrderRepository;
 import com.hyperlocalmart.order.repository.OrderScratchCardRepository;
 import lombok.RequiredArgsConstructor;
@@ -43,6 +47,8 @@ public class ScratchCardAdminService {
 
     private final OrderScratchCardRepository scratchCardRepository;
     private final OrderRepository orderRepository;
+    private final LaundryOrderRepository laundryOrderRepository;
+    private final BeautyOrderRepository beautyOrderRepository;
     private final TownClient townClient;
 
     @Transactional(readOnly = true)
@@ -103,10 +109,26 @@ public class ScratchCardAdminService {
         }
 
         Set<UUID> orderIds = activity.stream().map(OrderScratchCard::getOrderId).collect(Collectors.toSet());
-        Map<UUID, Order> orders = new HashMap<>();
+        Map<UUID, String> orderNumbers = new HashMap<>();
+        Map<UUID, String> buyerPhones = new HashMap<>();
         if (!orderIds.isEmpty()) {
             for (Order order : orderRepository.findAllById(orderIds)) {
-                orders.put(order.getId(), order);
+                orderNumbers.put(order.getId(), order.getOrderNumber());
+                if (order.getBuyerPhoneSnapshot() != null) {
+                    buyerPhones.put(order.getId(), order.getBuyerPhoneSnapshot());
+                }
+            }
+            for (LaundryOrder order : laundryOrderRepository.findAllById(orderIds)) {
+                orderNumbers.putIfAbsent(order.getId(), order.getOrderNumber());
+                if (order.getContactPhone() != null) {
+                    buyerPhones.putIfAbsent(order.getId(), order.getContactPhone());
+                }
+            }
+            for (BeautyOrder order : beautyOrderRepository.findAllById(orderIds)) {
+                orderNumbers.putIfAbsent(order.getId(), order.getOrderNumber());
+                if (order.getContactPhone() != null) {
+                    buyerPhones.putIfAbsent(order.getId(), order.getContactPhone());
+                }
             }
         }
 
@@ -114,7 +136,7 @@ public class ScratchCardAdminService {
         int take = Math.min(activity.size(), MAX_LINES);
         for (int i = 0; i < take; i++) {
             OrderScratchCard card = activity.get(i);
-            Order order = orders.get(card.getOrderId());
+            UUID orderId = card.getOrderId();
             boolean revealed = card.getStatus() == ScratchCardStatus.REVEALED;
             BigDecimal spent = revealed ? toMoney(card.getRevealedAmount()) : BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
             lines.add(Line.builder()
@@ -124,11 +146,9 @@ public class ScratchCardAdminService {
                     .status(card.getStatus() == null ? "" : card.getStatus().name())
                     .townId(card.getTownId())
                     .townName(townNames.getOrDefault(card.getTownId(), ""))
-                    .orderId(card.getOrderId())
-                    .orderNumber(order == null ? "" : order.getOrderNumber())
-                    .buyerPhone(order == null || order.getBuyerPhoneSnapshot() == null ? "" : order.getBuyerPhoneSnapshot())
-                    .revealedAmount(toMoney(card.getRevealedAmount()))
-                    .rewardMin(toMoney(card.getRewardMin()))
+                    .orderId(orderId)
+                    .orderNumber(orderNumbers.getOrDefault(orderId, ""))
+                    .buyerPhone(buyerPhones.getOrDefault(orderId, ""))
                     .rewardMax(toMoney(card.getRewardMax()))
                     .companySpent(spent)
                     .build());

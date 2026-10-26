@@ -23,6 +23,8 @@ import {
 } from '@/features/settlements/api/hubPaymentApi';
 import { listTowns } from '@/features/towns/api/townsApi';
 import { listRegistrationRequests, type VendorRegistrationVm } from '@/features/vendors/api/vendorsApi';
+import { BankPaidOnField } from '@/features/settlements/BankPaidOnField';
+import { defaultBankPaidOn, todayIstDate, validateBankPaidOn } from '@/features/settlements/bankPaidOnUtils';
 
 type Kind = 'confirm' | 'pay' | 'collect' | 'signup';
 type Filter = 'all' | Kind;
@@ -174,6 +176,7 @@ export function OpsInbox({ refreshTick = 0 }: { refreshTick?: number }) {
   const [query, setQuery] = useState('');
   const [ask, setAsk] = useState<Ask | null>(null);
   const [reason, setReason] = useState('');
+  const [confirmBankPaidOn, setConfirmBankPaidOn] = useState('');
   const [payMethod, setPayMethod] = useState('UPI');
   const [payRef, setPayRef] = useState('');
   const [busy, setBusy] = useState(false);
@@ -258,7 +261,39 @@ export function OpsInbox({ refreshTick = 0 }: { refreshTick?: number }) {
     setReason('');
     setPayMethod('UPI');
     setPayRef('');
+    if (next.type === 'confirm-bill' && next.item.settlement) {
+      const s = next.item.settlement;
+      setConfirmBankPaidOn(
+        defaultBankPaidOn({ bankPaidOn: s.bankPaidOn, vendorPaidAt: s.vendorPaidAt, paidAt: s.paidAt }),
+      );
+    } else {
+      setConfirmBankPaidOn('');
+    }
     setAsk(next);
+  }
+
+  async function notReceivedFromInbox() {
+    if (!ask || ask.type !== 'confirm-bill' || !ask.item.settlement || !token) return;
+    const why = reason.trim();
+    if (!why) {
+      setError('Write a comment for the vendor before rejecting.');
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const s = ask.item.settlement;
+      if (isSubscription(s)) await rejectSubscriptionPayment(token, s.id, why);
+      else await rejectVendorBillPayment(token, s.id, why);
+      setAsk(null);
+      setReason('');
+      setConfirmBankPaidOn('');
+      await reload();
+    } catch (err) {
+      setError(err instanceof ApiError || err instanceof Error ? err.message : 'Could not reject payment');
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function runAsk() {
@@ -268,8 +303,19 @@ export function OpsInbox({ refreshTick = 0 }: { refreshTick?: number }) {
     try {
       if (ask.type === 'confirm-bill' && ask.item.settlement) {
         const s = ask.item.settlement;
-        if (isSubscription(s)) await confirmSubscriptionPayment(token, s.id);
-        else await confirmVendorBillPayment(token, s.id);
+        const bankErr = validateBankPaidOn(confirmBankPaidOn);
+        if (bankErr) {
+          setError(bankErr);
+          setBusy(false);
+          return;
+        }
+        const bankBody = {
+          bankPaidOn: confirmBankPaidOn.trim(),
+          payoutMethod: s.vendorPaymentMethod ?? undefined,
+          transactionReference: s.vendorPaymentReference ?? undefined,
+        };
+        if (isSubscription(s)) await confirmSubscriptionPayment(token, s.id, bankBody);
+        else await confirmVendorBillPayment(token, s.id, bankBody);
       } else if (ask.type === 'reject-bill' && ask.item.settlement) {
         const why = reason.trim();
         if (!why) {
@@ -401,10 +447,7 @@ export function OpsInbox({ refreshTick = 0 }: { refreshTick?: number }) {
                       {item.kind === 'confirm' && item.settlement ? (
                         <>
                           <Button size="sm" disabled={busy} onClick={() => openAsk({ type: 'confirm-bill', item })}>
-                            Confirm
-                          </Button>
-                          <Button size="sm" variant="ghost" disabled={busy} onClick={() => openAsk({ type: 'reject-bill', item })}>
-                            Reject
+                            Confirm or reject
                           </Button>
                         </>
                       ) : null}
@@ -450,10 +493,20 @@ export function OpsInbox({ refreshTick = 0 }: { refreshTick?: number }) {
             ? 'Record payment'
             : ask?.type === 'reject-bill' || ask?.type === 'reject-hub'
               ? 'Reject this payment'
-              : 'Confirm money received'
+              : ask?.type === 'confirm-bill'
+                ? 'Confirm payment received?'
+                : 'Confirm money received'
         }
         confirmLabel={
-          ask?.type === 'pay' ? (payRef.trim() ? 'Mark paid' : 'Enter UTR') : ask?.type?.startsWith('reject') ? 'Reject' : 'Confirm'
+          ask?.type === 'pay'
+            ? payRef.trim()
+              ? 'Mark paid'
+              : 'Enter UTR'
+            : ask?.type === 'confirm-bill'
+              ? 'Yes, received'
+              : ask?.type?.startsWith('reject')
+                ? 'Reject'
+                : 'Confirm'
         }
         cancelLabel="Cancel"
         description={
@@ -464,6 +517,29 @@ export function OpsInbox({ refreshTick = 0 }: { refreshTick?: number }) {
                 {ask.item.title} · {ask.item.kind === 'signup' ? '' : formatMoney(ask.item.amount)}
               </div>
               <div style={styles.meta}>{ask.item.detail}</div>
+              {ask.type === 'confirm-bill' ? (
+                <>
+                  <BankPaidOnField
+                    value={confirmBankPaidOn}
+                    max={todayIstDate()}
+                    onChange={setConfirmBankPaidOn}
+                  />
+                  <label style={styles.field}>
+                    Comment for vendor
+                    <textarea
+                      style={styles.textarea}
+                      value={reason}
+                      maxLength={500}
+                      rows={2}
+                      placeholder="Required for Not received — what should they check or fix?"
+                      onChange={(e) => setReason(e.target.value)}
+                    />
+                  </label>
+                  <p style={styles.meta}>
+                    Not received sends this comment; the vendor can update payment details and resubmit.
+                  </p>
+                </>
+              ) : null}
               {ask.type === 'reject-bill' || ask.type === 'reject-hub' ? (
                 <label style={styles.field}>
                   Reason they will see
@@ -497,9 +573,16 @@ export function OpsInbox({ refreshTick = 0 }: { refreshTick?: number }) {
             </div>
           ) : null
         }
+        confirmDisabled={ask?.type === 'confirm-bill' && !confirmBankPaidOn.trim()}
+        extraLabel={ask?.type === 'confirm-bill' ? 'Not received' : undefined}
+        extraDisabled={ask?.type === 'confirm-bill' ? !reason.trim() : undefined}
+        onExtra={ask?.type === 'confirm-bill' ? () => void notReceivedFromInbox() : undefined}
         onConfirm={() => void runAsk()}
         onClose={() => {
-          if (!busy) setAsk(null);
+          if (!busy) {
+            setAsk(null);
+            setConfirmBankPaidOn('');
+          }
         }}
       />
     </section>
@@ -593,5 +676,13 @@ const styles: Record<string, CSSProperties> = {
   dialog: { display: 'grid', gap: '0.35rem', minWidth: '16rem' },
   field: { display: 'grid', gap: '0.2rem', fontSize: '0.78rem', fontWeight: 700 },
   input: { border: '1px solid var(--border)', borderRadius: 8, padding: '0.4rem 0.5rem', font: 'inherit' },
+  textarea: {
+    border: '1px solid var(--border)',
+    borderRadius: 8,
+    padding: '0.4rem 0.5rem',
+    font: 'inherit',
+    minHeight: 52,
+    resize: 'vertical',
+  },
   payRow: { display: 'grid', gridTemplateColumns: '1fr 1.4fr', gap: '0.45rem' },
 };

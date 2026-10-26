@@ -90,8 +90,15 @@ public class OrderInvoiceService {
                 .deliveryAddress(order.getDeliveryAddressSnapshot())
                 .buyerPhone(order.getBuyerPhoneSnapshot())
                 .itemsSubtotal(order.getItemsSubtotal())
-                .deliveryFee(order.getDeliveryFee())
-                .platformFee(order.getPlatformFee())
+                .promoDiscount(order.getPromoDiscount() == null ? BigDecimal.ZERO : order.getPromoDiscount())
+                .deliveryFee(order.getDeliveryFee() == null ? BigDecimal.ZERO : order.getDeliveryFee())
+                .membershipDeliveryWaived(order.getMembershipDeliveryWaived() == null
+                        ? BigDecimal.ZERO
+                        : order.getMembershipDeliveryWaived())
+                .platformFee(order.getPlatformFee() == null ? BigDecimal.ZERO : order.getPlatformFee())
+                .codFee(order.getCodFee() == null ? BigDecimal.ZERO : order.getCodFee())
+                .membershipFee(order.getMembershipFee() == null ? BigDecimal.ZERO : order.getMembershipFee())
+                .membershipSlab(order.getMembershipSlab())
                 .taxAmount(order.getTaxAmount())
                 .storeCreditApplied(order.getStoreCreditApplied() == null ? BigDecimal.ZERO : order.getStoreCreditApplied())
                 .totalAmount(OrderService.buyerPayableTotal(order))

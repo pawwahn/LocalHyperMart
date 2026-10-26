@@ -102,7 +102,12 @@ export function summarizeActiveWork(assignments: AssignmentView[]): AgentWorkSum
     if (a.legType === 'PICKUP') {
       if (a.status === 'ASSIGNED') pickupAtShop += 1;
       else if (a.status === 'IN_PROGRESS') pickupToHub += 1;
-    } else if (a.legType === 'LAST_MILE' || a.legType === 'VENDOR_DIRECT') {
+    } else if (
+      a.legType === 'LAST_MILE' ||
+      a.legType === 'VENDOR_DIRECT' ||
+      a.legType === 'LAUNDRY_TRIP'
+    ) {
+      // Laundry trips live on Deliveries (shop agent). Count them as open home work.
       if (a.status === 'ASSIGNED') deliveryAtHub += 1;
       else if (a.status === 'IN_PROGRESS') deliveryEnRoute += 1;
     }

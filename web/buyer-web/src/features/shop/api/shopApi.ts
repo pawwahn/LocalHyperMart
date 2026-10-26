@@ -47,6 +47,12 @@ export type CartDto = {
   }>;
   minOrderValue?: number;
   minOrderMet?: boolean;
+  membershipAddon?: {
+    slab: string;
+    label: string;
+    credits: number;
+    price: number;
+  } | null;
 };
 
 export type AddressDto = {
@@ -73,6 +79,7 @@ export type OrderSummaryDto = {
   paymentMethod?: string;
   paymentStatus: string;
   placedAt?: string;
+  createdAt?: string;
   itemCount: number;
 };
 
@@ -108,7 +115,13 @@ export type OrderDetailDto = {
   displayStatus?: string;
   placedAt?: string;
   itemsSubtotal: number;
+  promoCode?: string | null;
+  promoDiscount?: number;
   deliveryFee: number;
+  membershipCreditUsed?: boolean;
+  membershipDeliveryWaived?: number;
+  membershipFee?: number;
+  membershipSlab?: string | null;
   platformFee?: number;
   codFee?: number;
   storeCreditApplied?: number;
@@ -253,6 +266,14 @@ export type CartLineView = {
   alternateUnitPrice: number | null;
 };
 
+export type CartMembershipAddonView = {
+  slab: string;
+  label: string;
+  credits: number;
+  price: number;
+  priceLabel: string;
+};
+
 export type CartView = {
   cartId: string | null;
   itemCount: number;
@@ -268,6 +289,7 @@ export type CartView = {
   minOrderLabel: string;
   minOrderMet: boolean;
   items: CartLineView[];
+  membershipAddon: CartMembershipAddonView | null;
 };
 
 function money(v: number | null | undefined): string {
@@ -322,6 +344,15 @@ export function toCartView(dto: CartDto): CartView {
     minOrderValue,
     minOrderLabel: money(minOrderValue),
     minOrderMet: true,
+    membershipAddon: dto.membershipAddon
+      ? {
+          slab: dto.membershipAddon.slab,
+          label: dto.membershipAddon.label,
+          credits: Number(dto.membershipAddon.credits ?? 0),
+          price: Number(dto.membershipAddon.price ?? 0),
+          priceLabel: money(dto.membershipAddon.price),
+        }
+      : null,
     items: (dto.items ?? []).map((i) => ({
       itemId: i.itemId,
       listingId: i.listingId,
@@ -629,6 +660,27 @@ export async function applyPromo(token: string, townId: string, code: string): P
 
 export async function removePromo(token: string, townId: string): Promise<CartView> {
   const data = await apiRequest<CartDto>(`/api/v1/cart/promo?townId=${townId}`, {
+    method: 'DELETE',
+    token,
+  });
+  return toCartView(data);
+}
+
+export async function attachCartMembership(
+  token: string,
+  townId: string,
+  slab: string,
+): Promise<CartView> {
+  const data = await apiRequest<CartDto>('/api/v1/cart/membership', {
+    method: 'POST',
+    token,
+    body: { townId, slab },
+  });
+  return toCartView(data);
+}
+
+export async function removeCartMembership(token: string, townId: string): Promise<CartView> {
+  const data = await apiRequest<CartDto>(`/api/v1/cart/membership?townId=${townId}`, {
     method: 'DELETE',
     token,
   });

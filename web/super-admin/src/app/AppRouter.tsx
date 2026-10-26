@@ -6,7 +6,7 @@ import { ThemeProvider } from '@hlm-theme';
 import { AuthProvider } from '@/shared/auth/AuthContext';
 import { RequireAuth } from '@/shared/routing/RequireAuth';
 import { LoginPage } from '@/features/auth/pages/LoginPage';
-import { LegalDocumentPage } from '@hlm-legal';
+import { CookieNotice, LegalDocumentPage, OpenSourceNoticesPage } from '@hlm-legal';
 
 const DashboardPage = lazy(() =>
   import('@/features/dashboard/pages/DashboardPage').then((m) => ({ default: m.DashboardPage })),
@@ -39,8 +39,14 @@ const CustomersPage = lazy(() =>
 const VendorsPage = lazy(() =>
   import('@/features/vendors/pages/VendorsPage').then((m) => ({ default: m.VendorsPage })),
 );
+const GroceryAdminPage = lazy(() =>
+  import('@/features/grocery/pages/GroceryAdminPage').then((m) => ({ default: m.GroceryAdminPage })),
+);
 const LaundryAdminPage = lazy(() =>
   import('@/features/laundry/pages/LaundryAdminPage').then((m) => ({ default: m.LaundryAdminPage })),
+);
+const BeautyAdminPage = lazy(() =>
+  import('@/features/beauty/pages/BeautyAdminPage').then((m) => ({ default: m.BeautyAdminPage })),
 );
 const ServicesPage = lazy(() =>
   import('@/features/services/pages/ServicesPage').then((m) => ({ default: m.ServicesPage })),
@@ -79,6 +85,9 @@ const AgentsPage = lazy(() =>
 const SettingsPage = lazy(() =>
   import('@/features/settings/pages/SettingsPage').then((m) => ({ default: m.SettingsPage })),
 );
+const CompliancePage = lazy(() =>
+  import('@/features/compliance/pages/CompliancePage').then((m) => ({ default: m.CompliancePage })),
+);
 const PaymentGatewaysPage = lazy(() =>
   import('@/features/payments/pages/PaymentGatewaysPage').then((m) => ({ default: m.PaymentGatewaysPage })),
 );
@@ -96,6 +105,7 @@ export function AppRouter() {
           <Suspense fallback={<RouteFallback />}>
             <Routes>
               <Route path="/login" element={<LoginPage />} />
+              <Route path="/legal/oss" element={<OpenSourceNoticesPage homeTo="/login" />} />
               <Route path="/legal/:doc" element={<LegalDocumentPage homeTo="/login" />} />
               <Route element={<RequireAuth />}>
                 <Route path="/dashboard" element={<DashboardPage />} />
@@ -110,7 +120,9 @@ export function AppRouter() {
                 <Route path="/customers" element={<CustomersPage />} />
                 <Route path="/vendors" element={<VendorsPage />} />
                 <Route path="/services" element={<ServicesPage />} />
+                <Route path="/grocery" element={<GroceryAdminPage />} />
                 <Route path="/laundry" element={<LaundryAdminPage />} />
+                <Route path="/beauty" element={<BeautyAdminPage />} />
                 <Route path="/vendor-billing" element={<VendorBillingPage />} />
                 <Route path="/catalog" element={<CatalogPage />} />
                 <Route path="/recipes" element={<RecipesPage />} />
@@ -123,11 +135,13 @@ export function AppRouter() {
                 <Route path="/hubs" element={<HubsPage />} />
                 <Route path="/agents" element={<AgentsPage />} />
                 <Route path="/payments" element={<PaymentGatewaysPage />} />
+                <Route path="/compliance" element={<CompliancePage />} />
                 <Route path="/settings" element={<SettingsPage />} />
               </Route>
               <Route path="*" element={<Navigate to="/dashboard" replace />} />
             </Routes>
           </Suspense>
+          <CookieNotice privacyTo="/legal/privacy" />
         </BrowserRouter>
       </AuthProvider>
       </PlatformBrandProvider>

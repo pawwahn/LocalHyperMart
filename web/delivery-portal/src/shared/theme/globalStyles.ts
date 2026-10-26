@@ -37,6 +37,7 @@ export function injectGlobalStyles(): void {
       --motion-fast: ${tokens.motion.fast};
       --motion-normal: ${tokens.motion.normal};
       --shell-max: min(1680px, calc(100vw - 1.25rem));
+      --agent-assignment-rail: 32rem;
       --tabbar-h: 72px;
       --touch-min: 44px;
     }
@@ -67,6 +68,24 @@ export function injectGlobalStyles(): void {
     @keyframes hlm-fade-up {
       from { opacity: 0; transform: translateY(6px); }
       to { opacity: 1; transform: translateY(0); }
+    }
+    [data-trip-card] {
+      transition: box-shadow 0.18s ease, border-color 0.18s ease, transform 0.18s ease;
+    }
+    [data-trip-card="shut"]:hover {
+      box-shadow: var(--shadow-card);
+      border-color: color-mix(in srgb, var(--accent) 24%, var(--border));
+    }
+    [data-trip-card="shut"]:active {
+      transform: scale(0.995);
+    }
+    [data-trip-card="open"] {
+      animation: hlm-fade-up 0.22s ease;
+    }
+    .agent-trip-search:focus {
+      outline: 2px solid color-mix(in srgb, var(--accent) 35%, transparent);
+      outline-offset: 1px;
+      border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
     }
   `;
   document.head.appendChild(style);

@@ -14,7 +14,7 @@ export function MorePage() {
 
   const rows = useMemo(() => {
     const links = [
-      { key: 'orders', to: '/orders' as const, label: 'Orders', hint: 'Grocery and laundry' },
+      { key: 'orders', to: '/orders' as const, label: 'Orders', hint: 'Grocery, glam & laundry' },
       { key: 'addresses', to: '/addresses' as const, label: 'Saved addresses', hint: 'Edit or delete delivery addresses' },
       { key: 'alerts', to: '/alerts' as const, label: 'Alerts', hint: 'Order updates' },
       { key: 'wallet', to: '/wallet' as const, label: 'Wallet', hint: 'Store credit' },
@@ -22,6 +22,7 @@ export function MorePage() {
       { key: 'membership', to: '/membership' as const, label: 'Free delivery plans', hint: '3 / 6 / 12 months · buy here' },
       { key: 'invite', to: '/invite' as const, label: 'Invite friends', hint: 'Share code · earn wallet on deliveries' },
       { key: 'legal', to: '/legal/terms' as const, label: 'Terms & policies', hint: 'Wallet, membership, claims, refunds' },
+      { key: 'privacy', to: '/privacy' as const, label: 'Privacy & data', hint: 'Marketing, delete account, open source' },
     ];
     return links;
   }, []);

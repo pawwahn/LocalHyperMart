@@ -52,6 +52,7 @@ public class VendorRegistrationService {
     private final ShopRepository shopRepository;
     private final ServiceOfferingRepository offeringRepository;
     private final LaundryProfileRepository laundryProfileRepository;
+    private final com.hyperlocalmart.vendor.repository.BeautyProfileRepository beautyProfileRepository;
     private final UserClient userClient;
     private final VendorCommercialTermsService vendorCommercialTermsService;
     private final AdminAuditClient adminAuditClient;
@@ -93,6 +94,11 @@ public class VendorRegistrationService {
                 .ifscEnc(ifsc == null ? null : ifsc.toUpperCase(Locale.ROOT))
                 .serviceId(service.getId())
                 .status(RegistrationRequestStatus.PENDING)
+                .termsAcknowledgedAt(Instant.now())
+                .termsLegalVersion(request.getAcknowledgedLegalVersion() == null
+                        || request.getAcknowledgedLegalVersion() < 1
+                        ? 1
+                        : request.getAcknowledgedLegalVersion())
                 .build();
         entity.setCreatedBy(requestedByUserId);
         entity.setUpdatedBy(requestedByUserId);
@@ -430,7 +436,7 @@ public class VendorRegistrationService {
                 .status(vendor.getStatus().name())
                 .serviceId(service != null ? service.getId() : null)
                 .serviceName(service != null ? service.getName() : null)
-                .hidesListings(CatalogListingPolicy.hidesListings(service, laundryProfileRepository.existsById(vendor.getId())))
+                .hidesListings(listingHidden(service, vendor.getId()))
                 .build();
     }
 
@@ -476,8 +482,15 @@ public class VendorRegistrationService {
                 .disabledReason(vendor.getDisabledReason())
                 .serviceId(service != null ? service.getId() : null)
                 .serviceName(service != null ? service.getName() : null)
-                .hidesListings(CatalogListingPolicy.hidesListings(service, laundryProfileRepository.existsById(vendor.getId())))
+                .hidesListings(listingHidden(service, vendor.getId()))
                 .build();
+    }
+
+    private boolean listingHidden(ServiceOffering service, UUID vendorId) {
+        return CatalogListingPolicy.hidesListings(
+                service,
+                laundryProfileRepository.existsById(vendorId),
+                beautyProfileRepository.existsById(vendorId));
     }
 
     private ServiceOffering requireOffering(UUID serviceId) {

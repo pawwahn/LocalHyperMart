@@ -252,6 +252,29 @@ public class PaymentClient {
         }
     }
 
+    /**
+     * Sum of SUCCESS gateway captures for this order (source of truth for partial prepay).
+     * Returns null when payment-service is unreachable.
+     */
+    public BigDecimal sumSuccessfulPaymentsForOrder(UUID orderId) {
+        try {
+            RestClient client = restClientBuilder.baseUrl(paymentServiceProperties.getBaseUrl()).build();
+            ApiResponse<CollectedSuccessResult> response = client.get()
+                    .uri("/api/v1/internal/payments/orders/{orderId}/collected-success", orderId)
+                    .retrieve()
+                    .body(new ParameterizedTypeReference<ApiResponse<CollectedSuccessResult>>() {});
+            if (response == null || response.getData() == null || response.getData().amount() == null) {
+                return null;
+            }
+            return response.getData().amount();
+        } catch (RuntimeException ex) {
+            return null;
+        }
+    }
+
+    public record CollectedSuccessResult(BigDecimal amount) {
+    }
+
     public record PaymentInitiateResult(
             UUID paymentId,
             UUID orderId,

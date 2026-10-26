@@ -57,6 +57,14 @@ public class TownDuesResponse {
          * hub cash, franchise, delivery fees).
          */
         BigDecimal commission;
+        /** Buyer platform fee on shop-held COD rows. */
+        BigDecimal platformFee;
+        /** Buyer COD surcharge on shop-held rows. */
+        BigDecimal codFee;
+        /** Bundled buyer delivery / membership plan on shop-held COD. */
+        BigDecimal membershipFee;
+        /** Penalties or other charges on vendor collection bills. */
+        BigDecimal penalty;
         int itemCount;
         String reference;
         /** Settlement to confirm. Set when {@link #action} is CONFIRM for a vendor or hub settlement bill. */

@@ -51,6 +51,7 @@ class PaymentServiceTest {
     @Mock private TransactionTemplate transactionTemplate;
     @Mock private RazorpayGatewayQueueService razorpayGatewayQueue;
     @Mock private RazorpayGatewaySyncService razorpayGatewaySync;
+    @Mock private PaymentOrderNotificationService paymentOrderNotificationService;
 
     @InjectMocks
     private PaymentService paymentService;

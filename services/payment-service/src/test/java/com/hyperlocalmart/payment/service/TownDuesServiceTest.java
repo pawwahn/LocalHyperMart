@@ -59,7 +59,8 @@ class TownDuesServiceTest {
         when(closeLineRepository.distinctHubTowns()).thenReturn(List.of());
         when(closeDayRepository.sumReceivedGroupedByHub()).thenReturn(List.of());
         when(remittanceRepository.sumAmountGroupedByHub()).thenReturn(List.of());
-        when(openAccountsService.scan(nullable(LocalDate.class), nullable(LocalDate.class))).thenReturn(List.of());
+        when(openAccountsService.scan(nullable(LocalDate.class), nullable(LocalDate.class), nullable(UUID.class)))
+                .thenReturn(List.of());
     }
 
     @Test

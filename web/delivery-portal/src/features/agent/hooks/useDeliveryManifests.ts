@@ -39,6 +39,9 @@ export function useDeliveryManifests(tasks: AssignmentView[]) {
 
       await Promise.all(
         tasks.map(async (task) => {
+          if (task.legType === 'LAUNDRY_TRIP') {
+            return;
+          }
           try {
             const manifest = await fetchDeliveryManifest(session.accessToken, task.id);
             if (!cancelled) next[task.id] = manifest;

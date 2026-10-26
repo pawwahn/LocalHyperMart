@@ -96,7 +96,11 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
     if (response.status >= 502 && response.status <= 504) {
       message =
         'Backend service unavailable. Run .\\scripts\\health-check.ps1 or .\\scripts\\start-dev.ps1, then refresh.';
-    } else if (response.status >= 500 && /internal server error/i.test(message)) {
+    } else if (
+      response.status >= 500 &&
+      /internal server error/i.test(message) &&
+      !body?.message?.trim()
+    ) {
       message =
         'Orders backend error — order-service (port 8086) may be stopped. Restart it or run start-dev, then refresh.';
     }

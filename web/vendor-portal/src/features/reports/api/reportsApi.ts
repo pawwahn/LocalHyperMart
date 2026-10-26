@@ -31,6 +31,18 @@ export type SalesReportRow = {
   vendorAgentDelivery?: boolean;
   subtotal: number;
   itemCount: number;
+  /** Buyer delivery charge in COD (checkout rate — not what you pay your rider). */
+  deliveryFeeAmount?: number | null;
+  /** Town rate: pay your shop rider on vendor-agent delivery. */
+  shopRiderPayAmount?: number | null;
+  /** Shop-held cash: buyer platform fee remitted to KoyaKart. */
+  platformFeeAmount?: number | null;
+  /** Shop-held cash: buyer COD fee remitted to KoyaKart. */
+  codFeeAmount?: number | null;
+  /** Shop-held cash: bundled delivery / membership plan remitted to KoyaKart. */
+  membershipFeeAmount?: number | null;
+  /** COD cash for this bag (buyer paid share incl. delivery/platform on mixed orders). */
+  codCashCollectedAmount?: number | null;
   items?: SalesReportItem[] | null;
 };
 

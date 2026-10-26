@@ -1,13 +1,24 @@
 import { useMemo, useState } from 'react';
+import { useSingleExpandedCard } from '../hooks/useSingleExpandedCard';
 import { Link } from 'react-router-dom';
 import type { CSSProperties } from 'react';
 import { Banner, Card } from '@/shared/ui';
+import { RouteErrorBoundary } from '@/shared/ui/RouteErrorBoundary';
 import { AgentShell } from '../layout/AgentShell';
 import { BuyerDeliveryCard } from '../components/AssignmentCards';
 import { ConfirmTookFromHubDialog } from '../components/ConfirmTookFromHubDialog';
 import { useAgentWorkspace } from '../hooks/useAgentWorkspace';
 import { useDeliveryManifests } from '../hooks/useDeliveryManifests';
 import { useAgentKind } from '../hooks/useAgentKind';
+import { agentAssignmentList, agentAssignmentRail } from '../layout/agentAssignmentRail';
+import {
+  agentTripChip,
+  agentTripChipActive,
+  agentTripSearch,
+  agentTripSearchIcon,
+  agentTripSearchWrap,
+  agentTripSegment,
+} from '../layout/agentTripFilterStyles';
 
 type DeliveryFilter = 'all' | 'at_hub' | 'en_route';
 
@@ -42,6 +53,7 @@ export function AgentBuyerDeliveriesPage() {
   }, [deliveryTasks, filter]);
 
   const { manifests, failedIds, loadingManifests, retryManifest } = useDeliveryManifests(filtered);
+  const [expandedId, setExpandedId] = useSingleExpandedCard(filtered, 'IN_PROGRESS');
 
   const atHubCount = deliveryTasks.filter((t) => t.status === 'ASSIGNED').length;
   const enRouteCount = deliveryTasks.filter((t) => t.status === 'IN_PROGRESS').length;
@@ -51,14 +63,17 @@ export function AgentBuyerDeliveriesPage() {
     <AgentShell
       title={vendorShop ? 'Deliveries' : 'To home'}
       subtitle={
-        vendorShop ? 'Shop → customer · OTP when delivered' : 'Hub → customer · OTP when delivered'
+        vendorShop
+          ? 'Shop & laundry trips · finish each card'
+          : 'Hub → customer · OTP when delivered'
       }
       onRefresh={() => void reload()}
     >
+      <div style={agentAssignmentRail}>
       {error ? <Banner tone="danger">{error}</Banner> : null}
       {notice ? <Banner tone="success">{notice}</Banner> : null}
 
-      <div style={styles.segment} role="tablist" aria-label="Filter deliveries">
+      <div style={agentTripSegment} role="tablist" aria-label="Filter deliveries">
         <FilterChip active={filter === 'all'} label={`All ${deliveryTasks.length}`} onClick={() => setFilter('all')} />
         <FilterChip
           active={filter === 'at_hub'}
@@ -72,8 +87,8 @@ export function AgentBuyerDeliveriesPage() {
         />
       </div>
 
-      <div style={styles.searchWrap}>
-        <span style={styles.searchIcon} aria-hidden>
+      <div style={agentTripSearchWrap}>
+        <span style={agentTripSearchIcon} aria-hidden>
           ⌕
         </span>
         <input
@@ -81,7 +96,8 @@ export function AgentBuyerDeliveriesPage() {
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search order number"
-          style={styles.search}
+          className="agent-trip-search"
+          style={agentTripSearch}
         />
       </div>
 
@@ -101,7 +117,7 @@ export function AgentBuyerDeliveriesPage() {
               : filter === 'en_route'
                 ? 'No delivery on the way.'
                 : vendorShop
-                  ? 'Your shop will assign deliveries here when orders are ready.'
+                  ? 'Your shop will assign grocery and laundry trips here when ready.'
                   : 'When hub assigns a home delivery, it appears here. Check Home for open job counts.'}
           </p>
           <Link to="/agent" style={styles.homeLink}>
@@ -109,18 +125,22 @@ export function AgentBuyerDeliveriesPage() {
           </Link>
         </Card>
       ) : (
+        <RouteErrorBoundary label="agent-deliveries">
         <div style={styles.list}>
           {filtered.map((task) => (
             <BuyerDeliveryCard
               key={task.id}
               task={task}
               busy={actionId === task.id}
+              expanded={expandedId === task.id}
+              onRequestExpand={() => setExpandedId(task.id)}
+              onRequestCollapse={() => setExpandedId(null)}
               manifest={manifests[task.id]}
               manifestLoading={loadingManifests}
               manifestFailed={Boolean(failedIds[task.id])}
               onRetryManifest={() => retryManifest(task.id)}
               onPickHub={(id, status) => {
-                if (task.legType === 'VENDOR_DIRECT') {
+                if (task.legType === 'VENDOR_DIRECT' || task.legType === 'LAUNDRY_TRIP') {
                   void doPickVendor(id, status);
                   return;
                 }
@@ -135,7 +155,9 @@ export function AgentBuyerDeliveriesPage() {
             />
           ))}
         </div>
+        </RouteErrorBoundary>
       )}
+      </div>
 
       <ConfirmTookFromHubDialog
         open={Boolean(tookHubPrompt)}
@@ -167,69 +189,20 @@ function FilterChip({
   onClick: () => void;
 }) {
   return (
-    <button type="button" role="tab" aria-selected={active} style={active ? styles.chipActive : styles.chip} onClick={onClick}>
+    <button
+      type="button"
+      role="tab"
+      aria-selected={active}
+      style={active ? agentTripChipActive : agentTripChip}
+      onClick={onClick}
+    >
       {label}
     </button>
   );
 }
 
 const styles: Record<string, CSSProperties> = {
-  segment: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(3, 1fr)',
-    gap: 4,
-    padding: 4,
-    borderRadius: 12,
-    background: 'var(--bg-muted)',
-    border: '1px solid var(--border)',
-  },
-  chip: {
-    border: 'none',
-    borderRadius: 9,
-    padding: '0.55rem 0.35rem',
-    background: 'transparent',
-    color: 'var(--text-muted)',
-    fontSize: '0.78rem',
-    fontWeight: 700,
-    cursor: 'pointer',
-    minHeight: 40,
-  },
-  chipActive: {
-    border: 'none',
-    borderRadius: 9,
-    padding: '0.55rem 0.35rem',
-    background: 'var(--bg-elevated)',
-    color: 'var(--accent)',
-    fontSize: '0.78rem',
-    fontWeight: 800,
-    cursor: 'pointer',
-    minHeight: 40,
-    boxShadow: '0 1px 3px rgba(15, 23, 42, 0.08)',
-  },
-  searchWrap: {
-    position: 'relative',
-    display: 'flex',
-    alignItems: 'center',
-  },
-  searchIcon: {
-    position: 'absolute',
-    left: 12,
-    color: 'var(--text-muted)',
-    fontSize: '0.95rem',
-    pointerEvents: 'none',
-  },
-  search: {
-    width: '100%',
-    boxSizing: 'border-box',
-    border: '1px solid var(--border)',
-    borderRadius: 12,
-    padding: '0.65rem 0.75rem 0.65rem 2.1rem',
-    background: 'var(--bg-elevated)',
-    color: 'var(--text)',
-    fontSize: '0.92rem',
-    fontWeight: 600,
-  },
-  list: { display: 'grid', gap: '0.7rem' },
+  list: agentAssignmentList,
   stateCard: {
     padding: '1.1rem 0.85rem',
     display: 'grid',

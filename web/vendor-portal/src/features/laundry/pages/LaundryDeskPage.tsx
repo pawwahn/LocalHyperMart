@@ -4,17 +4,32 @@ import { useAuth } from '@/shared/auth/AuthContext';
 import { usePortalChrome } from '@/shared/layout/PortalChromeContext';
 import { ApiError } from '@/shared/api/http';
 import { Toast } from '@/shared/ui';
-import { LaundryRequests } from '../components/LaundryRequests';
 import {
   LAUNDRY_ITEMS,
   LAUNDRY_SERVICES,
+  PICKUP_SLOTS,
   WEEKDAYS,
   fetchMyLaundry,
+  parseBlockedSlotIds,
   saveLaundryOps,
   saveLaundryRates,
   type LaundryProfile,
   type LaundryRate,
 } from '../api/laundryApi';
+
+function istToday(): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Kolkata',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date());
+}
+
+function blockedToday(shop: LaundryProfile | null): string[] {
+  if (!shop || shop.blockedPickupDate !== istToday()) return [];
+  return parseBlockedSlotIds(shop.blockedPickupSlots);
+}
 
 function feeText(profile: { feeModel?: string | null; perPieceAmount?: number | null; perOrderFlatAmount?: number | null }): string {
   const perPiece = Number(profile.perPieceAmount || 0);
@@ -38,13 +53,19 @@ function openDaysFromStored(raw?: string | null): string[] {
   return WEEKDAYS.filter((day) => !closed.includes(day));
 }
 
+function rateKey(service: string, item: string): string {
+  return `${service}|${item}`;
+}
+
 function rateAt(rates: LaundryRate[], service: string, item: string): string {
   const found = rates.find((rate) => rate.serviceType === service && rate.itemType === item);
   return found ? String(found.unitPrice) : '';
 }
 
-function itemPaused(rates: LaundryRate[], item: string): boolean {
-  return rates.some((rate) => rate.itemType === item && rate.paused);
+function pausedFromRates(rates: LaundryRate[]): Record<string, boolean> {
+  const next: Record<string, boolean> = {};
+  for (const rate of rates) next[rateKey(rate.serviceType, rate.itemType)] = Boolean(rate.paused);
+  return next;
 }
 
 export function LaundryDeskPage() {
@@ -59,6 +80,7 @@ export function LaundryDeskPage() {
   const [dropCharge, setDropCharge] = useState('');
   const [bothCharge, setBothCharge] = useState('');
   const [openDays, setOpenDays] = useState<string[]>([...WEEKDAYS]);
+  const [blockedSlots, setBlockedSlots] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [savedOpen, setSavedOpen] = useState(false);
   const [savedMessage, setSavedMessage] = useState('Saved');
@@ -74,30 +96,43 @@ export function LaundryDeskPage() {
       .then((shop) => {
         setProfile(shop);
         const next: Record<string, string> = {};
-        const nextPaused: Record<string, boolean> = {};
         const shopRates = shop.rates ?? [];
         for (const item of LAUNDRY_ITEMS) {
-          nextPaused[item.id] = itemPaused(shopRates, item.id);
-          for (const service of LAUNDRY_SERVICES) next[`${service.id}|${item.id}`] = rateAt(shopRates, service.id, item.id);
+          for (const service of LAUNDRY_SERVICES) next[rateKey(service.id, item.id)] = rateAt(shopRates, service.id, item.id);
         }
         setRates(next);
-        setPaused(nextPaused);
+        setPaused(pausedFromRates(shopRates));
         setCapacity(shop.dailyPieceCapacity ? String(shop.dailyPieceCapacity) : '');
         setPickupCharge(shop.pickupCharge ? String(shop.pickupCharge) : '');
         setDropCharge(shop.dropCharge ? String(shop.dropCharge) : '');
         setBothCharge(shop.pickupAndDropCharge ? String(shop.pickupAndDropCharge) : '');
         setOpenDays(openDaysFromStored(shop.closedWeekdays));
+        setBlockedSlots(blockedToday(shop));
       })
       .catch((err) => setError(err instanceof ApiError || err instanceof Error ? err.message : 'Could not load laundry'))
       .finally(() => setLoading(false));
   }, [token]);
+
+  function pricedKeys(serviceId?: string, itemId?: string): string[] {
+    return Object.entries(rates)
+      .filter(([key, price]) => {
+        if (price === '') return false;
+        const [serviceType, itemType] = key.split('|');
+        return (!serviceId || serviceType === serviceId) && (!itemId || itemType === itemId);
+      })
+      .map(([key]) => key);
+  }
+
+  function allPaused(keys: string[]): boolean {
+    return keys.length > 0 && keys.every((key) => paused[key]);
+  }
 
   function ratePayload(nextPaused = paused): LaundryRate[] {
     return Object.entries(rates)
       .filter(([, price]) => price !== '')
       .map(([key, price]) => {
         const [serviceType, itemType] = key.split('|');
-        return { serviceType, itemType, unitPrice: Number(price), paused: Boolean(nextPaused[itemType]) };
+        return { serviceType, itemType, unitPrice: Number(price), paused: Boolean(nextPaused[key]) };
       });
   }
 
@@ -112,11 +147,7 @@ export function LaundryDeskPage() {
         pickupAndDropCharge: Number(bothCharge || 0),
       });
       setProfile(saved);
-      setPaused((prev) => {
-        const fromShop: Record<string, boolean> = { ...prev };
-        for (const item of LAUNDRY_ITEMS) fromShop[item.id] = itemPaused(saved.rates ?? [], item.id);
-        return fromShop;
-      });
+      setPaused(pausedFromRates(saved.rates ?? []));
       setSavedMessage(message);
       setSavedOpen(true);
       return true;
@@ -130,12 +161,44 @@ export function LaundryDeskPage() {
     await persistRates(paused, 'Rates saved');
   }
 
-  async function togglePause(itemId: string) {
+  async function toggleKeys(keys: string[], resumeMessage: string, pauseMessage: string) {
+    if (keys.length === 0) return;
     const previous = paused;
-    const next = { ...paused, [itemId]: !paused[itemId] };
+    const resume = keys.every((key) => paused[key]);
+    const next = { ...paused };
+    for (const key of keys) next[key] = !resume;
     setPaused(next);
-    const ok = await persistRates(next, next[itemId] ? 'Paused for customers' : 'Visible to customers');
+    const ok = await persistRates(next, resume ? resumeMessage : pauseMessage);
     if (!ok) setPaused(previous);
+  }
+
+  async function toggleItemPause(itemId: string) {
+    const label = LAUNDRY_ITEMS.find((item) => item.id === itemId)?.label ?? 'Piece';
+    await toggleKeys(pricedKeys(undefined, itemId), `${label} visible to customers`, `${label} paused for customers`);
+  }
+
+  async function toggleServicePause(serviceId: string) {
+    const label = LAUNDRY_SERVICES.find((service) => service.id === serviceId)?.label ?? 'Service';
+    await toggleKeys(pricedKeys(serviceId), `${label} visible to customers`, `${label} paused for customers`);
+  }
+
+  async function toggleSlotBlock(slotId: string) {
+    if (!token) return;
+    const previous = blockedSlots;
+    const next = previous.includes(slotId) ? previous.filter((id) => id !== slotId) : [...previous, slotId];
+    setBlockedSlots(next);
+    setError(null);
+    try {
+      const saved = await saveLaundryOps(token, { blockedPickupSlots: next.join(',') });
+      setProfile(saved);
+      setBlockedSlots(blockedToday(saved));
+      const slot = PICKUP_SLOTS.find((item) => item.id === slotId);
+      setSavedMessage(next.includes(slotId) ? `${slot?.label ?? 'Slot'} blocked today` : `${slot?.label ?? 'Slot'} open today`);
+      setSavedOpen(true);
+    } catch (err) {
+      setBlockedSlots(previous);
+      setError(err instanceof ApiError || err instanceof Error ? err.message : 'Could not block slot');
+    }
   }
 
   async function saveOps() {
@@ -174,7 +237,6 @@ export function LaundryDeskPage() {
         durationMs={3500}
         onClose={closeSaved}
       />
-      <LaundryRequests />
       <h2 style={styles.h2}>Rates</h2>
       <div style={styles.row}>
         <label style={styles.field}>
@@ -194,8 +256,26 @@ export function LaundryDeskPage() {
         ))}
         <button type="button" style={styles.primary} onClick={() => void saveOps()}>Save days</button>
       </div>
+      <div style={styles.row}>
+        <span style={styles.dayLabel}>Today’s pickup</span>
+        {PICKUP_SLOTS.map((slot) => {
+          const off = blockedSlots.includes(slot.id);
+          return (
+            <button
+              key={slot.id}
+              type="button"
+              style={off ? styles.pauseOn : styles.pauseOff}
+              aria-pressed={off}
+              title={off ? 'Blocked for customers today' : 'Open for customers today'}
+              onClick={() => void toggleSlotBlock(slot.id)}
+            >
+              {slot.label}
+            </button>
+          );
+        })}
+      </div>
       <p style={styles.muted}>
-        {profile.priceEditAllowed ? 'You can edit prices.' : 'Prices are locked by super admin.'} Pause hides a piece from customers. Green days are open.
+        {profile.priceEditAllowed ? 'You can edit prices.' : 'Prices are locked by super admin.'} Block a pickup slot to hide it from customers today. Pause hides a service or a piece. Green days are open.
       </p>
       <div style={styles.row}>
         <label style={styles.field}>
@@ -214,11 +294,28 @@ export function LaundryDeskPage() {
       <p style={styles.muted}>₹ added once for the trip the customer chooses. Saved with rates. {feeText(profile)}</p>
       <div style={styles.table}>
         <span />
-        {LAUNDRY_SERVICES.map((service) => <strong key={service.id} style={styles.colHead}>{service.label}</strong>)}
-        <strong style={styles.colHead}>Customers</strong>
+        {LAUNDRY_SERVICES.map((service) => {
+          const off = allPaused(pricedKeys(service.id));
+          const hasPrice = pricedKeys(service.id).length > 0;
+          return (
+            <div key={service.id} style={styles.colHeadBox}>
+              <strong style={styles.colHead}>{service.label}</strong>
+              <button
+                type="button"
+                style={off ? styles.pauseOn : styles.pauseOff}
+                disabled={!hasPrice}
+                aria-pressed={off}
+                onClick={() => void toggleServicePause(service.id)}
+              >
+                {off ? 'Paused' : 'Pause'}
+              </button>
+            </div>
+          );
+        })}
+        <strong style={styles.colHead}>Piece</strong>
         {LAUNDRY_ITEMS.map((item) => {
-          const off = Boolean(paused[item.id]);
-          const hasPrice = LAUNDRY_SERVICES.some((service) => (rates[`${service.id}|${item.id}`] ?? '') !== '');
+          const itemKeys = pricedKeys(undefined, item.id);
+          const off = allPaused(itemKeys);
           return (
             <Fragment key={item.id}>
               <span style={{ ...styles.item, ...(off ? styles.itemOff : null) }}>
@@ -226,11 +323,12 @@ export function LaundryDeskPage() {
                 {item.label}
               </span>
               {LAUNDRY_SERVICES.map((service) => {
-                const key = `${service.id}|${item.id}`;
+                const key = rateKey(service.id, item.id);
+                const cellOff = Boolean(paused[key]);
                 return (
                   <input
                     key={key}
-                    style={{ ...styles.price, ...(off ? styles.priceOff : null) }}
+                    style={{ ...styles.price, ...(cellOff ? styles.priceOff : null) }}
                     inputMode="decimal"
                     disabled={!profile.priceEditAllowed}
                     value={rates[key] ?? ''}
@@ -243,9 +341,9 @@ export function LaundryDeskPage() {
               <button
                 type="button"
                 style={off ? styles.pauseOn : styles.pauseOff}
-                disabled={!hasPrice}
+                disabled={itemKeys.length === 0}
                 aria-pressed={off}
-                onClick={() => void togglePause(item.id)}
+                onClick={() => void toggleItemPause(item.id)}
               >
                 {off ? 'Paused' : 'Pause'}
               </button>
@@ -268,12 +366,13 @@ const styles: Record<string, CSSProperties> = {
   primary: { minHeight: 40, border: 0, borderRadius: 8, background: '#166534', color: '#fff', fontWeight: 800, padding: '0 0.75rem' },
   table: {
     display: 'grid',
-    gridTemplateColumns: 'minmax(8.6rem, 11rem) repeat(3, minmax(4.8rem, 6.2rem)) auto',
+    gridTemplateColumns: 'minmax(8.6rem, 11rem) repeat(3, minmax(5.4rem, 7rem)) auto',
     gap: '0.28rem 0.4rem',
     alignItems: 'center',
-    maxWidth: 720,
+    maxWidth: 760,
     margin: '0.35rem 0',
   },
+  colHeadBox: { display: 'grid', gap: '0.2rem', justifyItems: 'stretch' },
   colHead: { fontSize: '0.72rem' },
   item: { display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.82rem', fontWeight: 700, minHeight: 40 },
   itemOff: { opacity: 0.55 },

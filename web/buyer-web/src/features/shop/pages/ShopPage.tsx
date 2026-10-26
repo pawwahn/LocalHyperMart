@@ -33,6 +33,9 @@ import { groupCategoriesIntoAisles } from '../lib/aisles';
 import { useBrowserVoiceSearch } from '../hooks/useBrowserVoiceSearch';
 import { useShop } from '../hooks/useShop';
 import { BuyAgainBar } from '../components/BuyAgainBar';
+import { ShopHomeJumpCarousel } from '../components/ShopHomeJumpCarousel';
+import { buildShopHomeJumpCards, HOME_RAIL_SECTION_IDS } from '../config/shopHomeJumpCards';
+import { BeautyGlamBanner } from '@/features/beauty/components/BeautyGlamBanner';
 
 const SEARCH_HINTS = ['Egg', 'Bread', 'Milk', 'Rice', 'Maggi', 'Tomato'];
 const RECENT_SEARCHES_KEY = 'koyakart-recent-searches';
@@ -74,7 +77,8 @@ function shortEta(label: string): string {
   return tomorrow ? `Tmrw ${time}` : time;
 }
 const PAGE_SIZE = 24;
-const CATEGORY_COLS = 4;
+/** Home / categories tab grid columns (matches shop home aisle CSS). */
+const CATEGORY_COLS = 8;
 /** Insert sponsored mid-grid ad after this many full category rows on home. */
 const MID_AD_AFTER_ROW = 4;
 /** Cat 1–4 sit after these category rows on the Categories screen. */
@@ -98,7 +102,7 @@ function sortParams(sort: ItemSort): { sort: string; dir: string } {
 export function ShopPage({ browseOnly = false }: Props) {
   const navigate = useNavigate();
   const { isAuthenticated, session } = useAuth();
-  const { townId, townLabel, bestDealsEnabled, deliveryWindowLabel, laundryEnabled } = useTown();
+  const { townId, townLabel, bestDealsEnabled, deliveryWindowLabel, beautyEnabled, beautyReady } = useTown();
   const {
     cart,
     busy,
@@ -148,7 +152,6 @@ export function ShopPage({ browseOnly = false }: Props) {
   const { listening, supported, error: voiceError, toggle: toggleVoice } = useBrowserVoiceSearch(
     (transcript) => setQuery(transcript),
   );
-
   useEffect(() => {
     ensureShopHomeAislesCss();
   }, []);
@@ -437,6 +440,7 @@ export function ShopPage({ browseOnly = false }: Props) {
     [discountPool, bestsellerPool, featuredDiscounted, popularFallback, buyAgainIds],
   );
   const showOffers = offerItems.length >= 2;
+  const jumpCards = useMemo(() => buildShopHomeJumpCards(townLabel), [townLabel]);
 
   const loadPage = useCallback(
     async (nextPage: number, append: boolean) => {
@@ -638,20 +642,11 @@ export function ShopPage({ browseOnly = false }: Props) {
           ))}
         </div>
       ) : null}
-      {!inCategory && !searching && laundryEnabled ? (
-        <Link to="/laundry" style={styles.laundry} aria-label="Laundry. Wash, iron, pickup and drop. Book">
-          <span style={styles.laundryIcon} aria-hidden>
-            👕
-          </span>
-          <span style={styles.laundryCopy}>
-            <span style={styles.laundryTitleRow}>
-              <strong style={styles.laundryTitle}>Laundry</strong>
-              <span style={styles.laundryBadge}>Service</span>
-            </span>
-            <span style={styles.laundryHint}>Wash, iron, pickup and drop</span>
-          </span>
-          <span style={styles.laundryCta}>Book</span>
-        </Link>
+      {!browseOnly && !inCategory && !searching ? (
+        <ShopHomeJumpCarousel cards={jumpCards} />
+      ) : null}
+      {!browseOnly && !inCategory && !searching && isAuthenticated && beautyReady && beautyEnabled ? (
+        <BeautyGlamBanner />
       ) : null}
       {!browseOnly && !inCategory && !searching && isAuthenticated && session?.accessToken && townId ? (
         <BuyAgainBar
@@ -707,41 +702,56 @@ export function ShopPage({ browseOnly = false }: Props) {
               onDecrease={(id) => void doDecrease(id)}
             />
           )}
-          {browseOnly || searching || !showOffers ? null : (
-            <ProductRail
-              title="Offers in your town"
-              items={offerItems}
-              autoMove
-              quantityFor={quantityFor}
-              busyKey={busyKey}
-              onOpen={setQuickView}
-              onIncrease={(id) => void doIncrease(id)}
-              onDecrease={(id) => void doDecrease(id)}
-            />
-          )}
-          {browseOnly || searching
-            ? null
-            : storeRails.map((rail) => (
-                <StoreRail
-                  key={rail.id}
-                  title={rail.title}
-                  items={rail.items}
-                  etaLabel={shortEta(deliveryWindowLabel)}
+          {browseOnly || searching ? null : (
+            <div id={HOME_RAIL_SECTION_IDS.offers} className="hlm-home-rail-anchor">
+              {showOffers ? (
+                <ProductRail
+                  title="Offers in your town"
+                  items={offerItems}
+                  autoMove
                   quantityFor={quantityFor}
                   busyKey={busyKey}
                   onOpen={setQuickView}
                   onIncrease={(id) => void doIncrease(id)}
                   onDecrease={(id) => void doDecrease(id)}
-                  onSeeAll={
-                    rail.categoryId
-                      ? () => {
-                          const category = categories.find((item) => item.id === rail.categoryId);
-                          if (category) openCategory(category);
-                        }
-                      : undefined
-                  }
                 />
-              ))}
+              ) : null}
+            </div>
+          )}
+          {browseOnly || searching
+            ? null
+            : storeRails.map((rail) => {
+                const anchorId =
+                  rail.id === 'skin'
+                    ? HOME_RAIL_SECTION_IDS.skincare
+                    : rail.id === 'fresh'
+                      ? HOME_RAIL_SECTION_IDS.fresh
+                      : rail.id === 'farm'
+                        ? HOME_RAIL_SECTION_IDS.farm
+                        : undefined;
+                return (
+                  <div key={rail.id} id={anchorId} className={anchorId ? 'hlm-home-rail-anchor' : undefined}>
+                    <StoreRail
+                      title={rail.title}
+                      items={rail.items}
+                      etaLabel={shortEta(deliveryWindowLabel)}
+                      quantityFor={quantityFor}
+                      busyKey={busyKey}
+                      onOpen={setQuickView}
+                      onIncrease={(id) => void doIncrease(id)}
+                      onDecrease={(id) => void doDecrease(id)}
+                      onSeeAll={
+                        rail.categoryId
+                          ? () => {
+                              const category = categories.find((item) => item.id === rail.categoryId);
+                              if (category) openCategory(category);
+                            }
+                          : undefined
+                      }
+                    />
+                  </div>
+                );
+              })}
           {browseOnly || searching ? null : (
             <div style={styles.homeHeroAd}>
               <AdSlot slot="home_hero" variant="strip" />
@@ -755,18 +765,21 @@ export function ShopPage({ browseOnly = false }: Props) {
                 description="Catalog categories will show up here."
               />
             ) : (
-              <div className="hlm-shop-home-sections">
+              <>
                 {browseOnly || searching ? null : (
-                  <ShopSpecialOffersBanner
-                    dealsEnabled={bestDealsEnabled}
-                    showPlans={membershipOnSale}
-                    onOpenDeals={() => setDealsOpen(true)}
-                    onOpenPlans={() => {
-                      if (isAuthenticated) setPlansOpen(true);
-                      else navigate('/membership');
-                    }}
-                  />
+                  <div className="hlm-shop-home-offers-strip">
+                    <ShopSpecialOffersBanner
+                      dealsEnabled={bestDealsEnabled}
+                      showPlans={membershipOnSale}
+                      onOpenDeals={() => setDealsOpen(true)}
+                      onOpenPlans={() => {
+                        if (isAuthenticated) setPlansOpen(true);
+                        else navigate('/membership');
+                      }}
+                    />
+                  </div>
                 )}
+                <div className="hlm-shop-home-categories">
                 {(() => {
                   let tileIndex = 0;
                   let midAdInserted = false;
@@ -811,25 +824,22 @@ export function ShopPage({ browseOnly = false }: Props) {
                       }
                     }
                     const heading = (
-                      <h2
-                        key={`${aisle.title}-heading`}
-                        className="hlm-aisle-heading-full"
-                        style={styles.aisleHeading}
-                      >
+                      <h2 key={`${aisle.title}-heading`} className="hlm-aisle-heading-full">
                         {aisle.title}
                       </h2>
                     );
                     return (
-                      <div key={aisle.title} className="hlm-shop-home-aisle-full">
+                      <section key={aisle.title} className="hlm-shop-home-aisle-full" aria-label={aisle.title}>
                         <div className="hlm-shop-home-directory hlm-shop-home-directory--full">
                           {heading}
                           {tiles}
                         </div>
-                      </div>
+                      </section>
                     );
                   });
                 })()}
-              </div>
+                </div>
+              </>
             )
           ) : null}
           {!showFeed ? <ShopHomeFooter /> : null}

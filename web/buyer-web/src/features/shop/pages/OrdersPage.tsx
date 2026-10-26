@@ -9,6 +9,8 @@ import { useShop } from '../hooks/useShop';
 import { prefetchOrderDetail, summaryToPreview } from '../hooks/useOrderDetail';
 import type { OrderSummaryDto } from '../api/shopApi';
 import { fetchMyLaundryOrders, type LaundryOrder } from '@/features/laundry/api/laundryApi';
+import { beautyBookingTotal, beautyPaymentPlanView } from '@hlm-beauty';
+import { fetchMyBeautyOrders, type BeautyOrder } from '@/features/beauty/api/beautyApi';
 
 const PAGE_SIZE = 20;
 
@@ -37,12 +39,18 @@ function formatWhen(value?: string): string {
 
 type HistoryItem =
   | { kind: 'grocery'; at: number; order: OrderSummaryDto }
-  | { kind: 'laundry'; at: number; order: LaundryOrder };
+  | { kind: 'laundry'; at: number; order: LaundryOrder }
+  | { kind: 'beauty'; at: number; order: BeautyOrder };
 
 function placedMs(value?: string | null): number {
   if (!value) return 0;
   const t = new Date(value).getTime();
   return Number.isNaN(t) ? 0 : t;
+}
+
+/** Online orders stay PAYMENT_PENDING until paid — only {@code createdAt} is set until then. */
+function groceryOrderHistoryAt(order: OrderSummaryDto): number {
+  return placedMs(order.placedAt) || placedMs(order.createdAt);
 }
 
 function laundryPay(order: LaundryOrder): string {
@@ -56,6 +64,10 @@ function laundryPay(order: LaundryOrder): string {
 
 function laundryTotal(order: LaundryOrder): number {
   return Number(order.goodsAmount) + Number(order.platformFeeAmount || 0) + Number(order.codFee || 0);
+}
+
+function beautyTotal(order: BeautyOrder): number {
+  return beautyBookingTotal(order);
 }
 
 function buildPeriodOptions(times: number[]): Array<{ key: PeriodKey; label: string }> {
@@ -101,6 +113,7 @@ export function OrdersPage() {
   const { orders, cart, loading, error, reload } = useShop();
   const [laundryOrders, setLaundryOrders] = useState<LaundryOrder[]>([]);
   const [laundryLoading, setLaundryLoading] = useState(false);
+  const [beautyOrders, setBeautyOrders] = useState<BeautyOrder[]>([]);
   const authExpired = Boolean(error && /sign-in expired|invalid jwt|unauthorized/i.test(error));
   const [query, setQuery] = useState('');
   const [period, setPeriod] = useState<PeriodKey>('m6');
@@ -109,16 +122,19 @@ export function OrdersPage() {
   useEffect(() => {
     if (!session?.accessToken || !townId) {
       setLaundryOrders([]);
+      setBeautyOrders([]);
       return;
     }
     let cancelled = false;
     setLaundryLoading(true);
-    void fetchMyLaundryOrders(session.accessToken, townId)
-      .then((rows) => {
-        if (!cancelled) setLaundryOrders(rows);
-      })
-      .catch(() => {
-        if (!cancelled) setLaundryOrders([]);
+    void Promise.all([
+      fetchMyLaundryOrders(session.accessToken, townId).catch(() => [] as LaundryOrder[]),
+      fetchMyBeautyOrders(session.accessToken, townId).catch(() => [] as BeautyOrder[]),
+    ])
+      .then(([laundry, beauty]) => {
+        if (cancelled) return;
+        setLaundryOrders(laundry);
+        setBeautyOrders(beauty);
       })
       .finally(() => {
         if (!cancelled) setLaundryLoading(false);
@@ -138,12 +154,13 @@ export function OrdersPage() {
 
   const history = useMemo<HistoryItem[]>(() => {
     const rows: HistoryItem[] = [
-      ...orders.map((order) => ({ kind: 'grocery' as const, at: placedMs(order.placedAt), order })),
+      ...orders.map((order) => ({ kind: 'grocery' as const, at: groceryOrderHistoryAt(order), order })),
       ...laundryOrders.map((order) => ({ kind: 'laundry' as const, at: placedMs(order.placedAt), order })),
+      ...beautyOrders.map((order) => ({ kind: 'beauty' as const, at: placedMs(order.placedAt), order })),
     ];
     rows.sort((a, b) => b.at - a.at);
     return rows;
-  }, [laundryOrders, orders]);
+  }, [laundryOrders, beautyOrders, orders]);
 
   const periodOptions = useMemo(() => buildPeriodOptions(history.map((row) => row.at)), [history]);
 
@@ -156,6 +173,11 @@ export function OrdersPage() {
       if (row.kind === 'laundry') {
         const order = row.order;
         const hay = `${order.orderNumber} ${order.statusLabel} ${order.shopName} laundry ${laundryPay(order)}`.toLowerCase();
+        return hay.includes(q);
+      }
+      if (row.kind === 'beauty') {
+        const order = row.order;
+        const hay = `${order.orderNumber} ${order.statusLabel} ${order.artistName} glam ${order.serviceLabel ?? order.serviceType}`.toLowerCase();
         return hay.includes(q);
       }
       const o = row.order;
@@ -201,7 +223,7 @@ export function OrdersPage() {
         <EmptyState
           icon="📦"
           title="No orders yet"
-          description="Grocery and laundry orders show up here."
+          description="Grocery, glam, and laundry orders show up here."
           actionLabel="Shop now"
           onAction={() => navigate('/shop')}
         />
@@ -260,6 +282,41 @@ export function OrdersPage() {
             <>
               <div style={styles.list}>
                 {shown.map((row, index) => {
+                  if (row.kind === 'beauty') {
+                    const order = row.order;
+                    const total = beautyTotal(order);
+                    const payHint = beautyPaymentPlanView(order, 'buyer').listHint;
+                    return (
+                      <button
+                        key={order.id}
+                        type="button"
+                        style={{
+                          ...styles.row,
+                          borderTop: index === 0 ? 'none' : '1px solid var(--border)',
+                        }}
+                        onClick={() => navigate(`/beauty/orders/${order.id}`)}
+                      >
+                        <div style={styles.rowMain}>
+                          <div style={styles.metaRow}>
+                            <span style={styles.orderNo}>{order.orderNumber}</span>
+                            <p style={styles.meta}>
+                              {formatWhen(order.placedAt ?? undefined)}
+                              {' · '}
+                              Glam · {order.serviceLabel ?? order.serviceType}
+                              {' · '}
+                              {order.artistName}
+                            </p>
+                            <Badge tone={statusTone(order.statusLabel)}>{order.statusLabel}</Badge>
+                          </div>
+                          <p style={styles.payHint}>{payHint}</p>
+                        </div>
+                        <div style={styles.rowSide}>
+                          <p style={styles.amount}>₹{total.toFixed(2).replace(/\.00$/, '')}</p>
+                          <p style={styles.chevron}>›</p>
+                        </div>
+                      </button>
+                    );
+                  }
                   if (row.kind === 'laundry') {
                     const order = row.order;
                     const total = laundryTotal(order);
@@ -318,7 +375,7 @@ export function OrdersPage() {
                         <div style={styles.metaRow}>
                           <span style={styles.orderNo}>{o.orderNumber}</span>
                           <p style={styles.meta}>
-                            {formatWhen(o.placedAt)}
+                            {formatWhen(o.placedAt || o.createdAt)}
                             {' · '}
                             {o.itemCount} item{o.itemCount === 1 ? '' : 's'}
                             {' · '}
@@ -437,6 +494,13 @@ const styles: Record<string, CSSProperties> = {
     textOverflow: 'ellipsis',
     minWidth: 0,
     flex: 1,
+  },
+  payHint: {
+    margin: 0,
+    fontSize: '0.68rem',
+    fontWeight: 700,
+    color: 'var(--accent)',
+    lineHeight: 1.3,
   },
   rowSide: {
     display: 'flex',

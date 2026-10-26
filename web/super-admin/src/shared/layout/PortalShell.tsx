@@ -34,7 +34,8 @@ type NavIcon =
   | 'dues'
   | 'cash'
   | 'payments'
-  | 'settings';
+  | 'settings'
+  | 'compliance';
 
 type NavItem = { to: string; label: string; icon: NavIcon };
 
@@ -55,7 +56,9 @@ const NAV_GROUPS: Array<{ label: string; items: NavItem[] }> = [
       { to: '/hubs', label: 'Hubs', icon: 'hubs' },
       { to: '/vendors', label: 'Vendors', icon: 'vendors' },
       { to: '/services', label: 'Services', icon: 'vendors' },
+      { to: '/grocery', label: 'Grocery', icon: 'vendors' },
       { to: '/laundry', label: 'Laundry', icon: 'vendors' },
+      { to: '/beauty', label: 'Glam', icon: 'vendors' },
       { to: '/agents', label: 'Agents', icon: 'agents' },
       { to: '/customers', label: 'Customers', icon: 'customers' },
     ],
@@ -86,6 +89,7 @@ const NAV_GROUPS: Array<{ label: string; items: NavItem[] }> = [
     label: 'Platform',
     items: [
       { to: '/payments', label: 'Payments', icon: 'payments' },
+      { to: '/compliance', label: 'Compliance', icon: 'compliance' },
       { to: '/settings', label: 'Settings', icon: 'settings' },
     ],
   },
@@ -355,6 +359,12 @@ const GLYPHS: Record<NavIcon, ReactNode> = {
         d="M12 3.5v2.1M12 18.4v2.1M4.6 6.5l1.5 1.5M17.9 16l1.5 1.5M3.5 12h2.1M18.4 12h2.1M4.6 17.5l1.5-1.5M17.9 8l1.5-1.5"
         {...stroke}
       />
+    </>
+  ),
+  compliance: (
+    <>
+      <path d="M12 3l8 3.5v6.2c0 4.6-3.2 8-8 9.8-4.8-1.8-8-5.2-8-9.8V6.5L12 3z" {...stroke} />
+      <path d="M9.5 12.5l1.8 1.8 3.4-3.6" {...stroke} />
     </>
   ),
 };

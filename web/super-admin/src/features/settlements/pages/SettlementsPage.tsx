@@ -1,3 +1,4 @@
+import { PickerDateField } from '@hlm-dates';
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { PortalShell } from '@/shared/layout/PortalShell';
@@ -48,10 +49,15 @@ import {
   vendorSettlementBucket,
 } from '../codCashLabels';
 import { MoneyFlowSummary, buyerMoneyFromCashSplit } from '@hlm-money-flow';
+import { allocateCommissionByGross, shopHeldRowBreakdown } from '../shopHeldRowFees';
+import { BankPaidOnField } from '../BankPaidOnField';
+import { defaultBankPaidOn, todayIstDate, validateBankPaidOn } from '../bankPaidOnUtils';
 import {
   SettlementAuditSection,
   type SettlementChangeLogProps,
 } from '../components/SettlementAuditSection';
+import { PAYOUT_METHODS, PayoutTxnFields, payoutTxnFieldsCss } from '../components/PayoutTxnFields';
+import { settlementPayStripCss } from '../components/SettlementPayStrip';
 import {
   DEFAULT_REPORT_DATE_PRESET,
   isoIstDate,
@@ -110,8 +116,6 @@ function oldestFirst(a: SettlementCandidate, b: SettlementCandidate): number {
   if (left !== right) return left - right;
   return (a.orderNumber ?? '').localeCompare(b.orderNumber ?? '');
 }
-
-const PAYOUT_METHODS = ['UPI', 'NEFT', 'IMPS', 'RTGS', 'CASH', 'CHEQUE', 'OTHER'];
 
 function roundMoney(n: number): number {
   return Math.round(n * 100) / 100;
@@ -234,9 +238,15 @@ export function SettlementsPage() {
     }
   }
 
+  function openBillConfirm(s: SettlementVm) {
+    setBillBankPaidOn(defaultBankPaidOn({ bankPaidOn: s.bankPaidOn, vendorPaidAt: s.vendorPaidAt, paidAt: s.paidAt }));
+    setBillDialogComment((billComments[s.id] ?? '').trim());
+    setBillAsk({ kind: 'confirm', s });
+  }
+
   function askConfirmVendorPayments() {
     const next = billsToConfirm[0];
-    if (next) setBillAsk({ kind: 'confirm', s: next });
+    if (next) openBillConfirm(next);
   }
 
   async function remindOpenBills() {
@@ -301,7 +311,9 @@ export function SettlementsPage() {
   const [saving, setSaving] = useState(false);
   const [confirmPayOpen, setConfirmPayOpen] = useState(false);
   const [confirmBillOpen, setConfirmBillOpen] = useState(false);
-  const [billAsk, setBillAsk] = useState<{ kind: 'confirm' | 'reject'; s: SettlementVm } | null>(null);
+  const [billAsk, setBillAsk] = useState<{ kind: 'confirm'; s: SettlementVm } | null>(null);
+  const [billBankPaidOn, setBillBankPaidOn] = useState('');
+  const [billDialogComment, setBillDialogComment] = useState('');
   const [correctId, setCorrectId] = useState<string | null>(null);
   const [correctMethod, setCorrectMethod] = useState('UPI');
   const [correctRef, setCorrectRef] = useState('');
@@ -476,7 +488,42 @@ export function SettlementsPage() {
   const commissionNum = feeQuote
     ? roundMoney(Number(feeQuote.totalFeeAmount ?? 0))
     : roundMoney(Number(commissionAmount || 0));
+  const platformFeeNum = useMemo(() => {
+    if (!collectFromVendor) return 0;
+    let sum = 0;
+    for (const c of candidates) {
+      if (!selected.has(c.subOrderId)) continue;
+      sum += Number(c.platformFee ?? 0);
+    }
+    return roundMoney(sum);
+  }, [candidates, selected, collectFromVendor]);
+  const codFeeNum = useMemo(() => {
+    if (!collectFromVendor) return 0;
+    let sum = 0;
+    for (const c of candidates) {
+      if (!selected.has(c.subOrderId)) continue;
+      sum += Number(c.codFee ?? 0);
+    }
+    return roundMoney(sum);
+  }, [candidates, selected, collectFromVendor]);
+  const planFeeNum = useMemo(() => {
+    if (!collectFromVendor) return 0;
+    let sum = 0;
+    for (const c of candidates) {
+      if (!selected.has(c.subOrderId)) continue;
+      sum += Number(c.membershipFee ?? 0);
+    }
+    return roundMoney(sum);
+  }, [candidates, selected, collectFromVendor]);
+  const shopHeldFeeNum = useMemo(
+    () => roundMoney(commissionNum + platformFeeNum + codFeeNum + planFeeNum),
+    [commissionNum, platformFeeNum, codFeeNum, planFeeNum],
+  );
   const otherChargesNum = Math.max(0, roundMoney(Number(otherChargesAmount || 0)));
+  const totalCollectFees = useMemo(
+    () => roundMoney(shopHeldFeeNum + otherChargesNum),
+    [shopHeldFeeNum, otherChargesNum],
+  );
   const grossMismatch =
     quoteGross != null && Math.abs(quoteGross - selectedTotal) > 0.009;
 
@@ -487,12 +534,17 @@ export function SettlementsPage() {
   /** Bags are selected but the fee quote is still for the other tab or not back yet. */
   const netPending = selected.size > 0 && !quoteMatches;
 
+  const commissionBySubOrder = useMemo(() => {
+    if (!collectFromVendor || !quoteMatches) return new Map<string, number>();
+    return allocateCommissionByGross(candidates, selected, commissionNum);
+  }, [collectFromVendor, quoteMatches, candidates, selected, commissionNum]);
+
   const expectedNet = useMemo(() => {
     if (!quoteMatches) {
       return collectFromVendor ? roundMoney(otherChargesNum) : 0;
     }
     if (collectFromVendor) {
-      return roundMoney(commissionNum + otherChargesNum);
+      return totalCollectFees;
     }
     const afterFees =
       feeQuote?.suggestedNet != null
@@ -504,7 +556,7 @@ export function SettlementsPage() {
     collectFromVendor,
     feeQuote,
     selectedTotal,
-    commissionNum,
+    totalCollectFees,
     pendingClaimChargebacks,
     otherChargesNum,
   ]);
@@ -745,7 +797,9 @@ export function SettlementsPage() {
       return;
     }
     if (collectFromVendor && expectedNet <= 0) {
-      setError('Nothing to collect — no commission or extra charge on these bags. Monthly subscription is on the Subscription bill tab.');
+      setError(
+        'Nothing to collect — no commission, platform/COD fee, or extra charge on these bags. Monthly subscription is on the Subscription bill tab.',
+      );
       setConfirmPayOpen(false);
       return;
     }
@@ -861,13 +915,22 @@ export function SettlementsPage() {
 
   async function confirmBillPayment(s: SettlementVm) {
     if (!token) return;
+    const bankErr = validateBankPaidOn(billBankPaidOn);
+    if (bankErr) {
+      setError(bankErr);
+      return;
+    }
     setBillActionId(s.id);
     setError(null);
     try {
-      const comment = (billComments[s.id] ?? '').trim();
-      await confirmVendorBillPayment(token, s.id, comment ? { transactionNotes: comment } : {});
+      const comment = billDialogComment.trim();
+      await confirmVendorBillPayment(token, s.id, {
+        bankPaidOn: billBankPaidOn.trim(),
+        ...(comment ? { transactionNotes: comment } : {}),
+      });
       setSuccess(`Payment ${formatMoney(s.netAmount)} confirmed · ref ${s.vendorPaymentReference ?? '—'}`);
       setBillComments((prev) => ({ ...prev, [s.id]: '' }));
+      setBillDialogComment('');
       await reloadHistory();
     } catch (err) {
       setError(err instanceof ApiError || err instanceof Error ? err.message : 'Failed to confirm payment');
@@ -876,12 +939,12 @@ export function SettlementsPage() {
     }
   }
 
-  async function rejectBillPayment(s: SettlementVm) {
-    if (!token) return;
-    const reason = (billComments[s.id] ?? '').trim();
+  async function rejectBillPayment(s: SettlementVm): Promise<boolean> {
+    if (!token) return false;
+    const reason = billDialogComment.trim();
     if (!reason) {
       setError('Write a comment for the vendor before rejecting (what is wrong / what to send)');
-      return;
+      return false;
     }
     setBillActionId(s.id);
     setError(null);
@@ -889,11 +952,24 @@ export function SettlementsPage() {
       await rejectVendorBillPayment(token, s.id, reason);
       setSuccess('Payment sent back to the vendor with your comment');
       setBillComments((prev) => ({ ...prev, [s.id]: '' }));
+      setBillDialogComment('');
       await reloadHistory();
+      return true;
     } catch (err) {
       setError(err instanceof ApiError || err instanceof Error ? err.message : 'Failed to reject payment');
+      return false;
     } finally {
       setBillActionId(null);
+    }
+  }
+
+  async function notReceivedBillPayment() {
+    const ask = billAsk;
+    if (!ask) return;
+    const ok = await rejectBillPayment(ask.s);
+    if (ok) {
+      setBillAsk(null);
+      setBillBankPaidOn('');
     }
   }
 
@@ -914,7 +990,7 @@ export function SettlementsPage() {
             : null;
 
   function requestMarkPaid() {
-    if (!transactionReference.trim()) {
+    if (!collectFromVendor && !transactionReference.trim()) {
       setError('Txn ref is required (UTR / UPI / cheque number)');
       return;
     }
@@ -926,6 +1002,16 @@ export function SettlementsPage() {
     setConfirmPayOpen(true);
   }
 
+  /** Vendor pays KK — record cash already at shop (txn captured in confirm dialog). */
+  const canAlreadyReceived =
+    !saving &&
+    !!townId &&
+    !!vendorId &&
+    !feeQuoteLoading &&
+    !feeQuoteError &&
+    !!feeQuote &&
+    expectedNet > 0;
+
   const canPay =
     !saving &&
     !!townId &&
@@ -934,7 +1020,7 @@ export function SettlementsPage() {
     !feeQuoteError &&
     !!feeQuote &&
     transactionReference.trim().length > 0 &&
-    (collectFromVendor ? expectedNet > 0 : selected.size > 0);
+    selected.size > 0;
 
   const payBlockedReason = saving
     ? null
@@ -951,7 +1037,21 @@ export function SettlementsPage() {
               : null;
   const payHint =
     payBlockedReason ??
-    (transactionReference.trim().length === 0 ? 'Enter Txn ref (UTR / UPI / cheque) at the top to enable' : null);
+    (!collectFromVendor && transactionReference.trim().length === 0
+      ? 'Enter Txn ref (UTR / UPI / cheque) to enable Mark paid'
+      : null);
+  const alreadyReceivedHint = collectFromVendor ? payBlockedReason : null;
+
+  const vendorPayoutTxnFields = (
+    <PayoutTxnFields
+      payoutMethod={payoutMethod}
+      onPayoutMethodChange={setPayoutMethod}
+      transactionReference={transactionReference}
+      onTransactionReferenceChange={setTransactionReference}
+      transactionNotes={transactionNotes}
+      onTransactionNotesChange={setTransactionNotes}
+    />
+  );
 
   const showSummary =
     !!townId &&
@@ -1163,39 +1263,15 @@ export function SettlementsPage() {
                               <div style={styles.billReason}>Your comment: {s.vendorPaymentRejectReason}</div>
                             ) : null}
                             {s.vendorPaidAt ? (
-                              <>
-                                <input
-                                  style={styles.billInput}
-                                  placeholder="Comment to vendor (required to reject)"
-                                  value={billComments[s.id] ?? ''}
-                                  maxLength={500}
-                                  onChange={(e) => setBillComments((prev) => ({ ...prev, [s.id]: e.target.value }))}
-                                />
-                                <div style={styles.billActions}>
-                                  <Button
-                                    size="sm"
-                                    disabled={billActionId === s.id}
-                                    onClick={() => setBillAsk({ kind: 'confirm', s })}
-                                  >
-                                    {billActionId === s.id ? 'Saving…' : 'Confirm received'}
-                                  </Button>
-                                  <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    disabled={billActionId === s.id}
-                                    onClick={() => {
-                                      if (!(billComments[s.id] ?? '').trim()) {
-                                        setError('Write a comment for the vendor before rejecting (what is wrong / what to send)');
-                                        return;
-                                      }
-                                      setError(null);
-                                      setBillAsk({ kind: 'reject', s });
-                                    }}
-                                  >
-                                    Reject
-                                  </Button>
-                                </div>
-                              </>
+                              <div style={styles.billActions}>
+                                <Button
+                                  size="sm"
+                                  disabled={billActionId === s.id}
+                                  onClick={() => openBillConfirm(s)}
+                                >
+                                  {billActionId === s.id ? 'Saving…' : 'Confirm or reject'}
+                                </Button>
+                              </div>
                             ) : null}
                           </div>
                         ) : (
@@ -1368,7 +1444,7 @@ export function SettlementsPage() {
         setCodRefreshTick((n) => n + 1);
       }}
     >
-      <style>{layoutCss}</style>
+      <style>{layoutCss}{payoutTxnFieldsCss}{settlementPayStripCss}</style>
       <div style={styles.tabs}>
         {(
           [
@@ -1456,61 +1532,26 @@ export function SettlementsPage() {
               </label>
               <label style={styles.label}>
                 From
-                <input
+                <PickerDateField
                   style={styles.input}
-                  type="date"
                   value={from}
-                  onChange={(e) => {
+                  onChange={(next) => {
                     setPreset('custom');
                     setPeriodType('CUSTOM');
-                    setFrom(e.target.value);
+                    setFrom(next);
                   }}
                 />
               </label>
               <label style={styles.label}>
                 To
-                <input
+                <PickerDateField
                   style={styles.input}
-                  type="date"
                   value={to}
-                  onChange={(e) => {
+                  onChange={(next) => {
                     setPreset('custom');
                     setPeriodType('CUSTOM');
-                    setTo(e.target.value);
+                    setTo(next);
                   }}
-                />
-              </label>
-              <label style={styles.label}>
-                Mode
-                <select
-                  style={styles.input}
-                  value={payoutMethod}
-                  onChange={(e) => setPayoutMethod(e.target.value)}
-                >
-                  {PAYOUT_METHODS.map((m) => (
-                    <option key={m} value={m}>
-                      {m}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label style={styles.label}>
-                Txn ref <span style={styles.req}>*</span>
-                <input
-                  style={styles.input}
-                  value={transactionReference}
-                  onChange={(e) => setTransactionReference(e.target.value)}
-                  placeholder="UTR / UPI / cheque (required)"
-                  required
-                />
-              </label>
-              <label style={styles.label} className="sp-notes">
-                Notes
-                <input
-                  style={styles.input}
-                  value={transactionNotes}
-                  onChange={(e) => setTransactionNotes(e.target.value)}
-                  placeholder="Optional remark"
                 />
               </label>
             </div>
@@ -1551,6 +1592,7 @@ export function SettlementsPage() {
             saving={saving}
             canSubmit={canPay}
             submitHint={canPay ? null : payHint}
+            payoutTxnFields={vendorPayoutTxnFields}
             onRefresh={() => void reload()}
             onSubmit={requestMarkPaid}
             canSendBill={canSendBill}
@@ -1567,7 +1609,7 @@ export function SettlementsPage() {
               attached
               loading={loading}
               saving={saving}
-              canSubmit={canPay}
+              canSubmit={canAlreadyReceived}
               canSendBill={canSendBill}
               sendBillHint={sendBillHint}
               selectedCount={selected.size}
@@ -1600,7 +1642,12 @@ export function SettlementsPage() {
                 {collectFromVendor ? 'Shop-held COD' : 'Pay bags'}{' '}
                 <span style={styles.count}>
                   {listedCandidates.length} bag{listedCandidates.length === 1 ? '' : 's'} · {selected.size} selected ·{' '}
-                  {formatMoney(selectedTotal)} gross
+                  {formatMoney(selectedTotal)} goods
+                  {collectFromVendor && quoteMatches ? (
+                    <> · bill {formatMoney(expectedNet)} to KK</>
+                  ) : collectFromVendor && selected.size > 0 ? (
+                    <> · select & quote for bill</>
+                  ) : null}
                 </span>
               </h2>
               <span style={styles.headChecks}>
@@ -1674,12 +1721,53 @@ export function SettlementsPage() {
                       <th style={styles.th}>Order</th>
                       <th style={styles.th}>Status</th>
                       <th style={styles.th}>Payment</th>
-                      <th style={styles.thRight}>Bag total</th>
+                      <th style={styles.thRight}>Goods</th>
+                      {collectFromVendor ? (
+                        <>
+                          <th style={styles.thFee} title="Vendor commission on goods">
+                            Comm
+                          </th>
+                          <th style={styles.thFee} title="Buyer platform fee (app)">
+                            Plat
+                          </th>
+                          <th style={styles.thFee} title="Buyer COD surcharge (app)">
+                            COD
+                          </th>
+                          <th style={styles.thFee} title="Delivery / membership plan (app)">
+                            Plan
+                          </th>
+                          <th style={styles.thFeeRight} title="Bill this shop — commission + app fees">
+                            Bill
+                          </th>
+                          <th style={styles.thFeeRight} title="Goods subtotal minus commission">
+                            Shop net
+                          </th>
+                        </>
+                      ) : null}
                       <th style={styles.th}>Settlement</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {pagedCandidates.map((row) => (
+                    {pagedCandidates.map((row) => {
+                      const fees = collectFromVendor
+                        ? shopHeldRowBreakdown(row, {
+                            selected,
+                            commissionPool: commissionNum,
+                            selectedGross: quoteGross ?? selectedTotal,
+                            quoteReady: quoteMatches,
+                          })
+                        : null;
+                      const comm =
+                        collectFromVendor && quoteMatches && selected.has(row.subOrderId)
+                          ? commissionBySubOrder.get(row.subOrderId) ?? fees?.comm
+                          : fees?.comm;
+                      const billTotal =
+                        fees && comm != null
+                          ? roundMoney(comm + fees.plat + fees.cod + fees.plan)
+                          : fees?.bill ?? null;
+                      const shopNet =
+                        comm != null ? roundMoney(Number(row.subtotal ?? 0) - comm) : fees?.shopGoodsNet ?? null;
+                      return (
                       <tr
                         key={row.subOrderId}
                         style={
@@ -1702,7 +1790,12 @@ export function SettlementsPage() {
                         </td>
                         <td style={styles.td}>
                           <strong>{row.orderNumber}</strong>
-                          <div style={styles.sub}>{row.subOrderNumber}</div>
+                          <div style={styles.sub}>
+                            {row.subOrderNumber}
+                            {row.pieceCount != null && row.pieceCount > 0
+                              ? ` · ${row.pieceCount} pc`
+                              : ''}
+                          </div>
                         </td>
                         <td style={styles.tdMuted}>{row.status}</td>
                         <td style={styles.td}>
@@ -1747,6 +1840,20 @@ export function SettlementsPage() {
                           })()}
                         </td>
                         <td style={styles.tdRight}>{formatMoney(row.subtotal)}</td>
+                        {collectFromVendor && fees ? (
+                          <>
+                            <td style={styles.tdFee}>{comm != null ? formatMoney(comm) : '—'}</td>
+                            <td style={styles.tdFee}>{fees.plat > 0 ? formatMoney(fees.plat) : '—'}</td>
+                            <td style={styles.tdFee}>{fees.cod > 0 ? formatMoney(fees.cod) : '—'}</td>
+                            <td style={styles.tdFee}>{fees.plan > 0 ? formatMoney(fees.plan) : '—'}</td>
+                            <td style={styles.tdFeeRight}>
+                              {billTotal != null ? formatMoney(billTotal) : '—'}
+                            </td>
+                            <td style={styles.tdFeeRight}>
+                              {shopNet != null ? formatMoney(shopNet) : '—'}
+                            </td>
+                          </>
+                        ) : null}
                         <td style={styles.td}>
                           {row.alreadySettled ? (
                             <span style={styles.settled}>Settled</span>
@@ -1755,7 +1862,8 @@ export function SettlementsPage() {
                           )}
                         </td>
                       </tr>
-                    ))}
+                    );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -1764,7 +1872,7 @@ export function SettlementsPage() {
                 {scopedCandidates.length > 0 ? (
               <p style={styles.tableHint}>
                 {collectFromVendor
-                  ? 'Shop-held COD — collect fees on Vendor pays KoyaKart; do not pay GMV here.'
+                  ? 'Shop-held COD — Bill = commission + platform + COD + plan (KoyaKart / app revenue). Do not pay goods GMV here; the shop keeps buyer cash and pays this bill.'
                   : 'KoyaKart pays vendor: online UPI + hub close-day COD. Use Money map (right) for who holds cash and who pays whom.'}
               </p>
             ) : null}
@@ -1782,7 +1890,7 @@ export function SettlementsPage() {
               <>
                 <div style={styles.netHero}>
                   <span style={styles.netLabel}>
-                    {collectFromVendor ? 'Collect from vendor' : 'Net to vendor'}
+                    {collectFromVendor ? 'Bill to vendor (fees)' : 'Net to vendor'}
                   </span>
                   <strong style={styles.netValue}>
                     {netPending
@@ -1816,7 +1924,7 @@ export function SettlementsPage() {
                   <MoneyFlowSummary
                     held={buyerMoneyFromCashSplit(selectedCashSplit)}
                     gross={quoteGross ?? selectedTotal}
-                    fees={commissionNum}
+                    fees={collectFromVendor ? shopHeldFeeNum : commissionNum}
                     netToVendor={expectedNet}
                     collectFromVendor={collectFromVendor}
                     extraCharges={collectFromVendor ? otherChargesNum : 0}
@@ -1881,18 +1989,54 @@ export function SettlementsPage() {
                 <div style={styles.mathStack}>
                   <div style={styles.mathRow}>
                     <span>
-                      {collectFromVendor ? 'Shop-held GMV' : 'Gross'} · {selected.size} bag
+                      {collectFromVendor ? 'Goods subtotal' : 'Gross'} · {selected.size} bag
                       {selected.size === 1 ? '' : 's'}
                     </span>
                     <strong>{formatMoney(quoteGross ?? selectedTotal)}</strong>
                   </div>
                   <div style={styles.mathRow}>
-                    <span>{collectFromVendor ? 'Commission to collect' : 'Billing fees'}</span>
+                    <span>
+                      {collectFromVendor
+                        ? feeQuote?.appliedSlabLabel
+                          ? `Commission · ${feeQuote.appliedSlabLabel}`
+                          : 'Commission on goods'
+                        : 'Billing fees'}
+                    </span>
                     <strong>
                       {collectFromVendor ? '' : '− '}
                       {formatMoney(commissionNum)}
                     </strong>
                   </div>
+                  {collectFromVendor && shopHeldFeeNum > 0 ? (
+                    <div style={styles.mathRow}>
+                      <span>App pass-through (plat + COD + plan)</span>
+                      <strong>{formatMoney(roundMoney(platformFeeNum + codFeeNum + planFeeNum))}</strong>
+                    </div>
+                  ) : null}
+                  {collectFromVendor && platformFeeNum > 0 ? (
+                    <div style={styles.mathRow}>
+                      <span>Platform fee (app · in buyer COD)</span>
+                      <strong>{formatMoney(platformFeeNum)}</strong>
+                    </div>
+                  ) : null}
+                  {collectFromVendor && codFeeNum > 0 ? (
+                    <div style={styles.mathRow}>
+                      <span>COD charge (app · in buyer COD)</span>
+                      <strong>{formatMoney(codFeeNum)}</strong>
+                    </div>
+                  ) : null}
+                  {collectFromVendor && planFeeNum > 0 ? (
+                    <div style={styles.mathRow}>
+                      <span>Delivery plan (app · in buyer COD)</span>
+                      <strong>{formatMoney(planFeeNum)}</strong>
+                    </div>
+                  ) : null}
+                  {collectFromVendor && shopHeldFeeNum > 0 ? (
+                    <div style={styles.mathRow}>
+                      <span>Total fees to collect</span>
+                      <strong>{formatMoney(shopHeldFeeNum)}</strong>
+                    </div>
+                  ) : null}
                   {!collectFromVendor ? (
                   <div style={styles.mathRow}>
                     <span>Claim deductions</span>
@@ -1984,7 +2128,7 @@ export function SettlementsPage() {
               <Button
                 size="sm"
                 variant={collectFromVendor ? 'secondary' : undefined}
-                disabled={!canPay}
+                disabled={collectFromVendor ? !canAlreadyReceived : !canPay}
                 onClick={requestMarkPaid}
               >
                 {saving
@@ -1995,7 +2139,13 @@ export function SettlementsPage() {
                       ? `Mark received · ${formatMoney(expectedNet)}`
                       : `Mark paid · ${formatMoney(expectedNet)}`}
               </Button>
-              {!canPay && payHint ? <p style={styles.payHint}>{payHint}</p> : null}
+              {collectFromVendor
+                ? !canAlreadyReceived && alreadyReceivedHint
+                  ? <p style={styles.payHint}>{alreadyReceivedHint}</p>
+                  : null
+                : !canPay && payHint
+                  ? <p style={styles.payHint}>{payHint}</p>
+                  : null}
               <Button size="sm" variant="secondary" onClick={() => void reload()} disabled={loading}>
                 {loading ? 'Loading…' : 'Refresh'}
               </Button>
@@ -2017,15 +2167,10 @@ export function SettlementsPage() {
                 vendorName={selectedVendor?.shopName || selectedVendor?.businessName}
                 vendor={selectedVendor}
                 town={towns.find((t) => t.id === townId) ?? null}
-                payoutMethod={payoutMethod}
-                transactionReference={transactionReference}
-                transactionNotes={transactionNotes}
                 onDueCount={setSubscriptionDueCount}
                 onCollected={(msg) => {
                   setError(null);
                   setSuccess(msg);
-                  setTransactionReference('');
-                  setTransactionNotes('');
                 }}
                 onError={(msg) => setError(msg)}
               />
@@ -2038,18 +2183,34 @@ export function SettlementsPage() {
         open={confirmPayOpen}
         title={collectFromVendor ? 'Confirm collection from vendor?' : 'Confirm vendor payout?'}
         description={
-          collectFromVendor
-            ? `Receive ${formatMoney(expectedNet)} from ${selectedVendor?.shopName || selectedVendor?.businessName || 'vendor'}${selected.size > 0 ? ` · close ${selected.size} shop-held bag${selected.size === 1 ? '' : 's'}` : ' · monthly / extra only'}.\n\n${payoutMethod} · ref ${transactionReference.trim()}\n\nThis cannot be undone from here.`
-            : `Pay ${formatMoney(expectedNet)} to ${selectedVendor?.shopName || selectedVendor?.businessName || 'vendor'} for ${selected.size} bag${selected.size === 1 ? '' : 's'}.\n\n${payoutMethod} · ref ${transactionReference.trim()}\n\nThis cannot be undone from here. Check UTR and amount before confirming.`
+          collectFromVendor ? (
+            <div style={styles.dlgBody}>
+              <p style={styles.dlgNote}>
+                Record {formatMoney(expectedNet)} from {selectedVendor?.shopName || selectedVendor?.businessName || 'vendor'}
+                {selected.size > 0 ? ` · close ${selected.size} shop-held bag${selected.size === 1 ? '' : 's'}` : ''}. Use
+                only when they paid outside the vendor portal.
+              </p>
+              {vendorPayoutTxnFields}
+            </div>
+          ) : (
+            `Pay ${formatMoney(expectedNet)} to ${selectedVendor?.shopName || selectedVendor?.businessName || 'vendor'} for ${selected.size} bag${selected.size === 1 ? '' : 's'}.\n\n${payoutMethod} · ref ${transactionReference.trim()}\n\nThis cannot be undone from here. Check UTR and amount before confirming.`
+          )
         }
         confirmLabel={collectFromVendor ? 'Yes, mark received' : 'Yes, mark paid'}
         cancelLabel="Cancel"
         danger={false}
         busy={saving}
+        confirmDisabled={collectFromVendor && !transactionReference.trim()}
         onClose={() => {
           if (!saving) setConfirmPayOpen(false);
         }}
-        onConfirm={() => void submitPayout()}
+        onConfirm={() => {
+          if (collectFromVendor && !transactionReference.trim()) {
+            setError('Txn ref is required (UTR / UPI / cheque number)');
+            return;
+          }
+          void submitPayout();
+        }}
       />
       <ConfirmDialog
         open={confirmBillOpen}
@@ -2098,7 +2259,7 @@ export function SettlementsPage() {
       />
       <ConfirmDialog
         open={billAsk != null}
-        title={billAsk?.kind === 'reject' ? 'Reject vendor payment?' : 'Confirm payment received?'}
+        title="Confirm payment received?"
         description={
           billAsk ? (
             <div style={styles.dlgBody}>
@@ -2113,35 +2274,53 @@ export function SettlementsPage() {
                   {billAsk.s.vendorPaymentMethod ?? '—'} · {billAsk.s.vendorPaymentReference ?? '—'}
                 </strong>
               </div>
-              {(billComments[billAsk.s.id] ?? '').trim() ? (
-                <div style={styles.dlgRow}>
-                  <span>Your comment</span>
-                  <strong>{(billComments[billAsk.s.id] ?? '').trim()}</strong>
-                </div>
-                      ) : null}
+              <BankPaidOnField
+                value={billBankPaidOn}
+                max={todayIstDate()}
+                onChange={setBillBankPaidOn}
+              />
+              <label style={styles.dlgField}>
+                Comment for vendor
+                <textarea
+                  style={styles.dlgComment}
+                  maxLength={500}
+                  rows={2}
+                  placeholder="Required for Not received — what should they check or fix?"
+                  value={billDialogComment}
+                  onChange={(e) => setBillDialogComment(e.target.value)}
+                />
+              </label>
               <p style={styles.dlgNote}>
-                {billAsk.kind === 'reject'
-                  ? 'The vendor sees your comment and can pay / resend the details.'
-                  : "Check the money reached KoyaKart's account before confirming."}
+                Not received sends this comment to the vendor; they can update payment details and resubmit. Yes, received
+                marks the money in with the bank statement date above.
               </p>
             </div>
           ) : (
             ''
           )
         }
-        confirmLabel={billAsk?.kind === 'reject' ? 'Yes, reject' : 'Yes, received'}
+        confirmLabel="Yes, received"
         cancelLabel="Cancel"
-        danger={billAsk?.kind === 'reject'}
+        danger={false}
         busy={billActionId != null}
+        confirmDisabled={!billBankPaidOn.trim()}
+        extraLabel="Not received"
+        extraDisabled={!billDialogComment.trim()}
+        onExtra={() => void notReceivedBillPayment()}
         onClose={() => {
-          if (billActionId == null) setBillAsk(null);
+          if (billActionId == null) {
+            setBillAsk(null);
+            setBillBankPaidOn('');
+            setBillDialogComment('');
+          }
         }}
         onConfirm={() => {
           const ask = billAsk;
           if (!ask) return;
-          void (ask.kind === 'reject' ? rejectBillPayment(ask.s) : confirmBillPayment(ask.s)).finally(() =>
-            setBillAsk(null),
-          );
+          void confirmBillPayment(ask.s).finally(() => {
+            setBillAsk(null);
+            setBillBankPaidOn('');
+          });
         }}
       />
       <ConfirmDialog
@@ -2213,15 +2392,9 @@ const layoutCss = `
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 0.35rem 0.45rem;
 }
-.sp-notes {
-  grid-column: span 2;
-}
 @media (max-width: 900px) {
   .sp-filters {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .sp-notes {
-    grid-column: 1 / -1;
   }
 }
 .sp-joined {
@@ -2462,6 +2635,19 @@ const styles: Record<string, CSSProperties> = {
     borderBottom: '1px dashed var(--border)',
   },
   dlgNote: { margin: '0.25rem 0 0', fontSize: '0.8rem' },
+  dlgField: { display: 'grid', gap: '0.15rem', fontSize: '0.68rem', fontWeight: 800, color: 'var(--text-muted)' },
+  dlgComment: {
+    minHeight: 52,
+    padding: '0.35rem 0.45rem',
+    borderRadius: 8,
+    border: '1px solid var(--border)',
+    background: 'var(--bg)',
+    color: 'var(--text)',
+    font: 'inherit',
+    fontSize: '0.82rem',
+    fontWeight: 650,
+    resize: 'vertical',
+  },
   req: { color: '#b91c1c', fontWeight: 800 },
   claimAmt: { color: '#7c3aed' },
   claimList: {
@@ -2597,7 +2783,56 @@ const styles: Record<string, CSSProperties> = {
     textTransform: 'uppercase',
     letterSpacing: '0.03em',
   },
+  thFee: {
+    position: 'sticky',
+    top: 0,
+    background: 'var(--bg-muted)',
+    padding: '0.28rem 0.35rem',
+    textAlign: 'right',
+    fontWeight: 700,
+    color: 'var(--text-muted)',
+    zIndex: 1,
+    borderBottom: '1px solid var(--border)',
+    fontSize: '0.6rem',
+    letterSpacing: '-0.02em',
+    whiteSpace: 'nowrap',
+  },
+  thFeeRight: {
+    position: 'sticky',
+    top: 0,
+    background: 'var(--bg-muted)',
+    padding: '0.28rem 0.35rem',
+    textAlign: 'right',
+    fontWeight: 800,
+    color: '#c2410c',
+    zIndex: 1,
+    borderBottom: '1px solid var(--border)',
+    fontSize: '0.6rem',
+    letterSpacing: '-0.02em',
+    whiteSpace: 'nowrap',
+  },
   td: { padding: '0.28rem 0.4rem', borderBottom: '1px solid var(--border)', verticalAlign: 'middle' },
+  tdFee: {
+    padding: '0.28rem 0.35rem',
+    borderBottom: '1px solid var(--border)',
+    textAlign: 'right',
+    fontVariantNumeric: 'tabular-nums',
+    fontSize: '0.72rem',
+    color: 'var(--text-muted)',
+    verticalAlign: 'top',
+    whiteSpace: 'nowrap',
+  },
+  tdFeeRight: {
+    padding: '0.28rem 0.35rem',
+    borderBottom: '1px solid var(--border)',
+    textAlign: 'right',
+    fontWeight: 800,
+    fontVariantNumeric: 'tabular-nums',
+    fontSize: '0.72rem',
+    color: '#c2410c',
+    verticalAlign: 'top',
+    whiteSpace: 'nowrap',
+  },
   tdMuted: {
     padding: '0.28rem 0.4rem',
     borderBottom: '1px solid var(--border)',

@@ -1,3 +1,4 @@
+import { PickerDateField } from '@hlm-dates';
 import { useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
 import { PortalShell } from '@/shared/layout/PortalShell';
 import { useAuth } from '@/shared/auth/AuthContext';
@@ -212,23 +213,21 @@ export function PartyAuditReportPage() {
           </label>
           <label className="audit-field">
             From
-            <input
-              type="date"
+            <PickerDateField
               value={from}
-              onChange={(e) => {
+              onChange={(next) => {
                 setPreset('custom');
-                setFrom(e.target.value);
+                setFrom(next);
               }}
             />
           </label>
           <label className="audit-field">
             To
-            <input
-              type="date"
+            <PickerDateField
               value={to}
-              onChange={(e) => {
+              onChange={(next) => {
                 setPreset('custom');
-                setTo(e.target.value);
+                setTo(next);
               }}
             />
           </label>

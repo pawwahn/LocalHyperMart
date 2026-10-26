@@ -26,6 +26,8 @@ import com.hyperlocalmart.order.service.HubOrderStatsService;
 import com.hyperlocalmart.order.service.PlatformFinanceAccrualService;
 import com.hyperlocalmart.order.service.OrderCashHolderContextService;
 import com.hyperlocalmart.order.service.OrderHistorySuggestionService;
+import com.hyperlocalmart.order.dto.laundry.AgentLaundryTripCompleteRequest;
+import com.hyperlocalmart.order.service.LaundryOrderService;
 import com.hyperlocalmart.order.service.OrderService;
 import com.hyperlocalmart.order.service.SettlementCandidateService;
 import jakarta.servlet.http.HttpServletRequest;
@@ -52,6 +54,7 @@ public class OrderInternalController {
     private final OrderCashHolderContextService orderCashHolderContextService;
     private final OrderHistorySuggestionService orderHistorySuggestionService;
     private final DeliveryCompleteOrderService deliveryCompleteOrderService;
+    private final LaundryOrderService laundryOrderService;
 
     @GetMapping("/api/v1/internal/buyers/{buyerId}/has-delivered-order")
     public ResponseEntity<ApiResponse<Map<String, Boolean>>> buyerHasDeliveredOrder(
@@ -121,6 +124,31 @@ public class OrderInternalController {
             @PathVariable UUID orderId,
             @Valid @RequestBody DeliverOrderRequest request) {
         orderService.markDelivered(orderId, request);
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/api/v1/internal/laundry-orders/{orderId}/agent-trip-complete")
+    public ResponseEntity<Void> completeLaundryAgentTrip(
+            @PathVariable UUID orderId,
+            @Valid @RequestBody AgentLaundryTripCompleteRequest request) {
+        laundryOrderService.completeAgentTrip(orderId, request.getAgentUserId(), request.getTripKind());
+        return ResponseEntity.noContent().build();
+    }
+
+    @GetMapping("/api/v1/internal/laundry-orders/{orderId}/agent-collect")
+    public ResponseEntity<ApiResponse<com.hyperlocalmart.order.dto.laundry.LaundryAgentCollectResponse>> laundryAgentCollect(
+            @PathVariable UUID orderId,
+            @RequestParam(defaultValue = "DROP_TO_CUSTOMER") String tripKind,
+            HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(ApiResponses.ok(
+                httpRequest, laundryOrderService.agentCollectForTrip(orderId, tripKind)));
+    }
+
+    @PostMapping("/api/v1/internal/laundry-orders/{orderId}/agent-cash")
+    public ResponseEntity<Void> recordLaundryAgentCash(
+            @PathVariable UUID orderId,
+            @Valid @RequestBody com.hyperlocalmart.order.dto.laundry.AgentLaundryCashRequest request) {
+        laundryOrderService.recordAgentCashCollection(orderId, request);
         return ResponseEntity.noContent().build();
     }
 

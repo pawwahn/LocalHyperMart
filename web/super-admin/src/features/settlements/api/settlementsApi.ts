@@ -20,6 +20,14 @@ export type SettlementCandidate = {
   codDeliveringAgentName?: string | null;
   codDeliveringAgentPhone?: string | null;
   subtotal: number;
+  /** Laundry: piece count on the order. */
+  pieceCount?: number | null;
+  /** Buyer platform fee in shop-held COD cash (KoyaKart collects with commission). */
+  platformFee?: number | null;
+  /** Buyer COD surcharge in shop-held cash (app revenue). */
+  codFee?: number | null;
+  /** Bundled delivery / membership plan in buyer COD (app revenue). */
+  membershipFee?: number | null;
   alreadySettled: boolean;
 };
 
@@ -80,6 +88,8 @@ export type SettlementVm = {
   serviceInvoiceNumber?: string | null;
   billSentAt?: string | null;
   vendorPaidAt?: string | null;
+  /** yyyy-MM-dd on KoyaKart bank statement */
+  bankPaidOn?: string | null;
   vendorPaymentMethod?: string | null;
   vendorPaymentReference?: string | null;
   vendorPaymentNotes?: string | null;
@@ -130,6 +140,14 @@ export type CreateSettlementInput = {
   otherChargesAmount?: number;
   otherChargesReason?: string;
 };
+
+export async function sendVendorCollectionBill(token: string, settlementId: string): Promise<SettlementVm> {
+  return apiRequest<SettlementVm>(`/api/v1/payments/settlements/admin/vendor-bills/${settlementId}/send`, {
+    method: 'POST',
+    token,
+    body: {},
+  });
+}
 
 export async function confirmVendorBillPayment(
   token: string,
@@ -328,7 +346,12 @@ export async function correctSubscriptionPayment(
 export async function confirmSubscriptionPayment(
   token: string,
   settlementId: string,
-  input: { payoutMethod?: string; transactionReference?: string; transactionNotes?: string } = {},
+  input: {
+    bankPaidOn: string;
+    payoutMethod?: string;
+    transactionReference?: string;
+    transactionNotes?: string;
+  },
 ): Promise<SubscriptionBill> {
   return apiRequest<SubscriptionBill>(
     `/api/v1/payments/settlements/admin/subscription-bills/${settlementId}/confirm`,
@@ -354,6 +377,7 @@ export async function collectSubscriptionBill(
     payoutMethod: string;
     transactionReference: string;
     transactionNotes?: string;
+    bankPaidOn: string;
   },
 ): Promise<SettlementVm> {
   return apiRequest<SettlementVm>('/api/v1/payments/settlements/admin/subscription-bills', {

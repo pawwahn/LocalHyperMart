@@ -167,9 +167,13 @@ public class CodAgentHandoverService {
             line.setUpdatedBy(agentUserId);
             if (row.vendorAllocations() != null) {
                 for (OrderClient.VendorAllocation alloc : row.vendorAllocations()) {
+                    UUID subOrderId = alloc.subOrderId() != null ? alloc.subOrderId() : row.orderId();
+                    if (alloc.vendorId() == null) {
+                        continue;
+                    }
                     CodAgentHandoverAllocation a = CodAgentHandoverAllocation.builder()
                             .handoverLine(line)
-                            .subOrderId(alloc.subOrderId())
+                            .subOrderId(subOrderId)
                             .vendorId(alloc.vendorId())
                             .subOrderNumber(alloc.subOrderNumber())
                             .goodsSubtotal(alloc.goodsSubtotal())

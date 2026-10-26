@@ -310,6 +310,8 @@ public class PlatformSettingsService {
         auditBool(parts, "Meal planner", left.get("mealPlannerEnabled"), right.get("mealPlannerEnabled"));
         auditPlain(parts, "Meal planner icon", left.get("mealPlannerIconUrl"), right.get("mealPlannerIconUrl"));
         auditBool(parts, "Hub admin agent ratings", left.get("hubAdminCanSeeAgentRatings"), right.get("hubAdminCanSeeAgentRatings"));
+        auditBool(parts, "Buyer cancel order", left.get("buyerCancelOrderEnabled"), right.get("buyerCancelOrderEnabled"));
+        auditBool(parts, "Buyer cancel items", left.get("buyerCancelItemsEnabled"), right.get("buyerCancelItemsEnabled"));
         auditPlain(parts, "Support phone", left.get("supportPhone"), right.get("supportPhone"));
         auditPlain(parts, "Brand logo", left.get("brandLogoUrl"), right.get("brandLogoUrl"));
         auditPlain(parts, "Bill legal name", left.get("supplierLegalName"), right.get("supplierLegalName"));
@@ -563,9 +565,21 @@ public class PlatformSettingsService {
         map.put("mealPlannerIconUrl", "");
         map.put("mealPlannerIconMediaId", "");
         map.put("hubAdminCanSeeAgentRatings", true);
+        map.put("buyerCancelOrderEnabled", true);
+        map.put("buyerCancelItemsEnabled", true);
         map.put("vendorTdsRatePercent", new BigDecimal("0.10"));
         map.put("vendorTdsExemptUpto", new BigDecimal("500000.00"));
         return map;
+    }
+
+    @Transactional(readOnly = true)
+    public boolean buyerCancelOrderEnabled() {
+        return asBool(getSettings().get("buyerCancelOrderEnabled"), true);
+    }
+
+    @Transactional(readOnly = true)
+    public boolean buyerCancelItemsEnabled() {
+        return asBool(getSettings().get("buyerCancelItemsEnabled"), true);
     }
 
     @Transactional(readOnly = true)

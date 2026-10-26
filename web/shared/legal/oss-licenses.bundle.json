@@ -1,0 +1,11 @@
+{
+  "generatedAt": "2026-01-01T00:00:00.000Z",
+  "apps": {
+    "buyer-web": [
+      { "name": "react", "version": "19.x", "license": "MIT", "repository": "https://github.com/facebook/react" },
+      { "name": "react-router-dom", "version": "7.x", "license": "MIT", "repository": "https://github.com/remix-run/react-router" },
+      { "name": "vite", "version": "6.x", "license": "MIT", "repository": "https://github.com/vitejs/vite" }
+    ]
+  },
+  "_note": "Run scripts/generate-oss-licenses.ps1 before store release to refresh full lists."
+}

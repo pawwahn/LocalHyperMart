@@ -5,6 +5,7 @@ import com.hyperlocalmart.common.exception.ErrorCode;
 import com.hyperlocalmart.vendor.dto.request.SaveServiceOfferingRequest;
 import com.hyperlocalmart.vendor.dto.response.ServiceOfferingListResponse;
 import com.hyperlocalmart.vendor.dto.response.ServiceOfferingResponse;
+import com.hyperlocalmart.vendor.entity.RegistrationRequestStatus;
 import com.hyperlocalmart.vendor.entity.ServiceOffering;
 import com.hyperlocalmart.vendor.repository.ServiceOfferingRepository;
 import com.hyperlocalmart.vendor.repository.VendorRegistrationRequestRepository;
@@ -27,7 +28,7 @@ public class ServiceOfferingService {
     public ServiceOfferingListResponse list() {
         return ServiceOfferingListResponse.builder()
                 .items(offeringRepository.findAllByOrderBySortOrderAscNameAsc().stream()
-                        .map(ServiceOfferingService::toResponse)
+                        .map(this::toResponseWithUsage)
                         .toList())
                 .build();
     }
@@ -72,10 +73,30 @@ public class ServiceOfferingService {
     public void delete(UUID id) {
         ServiceOffering offering = offeringRepository.findById(id)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Service not found"));
-        if (vendorRepository.existsByServiceId(id) || registrationRequestRepository.existsByServiceId(id)) {
-            throw new BusinessException(ErrorCode.CONFLICT, offering.getName() + " is used by a vendor");
+        long vendors = vendorRepository.countByServiceId(id);
+        if (vendors > 0) {
+            throw new BusinessException(ErrorCode.CONFLICT,
+                    offering.getName() + " is assigned to " + vendors + " vendor(s). Reassign them first.");
+        }
+        long pending = registrationRequestRepository.countByServiceIdAndStatus(id, RegistrationRequestStatus.PENDING);
+        if (pending > 0) {
+            throw new BusinessException(ErrorCode.CONFLICT,
+                    offering.getName() + " is on " + pending + " pending registration(s). Resolve those first.");
         }
         offeringRepository.delete(offering);
+    }
+
+    private ServiceOfferingResponse toResponseWithUsage(ServiceOffering offering) {
+        UUID id = offering.getId();
+        return ServiceOfferingResponse.builder()
+                .id(id)
+                .name(offering.getName())
+                .hidesListings(offering.isHidesListings())
+                .sortOrder(offering.getSortOrder())
+                .vendorCount(vendorRepository.countByServiceId(id))
+                .pendingRegistrationCount(registrationRequestRepository.countByServiceIdAndStatus(
+                        id, RegistrationRequestStatus.PENDING))
+                .build();
     }
 
     private static ServiceOfferingResponse toResponse(ServiceOffering offering) {
@@ -84,6 +105,8 @@ public class ServiceOfferingService {
                 .name(offering.getName())
                 .hidesListings(offering.isHidesListings())
                 .sortOrder(offering.getSortOrder())
+                .vendorCount(0)
+                .pendingRegistrationCount(0)
                 .build();
     }
 

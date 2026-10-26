@@ -17,6 +17,9 @@ export function LegalLinks({ compact }: Props) {
       <Link to="/legal/refund" style={styles.link}>
         Refund
       </Link>
+      <Link to="/legal/oss" style={styles.link}>
+        Open source
+      </Link>
     </div>
   );
 }

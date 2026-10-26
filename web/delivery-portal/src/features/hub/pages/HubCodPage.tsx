@@ -1,3 +1,4 @@
+import { PickerDateField } from '@hlm-dates';
 import { useCallback, useEffect, useState, type CSSProperties, type FormEvent } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '@/shared/auth/AuthContext';
@@ -354,12 +355,7 @@ export function HubCodPage() {
           <div style={styles.toolbar}>
             <label style={styles.dateField}>
               <span style={styles.dateLabel}>Day (IST)</span>
-              <input
-                type="date"
-                value={date}
-                onChange={(e) => setDate(e.target.value)}
-                style={styles.dateInput}
-              />
+              <PickerDateField value={date} onChange={setDate} style={styles.dateInput} />
             </label>
             <CodOutstandingSummary
               data={outstanding}

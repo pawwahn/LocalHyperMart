@@ -2,6 +2,7 @@ package com.hyperlocalmart.payment.web;
 
 import com.hyperlocalmart.payment.dto.request.InitiatePaymentRequest;
 import com.hyperlocalmart.payment.dto.request.InitiateRefundRequest;
+import com.hyperlocalmart.payment.dto.response.CollectedSuccessResponse;
 import com.hyperlocalmart.payment.dto.response.PaymentResponse;
 import com.hyperlocalmart.payment.dto.response.RefundResponse;
 import com.hyperlocalmart.payment.service.PaymentService;
@@ -13,6 +14,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.math.BigDecimal;
 import java.util.UUID;
 
 @RestController
@@ -38,5 +40,13 @@ public class PaymentInternalController {
             HttpServletRequest httpRequest) {
         RefundResponse response = paymentService.initiateRefund(buyerId, request);
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponses.ok(httpRequest, response));
+    }
+
+    @GetMapping("/api/v1/internal/payments/orders/{orderId}/collected-success")
+    public ResponseEntity<ApiResponse<CollectedSuccessResponse>> collectedSuccess(
+            @PathVariable UUID orderId,
+            HttpServletRequest httpRequest) {
+        BigDecimal amount = paymentService.sumSuccessfulPaymentsForOrder(orderId);
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest, CollectedSuccessResponse.builder().amount(amount).build()));
     }
 }

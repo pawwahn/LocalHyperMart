@@ -7,6 +7,8 @@ import { useAgentWorkspace, type AgentLeg } from '../hooks/useAgentWorkspace';
 import { useAgentKind } from '../hooks/useAgentKind';
 import { useDeliveryManifests } from '../hooks/useDeliveryManifests';
 import { usePickupManifests } from '../hooks/usePickupManifests';
+import { useSingleExpandedCard } from '../hooks/useSingleExpandedCard';
+import { agentAssignmentList, agentAssignmentRail } from '../layout/agentAssignmentRail';
 
 type HistoryLeg = 'all' | AgentLeg;
 
@@ -24,15 +26,20 @@ export function AgentHistoryPage() {
     [assignments],
   );
   const deliveryTasks = useMemo(
-    () => assignments.filter((t) => t.legType === 'LAST_MILE' || t.legType === 'VENDOR_DIRECT'),
+    () =>
+      assignments.filter(
+        (t) => t.legType === 'LAST_MILE' || t.legType === 'VENDOR_DIRECT' || t.legType === 'LAUNDRY_TRIP',
+      ),
     [assignments],
   );
 
   const pickup = usePickupManifests(pickupTasks);
   const delivery = useDeliveryManifests(deliveryTasks);
+  const [expandedId, setExpandedId] = useSingleExpandedCard(assignments);
 
   return (
     <AgentShell title="Done jobs" subtitle="Jobs you already finished" onRefresh={() => void reload()}>
+      <div style={agentAssignmentRail}>
       {error ? <p style={styles.error}>{error}</p> : null}
 
       <div style={styles.segment} role="tablist" aria-label="Filter history">
@@ -92,6 +99,9 @@ export function AgentHistoryPage() {
                 key={task.id}
                 task={task}
                 busy
+                expanded={expandedId === task.id}
+                onRequestExpand={() => setExpandedId(task.id)}
+                onRequestCollapse={() => setExpandedId(null)}
                 manifest={pickup.manifests[task.id]}
                 manifestLoading={pickup.loadingManifests}
                 manifestFailed={Boolean(pickup.failedIds[task.id])}
@@ -103,6 +113,9 @@ export function AgentHistoryPage() {
                 key={task.id}
                 task={task}
                 busy
+                expanded={expandedId === task.id}
+                onRequestExpand={() => setExpandedId(task.id)}
+                onRequestCollapse={() => setExpandedId(null)}
                 manifest={delivery.manifests[task.id]}
                 manifestLoading={delivery.loadingManifests}
                 manifestFailed={Boolean(delivery.failedIds[task.id])}
@@ -122,6 +135,7 @@ export function AgentHistoryPage() {
         pageSize={pageSize}
         onPageChange={setPage}
       />
+      </div>
     </AgentShell>
   );
 }
@@ -198,7 +212,7 @@ const styles: Record<string, CSSProperties> = {
     fontSize: '0.92rem',
     fontWeight: 600,
   },
-  list: { display: 'grid', gap: '0.7rem' },
+  list: agentAssignmentList,
   error: { margin: 0, color: 'var(--danger)', fontWeight: 700, fontSize: '0.85rem' },
   muted: { margin: 0, color: 'var(--text-muted)', fontWeight: 700, fontSize: '0.85rem' },
   empty: {

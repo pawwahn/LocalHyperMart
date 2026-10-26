@@ -44,6 +44,7 @@ export function injectGlobalStyles(): void {
       --shell-max: min(100vw - 1.7rem, 560px);
       --tabbar-h: 64px;
       --sticky-cart-h: 56px;
+      --glam-dock-h: 9.25rem;
       --touch-min: 44px;
     }
     @media (min-width: 768px) {
@@ -164,8 +165,8 @@ export function injectGlobalStyles(): void {
     .hlm-aisle-tile {
       transition: transform 160ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 160ms ease, border-color 160ms ease;
     }
-    .hlm-aisle-tile:active {
-      transform: scale(0.94);
+    .hlm-cat-tile:active .hlm-cat-tile-visual {
+      transform: scale(0.96);
     }
     .hlm-brand-tagline {
       opacity: 0.9;

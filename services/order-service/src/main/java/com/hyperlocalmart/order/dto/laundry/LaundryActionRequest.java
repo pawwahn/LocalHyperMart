@@ -24,6 +24,8 @@ public class LaundryActionRequest {
 
     private Instant estimatedReadyAt;
 
+    private UUID agentId;
+
     private List<LinePatch> lines = new ArrayList<>();
 
     @Data

@@ -1,3 +1,4 @@
+import { PickerDateField } from '@hlm-dates';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { PortalShell } from '@/shared/layout/PortalShell';
@@ -164,25 +165,23 @@ export function ScratchGiftReportPage() {
           </label>
           <label style={styles.label}>
             From
-            <input
+            <PickerDateField
               style={styles.select}
-              type="date"
               value={from}
-              onChange={(e) => {
+              onChange={(next) => {
                 setPreset('all');
-                setFrom(e.target.value);
+                setFrom(next);
               }}
             />
           </label>
           <label style={styles.label}>
             To
-            <input
+            <PickerDateField
               style={styles.select}
-              type="date"
               value={to}
-              onChange={(e) => {
+              onChange={(next) => {
                 setPreset('all');
-                setTo(e.target.value);
+                setTo(next);
               }}
             />
           </label>

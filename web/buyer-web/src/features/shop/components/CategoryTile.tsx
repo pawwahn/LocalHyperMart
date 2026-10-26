@@ -1,106 +1,72 @@
-import type { CSSProperties } from 'react';
+import { useEffect, useState, type CSSProperties } from 'react';
 import { visualForCategory } from '../lib/aisles';
+
+function usableCategoryImage(url?: string | null): url is string {
+  if (!url?.trim()) return false;
+  const t = url.trim();
+  return t.startsWith('http://') || t.startsWith('https://') || t.startsWith('/') || t.startsWith('data:image/');
+}
 
 type Props = {
   label: string;
   emoji?: string;
   imageUrl?: string | null;
+  staggerIndex?: number;
   onClick: () => void;
 };
 
-/** Rounded pastel tile + caption — Zepto / Instamart home grid. */
 export function CategoryTile({ label, emoji, imageUrl, onClick }: Props) {
   const visual = visualForCategory(label);
   const icons = visual.icons.length ? visual.icons : [emoji ?? '🛒'];
+  const solo = icons.length === 1;
+  const [imgBroken, setImgBroken] = useState(false);
+  useEffect(() => {
+    setImgBroken(false);
+  }, [imageUrl]);
+  const showPhoto = usableCategoryImage(imageUrl) && !imgBroken;
 
   return (
-    <button type="button" style={styles.btn} onClick={onClick}>
-      <span
-        style={{ ...styles.tile, background: visual.tint }}
-        className="hlm-aisle-tile"
-      >
-        {imageUrl ? (
-          <img src={imageUrl} alt="" style={styles.img} />
+    <button
+      type="button"
+      className="hlm-cat-tile"
+      style={{ '--cat-tint': visual.tint } as CSSProperties}
+      onClick={onClick}
+    >
+      <span className={`hlm-cat-tile-visual${showPhoto ? '' : ' hlm-cat-tile-visual--emoji'}`}>
+        {showPhoto ? (
+          <img
+            src={imageUrl.trim()}
+            alt=""
+            className="hlm-cat-tile-photo"
+            loading="lazy"
+            decoding="async"
+            onError={() => setImgBroken(true)}
+          />
         ) : (
-          <span style={styles.collage} aria-hidden>
-            {icons.map((icon, i) => (
-              <span
-                key={`${icon}-${i}`}
-                style={{
-                  ...styles.icon,
-                  fontSize: icons.length === 1 ? '1.85rem' : i === 0 ? '1.55rem' : '1.15rem',
-                  zIndex: icons.length - i,
-                  transform:
-                    icons.length === 1
-                      ? 'none'
-                      : i === 0
-                        ? 'translate(-6px, 4px)'
-                        : i === 1
-                          ? 'translate(10px, -8px)'
-                          : 'translate(4px, 12px)',
-                }}
-              >
-                {icon}
-              </span>
-            ))}
+          <span className="hlm-cat-tile-collage" aria-hidden>
+            {icons.map((icon, i) => {
+              const fontSize = solo ? '1.75rem' : i === 0 ? '1.35rem' : '1rem';
+              const offset = solo
+                ? 'translate(-50%, -50%)'
+                : i === 0
+                  ? 'translate(calc(-50% - 4px), calc(-50% + 2px))'
+                  : i === 1
+                    ? 'translate(calc(-50% + 7px), calc(-50% - 6px))'
+                    : 'translate(calc(-50% + 2px), calc(-50% + 8px))';
+              return (
+                <span
+                  key={`${icon}-${i}`}
+                  className="hlm-cat-tile-emoji"
+                  style={{ zIndex: icons.length - i, fontSize, transform: offset }}
+                >
+                  {icon}
+                </span>
+              );
+            })}
           </span>
         )}
       </span>
-      <span style={styles.label}>{label}</span>
+      <span className="hlm-cat-tile-label">{label}</span>
     </button>
   );
 }
-
-const styles: Record<string, CSSProperties> = {
-  btn: {
-    display: 'grid',
-    justifyItems: 'center',
-    gap: '0.32rem',
-    border: 'none',
-    background: 'transparent',
-    padding: 0,
-    cursor: 'pointer',
-    color: 'var(--text)',
-    minWidth: 0,
-    width: '100%',
-  },
-  tile: {
-    width: '100%',
-    aspectRatio: '1 / 1',
-    borderRadius: 18,
-    display: 'grid',
-    placeItems: 'center',
-    overflow: 'hidden',
-    boxShadow: 'inset 0 0 0 1px rgba(16, 24, 40, 0.04)',
-  },
-  img: {
-    width: '86%',
-    height: '86%',
-    objectFit: 'contain',
-    display: 'block',
-  },
-  collage: {
-    position: 'relative',
-    width: '78%',
-    height: '78%',
-    display: 'grid',
-    placeItems: 'center',
-  },
-  icon: {
-    position: 'absolute',
-    lineHeight: 1,
-    filter: 'drop-shadow(0 2px 4px rgba(15, 23, 42, 0.12))',
-  },
-  label: {
-    fontSize: '0.7rem',
-    fontWeight: 700,
-    lineHeight: 1.2,
-    textAlign: 'center',
-    color: 'var(--text)',
-    display: '-webkit-box',
-    WebkitLineClamp: 2,
-    WebkitBoxOrient: 'vertical',
-    overflow: 'hidden',
-    minHeight: '1.65em',
-  },
-};

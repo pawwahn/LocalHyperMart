@@ -20,4 +20,8 @@ public class UserProfileResponse {
     private UUID defaultTownId;
     private String status;
     private Instant lastLoginAt;
+    private Boolean marketingConsent;
+    private Instant marketingConsentAt;
+    private Instant termsAcceptedAt;
+    private Integer termsVersion;
 }

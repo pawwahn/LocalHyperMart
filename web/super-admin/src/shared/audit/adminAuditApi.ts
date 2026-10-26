@@ -97,6 +97,8 @@ const FIELD_LABELS: Record<string, string> = {
   themeColor: 'Theme',
   bestDealsEnabled: 'Best deals',
   buyerMembershipEnabled: 'Buyer membership',
+  buyerCancelOrderEnabled: 'Buyer cancel order',
+  buyerCancelItemsEnabled: 'Buyer cancel items',
   scratchCardEnabled: 'Scratch card',
   scratchRewardMin: 'Scratch min',
   scratchRewardMax: 'Scratch max',

@@ -13,6 +13,7 @@ export default defineConfig({
       '@hlm-legal': fileURLToPath(new URL('../shared/legal', import.meta.url)),
       '@hlm-brand': fileURLToPath(new URL('../shared/brand/index.ts', import.meta.url)),
       '@hlm-laundry': fileURLToPath(new URL('../shared/laundry/index.ts', import.meta.url)),
+      '@hlm-beauty': fileURLToPath(new URL('../shared/beauty/index.ts', import.meta.url)),
       '@hlm-dates': fileURLToPath(new URL('../shared/dates', import.meta.url)),
       react: fileURLToPath(new URL('./node_modules/react', import.meta.url)),
       'react-dom': fileURLToPath(new URL('./node_modules/react-dom', import.meta.url)),

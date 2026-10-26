@@ -1,4 +1,5 @@
 import type { CSSProperties, ReactNode } from 'react';
+import { PickerDateField } from './PickerDateField';
 
 import {
   REPORT_DATE_PRESET_OPTIONS,
@@ -87,28 +88,26 @@ export function DateRangePresetBar<P extends TransferHistoryPreset = ReportDateP
         <div style={dense ? styles.dateRowDense : stackDateInputs ? styles.dateStack : styles.dateRow}>
           <label style={dense ? styles.dateLabelDense : styles.dateLabel}>
             From
-            <input
-              type="date"
+            <PickerDateField
               value={from}
               max={to || maxDate}
-              onChange={(e) => {
+              onChange={(next) => {
                 onPresetChange('custom' as P);
-                onFromChange(e.target.value);
+                onFromChange(next);
               }}
               style={dense ? styles.dateInputDense : styles.dateInput}
             />
           </label>
           <label style={dense ? styles.dateLabelDense : styles.dateLabel}>
             To
-            <input
-              type="date"
+            <PickerDateField
               value={to}
               min={from}
               max={maxDate}
               disabled={toDisabled}
-              onChange={(e) => {
+              onChange={(next) => {
                 onPresetChange('custom' as P);
-                onToChange(e.target.value);
+                onToChange(next);
               }}
               style={dense ? styles.dateInputDense : styles.dateInput}
             />

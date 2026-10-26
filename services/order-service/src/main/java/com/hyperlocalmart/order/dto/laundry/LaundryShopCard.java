@@ -18,6 +18,8 @@ public class LaundryShopCard {
     private BigDecimal pickupCharge;
     private BigDecimal dropCharge;
     private BigDecimal pickupAndDropCharge;
+    private String blockedPickupDate;
+    private String blockedPickupSlots;
     private String feeModel;
     private BigDecimal perPieceAmount;
     private BigDecimal perOrderFlatAmount;

@@ -39,7 +39,18 @@ public class AssignmentResponse {
     private String destinationPhone;
     private String destinationAddress;
 
+    /** Laundry: vendor shop name for the agent. */
+    private String sourceShopName;
+    /** PICKUP_FROM_CUSTOMER or DROP_TO_CUSTOMER */
+    private String laundryTripKind;
+
     /** Last-mile / vendor-direct: COD vs online. */
     private String paymentMethod;
     private BigDecimal collectCashAmount;
+
+    /** Grocery order status from order-service (e.g. PLACED, PAYMENT_PENDING). */
+    private String orderStatus;
+
+    /** Laundry: DUE, COLLECTED, … from order-service. */
+    private String laundryPaymentStatus;
 }

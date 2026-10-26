@@ -69,13 +69,19 @@ public class TownDuesService {
 
     @Transactional(readOnly = true)
     public TownDuesResponse dues(LocalDate from, LocalDate to) {
+        return dues(from, to, null);
+    }
+
+    @Transactional(readOnly = true)
+    public TownDuesResponse dues(LocalDate from, LocalDate to, UUID townId) {
+        long started = System.nanoTime();
         List<Draft> drafts = new ArrayList<>();
         drafts.addAll(unbilledCod(from, to));
         drafts.addAll(openHubBills(from, to));
         drafts.addAll(openSettlements(from, to));
         drafts.addAll(unbilledFranchise(from, to));
         try {
-            for (OpenAccountsService.Line open : openAccountsService.scan(from, to)) {
+            for (OpenAccountsService.Line open : openAccountsService.scan(from, to, townId)) {
                 drafts.add(new Draft(
                         open.townId(),
                         open.party(),
@@ -90,6 +96,10 @@ public class TownDuesService {
                         open.reference(),
                         open.detail(),
                         open.commission(),
+                        open.platformFee(),
+                        open.codFee(),
+                        open.membershipFee(),
+                        open.penalty(),
                         null,
                         null,
                         null,
@@ -97,6 +107,10 @@ public class TownDuesService {
             }
         } catch (RuntimeException ex) {
             log.warn("Open accounts scan failed: {}", ex.toString());
+        }
+
+        if (townId != null) {
+            drafts.removeIf(d -> !townId.equals(d.townId()));
         }
 
         Map<UUID, List<Draft>> byTown = new HashMap<>();
@@ -124,7 +138,7 @@ public class TownDuesService {
         towns.sort(Comparator.comparing((TownDuesResponse.Town t) ->
                 t.getSendBill().add(t.getCollect()).add(t.getPay()).add(t.getConfirm())).reversed());
 
-        return TownDuesResponse.builder()
+        TownDuesResponse response = TownDuesResponse.builder()
                 .from(from)
                 .to(to)
                 .sendBill(towns.stream().map(TownDuesResponse.Town::getSendBill).reduce(BigDecimal.ZERO, BigDecimal::add))
@@ -134,6 +148,13 @@ public class TownDuesService {
                 .townCount(towns.size())
                 .towns(towns)
                 .build();
+        log.info(
+                "Town dues loaded in {} ms · towns={} lines={} townFilter={}",
+                (System.nanoTime() - started) / 1_000_000,
+                towns.size(),
+                towns.stream().mapToInt(t -> t.getLines().size()).sum(),
+                townId);
+        return response;
     }
 
     private List<Draft> unbilledCod(LocalDate from, LocalDate to) {
@@ -163,6 +184,10 @@ public class TownDuesService {
                     date(row[5]),
                     amount,
                     count,
+                    null,
+                    null,
+                    null,
+                    null,
                     null,
                     null,
                     null,
@@ -214,6 +239,10 @@ public class TownDuesService {
                     money(row.getTotalAmount()),
                     1,
                     row.getDocumentNumber(),
+                    null,
+                    null,
+                    null,
+                    null,
                     null,
                     null,
                     null,
@@ -275,7 +304,11 @@ public class TownDuesService {
                     row.getServiceInvoiceNumber(),
                     null,
                     vendorCommission(row, party),
-                    "CONFIRM".equals(action) || "PAY".equals(action) ? row.getId() : null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    settlementDueId(row, action),
                     null,
                     row.getVendorPaymentMethod(),
                     row.getVendorPaymentReference()));
@@ -331,6 +364,10 @@ public class TownDuesService {
                             end,
                             money(franchise.amount()),
                             1,
+                            null,
+                            null,
+                            null,
+                            null,
                             null,
                             null,
                             null,
@@ -415,6 +452,14 @@ public class TownDuesService {
         };
     }
 
+    /** Open settlement rows need the id so admin can send or confirm from Accounts. */
+    private static UUID settlementDueId(Settlement row, String action) {
+        if ("PAY".equals(action) || "CONFIRM".equals(action) || "SEND_BILL".equals(action) || "COLLECT".equals(action)) {
+            return row.getId();
+        }
+        return null;
+    }
+
     private static BigDecimal money(Object raw) {
         if (raw == null) return BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
         if (raw instanceof BigDecimal decimal) return decimal.setScale(2, RoundingMode.HALF_UP);
@@ -460,6 +505,10 @@ public class TownDuesService {
             String reference,
             String detail,
             BigDecimal commission,
+            BigDecimal platformFee,
+            BigDecimal codFee,
+            BigDecimal membershipFee,
+            BigDecimal penalty,
             UUID settlementId,
             UUID submissionId,
             String paymentMethod,
@@ -476,6 +525,10 @@ public class TownDuesService {
                     .periodEnd(periodEnd)
                     .amount(amount)
                     .commission(commission)
+                    .platformFee(platformFee)
+                    .codFee(codFee)
+                    .membershipFee(membershipFee)
+                    .penalty(penalty)
                     .itemCount(itemCount)
                     .reference(reference)
                     .settlementId(settlementId)

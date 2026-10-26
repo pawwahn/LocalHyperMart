@@ -51,6 +51,10 @@ public class SettlementCandidateService {
         Instant start = from.atStartOfDay(IST).toInstant();
         Instant end = to.plusDays(1).atStartOfDay(IST).toInstant();
         List<VendorSubOrder> rows = vendorSubOrderRepository.findSettlementCandidates(vendorId, townId, start, end);
+        List<UUID> orderIds = OrderSiblingBags.distinctOrderIds(rows);
+        if (!orderIds.isEmpty()) {
+            OrderSiblingBags.attach(rows, vendorSubOrderRepository.findByOrderIdIn(orderIds));
+        }
         List<SettlementCandidateResponse.Item> items = new ArrayList<>();
         rows.stream().map(this::toItem).forEach(items::add);
         laundryOrderRepository.findSettlementCandidates(vendorId, townId, start, end).stream()
@@ -167,45 +171,6 @@ public class SettlementCandidateService {
         return activeBags <= 1;
     }
 
-    /** Buyer platform fee follows the goods share so a mixed order is not billed twice. */
-    private static BigDecimal platformFeeShare(VendorSubOrder subOrder) {
-        Order order = subOrder.getOrder();
-        BigDecimal fee = order.getPlatformFee() == null ? BigDecimal.ZERO : order.getPlatformFee();
-        if (fee.signum() <= 0) {
-            return BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
-        }
-        List<VendorSubOrder> active = order.getVendorSubOrders() == null
-                ? List.of(subOrder)
-                : order.getVendorSubOrders().stream().filter(bag -> !bag.getStatus().isClosed()).toList();
-        if (active.size() <= 1) {
-            return fee.setScale(2, RoundingMode.HALF_UP);
-        }
-        List<VendorSubOrder> ordered = active.stream()
-                .sorted(Comparator.comparing(VendorSubOrder::getId, Comparator.nullsLast(Comparator.naturalOrder())))
-                .toList();
-        BigDecimal goodsTotal = ordered.stream()
-                .map(bag -> bag.getSubtotal() == null ? BigDecimal.ZERO : bag.getSubtotal())
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-        BigDecimal allocated = BigDecimal.ZERO;
-        for (int i = 0; i < ordered.size(); i++) {
-            BigDecimal share;
-            if (i == ordered.size() - 1) {
-                share = fee.subtract(allocated);
-            } else if (goodsTotal.signum() <= 0) {
-                share = fee.divide(BigDecimal.valueOf(ordered.size()), 2, RoundingMode.HALF_UP);
-                allocated = allocated.add(share);
-            } else {
-                BigDecimal bagGoods = ordered.get(i).getSubtotal() == null ? BigDecimal.ZERO : ordered.get(i).getSubtotal();
-                share = fee.multiply(bagGoods).divide(goodsTotal, 2, RoundingMode.HALF_UP);
-                allocated = allocated.add(share);
-            }
-            if (ordered.get(i).getId().equals(subOrder.getId())) {
-                return share.max(BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP);
-            }
-        }
-        return BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
-    }
-
     private SettlementCandidateResponse.Item toItem(VendorSubOrder subOrder) {
         return SettlementCandidateResponse.Item.builder()
                 .subOrderId(subOrder.getId())
@@ -219,7 +184,9 @@ public class SettlementCandidateService {
                 .paymentMethod(subOrder.getOrder().getPaymentMethod())
                 .vendorAgentDelivery(isShopAgentBag(subOrder))
                 .subtotal(subOrder.getSubtotal())
-                .platformFee(platformFeeShare(subOrder))
+                .platformFee(OrderBuyerFeeShare.platformFee(subOrder))
+                .codFee(OrderBuyerFeeShare.codFee(subOrder))
+                .membershipFee(OrderBuyerFeeShare.membershipFee(subOrder))
                 .build();
     }
 
@@ -245,6 +212,7 @@ public class SettlementCandidateService {
                 .codFee(online || order.getCodFee() == null
                         ? BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP)
                         : order.getCodFee())
+                .membershipFee(BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP))
                 .build();
     }
 

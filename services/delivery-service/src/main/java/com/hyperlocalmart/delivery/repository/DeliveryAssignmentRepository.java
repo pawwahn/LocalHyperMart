@@ -27,6 +27,9 @@ public interface DeliveryAssignmentRepository extends JpaRepository<DeliveryAssi
     boolean existsByOrderIdAndLegTypeAndStatusIn(
             UUID orderId, AssignmentLegType legType, Collection<AssignmentStatus> statuses);
 
+    List<DeliveryAssignment> findByOrderIdAndLegTypeAndStatusIn(
+            UUID orderId, AssignmentLegType legType, Collection<AssignmentStatus> statuses);
+
     Optional<DeliveryAssignment> findByVendorSubOrderIdAndLegTypeAndStatus(
             UUID vendorSubOrderId, AssignmentLegType legType, AssignmentStatus status);
 
@@ -133,9 +136,12 @@ public interface DeliveryAssignmentRepository extends JpaRepository<DeliveryAssi
             SELECT DISTINCT a.orderId FROM DeliveryAssignment a
             WHERE a.agentId = :agentId
               AND a.status = com.hyperlocalmart.delivery.entity.AssignmentStatus.COMPLETED
-              AND a.legType IN (
-                  com.hyperlocalmart.delivery.entity.AssignmentLegType.LAST_MILE,
-                  com.hyperlocalmart.delivery.entity.AssignmentLegType.VENDOR_DIRECT)
+              AND (
+                  a.legType IN (
+                      com.hyperlocalmart.delivery.entity.AssignmentLegType.LAST_MILE,
+                      com.hyperlocalmart.delivery.entity.AssignmentLegType.VENDOR_DIRECT)
+                  OR (a.legType = com.hyperlocalmart.delivery.entity.AssignmentLegType.LAUNDRY_TRIP
+                      AND UPPER(a.laundryTripKind) = 'DROP_TO_CUSTOMER'))
               AND a.orderId IS NOT NULL
               AND a.completedAt >= :start AND a.completedAt < :end
             """)

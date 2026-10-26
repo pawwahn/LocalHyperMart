@@ -1,3 +1,4 @@
+import { PickerDateField } from '@hlm-dates';
 import { Fragment, useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { ApiError } from '@/shared/api/http';
 import { displayPayeeLabel } from '@/shared/display/displayNames';
@@ -23,6 +24,8 @@ import {
 import { downloadHubPayoutStatement } from '../hubPayoutStatement';
 import { ListPager } from './ListPager';
 import { HubPayoutWorkspace, type HubPayoutTab, type HubPaysSubTab } from './HubPayoutWorkspace';
+import { PAYOUT_METHODS, PayoutTxnFields, payoutTxnFieldsCss } from './PayoutTxnFields';
+import { settlementPayStripCss } from './SettlementPayStrip';
 import {
   DEFAULT_REPORT_DATE_PRESET,
   rangeForReportPreset,
@@ -33,8 +36,6 @@ import {
 } from '@/shared/dates/istReportPresets';
 
 const DEFAULT_ORDER_PAGE_SIZE = 50;
-
-const PAYOUT_METHODS = ['UPI', 'NEFT', 'IMPS', 'RTGS', 'CASH', 'CHEQUE', 'OTHER'];
 
 function cadenceLabel(cadence?: string): string {
   switch ((cadence ?? '').toUpperCase()) {
@@ -744,6 +745,23 @@ export function DeliveryPayoutPanel({
     </Card>
   );
 
+  const hubPayoutTxnFields = (
+    <PayoutTxnFields
+      payoutMethod={payoutMethod}
+      onPayoutMethodChange={setPayoutMethod}
+      transactionReference={transactionReference}
+      onTransactionReferenceChange={setTransactionReference}
+      transactionNotes={transactionNotes}
+      onTransactionNotesChange={setTransactionNotes}
+    />
+  );
+  const hubPayOrdersHint =
+    canPayOrders || saving || selected.size === 0
+      ? null
+      : transactionReference.trim().length === 0
+        ? 'Enter Txn ref (UTR / UPI / cheque) to enable Mark paid'
+        : null;
+
   return (
     <>
       {error ? <Banner tone="danger">{error}</Banner> : null}
@@ -844,31 +862,29 @@ export function DeliveryPayoutPanel({
               </label>
               <label style={styles.label}>
                 From
-                <input
+                <PickerDateField
                   style={styles.input}
-                  type="date"
                   value={from}
-                  onChange={(e) => {
+                  onChange={(next) => {
                     setPreset('custom');
                     setPeriodType('CUSTOM');
-                    setFrom(e.target.value);
+                    setFrom(next);
                   }}
                 />
               </label>
               <label style={styles.label}>
                 To
-                <input
+                <PickerDateField
                   style={styles.input}
-                  type="date"
                   value={to}
-                  onChange={(e) => {
+                  onChange={(next) => {
                     setPreset('custom');
                     setPeriodType('CUSTOM');
-                    setTo(e.target.value);
+                    setTo(next);
                   }}
                 />
               </label>
-              {!isHub || hubTab === 'app-to-hub' ? (
+              {!isHub ? (
                 <>
                   <label style={styles.label}>
                     Mode
@@ -906,7 +922,7 @@ export function DeliveryPayoutPanel({
                 ? hubTab === 'app-to-hub'
                   ? 'Commission payouts only — use “KoyaKart pays hub”. Switch tab for hub franchise/COD.'
                   : 'Dates above apply to COD statements and records. Franchise uses its own month.'
-                : 'Hub agents: Towns → Hub & agent pay. Shop delivery agents: Towns → Vendor delivery (₹ per order). Pick the agent who completed the trip — vendor shop orders pay the shop’s agent, not hub agents.'}
+                : 'Hub agents: Towns → Hub & agent pay — use Mark paid here. Shop delivery (vendor agent): rider ₹/order is set under Towns → Vendor delivery; the shop pays that rider from vendor Payouts (deducted on the bag), not a second KoyaKart agent payout.'}
             </p>
           </Card>
 
@@ -934,6 +950,8 @@ export function DeliveryPayoutPanel({
                 canPayOrders={canPayOrders}
                 canCollectFranchise={canCollectFranchise}
                 saving={saving}
+                payOrdersHint={hubPayOrdersHint}
+                payoutTxnFields={hubPayoutTxnFields}
                 commissionSection={ordersTableCard}
                 payoutRecords={
                   <SettlementAuditSection
@@ -1116,7 +1134,7 @@ export function DeliveryPayoutPanel({
       />
       )}
 
-      <style>{`
+      <style>{`${payoutTxnFieldsCss}${settlementPayStripCss}
 .dp-layout { display: grid; gap: 0.55rem; align-items: start; }
 .dp-main { display: grid; gap: 0.55rem; min-width: 0; }
 .dp-side { min-width: 0; }

@@ -96,7 +96,7 @@
 
 * Privacy policy + consent at registration
 * Grievance officer contact in app (super admin configurable)
-* Phase 2: self-service data export/delete
+* Self-service **account delete** (buyer) + marketing consent in app; Phase 2: machine-readable **data export**
 
 ---
 

@@ -29,6 +29,11 @@ public final class LaundryOrderWorkflow {
                         "Mark pickup after the order is placed");
                 yield LaundryOrderStatus.PICKED_UP;
             }
+            case MARK_AT_SHOP -> {
+                require(logistics != LaundryLogistics.DROP_ONLY, "This request has no agent pickup");
+                require(status == LaundryOrderStatus.PICKED_UP, "Hand over after pickup from the customer");
+                yield LaundryOrderStatus.AT_SHOP;
+            }
             case MARK_RECEIVED -> {
                 require(logistics == LaundryLogistics.DROP_ONLY, "Use pickup when the shop is collecting the clothes");
                 require(status == LaundryOrderStatus.ACCEPTED, "Mark received after the shop accepts the drop-off");

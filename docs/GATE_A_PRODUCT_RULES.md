@@ -85,6 +85,8 @@ Sign when **all** are true for the invite cohort:
 - [ ] Terms, Privacy, Refund URLs set in Platform Settings and visible on buyer register.
 - [ ] Support phone visible on buyer login/register.
 - [ ] Grievance officer name set (if required by your compliance review).
+- [ ] Buyer **More → Privacy & data** tested (marketing toggle + delete-account flow on staging).
+- [ ] Compliance matrix reviewed: [09_LEGAL_COMPLIANCE_MATRIX.md](./09_LEGAL_COMPLIANCE_MATRIX.md).
 - [ ] Fresh buyer must choose town before browsing/checkout (no default town).
 
 ### Security (Gate A)

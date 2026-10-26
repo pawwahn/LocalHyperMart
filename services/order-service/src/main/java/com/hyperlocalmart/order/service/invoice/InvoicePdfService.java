@@ -157,18 +157,62 @@ public class InvoicePdfService {
         table.setHorizontalAlignment(Element.ALIGN_RIGHT);
 
         addTotalRow(table, "Items Subtotal", invoice.getItemsSubtotal());
-        addTotalRow(table, "Delivery fee (incl. GST 18%)", invoice.getDeliveryFee());
+        if (isPositive(invoice.getPromoDiscount())) {
+            addTotalRow(table, "Coupon / promo discount", invoice.getPromoDiscount().negate());
+        }
+        addTotalRow(table, deliveryFeeLabel(invoice), invoice.getDeliveryFee());
         if (isPositive(invoice.getPlatformFee())) {
-            addTotalRow(table, "Platform Fee", invoice.getPlatformFee());
+            addTotalRow(table, "Platform fee", invoice.getPlatformFee());
+        }
+        if (isPositive(invoice.getCodFee())) {
+            addTotalRow(table, "COD charge", invoice.getCodFee());
+        }
+        if (isPositive(invoice.getMembershipFee())) {
+            addTotalRow(table, membershipPlanLabel(invoice), invoice.getMembershipFee());
         }
         if (isPositive(invoice.getTaxAmount())) {
             addTotalRow(table, "GST (incl. in item prices)", invoice.getTaxAmount());
         }
         if (isPositive(invoice.getStoreCreditApplied())) {
-            addTotalRow(table, "Store Credit Applied", invoice.getStoreCreditApplied().negate());
+            addTotalRow(table, "Store credit applied", invoice.getStoreCreditApplied().negate());
         }
-        addTotalRow(table, "Grand Total", invoice.getTotalAmount(), true);
+        addTotalRow(table, grandTotalLabel(invoice), invoice.getTotalAmount(), true);
         return table;
+    }
+
+    private String deliveryFeeLabel(InvoiceDocument invoice) {
+        BigDecimal waived = invoice.getMembershipDeliveryWaived();
+        if (isPositive(waived)) {
+            return "Delivery fee (incl. GST 18%; membership credit Rs. "
+                    + formatAmount(waived)
+                    + " applied)";
+        }
+        return "Delivery fee (incl. GST 18%)";
+    }
+
+    private String membershipPlanLabel(InvoiceDocument invoice) {
+        String slab = invoice.getMembershipSlab();
+        if (slab == null || slab.isBlank()) {
+            return "Free delivery plan";
+        }
+        return "Free delivery plan (" + membershipSlabLabel(slab) + ")";
+    }
+
+    private String membershipSlabLabel(String slab) {
+        return switch (slab) {
+            case "QUARTERLY" -> "3 months";
+            case "HALF_YEAR" -> "6 months";
+            case "ANNUAL" -> "12 months";
+            default -> slab;
+        };
+    }
+
+    private String grandTotalLabel(InvoiceDocument invoice) {
+        if (invoice.getPaymentMethod() == com.hyperlocalmart.order.entity.PaymentMethod.COD
+                && invoice.getPaymentStatus() != com.hyperlocalmart.order.entity.PaymentStatus.PAID) {
+            return "Total due at delivery";
+        }
+        return "Total paid";
     }
 
     private void addHeaderCell(PdfPTable table, String text, int alignment) {

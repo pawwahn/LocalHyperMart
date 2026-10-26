@@ -1,3 +1,4 @@
+import { PickerDateField } from '@hlm-dates';
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { PortalShell } from '@/shared/layout/PortalShell';
 import { useAuth } from '@/shared/auth/AuthContext';
@@ -505,21 +506,15 @@ export function VendorBillingPage() {
 
                 <label style={styles.label}>
                   Starts from
-                  <input
-                    style={styles.input}
-                    type="date"
-                    value={effectiveFrom}
-                    onChange={(e) => setEffectiveFrom(e.target.value)}
-                  />
+                  <PickerDateField style={styles.input} value={effectiveFrom} onChange={setEffectiveFrom} />
                 </label>
                 <label style={styles.label}>
                   Ends on <span style={styles.hintInline}>(blank = keeps going)</span>
-                  <input
+                  <PickerDateField
                     style={styles.input}
-                    type="date"
                     value={effectiveTo}
                     min={effectiveFrom || undefined}
-                    onChange={(e) => setEffectiveTo(e.target.value)}
+                    onChange={setEffectiveTo}
                   />
                 </label>
               </div>

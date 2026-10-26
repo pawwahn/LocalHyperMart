@@ -17,17 +17,30 @@ public final class CatalogListingPolicy {
         return name != null && name.toLowerCase(Locale.ROOT).contains("laundry");
     }
 
-    public static boolean hidesListings(ServiceOffering service, boolean laundryProfile) {
-        if (laundryProfile) {
+    public static boolean isBeautyService(String name) {
+        if (name == null) {
+            return false;
+        }
+        String lower = name.toLowerCase(Locale.ROOT);
+        return lower.contains("beauty") || lower.contains("makeup");
+    }
+
+    public static boolean hidesListings(ServiceOffering service, boolean laundryProfile, boolean beautyProfile) {
+        if (laundryProfile || beautyProfile) {
             return true;
         }
         if (service == null) {
             return false;
         }
-        return service.isHidesListings() || isLaundryService(service.getName());
+        return service.isHidesListings() || isLaundryService(service.getName()) || isBeautyService(service.getName());
+    }
+
+    /** @deprecated use {@link #hidesListings(ServiceOffering, boolean, boolean)} */
+    public static boolean hidesListings(ServiceOffering service, boolean laundryProfile) {
+        return hidesListings(service, laundryProfile, false);
     }
 
     public static boolean hidesListingsForName(String name, Boolean requested) {
-        return Boolean.TRUE.equals(requested) || isLaundryService(name);
+        return Boolean.TRUE.equals(requested) || isLaundryService(name) || isBeautyService(name);
     }
 }

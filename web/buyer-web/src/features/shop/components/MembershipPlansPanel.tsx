@@ -40,9 +40,20 @@ function bestValueCode(slabs: MembershipSlabOffer[]): string | null {
 
 type Props = {
   onBought?: () => void;
+  /** When set, plan is added to the grocery cart at checkout — no separate membership payment. */
+  mode?: 'purchase' | 'cart';
+  onAddToCart?: (slabCode: string) => Promise<void>;
+  onRemoveFromCart?: () => Promise<void>;
+  initialSlab?: string | null;
 };
 
-export function MembershipPlansPanel({ onBought }: Props) {
+export function MembershipPlansPanel({
+  onBought,
+  mode = 'purchase',
+  onAddToCart,
+  onRemoveFromCart,
+  initialSlab,
+}: Props) {
   const { session } = useAuth();
   const { townId } = useTown();
   const token = session?.accessToken ?? '';
@@ -50,7 +61,8 @@ export function MembershipPlansPanel({ onBought }: Props) {
   const [selected, setSelected] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [busy, setBusy] = useState<'ONLINE' | 'CASH' | null>(null);
+  const [busy, setBusy] = useState<'ONLINE' | 'CASH' | 'CART' | 'REMOVE' | null>(null);
+  const cartMode = mode === 'cart';
   const purchaseIdempotencyKey = useRef<string | null>(null);
 
   useEffect(() => {
@@ -64,6 +76,7 @@ export function MembershipPlansPanel({ onBought }: Props) {
       const next = await fetchMembershipCatalog(token, townId || undefined);
       setCatalog(next);
       setSelected((prev) => {
+        if (initialSlab && next.slabs.some((s) => s.code === initialSlab)) return initialSlab;
         if (prev && next.slabs.some((s) => s.code === prev)) return prev;
         const best = bestValueCode(next.slabs);
         return best ?? next.slabs.find((s) => s.purchasable)?.code ?? next.slabs[0]?.code ?? '';
@@ -71,16 +84,51 @@ export function MembershipPlansPanel({ onBought }: Props) {
     } catch (err) {
       setError(err instanceof ApiError || err instanceof Error ? err.message : 'Could not load plans');
     }
-  }, [token, townId]);
+  }, [token, townId, initialSlab]);
 
   useEffect(() => {
     void reload();
   }, [reload]);
 
   const slabs = catalog?.slabs ?? [];
+
+  useEffect(() => {
+    if (!initialSlab || !slabs.some((s) => s.code === initialSlab)) return;
+    setSelected(initialSlab);
+  }, [initialSlab, slabs]);
   const pick = useMemo(() => slabs.find((s) => s.code === selected) ?? null, [slabs, selected]);
   const best = useMemo(() => bestValueCode(slabs), [slabs]);
   const canBuy = Boolean(catalog?.canPurchase && pick?.purchasable);
+
+  async function removePlanFromCart() {
+    if (!onRemoveFromCart) return;
+    setBusy('REMOVE');
+    setError(null);
+    setNotice(null);
+    try {
+      await onRemoveFromCart();
+      onBought?.();
+    } catch (err) {
+      setError(err instanceof ApiError || err instanceof Error ? err.message : 'Could not remove plan');
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function addPlanToCart() {
+    if (!pick || !onAddToCart) return;
+    setBusy('CART');
+    setError(null);
+    setNotice(null);
+    try {
+      await onAddToCart(pick.code);
+      onBought?.();
+    } catch (err) {
+      setError(err instanceof ApiError || err instanceof Error ? err.message : 'Could not add plan');
+    } finally {
+      setBusy(null);
+    }
+  }
 
   async function buy(channel: 'ONLINE' | 'CASH') {
     if (!townId) {
@@ -203,24 +251,58 @@ export function MembershipPlansPanel({ onBought }: Props) {
         })}
       </div>
 
-      <div style={styles.pay}>
-        <Button
-          size="lg"
-          fullWidth
-          disabled={!canBuy || Boolean(busy)}
-          onClick={() => void buy('ONLINE')}
-        >
-          {busy === 'ONLINE' ? 'Paying…' : pick ? `Pay ${money(pick.price)} online` : 'Pay online'}
-        </Button>
-        <button
-          type="button"
-          style={styles.cash}
-          disabled={!canBuy || Boolean(busy)}
-          onClick={() => void buy('CASH')}
-        >
-          {busy === 'CASH' ? 'Saving…' : 'I’ll pay cash at the hub'}
-        </button>
-      </div>
+      {cartMode ? (
+        <div style={styles.pay}>
+          <Button
+            size="lg"
+            fullWidth
+            disabled={!canBuy || Boolean(busy)}
+            onClick={() => void addPlanToCart()}
+          >
+            {busy === 'CART'
+              ? initialSlab
+                ? 'Updating…'
+                : 'Adding…'
+              : pick
+                ? initialSlab && pick.code === initialSlab
+                  ? `Keep ${money(pick.price)} plan`
+                  : initialSlab
+                    ? `Switch to ${money(pick.price)} plan`
+                    : `Add to basket · ${money(pick.price)}`
+                : 'Add to basket'}
+          </Button>
+          {initialSlab && onRemoveFromCart ? (
+            <button
+              type="button"
+              style={styles.removeFromCart}
+              disabled={Boolean(busy)}
+              onClick={() => void removePlanFromCart()}
+            >
+              {busy === 'REMOVE' ? 'Removing…' : 'Remove plan from basket'}
+            </button>
+          ) : null}
+          <p style={styles.cartHint}>Charged with your order — no separate payment.</p>
+        </div>
+      ) : (
+        <div style={styles.pay}>
+          <Button
+            size="lg"
+            fullWidth
+            disabled={!canBuy || Boolean(busy)}
+            onClick={() => void buy('ONLINE')}
+          >
+            {busy === 'ONLINE' ? 'Paying…' : pick ? `Pay ${money(pick.price)} online` : 'Pay online'}
+          </Button>
+          <button
+            type="button"
+            style={styles.cash}
+            disabled={!canBuy || Boolean(busy)}
+            onClick={() => void buy('CASH')}
+          >
+            {busy === 'CASH' ? 'Saving…' : 'I’ll pay cash at the hub'}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -301,6 +383,23 @@ const styles: Record<string, CSSProperties> = {
   planMeta: { fontSize: '0.74rem', color: '#6B7280', fontWeight: 600 },
   planPrice: { fontFamily: 'var(--font-display)', fontSize: '1.15rem', fontWeight: 800, letterSpacing: '-0.03em' },
   pay: { display: 'grid', gap: '0.35rem', paddingTop: '0.15rem' },
+  cartHint: {
+    margin: 0,
+    fontSize: '0.74rem',
+    color: '#6B7280',
+    fontWeight: 600,
+    textAlign: 'center',
+    lineHeight: 1.35,
+  },
+  removeFromCart: {
+    border: 'none',
+    background: 'none',
+    color: '#9a3412',
+    fontWeight: 800,
+    fontSize: '0.86rem',
+    minHeight: 44,
+    cursor: 'pointer',
+  },
   cash: {
     border: 'none',
     background: 'none',

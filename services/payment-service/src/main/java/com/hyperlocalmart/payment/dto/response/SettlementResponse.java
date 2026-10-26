@@ -49,6 +49,8 @@ public class SettlementResponse {
     /** Vendor-pays-KoyaKart bills: sent to the vendor, vendor reports payment, admin confirms or rejects. */
     Instant billSentAt;
     Instant vendorPaidAt;
+    /** yyyy-MM-dd on KoyaKart's bank statement. */
+    LocalDate bankPaidOn;
     String vendorPaymentMethod;
     String vendorPaymentReference;
     String vendorPaymentNotes;

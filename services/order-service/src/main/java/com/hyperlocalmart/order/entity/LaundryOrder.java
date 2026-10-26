@@ -82,6 +82,14 @@ public class LaundryOrder extends BaseAuditEntity {
     @Column(name = "amount_collected", nullable = false, precision = 12, scale = 2)
     private BigDecimal amountCollected;
 
+    /** Agent attestation at customer pickup: COLLECTED | NOT_COLLECTED */
+    @Column(name = "agent_cash_pickup_report", length = 24)
+    private String agentCashPickupReport;
+
+    /** Agent attestation at customer drop (cash on delivery). */
+    @Column(name = "agent_cash_drop_report", length = 24)
+    private String agentCashDropReport;
+
     @Column(name = "platform_fee_model", length = 40)
     private String platformFeeModel;
 
@@ -156,6 +164,15 @@ public class LaundryOrder extends BaseAuditEntity {
 
     @Column(name = "delivered_at")
     private Instant deliveredAt;
+
+    @Column(name = "trip_agent_id")
+    private UUID tripAgentId;
+
+    @Column(name = "trip_agent_name", length = 120)
+    private String tripAgentName;
+
+    @Column(name = "trip_agent_phone", length = 20)
+    private String tripAgentPhone;
 
     @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     @Builder.Default

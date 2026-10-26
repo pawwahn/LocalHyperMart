@@ -5,7 +5,9 @@ import lombok.Data;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 @Data
 @Builder
@@ -49,6 +51,9 @@ public class TownOperationalConfigResponse {
     @Builder.Default
     private BigDecimal scratchMinGoodsAmount = new BigDecimal("499.00");
 
+    @Builder.Default
+    private Map<String, ScratchServiceRuleResponse> scratchByService = new LinkedHashMap<>();
+
     /** Sell membership in this town. Existing members can still use credits when false. */
     @Builder.Default
     private boolean buyerMembershipEnabled = true;
@@ -72,6 +77,24 @@ public class TownOperationalConfigResponse {
     @Builder.Default
     private boolean laundryEnabled = false;
 
+    /** Makeup & beauty bookings in this town. */
+    @Builder.Default
+    private boolean beautyEnabled = false;
+
+    @Builder.Default
+    private BigDecimal beautyMinPrepayAmount = BigDecimal.ZERO;
+
+    @Builder.Default
+    private BigDecimal beautyParlourPaymentFee = BigDecimal.ZERO;
+
+    /** Buyer can cancel the whole order (when status rules allow). */
+    @Builder.Default
+    private boolean buyerCancelOrderEnabled = true;
+
+    /** Buyer can cancel individual line items still at PLACED shops. */
+    @Builder.Default
+    private boolean buyerCancelItemsEnabled = true;
+
     @Data
     @Builder
     public static class DeliverySlabResponse {
@@ -79,5 +102,22 @@ public class TownOperationalConfigResponse {
         /** null = no upper bound */
         private BigDecimal maxOrderValue;
         private BigDecimal deliveryFee;
+    }
+
+    @Data
+    @Builder
+    public static class ScratchServiceRuleResponse {
+        private boolean enabled;
+        private BigDecimal rewardMin;
+        private BigDecimal rewardMax;
+        private BigDecimal minOrderAmount;
+        private String prepayModeFilter;
+        private boolean issueAfterRating;
+        private boolean partialPrepayEnabled;
+        private BigDecimal partialRewardMin;
+        private BigDecimal partialRewardMax;
+        private BigDecimal partialMinPrepayAmount;
+        private BigDecimal rewardDisplayMax;
+        private BigDecimal partialRewardDisplayMax;
     }
 }

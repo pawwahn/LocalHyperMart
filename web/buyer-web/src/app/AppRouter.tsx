@@ -20,11 +20,14 @@ import { MorePage } from '@/features/shop/pages/MorePage';
 import { AddressesPage } from '@/features/shop/pages/AddressesPage';
 import { LaundryPage } from '@/features/laundry/pages/LaundryPage';
 import { LaundryOrderPage } from '@/features/laundry/pages/LaundryOrderPage';
+import { BeautyPage } from '@/features/beauty/pages/BeautyPage';
+import { BeautyOrderPage } from '@/features/beauty/pages/BeautyOrderPage';
 import { WalletProvider } from '@/features/shop/hooks/useWallet';
 import { ShopProvider } from '@/features/shop/hooks/useShop';
 import { ScratchCardHost } from '@/features/shop/components/ScratchCardHost';
 import { NativeAppBridge } from '@/shared/native/NativeAppBridge';
-import { LegalDocumentPage } from '@hlm-legal';
+import { CookieNotice, LegalDocumentPage, OpenSourceNoticesPage } from '@hlm-legal';
+import { PrivacyDataPage } from '@/features/shop/pages/PrivacyDataPage';
 import type { ReactNode } from 'react';
 
 /** Shared default theme until login; then personal preference from this browser. */
@@ -54,6 +57,7 @@ export function AppRouter() {
                 <NativeAppBridge />
                 <Routes>
                   <Route path="/login" element={<LoginPage />} />
+                  <Route path="/legal/oss" element={<OpenSourceNoticesPage homeTo="/shop" />} />
                   <Route path="/legal/:doc" element={<LegalDocumentPage homeTo="/login" />} />
                   <Route path="/shop" element={<ShopPage />} />
                   <Route path="/categories" element={<ShopPage browseOnly />} />
@@ -65,16 +69,20 @@ export function AppRouter() {
                     <Route path="/orders" element={<OrdersPage />} />
                     <Route path="/laundry/orders/:orderId" element={<LaundryOrderPage />} />
                     <Route path="/laundry" element={<LaundryPage />} />
+                    <Route path="/beauty/orders/:orderId" element={<BeautyOrderPage />} />
+                    <Route path="/beauty" element={<BeautyPage />} />
                     <Route path="/orders/:orderId" element={<OrderDetailPage />} />
                     <Route path="/alerts" element={<AlertsPage />} />
                     <Route path="/wallet" element={<WalletPage />} />
                     <Route path="/spend" element={<SpendReportPage />} />
                     <Route path="/membership" element={<MembershipPage />} />
                     <Route path="/invite" element={<InviteFriendsPage />} />
+                    <Route path="/privacy" element={<PrivacyDataPage />} />
                   </Route>
                   <Route path="*" element={<Navigate to="/shop" replace />} />
                 </Routes>
                 <ScratchCardHost />
+                <CookieNotice privacyTo="/legal/privacy" />
               </BrowserRouter>
             </ShopProvider>
           </WalletProvider>

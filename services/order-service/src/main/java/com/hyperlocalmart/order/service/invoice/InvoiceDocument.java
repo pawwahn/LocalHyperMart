@@ -22,8 +22,15 @@ public class InvoiceDocument {
     Map<String, Object> deliveryAddress;
     String buyerPhone;
     BigDecimal itemsSubtotal;
+    BigDecimal promoDiscount;
     BigDecimal deliveryFee;
+    /** Delivery value covered by membership credits on this order (informational; already netted in deliveryFee). */
+    BigDecimal membershipDeliveryWaived;
     BigDecimal platformFee;
+    BigDecimal codFee;
+    /** Bundled free-delivery plan purchased with this order. */
+    BigDecimal membershipFee;
+    String membershipSlab;
     BigDecimal taxAmount;
     BigDecimal storeCreditApplied;
     BigDecimal totalAmount;

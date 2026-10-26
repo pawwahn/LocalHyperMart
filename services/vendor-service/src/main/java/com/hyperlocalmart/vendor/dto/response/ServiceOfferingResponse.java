@@ -13,4 +13,8 @@ public class ServiceOfferingResponse {
     private String name;
     private boolean hidesListings;
     private int sortOrder;
+    /** Active vendors assigned to this service. */
+    private long vendorCount;
+    /** Pending registration requests still referencing this service. */
+    private long pendingRegistrationCount;
 }

@@ -7,6 +7,12 @@ export type PayableRow = Pick<
   'subOrderId' | 'status' | 'subtotal' | 'paymentMethod' | 'vendorAgentDelivery'
 >;
 
+export type ShopHeldFeeRow = PayableRow &
+  Pick<
+    SalesReportRow,
+    'platformFeeAmount' | 'codFeeAmount' | 'membershipFeeAmount'
+  >;
+
 export type PayoutFlag = { paid?: boolean; amount?: number | null };
 
 export function isRejectedSalesStatus(status: string | null | undefined): boolean {
@@ -74,6 +80,35 @@ export function computeUnpaidDelivered(
  * Money admin still owes the shop: delivered, unpaid, and KoyaKart (not the shop) holds the cash.
  * Home "Money waiting" and Payouts "KoyaKart pays you" use this.
  */
+/** Buyer platform + COD + plan on the order row (app pass-through in shop cash). */
+export function shopHeldPassThroughFees(row: ShopHeldFeeRow): number {
+  return (
+    Number(row.platformFeeAmount ?? 0) +
+    Number(row.codFeeAmount ?? 0) +
+    Number(row.membershipFeeAmount ?? 0)
+  );
+}
+
+/**
+ * Delivered shop-held COD bags whose fee bill to KoyaKart is not closed yet.
+ * Amount is pass-through fees only; commission is on the Payouts fee quote.
+ */
+export function computeShopHeldFeeDue(
+  rows: ShopHeldFeeRow[],
+  payouts: Record<string, PayoutFlag | undefined> = {},
+  holders: Record<string, OrderCashHolder | undefined> = {},
+): PayableTotals {
+  let amount = 0;
+  let count = 0;
+  for (const row of rows) {
+    if (!isUnpaidDelivered(row, payouts[row.subOrderId])) continue;
+    if (!rowIsShopHeld(row, holders[row.subOrderId])) continue;
+    amount += shopHeldPassThroughFees(row);
+    count += 1;
+  }
+  return { amount, count };
+}
+
 export function computeAdminPayoutDue(
   rows: PayableRow[],
   payouts: Record<string, PayoutFlag | undefined> = {},

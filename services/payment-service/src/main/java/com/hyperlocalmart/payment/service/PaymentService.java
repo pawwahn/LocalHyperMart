@@ -38,6 +38,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.LinkedHashMap;
@@ -53,6 +54,7 @@ public class PaymentService {
     private final PaymentWebhookLogRepository paymentWebhookLogRepository;
     private final RefundRepository refundRepository;
     private final OrderClient orderClient;
+    private final PaymentOrderNotificationService paymentOrderNotificationService;
     private final PaymentProperties paymentProperties;
     private final RazorpayClient razorpayClient;
     private final CashfreeClient cashfreeClient;
@@ -97,6 +99,16 @@ public class PaymentService {
         Payment payment = paymentRepository.findByIdAndBuyerId(paymentId, buyerId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Payment not found"));
         return toDetail(payment);
+    }
+
+    @Transactional(readOnly = true)
+    public BigDecimal sumSuccessfulPaymentsForOrder(UUID orderId) {
+        return paymentRepository.findByOrderIdOrderByCreatedAtDesc(orderId).stream()
+                .filter(p -> p.getStatus() == PaymentStatus.SUCCESS)
+                .map(Payment::getAmount)
+                .map(amount -> amount == null ? BigDecimal.ZERO : amount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add)
+                .setScale(2, RoundingMode.HALF_UP);
     }
 
     @Transactional
@@ -158,7 +170,34 @@ public class PaymentService {
     }
 
     @Transactional
+    public UUID acceptRazorpayWebhook(String rawBody, String headerSignature) {
+        PaymentWebhookLog log = persistRazorpayWebhookLog(rawBody, headerSignature);
+        if (!log.isSignatureValid()) {
+            throw new BusinessException(ErrorCode.UNAUTHORIZED, "Invalid webhook signature");
+        }
+        return log.getId();
+    }
+
+    @Transactional
     public void processRazorpayWebhook(String rawBody, String headerSignature) {
+        PaymentWebhookLog log = persistRazorpayWebhookLog(rawBody, headerSignature);
+        if (!log.isSignatureValid()) {
+            throw new BusinessException(ErrorCode.UNAUTHORIZED, "Invalid webhook signature");
+        }
+        applyRazorpayWebhook(rawBody, log);
+    }
+
+    @Transactional
+    public void processRazorpayWebhookByLogId(UUID logId, String rawBody) {
+        PaymentWebhookLog log = paymentWebhookLogRepository.findById(logId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Webhook log not found"));
+        if (log.isProcessed() || !log.isSignatureValid()) {
+            return;
+        }
+        applyRazorpayWebhook(rawBody, log);
+    }
+
+    private PaymentWebhookLog persistRazorpayWebhookLog(String rawBody, String headerSignature) {
         Map<String, Object> payload = parseJson(rawBody);
         boolean signatureValid = verifyRazorpayWebhook(rawBody, headerSignature, payload);
         PaymentWebhookLog log = PaymentWebhookLog.builder()
@@ -167,9 +206,13 @@ public class PaymentService {
                 .signatureValid(signatureValid)
                 .processed(false)
                 .build();
-        paymentWebhookLogRepository.save(log);
-        if (!signatureValid) {
-            throw new BusinessException(ErrorCode.UNAUTHORIZED, "Invalid webhook signature");
+        return paymentWebhookLogRepository.save(log);
+    }
+
+    private void applyRazorpayWebhook(String rawBody, PaymentWebhookLog log) {
+        Map<String, Object> payload = log.getPayload();
+        if (payload == null) {
+            payload = parseJson(rawBody);
         }
 
         if (payload.get("orderId") != null && payload.get("event") == null) {
@@ -231,7 +274,34 @@ public class PaymentService {
     }
 
     @Transactional
+    public UUID acceptCashfreeWebhook(String rawBody, String timestamp, String signature) {
+        PaymentWebhookLog log = persistCashfreeWebhookLog(rawBody, timestamp, signature);
+        if (!log.isSignatureValid()) {
+            throw new BusinessException(ErrorCode.UNAUTHORIZED, "Invalid webhook signature");
+        }
+        return log.getId();
+    }
+
+    @Transactional
     public void processCashfreeWebhook(String rawBody, String timestamp, String signature) {
+        PaymentWebhookLog log = persistCashfreeWebhookLog(rawBody, timestamp, signature);
+        if (!log.isSignatureValid()) {
+            throw new BusinessException(ErrorCode.UNAUTHORIZED, "Invalid webhook signature");
+        }
+        applyCashfreeWebhook(log);
+    }
+
+    @Transactional
+    public void processCashfreeWebhookByLogId(UUID logId, String rawBody, String timestamp, String signature) {
+        PaymentWebhookLog log = paymentWebhookLogRepository.findById(logId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Webhook log not found"));
+        if (log.isProcessed() || !log.isSignatureValid()) {
+            return;
+        }
+        applyCashfreeWebhook(log);
+    }
+
+    private PaymentWebhookLog persistCashfreeWebhookLog(String rawBody, String timestamp, String signature) {
         Map<String, Object> payload = parseJson(rawBody);
         boolean signatureValid = CashfreeSignatures.verifyWebhook(
                 rawBody, timestamp, signature, paymentProperties.getCashfreeClientSecret());
@@ -241,10 +311,11 @@ public class PaymentService {
                 .signatureValid(signatureValid)
                 .processed(false)
                 .build();
-        paymentWebhookLogRepository.save(log);
-        if (!signatureValid) {
-            throw new BusinessException(ErrorCode.UNAUTHORIZED, "Invalid webhook signature");
-        }
+        return paymentWebhookLogRepository.save(log);
+    }
+
+    private void applyCashfreeWebhook(PaymentWebhookLog log) {
+        Map<String, Object> payload = log.getPayload();
         String type = String.valueOf(payload.getOrDefault("type", ""));
         String orderId = firstNonBlank(
                 RazorpayMaps.nestedString(payload, "data", "order", "order_id"),
@@ -271,7 +342,34 @@ public class PaymentService {
     }
 
     @Transactional
+    public UUID acceptPhonePeWebhook(String rawBody, String authorization) {
+        PaymentWebhookLog log = persistPhonePeWebhookLog(rawBody, authorization);
+        if (!log.isSignatureValid()) {
+            throw new BusinessException(ErrorCode.UNAUTHORIZED, "Invalid webhook signature");
+        }
+        return log.getId();
+    }
+
+    @Transactional
     public void processPhonePeWebhook(String rawBody, String authorization) {
+        PaymentWebhookLog log = persistPhonePeWebhookLog(rawBody, authorization);
+        if (!log.isSignatureValid()) {
+            throw new BusinessException(ErrorCode.UNAUTHORIZED, "Invalid webhook signature");
+        }
+        applyPhonePeWebhook(log);
+    }
+
+    @Transactional
+    public void processPhonePeWebhookByLogId(UUID logId, String rawBody, String authorization) {
+        PaymentWebhookLog log = paymentWebhookLogRepository.findById(logId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Webhook log not found"));
+        if (log.isProcessed() || !log.isSignatureValid()) {
+            return;
+        }
+        applyPhonePeWebhook(log);
+    }
+
+    private PaymentWebhookLog persistPhonePeWebhookLog(String rawBody, String authorization) {
         Map<String, Object> payload = parseJson(rawBody);
         boolean signatureValid = PhonePeSignatures.verifyWebhook(
                 authorization,
@@ -286,10 +384,11 @@ public class PaymentService {
                 .signatureValid(signatureValid)
                 .processed(false)
                 .build();
-        paymentWebhookLogRepository.save(log);
-        if (!signatureValid) {
-            throw new BusinessException(ErrorCode.UNAUTHORIZED, "Invalid webhook signature");
-        }
+        return paymentWebhookLogRepository.save(log);
+    }
+
+    private void applyPhonePeWebhook(PaymentWebhookLog log) {
+        Map<String, Object> payload = log.getPayload();
         String event = String.valueOf(payload.getOrDefault("event", ""));
         String orderId = firstNonBlank(
                 RazorpayMaps.nestedString(payload, "payload", "merchantOrderId"),
@@ -313,6 +412,25 @@ public class PaymentService {
         }
         log.setProcessed(true);
         paymentWebhookLogRepository.save(log);
+    }
+
+    public void replayWebhookLog(PaymentWebhookLog log) {
+        if (log.isProcessed() || !log.isSignatureValid()) {
+            return;
+        }
+        String rawBody;
+        try {
+            rawBody = objectMapper.writeValueAsString(log.getPayload());
+        } catch (Exception ex) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Cannot serialize webhook payload");
+        }
+        if (PaymentGateway.RAZORPAY.name().equals(log.getGateway())) {
+            processRazorpayWebhookByLogId(log.getId(), rawBody);
+        } else if (PaymentGateway.CASHFREE.name().equals(log.getGateway())) {
+            processCashfreeWebhookByLogId(log.getId(), rawBody, null, null);
+        } else if (PaymentGateway.PHONEPE.name().equals(log.getGateway())) {
+            processPhonePeWebhookByLogId(log.getId(), rawBody, null);
+        }
     }
 
     @Transactional
@@ -573,14 +691,14 @@ public class PaymentService {
         }
         payment.setPaidAt(Instant.now());
         paymentRepository.save(payment);
-        orderClient.markPaymentSuccess(payment.getOrderId(), payment.getBuyerId(), payment.getId(), payment.getGateway());
+        paymentOrderNotificationService.notifyPaymentSuccess(payment);
         membershipService.completeBundledForOrder(payment.getOrderId(), gatewayPaymentId);
     }
 
     private void markFailed(Payment payment, String reason) {
         payment.setStatus(PaymentStatus.FAILED);
         paymentRepository.save(payment);
-        orderClient.markPaymentFailed(payment.getOrderId(), payment.getBuyerId(), payment.getId(), reason);
+        paymentOrderNotificationService.notifyPaymentFailed(payment, reason);
     }
 
     private void captureStubPayload(Map<String, Object> payload) {

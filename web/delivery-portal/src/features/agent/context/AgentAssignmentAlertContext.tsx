@@ -83,6 +83,12 @@ function legHintFor(job: AssignmentView): string | null {
 
   if (job.legType === 'VENDOR_DIRECT') return 'Shop → customer home';
 
+  if (job.legType === 'LAUNDRY_TRIP') {
+    return job.laundryTripKind === 'PICKUP_FROM_CUSTOMER'
+      ? 'Laundry · collect from customer'
+      : 'Laundry · drop to customer';
+  }
+
   return null;
 
 }

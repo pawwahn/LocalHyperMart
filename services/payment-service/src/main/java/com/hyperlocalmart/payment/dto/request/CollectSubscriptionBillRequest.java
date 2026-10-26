@@ -5,6 +5,7 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import lombok.Data;
 
+import java.time.LocalDate;
 import java.util.UUID;
 
 @Data
@@ -23,4 +24,6 @@ public class CollectSubscriptionBillRequest {
     @NotBlank
     private String transactionReference;
     private String transactionNotes;
+    @NotNull
+    private LocalDate bankPaidOn;
 }

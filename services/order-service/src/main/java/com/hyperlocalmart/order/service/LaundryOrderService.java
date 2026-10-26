@@ -3,10 +3,12 @@ package com.hyperlocalmart.order.service;
 import com.hyperlocalmart.common.exception.BusinessException;
 import com.hyperlocalmart.common.exception.ErrorCode;
 import com.hyperlocalmart.order.client.AddressClient;
+import com.hyperlocalmart.order.client.DeliveryClient;
 import com.hyperlocalmart.order.client.MediaClient;
 import com.hyperlocalmart.order.client.PaymentClient;
 import com.hyperlocalmart.order.client.TownClient;
 import com.hyperlocalmart.order.client.VendorLaundryClient;
+import com.hyperlocalmart.order.dto.laundry.AgentLaundryCashRequest;
 import com.hyperlocalmart.order.dto.laundry.LaundryActionRequest;
 import com.hyperlocalmart.order.dto.laundry.LaundryOrderResponse;
 import com.hyperlocalmart.order.dto.laundry.LaundryShopCard;
@@ -35,6 +37,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.DayOfWeek;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -63,6 +66,8 @@ public class LaundryOrderService {
     private final VendorLaundryClient vendorLaundryClient;
     private final AddressClient addressClient;
     private final MediaClient mediaClient;
+    private final DeliveryClient deliveryClient;
+    private final ScratchCardService scratchCardService;
 
     @Transactional(readOnly = true)
     public List<LaundryShopCard> shops(UUID townId) {
@@ -75,6 +80,8 @@ public class LaundryOrderService {
                         .pickupCharge(moneyOrZero(shop.pickupCharge()))
                         .dropCharge(moneyOrZero(shop.dropCharge()))
                         .pickupAndDropCharge(moneyOrZero(shop.pickupAndDropCharge()))
+                        .blockedPickupDate(shop.blockedPickupDate())
+                        .blockedPickupSlots(shop.blockedPickupSlots())
                         .feeModel(shop.feeModel())
                         .perPieceAmount(moneyOrZero(shop.perPieceAmount()))
                         .perOrderFlatAmount(moneyOrZero(shop.perOrderFlatAmount()))
@@ -124,8 +131,11 @@ public class LaundryOrderService {
         if (pickup && request.getRequestedPickupStart().atZone(IST).toLocalDate().isBefore(LocalDate.now(IST))) {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Choose a pickup date that has not passed.");
         }
-        if (pickup && !request.getRequestedPickupEnd().isAfter(Instant.now())) {
-            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "That pickup time has already passed. Choose a later slot.");
+        if (pickup && request.getRequestedPickupStart().isBefore(Instant.now().plus(Duration.ofHours(2)))) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Pickup needs 2 hours’ notice. Choose a later slot.");
+        }
+        if (pickup && slotBlocked(shop, request.getRequestedPickupStart())) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "The shop blocked this pickup time. Choose another slot.");
         }
 
         Map<String, Object> address = addressClient.getAddressSnapshot(request.getAddressId(), buyerId, request.getTownId());
@@ -339,6 +349,7 @@ public class LaundryOrderService {
             case "SET_COMMENT" -> setVendorComment(order, userId, request.getNote());
             case "OPEN_COMPLAINT" -> setComplaint(order, userId, true, request.getNote());
             case "CLOSE_COMPLAINT" -> setComplaint(order, userId, false, request.getNote());
+            case "ASSIGN_AGENT" -> assignTripAgent(order, userId, request.getAgentId());
             default -> {
                 LaundryMove move;
                 try {
@@ -355,7 +366,7 @@ public class LaundryOrderService {
 
     @Transactional(readOnly = true)
     public List<LaundryOrderResponse> adminOrders(UUID townId) {
-        return orderRepository.findByTownIdOrderByPlacedAtDesc(townId).stream()
+        return orderRepository.findByTownIdWithLinesOrderByPlacedAtDesc(townId).stream()
                 .map(order -> toResponse(order, true))
                 .toList();
     }
@@ -404,6 +415,10 @@ public class LaundryOrderService {
         }
         if (to == LaundryOrderStatus.DELIVERED) {
             order.setDeliveredAt(Instant.now());
+            if (order.getPaymentMethod() == LaundryPaymentMethod.CASH
+                    && moneyOrZero(order.getAmountCollected()).signum() <= 0) {
+                order.setAmountCollected(buyerPayable(order));
+            }
         }
         if (to == LaundryOrderStatus.CANCELLED && creditWallet) {
             creditRejectToWallet(order);
@@ -417,7 +432,20 @@ public class LaundryOrderService {
         order.setStatus(to);
         order.setUpdatedBy(actorId);
         orderRepository.save(order);
+        if (to == LaundryOrderStatus.DELIVERED) {
+            try {
+                scratchCardService.issueIfEligible(order);
+            } catch (Exception ignored) {
+                // Non-blocking — delivery already committed.
+            }
+        }
         event(order, actorId, move.name(), from.name(), to.name(), blank(note));
+        // Pickup trip ends when collected. When clothes become READY, open a drop trip for the
+        // same agent so it shows in the agent app (do not re-push on OUT_FOR_DROP / DELIVER —
+        // that race-creates a second trip while the agent is finishing).
+        if (order.getTripAgentId() != null && to == LaundryOrderStatus.READY) {
+            pushLaundryTripToAgent(order, actorId);
+        }
         return toResponse(order, true);
     }
 
@@ -442,6 +470,169 @@ public class LaundryOrderService {
         orderRepository.save(order);
         event(order, actorId, "VENDOR_COMMENT", order.getStatus().name(), order.getStatus().name(), blank(comment));
         return toResponse(order, true);
+    }
+
+    private LaundryOrderResponse assignTripAgent(LaundryOrder order, UUID actorId, UUID agentId) {
+        if (!canAssignTripAgent(order)) {
+            throw new BusinessException(ErrorCode.CONFLICT, "This order cannot be assigned to an agent");
+        }
+        if (agentId == null) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Choose a delivery agent");
+        }
+        DeliveryClient.VendorAgent agent = deliveryClient.listVendorAgents(order.getVendorId()).stream()
+                .filter(row -> agentId.equals(row.agentId()))
+                .findFirst()
+                .orElseThrow(() -> new BusinessException(ErrorCode.VALIDATION_ERROR, "That agent is not on your team"));
+        if (agent.status() == null || !"ACTIVE".equalsIgnoreCase(agent.status())) {
+            throw new BusinessException(ErrorCode.CONFLICT, "That agent is not active");
+        }
+        order.setTripAgentId(agent.agentId());
+        order.setTripAgentName(agent.name());
+        order.setTripAgentPhone(agent.phone());
+        order.setUpdatedBy(actorId);
+        orderRepository.save(order);
+        String label = agent.name() == null ? agent.phone() : agent.name();
+        event(order, actorId, "ASSIGN_AGENT", order.getStatus().name(), order.getStatus().name(), label);
+        pushLaundryTripToAgent(order, actorId);
+        return toResponse(order, true);
+    }
+
+    private void pushLaundryTripToAgent(LaundryOrder order, UUID actorId) {
+        if (order.getTripAgentId() == null) {
+            return;
+        }
+        String tripKind = laundryTripKind(order);
+        BigDecimal collect = BigDecimal.ZERO;
+        if (order.getPaymentMethod() == LaundryPaymentMethod.CASH
+                && order.getPaymentStatus() != LaundryPaymentStatus.COLLECTED) {
+            collect = buyerPayable(order);
+        }
+        deliveryClient.assignLaundryTrip(
+                order.getId(),
+                order.getOrderNumber(),
+                order.getTownId(),
+                order.getVendorId(),
+                order.getTripAgentId(),
+                actorId,
+                order.getShopName(),
+                order.getContactName(),
+                order.getContactPhone(),
+                order.getAddressText(),
+                tripKind,
+                order.getPaymentMethod().name(),
+                collect);
+    }
+
+    @Transactional(readOnly = true)
+    public com.hyperlocalmart.order.dto.laundry.LaundryAgentCollectResponse agentCollectForTrip(
+            UUID orderId, String tripKind) {
+        LaundryOrder order = requireOrder(orderId);
+        String kind = tripKind == null ? "" : tripKind.trim().toUpperCase();
+        BigDecimal collect = BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+        if (order.getPaymentMethod() == LaundryPaymentMethod.CASH
+                && order.getPaymentStatus() != LaundryPaymentStatus.COLLECTED) {
+            boolean pickupLeg = "PICKUP_FROM_CUSTOMER".equals(kind);
+            boolean dropLeg = "DROP_TO_CUSTOMER".equals(kind);
+            if (pickupLeg || dropLeg) {
+                collect = buyerPayable(order);
+            }
+        }
+        return com.hyperlocalmart.order.dto.laundry.LaundryAgentCollectResponse.builder()
+                .paymentMethod(order.getPaymentMethod().name())
+                .collectCashAmount(collect)
+                .paymentStatus(order.getPaymentStatus().name())
+                .laundryStatus(order.getStatus().name())
+                .laundryStatusLabel(order.getStatus().label())
+                .build();
+    }
+
+    @Transactional
+    public void recordAgentCashCollection(UUID orderId, AgentLaundryCashRequest request) {
+        LaundryOrder order = requireOrder(orderId);
+        if (order.getPaymentMethod() != LaundryPaymentMethod.CASH) {
+            return;
+        }
+        String kind = request.getTripKind() == null ? "" : request.getTripKind().trim().toUpperCase();
+        String outcome = request.getOutcome() == null ? "" : request.getOutcome().trim().toUpperCase();
+        boolean collected = "COLLECTED".equals(outcome);
+        boolean notCollected = "NOT_COLLECTED".equals(outcome);
+        if (!collected && !notCollected) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Cash outcome must be COLLECTED or NOT_COLLECTED");
+        }
+        if ("DROP_TO_CUSTOMER".equals(kind) && notCollected) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Mark cash collected before finishing delivery");
+        }
+        UUID actorId = request.getAgentUserId();
+        if ("PICKUP_FROM_CUSTOMER".equals(kind)) {
+            order.setAgentCashPickupReport(outcome);
+            if (collected) {
+                order.setAmountCollected(buyerPayable(order));
+            }
+            event(order, actorId, "AGENT_CASH_PICKUP", order.getStatus().name(), order.getStatus().name(), outcome);
+        } else if ("DROP_TO_CUSTOMER".equals(kind)) {
+            order.setAgentCashDropReport(outcome);
+            if (collected) {
+                order.setAmountCollected(buyerPayable(order));
+            }
+            event(order, actorId, "AGENT_CASH_DROP", order.getStatus().name(), order.getStatus().name(), outcome);
+        } else {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Unknown trip kind");
+        }
+        refreshPayment(order);
+        order.setUpdatedBy(actorId);
+        orderRepository.save(order);
+    }
+
+    @Transactional
+    public void completeAgentTrip(UUID orderId, UUID agentUserId, String tripKind) {
+        LaundryOrder order = requireOrder(orderId);
+        if (order.getTripAgentId() == null) {
+            throw new BusinessException(ErrorCode.CONFLICT, "No trip agent on this laundry order");
+        }
+        String kind = tripKind == null ? "" : tripKind.trim().toUpperCase();
+        if ("PICKUP_FROM_CUSTOMER".equals(kind)) {
+            if (order.getStatus() == LaundryOrderStatus.PICKUP_SCHEDULED
+                    || order.getStatus() == LaundryOrderStatus.ACCEPTED) {
+                move(order, agentUserId, LaundryMove.MARK_PICKED_UP, null, null, "Agent picked up from customer", false);
+            }
+            if (order.getStatus() == LaundryOrderStatus.PICKED_UP) {
+                move(order, agentUserId, LaundryMove.MARK_AT_SHOP, null, null, "Agent handed clothes at shop", false);
+            }
+            return;
+        }
+        if ("DROP_TO_CUSTOMER".equals(kind)) {
+            if (order.getStatus() == LaundryOrderStatus.READY) {
+                move(order, agentUserId, LaundryMove.OUT_FOR_DROP, null, null, "Agent out for drop", false);
+            }
+            if (order.getStatus() == LaundryOrderStatus.OUT_FOR_DROP) {
+                move(order, agentUserId, LaundryMove.DELIVER, null, null, "Agent delivered to customer", false);
+            }
+        }
+    }
+
+    private static String laundryTripKind(LaundryOrder order) {
+        if (order.getStatus() == LaundryOrderStatus.READY || order.getStatus() == LaundryOrderStatus.OUT_FOR_DROP) {
+            return "DROP_TO_CUSTOMER";
+        }
+        return "PICKUP_FROM_CUSTOMER";
+    }
+
+    private static boolean canAssignTripAgent(LaundryOrder order) {
+        if (order.getStatus() == LaundryOrderStatus.CANCELLED
+                || order.getStatus() == LaundryOrderStatus.DELIVERED
+                || order.getStatus() == LaundryOrderStatus.AWAITING_PAYMENT) {
+            return false;
+        }
+        if (order.getLogistics() == null) {
+            return false;
+        }
+        if (order.getTripAgentId() == null) {
+            return order.getStatus() == LaundryOrderStatus.REQUESTED
+                    || order.getStatus() == LaundryOrderStatus.ACCEPTED
+                    || order.getStatus() == LaundryOrderStatus.PICKUP_SCHEDULED;
+        }
+        return order.getStatus() == LaundryOrderStatus.READY
+                || order.getStatus() == LaundryOrderStatus.OUT_FOR_DROP;
     }
 
     private void creditRejectToWallet(LaundryOrder order) {
@@ -662,6 +853,9 @@ public class LaundryOrderService {
                 && order.getPaymentStatus() == LaundryPaymentStatus.REFUND_DUE) {
             actions.add("SETTLE_PAYMENT");
         }
+        if (shopView && canAssignTripAgent(order)) {
+            actions.add("ASSIGN_AGENT");
+        }
         return LaundryOrderResponse.builder()
                 .id(order.getId())
                 .orderNumber(order.getOrderNumber())
@@ -677,6 +871,8 @@ public class LaundryOrderService {
                 .goodsAmount(order.getGoodsAmount())
                 .logisticsCharge(moneyOrZero(order.getLogisticsCharge()))
                 .amountCollected(order.getAmountCollected())
+                .agentCashPickupReport(order.getAgentCashPickupReport())
+                .agentCashDropReport(order.getAgentCashDropReport())
                 .platformFeeAmount(order.getPlatformFeeAmount())
                 .codFee(moneyOrZero(order.getCodFee()))
                 .platformFeeModel(order.getPlatformFeeModel())
@@ -685,6 +881,9 @@ public class LaundryOrderService {
                 .addressText(order.getAddressText())
                 .contactName(order.getContactName())
                 .contactPhone(order.getContactPhone())
+                .tripAgentId(order.getTripAgentId())
+                .tripAgentName(order.getTripAgentName())
+                .tripAgentPhone(order.getTripAgentPhone())
                 .requestedPickupStart(order.getRequestedPickupStart())
                 .requestedPickupEnd(order.getRequestedPickupEnd())
                 .pickupSlotStart(order.getPickupSlotStart())
@@ -732,6 +931,28 @@ public class LaundryOrderService {
     private LaundryOrder requireOrder(UUID orderId) {
         return orderRepository.findById(orderId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Laundry request not found"));
+    }
+
+    private static boolean slotBlocked(VendorLaundryClient.LaundryShopView shop, Instant start) {
+        if (shop == null || start == null) {
+            return false;
+        }
+        String date = shop.blockedPickupDate();
+        String slots = shop.blockedPickupSlots();
+        if (date == null || date.isBlank() || slots == null || slots.isBlank()) {
+            return false;
+        }
+        var when = start.atZone(IST);
+        if (!date.equals(when.toLocalDate().toString())) {
+            return false;
+        }
+        String id = String.format("%02d", when.getHour());
+        for (String part : slots.split(",")) {
+            if (id.equals(part.trim())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static BigDecimal tripCharge(VendorLaundryClient.LaundryShopView shop, LaundryLogistics logistics) {

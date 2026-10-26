@@ -3,9 +3,11 @@ package com.hyperlocalmart.order.service;
 import com.hyperlocalmart.order.client.DeliveryClient;
 import com.hyperlocalmart.order.dto.response.CodCashBreakdownResponse;
 import com.hyperlocalmart.order.dto.response.CodDeliveredResponse;
+import com.hyperlocalmart.order.entity.LaundryOrder;
 import com.hyperlocalmart.order.entity.Order;
 import com.hyperlocalmart.order.entity.PaymentMethod;
 import com.hyperlocalmart.order.entity.VendorSubOrder;
+import com.hyperlocalmart.order.repository.LaundryOrderRepository;
 import com.hyperlocalmart.order.repository.OrderRepository;
 import com.hyperlocalmart.order.repository.VendorSubOrderRepository;
 import lombok.RequiredArgsConstructor;
@@ -16,9 +18,13 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.List;
-import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -36,6 +42,7 @@ public class CodDeliveredService {
     private static final ZoneId IST = ZoneId.of("Asia/Kolkata");
 
     private final OrderRepository orderRepository;
+    private final LaundryOrderRepository laundryOrderRepository;
     private final VendorSubOrderRepository vendorSubOrderRepository;
     private final DeliveryClient deliveryClient;
 
@@ -55,17 +62,20 @@ public class CodDeliveredService {
         }
         Instant start = from.atStartOfDay(IST).toInstant();
         Instant end = to.plusDays(1).atStartOfDay(IST).toInstant();
-        List<Order> orders;
+        List<CodDeliveredResponse.Item> items;
         boolean agentFilterApplied = false;
         if (agentId != null) {
-            FilterResult agentScoped = listCodDeliveredForAgent(townId, agentId, start, end, vendorAgentDelivery);
-            orders = agentScoped.orders();
-            agentFilterApplied = agentScoped.applied();
+            items = listCodDeliveredItemsForAgent(townId, agentId, start, end, vendorAgentDelivery);
+            agentFilterApplied = true;
         } else {
-            orders = vendorAgentDelivery == null
+            List<Order> orders = vendorAgentDelivery == null
                     ? orderRepository.findCodDeliveredByTownAndDeliveredAtBetween(townId, start, end)
                     : orderRepository.findCodDeliveredByTownAndDeliveredAtBetweenAndVendorAgentDelivery(
                             townId, start, end, vendorAgentDelivery);
+            items = new ArrayList<>(orders.stream().map(this::toItem).toList());
+            if (vendorAgentDelivery == null || vendorAgentDelivery) {
+                items.addAll(listTownLaundryCashDelivered(townId, start, end));
+            }
         }
 
         return CodDeliveredResponse.builder()
@@ -73,7 +83,7 @@ public class CodDeliveredService {
                 .agentId(agentId)
                 .date(from + ".." + to)
                 .agentFilterApplied(agentFilterApplied)
-                .items(orders.stream().map(this::toItem).toList())
+                .items(items)
                 .build();
     }
 
@@ -81,21 +91,27 @@ public class CodDeliveredService {
     public CodDeliveredResponse list(UUID townId, UUID agentId, LocalDate date) {
         Instant start = date.atStartOfDay(IST).toInstant();
         Instant end = date.plusDays(1).atStartOfDay(IST).toInstant();
-        List<Order> orders = orderRepository.findCodDeliveredByTownAndDeliveredAtBetween(townId, start, end);
-
-        boolean agentFilterApplied = false;
-        if (agentId != null && !orders.isEmpty()) {
-            FilterResult filtered = filterByDeliveringAgentBatch(orders, agentId);
-            agentFilterApplied = filtered.applied();
-            orders = filtered.orders();
+        if (agentId != null) {
+            return CodDeliveredResponse.builder()
+                    .townId(townId)
+                    .agentId(agentId)
+                    .date(date.toString())
+                    .agentFilterApplied(true)
+                    .items(listCodDeliveredItemsForAgent(townId, agentId, start, end, null))
+                    .build();
         }
+        List<CodDeliveredResponse.Item> items = new ArrayList<>(
+                orderRepository.findCodDeliveredByTownAndDeliveredAtBetween(townId, start, end).stream()
+                        .map(this::toItem)
+                        .toList());
+        items.addAll(listTownLaundryCashDelivered(townId, start, end));
 
         return CodDeliveredResponse.builder()
                 .townId(townId)
-                .agentId(agentId)
+                .agentId(null)
                 .date(date.toString())
-                .agentFilterApplied(agentFilterApplied)
-                .items(orders.stream().map(this::toItem).toList())
+                .agentFilterApplied(false)
+                .items(items)
                 .build();
     }
 
@@ -104,58 +120,63 @@ public class CodDeliveredService {
         if (orderIds == null || orderIds.isEmpty()) {
             return List.of();
         }
-        return orderRepository.findCodDeliveredByIds(orderIds).stream()
-                .map(this::toItem)
-                .toList();
+        List<CodDeliveredResponse.Item> items = new ArrayList<>();
+        Set<UUID> seen = new HashSet<>();
+        for (Order order : orderRepository.findCodDeliveredByIds(orderIds)) {
+            items.add(toItem(order));
+            seen.add(order.getId());
+        }
+        for (LaundryOrder order : laundryOrderRepository.findCashDeliveredByIds(orderIds)) {
+            if (seen.add(order.getId())) {
+                items.add(toLaundryItem(order));
+            }
+        }
+        return items;
     }
 
-    private FilterResult listCodDeliveredForAgent(
+    private List<CodDeliveredResponse.Item> listCodDeliveredItemsForAgent(
             UUID townId, UUID agentId, Instant start, Instant end, Boolean vendorAgentDelivery) {
         List<UUID> orderIds = deliveryClient.listAgentCompletedDeliveryOrderIds(agentId, start, end);
         if (orderIds.isEmpty()) {
-            return new FilterResult(List.of(), true);
+            return List.of();
         }
-        List<Order> orders = orderRepository.findCodDeliveredByIds(orderIds).stream()
-                .filter(o -> townId.equals(o.getTownId()))
-                .filter(o -> o.getDeliveredAt() != null
-                        && !o.getDeliveredAt().isBefore(start)
-                        && o.getDeliveredAt().isBefore(end))
-                .filter(o -> vendorAgentDelivery == null || o.isVendorAgentDelivery() == vendorAgentDelivery)
-                .toList();
-        return new FilterResult(orders, true);
-    }
-
-    private FilterResult filterByDeliveringAgentBatch(List<Order> orders, UUID agentId) {
-        if (orders.isEmpty()) {
-            return new FilterResult(List.of(), false);
-        }
-        List<UUID> orderIds = orders.stream().map(Order::getId).toList();
-        java.util.Map<UUID, UUID> agentByOrder = resolveDeliveringAgentIds(orderIds);
-        if (agentByOrder.isEmpty()) {
-            log.info("COD delivered agent filter skipped — no delivery assignment data; returning town list");
-            return new FilterResult(orders, false);
-        }
-        List<Order> matched = orders.stream()
-                .filter(o -> agentId.equals(agentByOrder.get(o.getId())))
-                .toList();
-        return new FilterResult(matched, true);
-    }
-
-    private java.util.Map<UUID, UUID> resolveDeliveringAgentIds(List<UUID> orderIds) {
-        java.util.Map<UUID, UUID> map = new java.util.HashMap<>();
-        if (orderIds.isEmpty()) {
-            return map;
-        }
-        List<DeliveryClient.OrderLegs> legs = deliveryClient.resolveDeliveryLegs(orderIds);
-        for (var leg : legs) {
-            if (leg.orderId() == null || leg.agentId() == null) {
+        List<CodDeliveredResponse.Item> items = new ArrayList<>();
+        Set<UUID> seen = new HashSet<>();
+        for (Order order : orderRepository.findCodDeliveredByIds(orderIds)) {
+            if (!townId.equals(order.getTownId())) {
                 continue;
             }
-            if (leg.vendorDirectCompleted() || leg.lastMileCompleted()) {
-                map.put(leg.orderId(), leg.agentId());
+            if (order.getDeliveredAt() == null
+                    || order.getDeliveredAt().isBefore(start)
+                    || !order.getDeliveredAt().isBefore(end)) {
+                continue;
             }
+            if (vendorAgentDelivery != null && order.isVendorAgentDelivery() != vendorAgentDelivery) {
+                continue;
+            }
+            items.add(toItem(order));
+            seen.add(order.getId());
         }
-        return map;
+        if (vendorAgentDelivery != null && !vendorAgentDelivery) {
+            return items;
+        }
+        for (LaundryOrder order : laundryOrderRepository.findCashDeliveredByIds(orderIds)) {
+            if (seen.contains(order.getId()) || !townId.equals(order.getTownId())) {
+                continue;
+            }
+            if (order.getDeliveredAt().isBefore(start) || !order.getDeliveredAt().isBefore(end)) {
+                continue;
+            }
+            items.add(toLaundryItem(order));
+        }
+        return items;
+    }
+
+    private List<CodDeliveredResponse.Item> listTownLaundryCashDelivered(
+            UUID townId, Instant start, Instant end) {
+        return laundryOrderRepository.findCashDeliveredByTownAndDeliveredAtBetween(townId, start, end).stream()
+                .map(this::toLaundryItem)
+                .toList();
     }
 
     @Transactional(readOnly = true)
@@ -163,9 +184,18 @@ public class CodDeliveredService {
         if (orderIds == null || orderIds.isEmpty()) {
             return List.of();
         }
-        return orderRepository.findCodDeliveredByIds(orderIds).stream()
-                .map(this::toBreakdown)
-                .toList();
+        List<CodCashBreakdownResponse> out = new ArrayList<>();
+        Set<UUID> seen = new HashSet<>();
+        for (Order order : orderRepository.findCodDeliveredByIds(orderIds)) {
+            out.add(toBreakdown(order));
+            seen.add(order.getId());
+        }
+        for (LaundryOrder order : laundryOrderRepository.findCashDeliveredByIds(orderIds)) {
+            if (seen.add(order.getId())) {
+                out.add(toLaundryBreakdown(order));
+            }
+        }
+        return out;
     }
 
     private CodDeliveredResponse.Item toItem(Order order) {
@@ -176,6 +206,27 @@ public class CodDeliveredService {
                 .deliveredAt(order.getDeliveredAt())
                 .custodianType(order.isVendorAgentDelivery() ? "VENDOR" : "HUB")
                 .build();
+    }
+
+    private CodDeliveredResponse.Item toLaundryItem(LaundryOrder order) {
+        return CodDeliveredResponse.Item.builder()
+                .orderId(order.getId())
+                .orderNumber(order.getOrderNumber())
+                .totalAmount(laundryBuyerPayable(order))
+                .deliveredAt(order.getDeliveredAt())
+                .custodianType("VENDOR")
+                .build();
+    }
+
+    private static BigDecimal laundryBuyerPayable(LaundryOrder order) {
+        return moneyOrZero(order.getGoodsAmount())
+                .add(moneyOrZero(order.getPlatformFeeAmount()))
+                .add(moneyOrZero(order.getCodFee()))
+                .setScale(2, RoundingMode.HALF_UP);
+    }
+
+    private static BigDecimal moneyOrZero(BigDecimal value) {
+        return value == null ? BigDecimal.ZERO : value;
     }
 
     private CodCashBreakdownResponse toBreakdown(Order order) {
@@ -208,6 +259,28 @@ public class CodDeliveredService {
                 .build();
     }
 
+    private CodCashBreakdownResponse toLaundryBreakdown(LaundryOrder order) {
+        BigDecimal collect = laundryBuyerPayable(order);
+        BigDecimal goods = moneyOrZero(order.getGoodsAmount()).setScale(2, RoundingMode.HALF_UP);
+        return CodCashBreakdownResponse.builder()
+                .orderId(order.getId())
+                .orderNumber(order.getOrderNumber())
+                .deliveredAt(order.getDeliveredAt())
+                .collectAmount(collect)
+                .custodianType("VENDOR")
+                .hubId(null)
+                .vendorId(order.getVendorId())
+                .vendorAllocations(List.of(CodCashBreakdownResponse.VendorAllocation.builder()
+                        // Laundry has no grocery sub-order; order id is the allocation key for handover/settlement.
+                        .subOrderId(order.getId())
+                        .vendorId(order.getVendorId())
+                        .subOrderNumber(order.getOrderNumber())
+                        .goodsSubtotal(goods)
+                        .allocatedCash(collect)
+                        .build()))
+                .build();
+    }
+
     private UUID resolveTownHubId(UUID townId) {
         if (townId == null) {
             return null;
@@ -227,9 +300,4 @@ public class CodDeliveredService {
                 .orElse(null);
     }
 
-    private record FilterResult(List<Order> orders, boolean applied) {
-        FilterResult {
-            Objects.requireNonNull(orders);
-        }
-    }
 }

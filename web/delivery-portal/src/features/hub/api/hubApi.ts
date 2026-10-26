@@ -116,8 +116,12 @@ export type AssignmentDto = {
   destinationName?: string | null;
   destinationPhone?: string | null;
   destinationAddress?: string | null;
+  sourceShopName?: string | null;
+  laundryTripKind?: string | null;
   paymentMethod?: string | null;
   collectCashAmount?: number | null;
+  orderStatus?: string | null;
+  laundryPaymentStatus?: string | null;
   events?: Array<{
     eventId: string;
     eventType: string;

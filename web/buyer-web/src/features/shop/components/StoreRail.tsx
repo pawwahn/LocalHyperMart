@@ -30,9 +30,11 @@ const RAIL_CSS = `
     width: max-content;
   }
   .store-rail-card {
-    width: 132px;
-    flex: 0 0 132px;
+    width: 142px;
+    flex: 0 0 142px;
     scroll-snap-align: start;
+    display: flex;
+    align-items: stretch;
   }
 `;
 

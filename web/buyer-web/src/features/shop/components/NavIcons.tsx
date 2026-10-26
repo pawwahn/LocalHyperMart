@@ -44,6 +44,42 @@ export function IconBasket({ active }: Props) {
   );
 }
 
+export function IconBeauty({ active }: Props) {
+  return (
+    <svg viewBox="0 0 24 24" style={svg} aria-hidden>
+      <path
+        d="M12 3c2.2 0 4 1.5 4.5 3.6.8-.2 1.6-.1 2.3.3 1.2.7 1.9 2 1.7 3.4-.2 1.3-1.2 2.4-2.5 2.8-.4 1.9-2 3.3-4 3.3s-3.6-1.4-4-3.3c-1.3-.4-2.3-1.5-2.5-2.8-.2-1.4.5-2.7 1.7-3.4.7-.4 1.5-.5 2.3-.3C8 4.5 9.8 3 12 3Z"
+        fill={active ? 'currentColor' : 'none'}
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinejoin="round"
+      />
+      <path d="M8.5 14.5h7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+export function IconLaundry({ active }: Props) {
+  return (
+    <svg viewBox="0 0 24 24" style={svg} aria-hidden>
+      <path
+        d="M8 4.5h8l.8 2.2H7.2L8 4.5Z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M6.5 8.5h11l-.9 11.2a2 2 0 0 1-2 1.8H9.4a2 2 0 0 1-2-1.8L6.5 8.5Z"
+        fill={active ? 'currentColor' : 'none'}
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 export function IconWallet({ active }: Props) {
   return (
     <svg viewBox="0 0 24 24" style={svg} aria-hidden>

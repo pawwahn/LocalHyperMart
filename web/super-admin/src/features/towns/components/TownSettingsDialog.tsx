@@ -2,14 +2,48 @@ import { useEffect, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import { ApiError } from '@/shared/api/http';
-import { Banner, Button, TextField } from '@/shared/ui';
+import { APP_NAME } from '@hlm-brand';
+import { Banner, Button, TextField, Toast } from '@/shared/ui';
 import { AdminHistoryPanel, LastChangeStrip, type HistoryTab } from '@/shared/audit/AdminHistoryPanel';
 import {
+  defaultScratchByService,
+  deriveBeautyPrepayFilter,
   getTownConfig,
+  SCRATCH_SERVICE_KEYS,
   updateTownConfig,
   type DeliverySlabVm,
+  type ScratchServiceKey,
   type TownVm,
 } from '../api/townsApi';
+
+const SCRATCH_SERVICE_META: Record<ScratchServiceKey, { label: string; hint: string }> = {
+  GROCERY: {
+    label: 'Grocery',
+    hint: 'After delivery when goods (after coupon) are above the threshold',
+  },
+  LAUNDRY: {
+    label: 'Laundry',
+    hint: 'After delivery when laundry goods total is above the threshold',
+  },
+  BEAUTY: {
+    label: 'Glam / beauty',
+    hint: 'After the buyer rates in the app — full pay uses service total; partial pay uses prepay amount',
+  },
+};
+
+const SCRATCH_AMOUNT_FIELDS = [
+  { field: 'rewardMin' as const, label: 'Min' },
+  { field: 'rewardMax' as const, label: 'Max' },
+  { field: 'rewardDisplayMax' as const, label: 'UI rep' },
+  { field: 'minOrderAmount' as const, label: 'Above' },
+] as const;
+
+const SCRATCH_PARTIAL_FIELDS = [
+  { field: 'partialRewardMin' as const, label: 'Min' },
+  { field: 'partialRewardMax' as const, label: 'Max' },
+  { field: 'partialRewardDisplayMax' as const, label: 'UI rep' },
+  { field: 'partialMinPrepayAmount' as const, label: 'Above prepay' },
+] as const;
 import {
   TownIncentiveDialog,
   type HubPayEmbeddedState,
@@ -25,6 +59,7 @@ type SettingsSection =
   | 'shop'
   | 'delivery'
   | 'payments'
+  | 'buyer-cancel'
   | 'promotions'
   | 'laundry'
   | 'hub-pay'
@@ -42,7 +77,14 @@ type Props = {
   townStatusBusy?: boolean;
 };
 
-const CONFIG_SECTIONS: SettingsSection[] = ['shop', 'delivery', 'payments', 'promotions', 'laundry'];
+const CONFIG_SECTIONS: SettingsSection[] = [
+  'shop',
+  'delivery',
+  'payments',
+  'buyer-cancel',
+  'promotions',
+  'laundry',
+];
 
 const TOWN_AUDIT_TABS: HistoryTab[] = [
   { id: 'checkout', label: 'Checkout', screen: 'town-settings' },
@@ -57,8 +99,9 @@ const NAV_GROUPS: { title: string; items: { id: SettingsSection; label: string }
       { id: 'shop', label: 'Theme & deals' },
       { id: 'delivery', label: 'Delivery fees' },
       { id: 'payments', label: 'Payments' },
+      { id: 'buyer-cancel', label: 'Order cancellation' },
       { id: 'promotions', label: 'Scratch card' },
-      { id: 'laundry', label: 'Laundry' },
+      { id: 'laundry', label: 'Laundry & beauty' },
     ],
   },
   {
@@ -113,10 +156,7 @@ export function TownSettingsDialog({
   const [bestDealsEnabled, setBestDealsEnabled] = useState(true);
   const [dealPrices, setDealPrices] = useState(['19', '29', '49', '99']);
   const [platformFee, setPlatformFee] = useState('0');
-  const [scratchCardEnabled, setScratchCardEnabled] = useState(false);
-  const [scratchRewardMin, setScratchRewardMin] = useState('10');
-  const [scratchRewardMax, setScratchRewardMax] = useState('50');
-  const [scratchMinGoodsAmount, setScratchMinGoodsAmount] = useState('499');
+  const [scratchByService, setScratchByService] = useState(() => defaultScratchByService());
   const [buyerMembershipEnabled, setBuyerMembershipEnabled] = useState(true);
   const [codEnabled, setCodEnabled] = useState(true);
   const [upiEnabled, setUpiEnabled] = useState(true);
@@ -124,7 +164,11 @@ export function TownSettingsDialog({
   const [windowStart, setWindowStart] = useState('17:00');
   const [windowEnd, setWindowEnd] = useState('19:00');
   const [laundryEnabled, setLaundryEnabled] = useState(false);
+  const [beautyEnabled, setBeautyEnabled] = useState(false);
+  const [buyerCancelOrderEnabled, setBuyerCancelOrderEnabled] = useState(true);
+  const [buyerCancelItemsEnabled, setBuyerCancelItemsEnabled] = useState(true);
   const [savedNotice, setSavedNotice] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ message: string; tone: 'success' | 'danger' } | null>(null);
   const [historyTick, setHistoryTick] = useState(0);
   const [section, setSection] = useState<SettingsSection>('shop');
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -167,10 +211,7 @@ export function TownSettingsDialog({
         setBestDealsEnabled(cfg.bestDealsEnabled);
         setDealPrices(cfg.dealPrices.map((n) => String(n)));
         setPlatformFee(String(cfg.platformFee ?? 0));
-        setScratchCardEnabled(Boolean(cfg.scratchCardEnabled));
-        setScratchRewardMin(String(cfg.scratchRewardMin ?? 10));
-        setScratchRewardMax(String(cfg.scratchRewardMax ?? 50));
-        setScratchMinGoodsAmount(String(cfg.scratchMinGoodsAmount ?? 499));
+        setScratchByService(cfg.scratchByService ?? defaultScratchByService());
         setBuyerMembershipEnabled(cfg.buyerMembershipEnabled !== false);
         setWindowStart(cfg.deliveryWindowStart || '17:00');
         setWindowEnd(cfg.deliveryWindowEnd || '19:00');
@@ -178,6 +219,9 @@ export function TownSettingsDialog({
         setUpiEnabled(cfg.upiEnabled !== false);
         setCodCharge(String(cfg.codCharge ?? 0));
         setLaundryEnabled(cfg.laundryEnabled === true);
+        setBeautyEnabled(cfg.beautyEnabled === true);
+        setBuyerCancelOrderEnabled(cfg.buyerCancelOrderEnabled !== false);
+        setBuyerCancelItemsEnabled(cfg.buyerCancelItemsEnabled !== false);
       })
       .catch((err) => {
         if (cancelled) return;
@@ -227,13 +271,99 @@ export function TownSettingsDialog({
       setError('Platform fee must be ₹0 or more.');
       return;
     }
-    const x = Math.round(Number(scratchRewardMin));
-    const y = Math.round(Number(scratchRewardMax));
-    const z = Math.round(Number(scratchMinGoodsAmount));
-    if (scratchCardEnabled && (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z) || x < 1 || y < x || z < 1)) {
-      setError('Scratch card needs reward min, max, and goods threshold. Max must be ≥ min.');
-      return;
+    const scratchPayload: Record<
+      ScratchServiceKey,
+      {
+        enabled: boolean;
+        rewardMin: number;
+        rewardMax: number;
+        minOrderAmount: number;
+        prepayModeFilter?: string;
+        issueAfterRating?: boolean;
+        partialPrepayEnabled?: boolean;
+        partialRewardMin?: number;
+        partialRewardMax?: number;
+        partialMinPrepayAmount?: number;
+        rewardDisplayMax?: number;
+        partialRewardDisplayMax?: number;
+      }
+    > = {} as Record<
+      ScratchServiceKey,
+      {
+        enabled: boolean;
+        rewardMin: number;
+        rewardMax: number;
+        minOrderAmount: number;
+        prepayModeFilter?: string;
+        issueAfterRating?: boolean;
+        partialPrepayEnabled?: boolean;
+        partialRewardMin?: number;
+        partialRewardMax?: number;
+        partialMinPrepayAmount?: number;
+        rewardDisplayMax?: number;
+        partialRewardDisplayMax?: number;
+      }
+    >;
+    for (const key of SCRATCH_SERVICE_KEYS) {
+      const row = scratchByService[key];
+      const x = Math.round(Number(row.rewardMin));
+      const y = Math.round(Number(row.rewardMax));
+      const z = Math.round(Number(row.minOrderAmount));
+      if (key === 'BEAUTY' && row.enabled) {
+        const fullOn = row.fullPayScratchEnabled !== false;
+        const partialOn = row.partialPrepayEnabled === true;
+        if (!fullOn && !partialOn) {
+          setError(`${SCRATCH_SERVICE_META[key].label}: enable full and/or partial payment scratch.`);
+          return;
+        }
+        if (fullOn && (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z) || x < 1 || y < x || z < 1)) {
+          setError(`${SCRATCH_SERVICE_META[key].label} (full pay): needs min, max, and service threshold. Max must be ≥ min.`);
+          return;
+        }
+        const px = Math.round(Number(row.partialRewardMin));
+        const py = Math.round(Number(row.partialRewardMax));
+        const pz = Math.round(Number(row.partialMinPrepayAmount));
+        if (
+          partialOn
+          && (!Number.isFinite(px) || !Number.isFinite(py) || !Number.isFinite(pz) || px < 1 || py < px || pz < 1)
+        ) {
+          setError(
+            `${SCRATCH_SERVICE_META[key].label} (partial pay): needs min, max, and prepay threshold. Max must be ≥ min.`,
+          );
+          return;
+        }
+      } else if (
+        row.enabled
+        && (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z) || x < 1 || y < x || z < 1)
+      ) {
+        setError(`${SCRATCH_SERVICE_META[key].label}: needs min, max, and order threshold. Max must be ≥ min.`);
+        return;
+      }
+      const uiShow = Math.max(0, Math.round(Number(row.rewardDisplayMax ?? 0)));
+      scratchPayload[key] = {
+        enabled: row.enabled,
+        rewardMin: Number.isFinite(x) ? x : 10,
+        rewardMax: Number.isFinite(y) ? y : 50,
+        minOrderAmount: Number.isFinite(z) ? z : 499,
+        rewardDisplayMax: uiShow,
+        ...(key === 'BEAUTY'
+          ? {
+              prepayModeFilter: deriveBeautyPrepayFilter(
+                row.fullPayScratchEnabled !== false,
+                row.partialPrepayEnabled === true,
+              ),
+              issueAfterRating: true,
+              partialPrepayEnabled: Boolean(row.partialPrepayEnabled),
+              partialRewardMin: Math.round(Number(row.partialRewardMin ?? 10)),
+              partialRewardMax: Math.round(Number(row.partialRewardMax ?? 50)),
+              partialMinPrepayAmount: Math.round(Number(row.partialMinPrepayAmount ?? 499)),
+              rewardDisplayMax: Math.max(0, Math.round(Number(row.rewardDisplayMax ?? 0))),
+              partialRewardDisplayMax: Math.max(0, Math.round(Number(row.partialRewardDisplayMax ?? 0))),
+            }
+          : {}),
+      };
     }
+    const groceryScratch = scratchPayload.GROCERY;
     const codAmt = Math.round(Number(codCharge) * 100) / 100;
     if (!Number.isFinite(codAmt) || codAmt < 0) {
       setError('COD charge must be ₹0 or more.');
@@ -249,8 +379,9 @@ export function TownSettingsDialog({
     }
     setBusy(true);
     setError(null);
+    setToast(null);
     try {
-      await updateTownConfig(token, town.id, {
+      const saved = await updateTownConfig(token, town.id, {
         minOrderValue,
         deliveryMode,
         deliverySlabs: deliveryMode === 'SLAB' ? slabs : [],
@@ -258,10 +389,11 @@ export function TownSettingsDialog({
         bestDealsEnabled,
         dealPrices: prices,
         platformFee: fee,
-        scratchCardEnabled,
-        scratchRewardMin: Number.isFinite(x) ? x : 10,
-        scratchRewardMax: Number.isFinite(y) ? y : 50,
-        scratchMinGoodsAmount: Number.isFinite(z) ? z : 499,
+        scratchCardEnabled: groceryScratch.enabled,
+        scratchRewardMin: groceryScratch.rewardMin,
+        scratchRewardMax: groceryScratch.rewardMax,
+        scratchMinGoodsAmount: groceryScratch.minOrderAmount,
+        scratchByService: scratchPayload,
         buyerMembershipEnabled,
         codEnabled,
         upiEnabled,
@@ -269,13 +401,23 @@ export function TownSettingsDialog({
         deliveryWindowStart: windowStart,
         deliveryWindowEnd: windowEnd,
         laundryEnabled,
+        beautyEnabled,
+        buyerCancelOrderEnabled,
+        buyerCancelItemsEnabled,
       });
+      setScratchByService(saved.scratchByService ?? defaultScratchByService());
       setSavedNotice('Saved and logged.');
+      setToast({ message: 'Saved successfully', tone: 'success' });
       setHistoryTick((n) => n + 1);
-      setSection('log');
+      if (bodyRef.current) bodyRef.current.scrollTop = 0;
+      if (section !== 'promotions') {
+        setSection('log');
+      }
       onSaved(`Town settings saved for ${town.displayName}`);
     } catch (err) {
-      setError(err instanceof ApiError || err instanceof Error ? err.message : 'Save failed');
+      const message = err instanceof ApiError || err instanceof Error ? err.message : 'Save failed';
+      setError(message);
+      setToast({ message, tone: 'danger' });
     } finally {
       setBusy(false);
     }
@@ -283,7 +425,9 @@ export function TownSettingsDialog({
 
   const ink = contrastInk(themeColor);
 
-  return createPortal(
+  return (
+    <>
+      {createPortal(
     <div style={styles.backdrop} role="presentation">
       <style>{PANEL_CSS}</style>
       <div
@@ -482,6 +626,47 @@ export function TownSettingsDialog({
           </section>
         ) : null}
 
+        {isConfigSection && !loading && section === 'buyer-cancel' ? (
+          <section style={styles.card}>
+            <p style={styles.hint}>
+              Controls cancel buttons on the buyer order page for this town. Platform settings must also allow
+              cancellation — both must be on.
+            </p>
+            <div style={styles.toggleRow}>
+              <span>
+                <strong style={styles.toggleTitle}>Cancel entire order</strong>
+                <span style={styles.toggleHint}>
+                  “Cancel order” while shops have not marked items ready (and unpaid orders)
+                </span>
+              </span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={buyerCancelOrderEnabled}
+                style={buyerCancelOrderEnabled ? styles.switchOn : styles.switchOff}
+                onClick={() => setBuyerCancelOrderEnabled((v) => !v)}
+              >
+                <span style={buyerCancelOrderEnabled ? styles.knobOn : styles.knobOff} />
+              </button>
+            </div>
+            <div style={styles.toggleRow}>
+              <span>
+                <strong style={styles.toggleTitle}>Cancel individual items</strong>
+                <span style={styles.toggleHint}>Per-line Cancel while that shop is still at “placed”</span>
+              </span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={buyerCancelItemsEnabled}
+                style={buyerCancelItemsEnabled ? styles.switchOn : styles.switchOff}
+                onClick={() => setBuyerCancelItemsEnabled((v) => !v)}
+              >
+                <span style={buyerCancelItemsEnabled ? styles.knobOn : styles.knobOff} />
+              </button>
+            </div>
+          </section>
+        ) : null}
+
         {isConfigSection && !loading && section === 'payments' ? (
           <section style={styles.card}>
               <div style={styles.toggleRow}>
@@ -574,6 +759,21 @@ export function TownSettingsDialog({
                 onClick={() => setLaundryEnabled((v) => !v)}
               >
                 <span style={laundryEnabled ? styles.knobOn : styles.knobOff} />
+                </button>
+              </div>
+            <div style={styles.toggleRow}>
+              <span>
+                <strong style={styles.toggleTitle}>Makeup & beauty in this town</strong>
+                <span style={styles.toggleHint}>Artists and home / studio bookings in Koya Glam</span>
+              </span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={beautyEnabled}
+                style={beautyEnabled ? styles.switchOn : styles.switchOff}
+                onClick={() => setBeautyEnabled((v) => !v)}
+              >
+                <span style={beautyEnabled ? styles.knobOn : styles.knobOff} />
               </button>
             </div>
           </section>
@@ -581,49 +781,185 @@ export function TownSettingsDialog({
 
         {isConfigSection && !loading && section === 'promotions' ? (
           <section style={styles.card}>
-                <div style={styles.scratchHead}>
-                  <span>
-                    <strong style={styles.toggleTitle}>Scratch card</strong>
-                    <span style={styles.toggleHint}>
-                      {scratchCardEnabled
-                        ? 'Random wallet credit after delivery if goods (after coupon) ≥ Above'
-                        : 'Off — no card after delivery'}
-                    </span>
-                  </span>
-                  <button
-                    type="button"
-                    role="switch"
-                    aria-checked={scratchCardEnabled}
-                    style={scratchCardEnabled ? styles.switchOn : styles.switchOff}
-                    onClick={() => setScratchCardEnabled((v) => !v)}
-                  >
-                    <span style={scratchCardEnabled ? styles.knobOn : styles.knobOff} />
-                  </button>
-                </div>
-                {scratchCardEnabled ? (
-                  <div className="town-settings-scratch-row">
-                    {[
-                      { value: scratchRewardMin, set: setScratchRewardMin, label: 'Min' },
-                      { value: scratchRewardMax, set: setScratchRewardMax, label: 'Max' },
-                      { value: scratchMinGoodsAmount, set: setScratchMinGoodsAmount, label: 'Above' },
-                    ].map((field) => (
-                      <label key={field.label} style={styles.scratchField}>
-                        <span style={styles.dealMiniLabel}>{field.label}</span>
-                        <span style={styles.dealField}>
-                          <span style={styles.dealPrefix}>₹</span>
-                          <input
-                            style={styles.dealInput}
-                            inputMode="numeric"
-                            maxLength={6}
-                            value={field.value}
-                            aria-label={field.label}
-                            onChange={(e) => field.set(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                          />
+            <p style={styles.sectionLead}>
+              Turn scratch cards on per service. Min / max set the real payout; UI rep is optional promo text (leave 0 to show max).
+            </p>
+            <div style={styles.scratchServiceList}>
+              {SCRATCH_SERVICE_KEYS.map((key) => {
+                const row = scratchByService[key];
+                const meta = SCRATCH_SERVICE_META[key];
+                return (
+                  <div key={key} style={styles.scratchBlock}>
+                    <div style={styles.scratchHead}>
+                      <span>
+                        <strong style={styles.toggleTitle}>{meta.label}</strong>
+                        <span style={styles.toggleHint}>
+                          {row.enabled ? meta.hint : 'Off — no scratch card for this service'}
                         </span>
-                      </label>
-                    ))}
+                      </span>
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={row.enabled}
+                        aria-label={`${meta.label} scratch card`}
+                        style={row.enabled ? styles.switchOn : styles.switchOff}
+                        onClick={() =>
+                          setScratchByService((prev) => ({
+                            ...prev,
+                            [key]: { ...prev[key], enabled: !prev[key].enabled },
+                          }))
+                        }
+                      >
+                        <span style={row.enabled ? styles.knobOn : styles.knobOff} />
+                      </button>
+                    </div>
+                    {row.enabled ? (
+                      <div style={{ display: 'grid', gap: '0.55rem' }}>
+                        {key === 'BEAUTY' ? (
+                          <>
+                            <div style={styles.scratchPayLine}>
+                              <div style={styles.scratchPayHead}>
+                                <span>
+                                  <strong style={styles.scratchPayTitle}>Full payment</strong>
+                                  <span style={styles.toggleHint}>Service total must be above threshold</span>
+                                </span>
+                                <button
+                                  type="button"
+                                  role="switch"
+                                  aria-checked={row.fullPayScratchEnabled !== false}
+                                  aria-label={`${meta.label} full payment scratch`}
+                                  style={row.fullPayScratchEnabled !== false ? styles.switchOn : styles.switchOff}
+                                  onClick={() =>
+                                    setScratchByService((prev) => ({
+                                      ...prev,
+                                      BEAUTY: {
+                                        ...prev.BEAUTY,
+                                        fullPayScratchEnabled: prev.BEAUTY.fullPayScratchEnabled === false,
+                                      },
+                                    }))
+                                  }
+                                >
+                                  <span
+                                    style={row.fullPayScratchEnabled !== false ? styles.knobOn : styles.knobOff}
+                                  />
+                                </button>
+                              </div>
+                              {row.fullPayScratchEnabled !== false ? (
+                                <div className="town-settings-scratch-row">
+                                  {SCRATCH_AMOUNT_FIELDS.map(({ field, label }) => (
+                                    <label key={field} style={styles.scratchField}>
+                                      <span style={styles.dealMiniLabel}>{label}</span>
+                                      <span style={styles.dealField}>
+                                        <span style={styles.dealPrefix}>₹</span>
+                                        <input
+                                          style={styles.dealInput}
+                                          inputMode="numeric"
+                                          maxLength={6}
+                                          value={String(row[field])}
+                                          aria-label={`${meta.label} full ${label}`}
+                                          onChange={(e) => {
+                                            const digits = e.target.value.replace(/\D/g, '').slice(0, 6);
+                                            setScratchByService((prev) => ({
+                                              ...prev,
+                                              BEAUTY: { ...prev.BEAUTY, [field]: digits },
+                                            }));
+                                          }}
+                                        />
+                                      </span>
+                                    </label>
+                                  ))}
+                                </div>
+                              ) : null}
+                            </div>
+                            <div style={styles.scratchPayLine}>
+                              <div style={styles.scratchPayHead}>
+                                <span>
+                                  <strong style={styles.scratchPayTitle}>Partial payment</strong>
+                                  <span style={styles.toggleHint}>
+                                    Prepay at booking; card issued after rating
+                                  </span>
+                                </span>
+                                <button
+                                  type="button"
+                                  role="switch"
+                                  aria-checked={row.partialPrepayEnabled === true}
+                                  aria-label={`${meta.label} partial payment scratch`}
+                                  style={row.partialPrepayEnabled === true ? styles.switchOn : styles.switchOff}
+                                  onClick={() =>
+                                    setScratchByService((prev) => ({
+                                      ...prev,
+                                      BEAUTY: {
+                                        ...prev.BEAUTY,
+                                        partialPrepayEnabled: prev.BEAUTY.partialPrepayEnabled !== true,
+                                      },
+                                    }))
+                                  }
+                                >
+                                  <span
+                                    style={row.partialPrepayEnabled === true ? styles.knobOn : styles.knobOff}
+                                  />
+                                </button>
+                              </div>
+                              {row.partialPrepayEnabled === true ? (
+                                <div className="town-settings-scratch-row">
+                                  {SCRATCH_PARTIAL_FIELDS.map(({ field, label }) => (
+                                    <label key={field} style={styles.scratchField}>
+                                      <span style={styles.dealMiniLabel}>{label}</span>
+                                      <span style={styles.dealField}>
+                                        <span style={styles.dealPrefix}>₹</span>
+                                        <input
+                                          style={styles.dealInput}
+                                          inputMode="numeric"
+                                          maxLength={6}
+                                          value={String(row[field] ?? '')}
+                                          aria-label={`${meta.label} partial ${label}`}
+                                          onChange={(e) => {
+                                            const digits = e.target.value.replace(/\D/g, '').slice(0, 6);
+                                            setScratchByService((prev) => ({
+                                              ...prev,
+                                              BEAUTY: { ...prev.BEAUTY, [field]: digits },
+                                            }));
+                                          }}
+                                        />
+                                      </span>
+                                    </label>
+                                  ))}
+                                </div>
+                              ) : null}
+                            </div>
+                          </>
+                        ) : (
+                          <div className="town-settings-scratch-row">
+                            {SCRATCH_AMOUNT_FIELDS.map(({ field, label }) => (
+                              <label key={field} style={styles.scratchField}>
+                                <span style={styles.dealMiniLabel}>{label}</span>
+                                <span style={styles.dealField}>
+                                  <span style={styles.dealPrefix}>₹</span>
+                                  <input
+                                    style={styles.dealInput}
+                                    inputMode="numeric"
+                                    maxLength={6}
+                                    value={String(row[field])}
+                                    aria-label={`${meta.label} ${label}`}
+                                    onChange={(e) => {
+                                      const digits = e.target.value.replace(/\D/g, '').slice(0, 6);
+                                      setScratchByService((prev) => ({
+                                        ...prev,
+                                        [key]: { ...prev[key], [field]: digits },
+                                      }));
+                                    }}
+                                  />
+                                </span>
+                              </label>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ) : null}
                   </div>
-                ) : null}
+                );
+              })}
+            </div>
           </section>
         ) : null}
 
@@ -884,6 +1220,17 @@ export function TownSettingsDialog({
       </div>
     </div>,
     document.body,
+      )}
+      <Toast
+        open={Boolean(toast)}
+        message={toast?.message ?? ''}
+        brandName={toast?.tone === 'success' ? APP_NAME : undefined}
+        tone={toast?.tone ?? 'success'}
+        placement="center"
+        durationMs={3500}
+        onClose={() => setToast(null)}
+      />
+    </>
   );
 }
 
@@ -983,7 +1330,7 @@ const PANEL_CSS = `
   }
   .town-settings-scratch-row {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 0.4rem;
   }
   .town-settings-delivery-row {
@@ -1032,7 +1379,7 @@ const PANEL_CSS = `
       grid-template-columns: 1fr 1fr;
     }
     .town-settings-scratch-row {
-      grid-template-columns: 1fr 1fr 1fr;
+      grid-template-columns: 1fr 1fr;
     }
   }
 `;
@@ -1193,6 +1540,8 @@ const styles: Record<string, CSSProperties> = {
   },
   toggleTitle: { display: 'block', fontSize: '0.86rem' },
   toggleHint: { display: 'block', marginTop: 2, fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 600, lineHeight: 1.3 },
+  sectionLead: { margin: '0 0 0.65rem', fontSize: '0.78rem', color: 'var(--text-muted)', lineHeight: 1.35 },
+  scratchServiceList: { display: 'grid', gap: '0.55rem' },
   scratchBlock: {
     display: 'grid',
     gap: '0.45rem',
@@ -1207,6 +1556,20 @@ const styles: Record<string, CSSProperties> = {
     justifyContent: 'space-between',
     gap: '0.7rem',
   },
+  scratchPayLine: {
+    display: 'grid',
+    gap: '0.35rem',
+    padding: '0.35rem 0.4rem',
+    borderRadius: 8,
+    border: '1px dashed var(--border)',
+  },
+  scratchPayHead: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: '0.55rem',
+  },
+  scratchPayTitle: { fontSize: '0.82rem' },
   dealField: {
     display: 'flex',
     alignItems: 'center',
@@ -1227,6 +1590,17 @@ const styles: Record<string, CSSProperties> = {
     marginBottom: 2,
   },
   scratchField: { display: 'grid', gap: 0, minWidth: 0 },
+  scratchSelect: {
+    width: '100%',
+    minHeight: 36,
+    borderRadius: 10,
+    border: '1px solid var(--border)',
+    padding: '0.35rem 0.5rem',
+    fontSize: '0.82rem',
+    fontWeight: 700,
+    background: 'var(--bg)',
+    color: 'var(--text)',
+  },
   dealInput: {
     width: '100%',
     minWidth: 0,

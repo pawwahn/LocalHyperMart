@@ -61,8 +61,15 @@ class AssignmentServiceTest {
                         .build()));
         when(agentHubLinkRepository.existsByAgentIdAndHubIdAndActiveTrue(agentId, hubId)).thenReturn(true);
         when(orderClient.getSubOrder(subOrderId)).thenReturn(new OrderClient.SubOrderSnapshot(
-                subOrderId, orderId, townId, UUID.randomUUID(), "READY_FOR_PICKUP",
-                "NRPT/AP-260708-O0001", "NRPT/AP-260708-O0001-1/2"
+                subOrderId,
+                orderId,
+                townId,
+                UUID.randomUUID(),
+                UUID.randomUUID(),
+                "Test Shop",
+                "READY_FOR_PICKUP",
+                "NRPT/AP-260708-O0001",
+                "NRPT/AP-260708-O0001-1/2"
         ));
         when(deliveryAssignmentRepository.existsByVendorSubOrderIdAndLegTypeAndStatusIn(
                 subOrderId, AssignmentLegType.PICKUP,

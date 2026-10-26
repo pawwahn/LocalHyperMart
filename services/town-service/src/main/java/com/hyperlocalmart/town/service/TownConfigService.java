@@ -2,12 +2,16 @@ package com.hyperlocalmart.town.service;
 
 import com.hyperlocalmart.common.exception.BusinessException;
 import com.hyperlocalmart.common.exception.ErrorCode;
+import com.hyperlocalmart.town.dto.request.PatchTownFeatureFlagsRequest;
 import com.hyperlocalmart.town.dto.request.UpdateTownConfigRequest;
 import com.hyperlocalmart.town.dto.response.TownOperationalConfigResponse;
 import com.hyperlocalmart.town.dto.response.TownShopSettingsResponse;
 import com.hyperlocalmart.town.entity.TownConfig;
 import com.hyperlocalmart.town.repository.TownConfigRepository;
 import com.hyperlocalmart.town.repository.TownRepository;
+import com.hyperlocalmart.town.scratch.ScratchPrepayModeFilter;
+import com.hyperlocalmart.town.scratch.ScratchServiceKind;
+import com.hyperlocalmart.town.scratch.ScratchServiceRules;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -138,6 +142,16 @@ public class TownConfigService {
         if (request.getLaundryEnabled() != null) {
             value.put("laundryEnabled", request.getLaundryEnabled());
         }
+        if (request.getBeautyEnabled() != null) {
+            value.put("beautyEnabled", request.getBeautyEnabled());
+        }
+        applyBeautyPaymentSettings(value, request);
+        if (request.getBuyerCancelOrderEnabled() != null) {
+            value.put("buyerCancelOrderEnabled", request.getBuyerCancelOrderEnabled());
+        }
+        if (request.getBuyerCancelItemsEnabled() != null) {
+            value.put("buyerCancelItemsEnabled", request.getBuyerCancelItemsEnabled());
+        }
 
         config.setConfigValue(value);
         config.setUpdatedAt(Instant.now());
@@ -148,6 +162,48 @@ public class TownConfigService {
         adminAuditService.record(
                 "town-settings",
                 "UPDATE_TOWN_SETTINGS",
+                settingsChangeSummary(townName, before, value),
+                actorId,
+                "SUPER_ADMIN",
+                townId,
+                "TOWN_CONFIG",
+                config.getId(),
+                before,
+                value);
+        return toOperational(config);
+    }
+
+    @Transactional
+    public TownOperationalConfigResponse patchFeatureFlags(
+            UUID townId, PatchTownFeatureFlagsRequest request, UUID actorId) {
+        if (!townRepository.existsById(townId)) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "Town not found");
+        }
+        if (request.getLaundryEnabled() == null && request.getBeautyEnabled() == null) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "No feature flags to update");
+        }
+        ensureDefaultOperationalConfig(townId);
+        TownConfig config = townConfigRepository
+                .findFirstByTownIdAndConfigKeyAndEffectiveToIsNullOrderByEffectiveFromDesc(townId, OPERATIONAL_KEY)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Town config not found"));
+        Map<String, Object> before = config.getConfigValue() != null
+                ? new LinkedHashMap<>(config.getConfigValue()) : defaultConfigValue();
+        Map<String, Object> value = new LinkedHashMap<>(before);
+        if (request.getLaundryEnabled() != null) {
+            value.put("laundryEnabled", request.getLaundryEnabled());
+        }
+        if (request.getBeautyEnabled() != null) {
+            value.put("beautyEnabled", request.getBeautyEnabled());
+        }
+        config.setConfigValue(value);
+        config.setUpdatedAt(Instant.now());
+        townConfigRepository.save(config);
+        String townName = townRepository.findById(townId)
+                .map(town -> town.getDisplayName() != null ? town.getDisplayName() : town.getName())
+                .orElse("Town");
+        adminAuditService.record(
+                "town-settings",
+                "PATCH_TOWN_FEATURES",
                 settingsChangeSummary(townName, before, value),
                 actorId,
                 "SUPER_ADMIN",
@@ -317,7 +373,21 @@ public class TownConfigService {
                 .deliveryWindowStart(DEFAULT_WINDOW_START)
                 .deliveryWindowEnd(DEFAULT_WINDOW_END)
                 .laundryEnabled(false)
+                .beautyEnabled(false)
+                .buyerCancelOrderEnabled(true)
+                .buyerCancelItemsEnabled(true)
                 .build();
+    }
+
+    /** Effective buyer cancel flags (platform AND town). */
+    @Transactional(readOnly = true)
+    public Map<String, Object> buyerCancelPolicy(UUID townId) {
+        TownOperationalConfigResponse cfg = getOperationalConfig(townId);
+        boolean cancelOrder = platformSettingsService.buyerCancelOrderEnabled() && cfg.isBuyerCancelOrderEnabled();
+        boolean cancelItems = platformSettingsService.buyerCancelItemsEnabled() && cfg.isBuyerCancelItemsEnabled();
+        return Map.of(
+                "cancelOrderEnabled", cancelOrder,
+                "cancelItemsEnabled", cancelItems);
     }
 
     private Map<String, Object> defaultConfigValue() {
@@ -344,6 +414,9 @@ public class TownConfigService {
         value.put("deliveryWindowStart", DEFAULT_WINDOW_START);
         value.put("deliveryWindowEnd", DEFAULT_WINDOW_END);
         value.put("laundryEnabled", false);
+        value.put("beautyEnabled", false);
+        value.put("buyerCancelOrderEnabled", true);
+        value.put("buyerCancelItemsEnabled", true);
         return value;
     }
 
@@ -406,6 +479,27 @@ public class TownConfigService {
             }
         }
 
+        Map<String, ScratchServiceRules.Rule> scratchRules = ScratchServiceRules.read(value);
+        Map<String, TownOperationalConfigResponse.ScratchServiceRuleResponse> scratchByService = new LinkedHashMap<>();
+        for (Map.Entry<String, ScratchServiceRules.Rule> entry : scratchRules.entrySet()) {
+            ScratchServiceRules.Rule rule = entry.getValue();
+            scratchByService.put(entry.getKey(), TownOperationalConfigResponse.ScratchServiceRuleResponse.builder()
+                    .enabled(rule.enabled())
+                    .rewardMin(rule.rewardMin())
+                    .rewardMax(rule.rewardMax())
+                    .minOrderAmount(rule.minOrderAmount())
+                    .prepayModeFilter(rule.prepayModeFilter().name())
+                    .issueAfterRating(rule.issueAfterRating())
+                    .partialPrepayEnabled(rule.partialPrepayEnabled())
+                    .partialRewardMin(rule.partialRewardMin())
+                    .partialRewardMax(rule.partialRewardMax())
+                    .partialMinPrepayAmount(rule.partialMinPrepayAmount())
+                    .rewardDisplayMax(rule.rewardDisplayMax())
+                    .partialRewardDisplayMax(rule.partialRewardDisplayMax())
+                    .build());
+        }
+        ScratchServiceRules.Rule groceryScratch = scratchRules.get(ScratchServiceKind.GROCERY.name());
+
         return TownOperationalConfigResponse.builder()
                 .minOrderValue(minOrderValue)
                 .deliveryMode(mode)
@@ -414,10 +508,11 @@ public class TownConfigService {
                 .bestDealsEnabled(readBestDealsEnabled(value))
                 .dealPrices(readDealPrices(value))
                 .platformFee(readPlatformFee(value))
-                .scratchCardEnabled(readScratchCardEnabled(value))
-                .scratchRewardMin(readMoney(value, "scratchRewardMin", DEFAULT_SCRATCH_MIN))
-                .scratchRewardMax(readMoney(value, "scratchRewardMax", DEFAULT_SCRATCH_MAX))
-                .scratchMinGoodsAmount(readMoney(value, "scratchMinGoodsAmount", DEFAULT_SCRATCH_Z))
+                .scratchCardEnabled(groceryScratch != null && groceryScratch.enabled())
+                .scratchRewardMin(groceryScratch != null ? groceryScratch.rewardMin() : DEFAULT_SCRATCH_MIN)
+                .scratchRewardMax(groceryScratch != null ? groceryScratch.rewardMax() : DEFAULT_SCRATCH_MAX)
+                .scratchMinGoodsAmount(groceryScratch != null ? groceryScratch.minOrderAmount() : DEFAULT_SCRATCH_Z)
+                .scratchByService(scratchByService)
                 .buyerMembershipEnabled(readBuyerMembershipEnabled(value))
                 .codEnabled(readCodEnabled(value))
                 .upiEnabled(readUpiEnabled(value))
@@ -425,6 +520,11 @@ public class TownConfigService {
                 .deliveryWindowStart(readWindow(value, "deliveryWindowStart", DEFAULT_WINDOW_START))
                 .deliveryWindowEnd(readWindow(value, "deliveryWindowEnd", DEFAULT_WINDOW_END))
                 .laundryEnabled(readLaundryEnabled(value))
+                .beautyEnabled(readBeautyEnabled(value))
+                .beautyMinPrepayAmount(readBeautyMinPrepayAmount(value))
+                .beautyParlourPaymentFee(readBeautyParlourPaymentFee(value))
+                .buyerCancelOrderEnabled(readBuyerCancelOrderEnabled(value))
+                .buyerCancelItemsEnabled(readBuyerCancelItemsEnabled(value))
                 .build();
     }
 
@@ -433,6 +533,9 @@ public class TownConfigService {
             throw new BusinessException(ErrorCode.NOT_FOUND, "Town not found");
         }
         TownOperationalConfigResponse cfg = getOperationalConfig(townId);
+        TownOperationalConfigResponse.ScratchServiceRuleResponse beautyScratch = cfg.getScratchByService() == null
+                ? null
+                : cfg.getScratchByService().get("BEAUTY");
         return TownShopSettingsResponse.builder()
                 .themeColor(cfg.getThemeColor())
                 .bestDealsEnabled(cfg.isBestDealsEnabled())
@@ -444,7 +547,66 @@ public class TownConfigService {
                 .deliveryWindowStart(cfg.getDeliveryWindowStart())
                 .deliveryWindowEnd(cfg.getDeliveryWindowEnd())
                 .laundryEnabled(cfg.isLaundryEnabled())
+                .beautyEnabled(cfg.isBeautyEnabled())
+                .beautyMinPrepayAmount(cfg.getBeautyMinPrepayAmount())
+                .beautyParlourPaymentFee(cfg.getBeautyParlourPaymentFee())
+                .beautyScratchEnabled(beautyScratch != null && beautyScratch.isEnabled())
+                .beautyScratchPrepayFilter(beautyScratch == null || beautyScratch.getPrepayModeFilter() == null
+                        ? "BOTH"
+                        : beautyScratch.getPrepayModeFilter())
+                .beautyScratchRewardMax(beautyScratch == null || beautyScratch.getRewardMax() == null
+                        ? BigDecimal.ZERO
+                        : beautyScratch.getRewardMax())
+                .beautyScratchRewardMin(beautyScratch == null || beautyScratch.getRewardMin() == null
+                        ? BigDecimal.ZERO
+                        : beautyScratch.getRewardMin())
+                .beautyScratchMinOrderAmount(beautyScratch == null || beautyScratch.getMinOrderAmount() == null
+                        ? BigDecimal.ZERO
+                        : beautyScratch.getMinOrderAmount())
+                .beautyScratchPartialEnabled(beautyScratch != null && beautyScratch.isPartialPrepayEnabled())
+                .beautyScratchPartialRewardMax(beautyScratch == null || beautyScratch.getPartialRewardMax() == null
+                        ? BigDecimal.ZERO
+                        : beautyScratch.getPartialRewardMax())
+                .beautyScratchPartialRewardMin(beautyScratch == null || beautyScratch.getPartialRewardMin() == null
+                        ? BigDecimal.ZERO
+                        : beautyScratch.getPartialRewardMin())
+                .beautyScratchPartialMinPrepayAmount(
+                        beautyScratch == null || beautyScratch.getPartialMinPrepayAmount() == null
+                                ? BigDecimal.ZERO
+                                : beautyScratch.getPartialMinPrepayAmount())
+                .beautyScratchRewardDisplayMax(beautyScratch == null
+                        ? BigDecimal.ZERO
+                        : ScratchServiceRules.effectiveDisplayMax(
+                                beautyScratch.getRewardDisplayMax(), beautyScratch.getRewardMax()))
+                .beautyScratchPartialRewardDisplayMax(beautyScratch == null || !beautyScratch.isPartialPrepayEnabled()
+                        ? BigDecimal.ZERO
+                        : ScratchServiceRules.effectiveDisplayMax(
+                                beautyScratch.getPartialRewardDisplayMax(), beautyScratch.getPartialRewardMax()))
                 .build();
+    }
+
+    private void applyBeautyPaymentSettings(Map<String, Object> value, UpdateTownConfigRequest request) {
+        if (request.getBeautyMinPrepayAmount() != null) {
+            value.put("beautyMinPrepayAmount", normalizeNonNegativeMoney(request.getBeautyMinPrepayAmount()));
+        }
+        if (request.getBeautyParlourPaymentFee() != null) {
+            value.put("beautyParlourPaymentFee", normalizeNonNegativeMoney(request.getBeautyParlourPaymentFee()));
+        }
+    }
+
+    private static BigDecimal normalizeNonNegativeMoney(BigDecimal raw) {
+        if (raw == null || raw.compareTo(BigDecimal.ZERO) < 0) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Amount must be ₹0 or more");
+        }
+        return raw.setScale(2, RoundingMode.HALF_UP);
+    }
+
+    private BigDecimal readBeautyMinPrepayAmount(Map<String, Object> value) {
+        return readMoney(value, "beautyMinPrepayAmount", BigDecimal.ZERO);
+    }
+
+    private BigDecimal readBeautyParlourPaymentFee(Map<String, Object> value) {
+        return readMoney(value, "beautyParlourPaymentFee", BigDecimal.ZERO);
     }
 
     private void applyPaymentSettings(Map<String, Object> value, UpdateTownConfigRequest request) {
@@ -478,6 +640,13 @@ public class TownConfigService {
             return false;
         }
         return truthy(value.get("laundryEnabled"));
+    }
+
+    private static boolean readBeautyEnabled(Map<String, Object> value) {
+        if (value == null || value.get("beautyEnabled") == null) {
+            return false;
+        }
+        return truthy(value.get("beautyEnabled"));
     }
 
     private static boolean readCodEnabled(Map<String, Object> value) {
@@ -576,29 +745,152 @@ public class TownConfigService {
     }
 
     private void applyScratchCard(Map<String, Object> value, UpdateTownConfigRequest request) {
-        boolean enabled = request.getScratchCardEnabled() != null
-                ? request.getScratchCardEnabled()
-                : readScratchCardEnabled(value);
-        BigDecimal min = request.getScratchRewardMin() != null
-                ? normalizeScratchMoney(request.getScratchRewardMin(), "Reward min")
-                : readMoney(value, "scratchRewardMin", DEFAULT_SCRATCH_MIN);
-        BigDecimal max = request.getScratchRewardMax() != null
-                ? normalizeScratchMoney(request.getScratchRewardMax(), "Reward max")
-                : readMoney(value, "scratchRewardMax", DEFAULT_SCRATCH_MAX);
-        BigDecimal threshold = request.getScratchMinGoodsAmount() != null
-                ? normalizeScratchMoney(request.getScratchMinGoodsAmount(), "Min goods amount")
-                : readMoney(value, "scratchMinGoodsAmount", DEFAULT_SCRATCH_Z);
-        if (max.compareTo(min) < 0) {
-            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Scratch reward max must be ≥ min");
+        Map<String, ScratchServiceRules.Rule> rules = ScratchServiceRules.read(value);
+        if (request.getScratchByService() != null && !request.getScratchByService().isEmpty()) {
+            for (Map.Entry<String, Map<String, Object>> entry : request.getScratchByService().entrySet()) {
+                ScratchServiceKind kind = ScratchServiceKind.parse(entry.getKey());
+                String key = kind.name();
+                Map<String, Object> patch = entry.getValue();
+                if (patch == null || patch.isEmpty()) {
+                    continue;
+                }
+                ScratchServiceRules.Rule base = rules.get(key);
+                if (base == null) {
+                    base = rules.get(ScratchServiceKind.GROCERY.name());
+                }
+                ScratchServiceRules.Rule merged = ScratchServiceRules.Rule.builder()
+                        .enabled(patchBool(patch, "enabled", base.enabled()))
+                        .rewardMin(patchMoney(patch, "rewardMin", base.rewardMin()))
+                        .rewardMax(patchMoney(patch, "rewardMax", base.rewardMax()))
+                        .minOrderAmount(patchMoney(patch, "minOrderAmount", base.minOrderAmount()))
+                        .prepayModeFilter(patch.containsKey("prepayModeFilter") && patch.get("prepayModeFilter") != null
+                                ? ScratchPrepayModeFilter.parse(String.valueOf(patch.get("prepayModeFilter")))
+                                : base.prepayModeFilter())
+                        .issueAfterRating(patchBool(patch, "issueAfterRating", base.issueAfterRating()))
+                        .partialPrepayEnabled(resolvePartialPrepayEnabled(patch, base))
+                        .partialRewardMin(patchMoney(patch, "partialRewardMin", base.partialRewardMin()))
+                        .partialRewardMax(patchMoney(patch, "partialRewardMax", base.partialRewardMax()))
+                        .partialMinPrepayAmount(patchMoney(patch, "partialMinPrepayAmount", base.partialMinPrepayAmount()))
+                        .rewardDisplayMax(patchMoney(patch, "rewardDisplayMax", base.rewardDisplayMax()))
+                        .partialRewardDisplayMax(
+                                patchMoney(patch, "partialRewardDisplayMax", base.partialRewardDisplayMax()))
+                        .build();
+                if (kind == ScratchServiceKind.BEAUTY) {
+                    merged = syncBeautyScratchPrepayFlags(merged);
+                }
+                rules.put(key, ScratchServiceRules.normalize(merged, scratchServiceLabel(kind)));
+            }
         }
-        if (enabled && (min.compareTo(BigDecimal.ONE) < 0 || threshold.compareTo(BigDecimal.ONE) < 0)) {
-            throw new BusinessException(ErrorCode.VALIDATION_ERROR,
-                    "Scratch card needs reward min, max, and goods threshold of ₹1 or more");
+        boolean legacyTouch = request.getScratchCardEnabled() != null
+                || request.getScratchRewardMin() != null
+                || request.getScratchRewardMax() != null
+                || request.getScratchMinGoodsAmount() != null;
+        if (legacyTouch) {
+            ScratchServiceRules.Rule grocery = rules.get(ScratchServiceKind.GROCERY.name());
+            boolean enabled = request.getScratchCardEnabled() != null
+                    ? request.getScratchCardEnabled()
+                    : grocery.enabled();
+            BigDecimal min = request.getScratchRewardMin() != null
+                    ? normalizeScratchMoney(request.getScratchRewardMin(), "Reward min")
+                    : grocery.rewardMin();
+            BigDecimal max = request.getScratchRewardMax() != null
+                    ? normalizeScratchMoney(request.getScratchRewardMax(), "Reward max")
+                    : grocery.rewardMax();
+            BigDecimal threshold = request.getScratchMinGoodsAmount() != null
+                    ? normalizeScratchMoney(request.getScratchMinGoodsAmount(), "Min goods amount")
+                    : grocery.minOrderAmount();
+            ScratchServiceRules.Rule merged = ScratchServiceRules.Rule.builder()
+                    .enabled(enabled)
+                    .rewardMin(min)
+                    .rewardMax(max)
+                    .minOrderAmount(threshold)
+                    .prepayModeFilter(grocery.prepayModeFilter())
+                    .issueAfterRating(grocery.issueAfterRating())
+                    .partialPrepayEnabled(grocery.partialPrepayEnabled())
+                    .partialRewardMin(grocery.partialRewardMin())
+                    .partialRewardMax(grocery.partialRewardMax())
+                    .partialMinPrepayAmount(grocery.partialMinPrepayAmount())
+                    .rewardDisplayMax(grocery.rewardDisplayMax())
+                    .partialRewardDisplayMax(grocery.partialRewardDisplayMax())
+                    .build();
+            rules.put(
+                    ScratchServiceKind.GROCERY.name(),
+                    ScratchServiceRules.normalize(merged, scratchServiceLabel(ScratchServiceKind.GROCERY)));
         }
-        value.put("scratchCardEnabled", enabled);
-        value.put("scratchRewardMin", min);
-        value.put("scratchRewardMax", max);
-        value.put("scratchMinGoodsAmount", threshold);
+        ScratchServiceRules.write(value, rules);
+    }
+
+    private static String scratchServiceLabel(ScratchServiceKind kind) {
+        return switch (kind) {
+            case GROCERY -> "Grocery scratch";
+            case LAUNDRY -> "Laundry scratch";
+            case BEAUTY -> "Glam scratch";
+        };
+    }
+
+    private static boolean resolvePartialPrepayEnabled(Map<String, Object> patch, ScratchServiceRules.Rule base) {
+        if (patch.containsKey("partialPrepayEnabled") && patch.get("partialPrepayEnabled") != null) {
+            return ScratchServiceRules.readBoolValue(patch.get("partialPrepayEnabled"), false);
+        }
+        if (patch.containsKey("prepayModeFilter") && patch.get("prepayModeFilter") != null) {
+            ScratchPrepayModeFilter filter =
+                    ScratchPrepayModeFilter.parse(String.valueOf(patch.get("prepayModeFilter")));
+            if (filter == ScratchPrepayModeFilter.PARTIAL || filter == ScratchPrepayModeFilter.BOTH) {
+                return true;
+            }
+            if (filter == ScratchPrepayModeFilter.FULL) {
+                return false;
+            }
+        }
+        return base.partialPrepayEnabled();
+    }
+
+    private static boolean patchBool(Map<String, Object> patch, String key, boolean fallback) {
+        if (!patch.containsKey(key) || patch.get(key) == null) {
+            return fallback;
+        }
+        return ScratchServiceRules.readBoolValue(patch.get(key), fallback);
+    }
+
+    private static BigDecimal patchMoney(Map<String, Object> patch, String key, BigDecimal fallback) {
+        if (!patch.containsKey(key) || patch.get(key) == null) {
+            return fallback;
+        }
+        Object raw = patch.get(key);
+        if (raw instanceof Number n) {
+            return BigDecimal.valueOf(n.doubleValue()).setScale(2, RoundingMode.HALF_UP);
+        }
+        if (raw instanceof String s && !s.isBlank()) {
+            return new BigDecimal(s.trim()).setScale(2, RoundingMode.HALF_UP);
+        }
+        if (raw instanceof BigDecimal bd) {
+            return bd.setScale(2, RoundingMode.HALF_UP);
+        }
+        return fallback;
+    }
+
+    /** Keep prepay filter and partial toggle aligned when admins save glam scratch rules. */
+    private static ScratchServiceRules.Rule syncBeautyScratchPrepayFlags(ScratchServiceRules.Rule merged) {
+        ScratchPrepayModeFilter filter = merged.prepayModeFilter() == null
+                ? ScratchPrepayModeFilter.BOTH
+                : merged.prepayModeFilter();
+        boolean fullPay = ScratchServiceRules.fullPayScratchEnabled(filter);
+        boolean partialPay = merged.partialPrepayEnabled() || filter == ScratchPrepayModeFilter.PARTIAL;
+        ScratchPrepayModeFilter syncedFilter = ScratchServiceRules.derivePrepayFilter(fullPay, partialPay);
+        return ScratchServiceRules.Rule.builder()
+                .enabled(merged.enabled())
+                .rewardMin(merged.rewardMin())
+                .rewardMax(merged.rewardMax())
+                .minOrderAmount(merged.minOrderAmount())
+                .prepayModeFilter(syncedFilter)
+                .issueAfterRating(merged.issueAfterRating())
+                .partialPrepayEnabled(partialPay)
+                .partialRewardMin(merged.partialRewardMin())
+                .partialRewardMax(merged.partialRewardMax())
+                .partialMinPrepayAmount(merged.partialMinPrepayAmount())
+                .rewardDisplayMax(merged.rewardDisplayMax())
+                .partialRewardDisplayMax(merged.partialRewardDisplayMax())
+                .build();
     }
 
     private static boolean readBuyerMembershipEnabled(Map<String, Object> value) {
@@ -610,6 +902,20 @@ public class TownConfigService {
             return b;
         }
         return !"false".equalsIgnoreCase(String.valueOf(raw).trim());
+    }
+
+    private static boolean readBuyerCancelOrderEnabled(Map<String, Object> value) {
+        if (value == null || value.get("buyerCancelOrderEnabled") == null) {
+            return true;
+        }
+        return truthy(value.get("buyerCancelOrderEnabled"));
+    }
+
+    private static boolean readBuyerCancelItemsEnabled(Map<String, Object> value) {
+        if (value == null || value.get("buyerCancelItemsEnabled") == null) {
+            return true;
+        }
+        return truthy(value.get("buyerCancelItemsEnabled"));
     }
 
     private static boolean readScratchCardEnabled(Map<String, Object> value) {
@@ -695,7 +1001,13 @@ public class TownConfigService {
         addBoolChange(parts, "Best deals", left.get("bestDealsEnabled"), right.get("bestDealsEnabled"));
         addBoolChange(parts, "Buyer membership", left.get("buyerMembershipEnabled"), right.get("buyerMembershipEnabled"));
         addBoolChange(parts, "Scratch card", left.get("scratchCardEnabled"), right.get("scratchCardEnabled"));
+        if (!Objects.equals(stringify(left.get(ScratchServiceRules.MAP_KEY)), stringify(right.get(ScratchServiceRules.MAP_KEY)))) {
+            parts.add("Scratch by service updated");
+        }
         addBoolChange(parts, "Laundry", left.get("laundryEnabled"), right.get("laundryEnabled"));
+        addBoolChange(parts, "Beauty", left.get("beautyEnabled"), right.get("beautyEnabled"));
+        addBoolChange(parts, "Buyer cancel order", left.get("buyerCancelOrderEnabled"), right.get("buyerCancelOrderEnabled"));
+        addBoolChange(parts, "Buyer cancel items", left.get("buyerCancelItemsEnabled"), right.get("buyerCancelItemsEnabled"));
         addBoolChange(parts, "COD", left.get("codEnabled"), right.get("codEnabled"));
         addBoolChange(parts, "UPI / online pay", left.get("upiEnabled"), right.get("upiEnabled"));
         addMoneyChange(parts, "COD charge", left.get("codCharge"), right.get("codCharge"));

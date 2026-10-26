@@ -29,6 +29,9 @@ public class OrderScratchCard {
     @Column(name = "town_id", nullable = false)
     private UUID townId;
 
+    @Column(name = "service_kind", length = 20)
+    private String serviceKind;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private ScratchCardStatus status;

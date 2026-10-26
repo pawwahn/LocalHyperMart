@@ -369,6 +369,8 @@ public class DeliverySettlementService {
                 if (!payeeId.equals(leg.agentId())) {
                     return "Home trip was another agent";
                 }
+                /** Shop rider pay comes off vendor COD settlement — not a second KoyaKart agent payout. */
+                return "Shop pays rider from vendor payout";
             }
             if (payeeType == SettlementPayeeType.HUB) {
                 if (leg.hubId() == null) {

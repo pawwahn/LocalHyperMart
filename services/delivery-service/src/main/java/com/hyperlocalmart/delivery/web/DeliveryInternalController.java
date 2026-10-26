@@ -9,7 +9,10 @@ import com.hyperlocalmart.delivery.dto.response.HubAdminContextResponse;
 import com.hyperlocalmart.delivery.dto.response.HubContactResponse;
 import com.hyperlocalmart.delivery.dto.response.OrderAssignmentResponse;
 import com.hyperlocalmart.delivery.dto.response.VerifyHubPinResponse;
+import com.hyperlocalmart.delivery.dto.request.AssignLaundryTripRequest;
 import com.hyperlocalmart.delivery.dto.request.AssignVendorDirectInternalRequest;
+import com.hyperlocalmart.delivery.dto.response.AssignmentResponse;
+import com.hyperlocalmart.delivery.service.AssignmentService;
 import com.hyperlocalmart.delivery.service.AgentService;
 import com.hyperlocalmart.delivery.service.DeliveryPayoutLegService;
 import com.hyperlocalmart.delivery.service.HubOnboardingService;
@@ -38,6 +41,7 @@ public class DeliveryInternalController {
     private final VendorAgentService vendorAgentService;
     private final DeliveryAgentAlertService deliveryAgentAlertService;
     private final HubOnboardingService hubOnboardingService;
+    private final AssignmentService assignmentService;
 
     @GetMapping("/api/v1/internal/agents/by-user/{userId}")
     public ResponseEntity<ApiResponse<AgentMeResponse>> getAgentByUser(
@@ -142,6 +146,13 @@ public class DeliveryInternalController {
         vendorAgentService.assignVendorDirect(
                 request.getVendorId(), subOrderId, request.getAgentId(), request.getAssignedBy());
         return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/api/v1/internal/laundry-trips/assign")
+    public ResponseEntity<ApiResponse<AssignmentResponse>> assignLaundryTrip(
+            @Valid @RequestBody AssignLaundryTripRequest request,
+            HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest, assignmentService.assignLaundryTrip(request)));
     }
 
     @PostMapping("/api/v1/internal/vendor-sub-orders/{subOrderId}/agent-alerts")

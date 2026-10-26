@@ -17,6 +17,9 @@ type Props = {
   busy: boolean;
   onClose: () => void;
   onConfirm: (agentId: string) => void;
+  title?: string;
+  confirmLabel?: string;
+  confirmBusyLabel?: string;
 };
 
 export function AssignVendorAgentDialog({
@@ -26,6 +29,9 @@ export function AssignVendorAgentDialog({
   busy,
   onClose,
   onConfirm,
+  title = 'Assign delivery agent',
+  confirmLabel = 'Assign & notify buyer',
+  confirmBusyLabel = 'Assigning…',
 }: Props) {
   const [agents, setAgents] = useState<VendorAgentDto[]>([]);
   const [loading, setLoading] = useState(false);
@@ -71,7 +77,7 @@ export function AssignVendorAgentDialog({
         onClick={(e) => e.stopPropagation()}
       >
         <h2 id="assign-agent-title" style={styles.title}>
-          Assign delivery agent
+          {title}
         </h2>
         <p style={styles.sub}>{subOrderLabel}</p>
         {error ? <Banner tone="danger">{error}</Banner> : null}
@@ -111,7 +117,7 @@ export function AssignVendorAgentDialog({
             disabled={busy || !agentId || loading}
             onClick={() => onConfirm(agentId)}
           >
-            {busy ? 'Assigning…' : 'Assign & notify buyer'}
+            {busy ? confirmBusyLabel : confirmLabel}
           </Button>
         </div>
       </div>

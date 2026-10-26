@@ -48,14 +48,15 @@ public class OrderClient {
         }
     }
 
-    public void markPaymentSuccess(UUID orderId, UUID buyerId, UUID paymentId, PaymentGateway gateway) {
+    public void markPaymentSuccess(UUID orderId, UUID buyerId, UUID paymentId, PaymentGateway gateway, BigDecimal amount) {
         RestClient client = restClientBuilder.baseUrl(orderServiceProperties.getBaseUrl()).build();
         client.post()
                 .uri("/api/v1/internal/orders/{orderId}/payment-success", orderId)
                 .body(Map.of(
                         "buyerId", buyerId.toString(),
                         "paymentId", paymentId.toString(),
-                        "gateway", gateway.name()
+                        "gateway", gateway.name(),
+                        "amount", amount != null ? amount : BigDecimal.ZERO
                 ))
                 .retrieve()
                 .toBodilessEntity();
@@ -291,7 +292,8 @@ public class OrderClient {
             Instant deliveredAt,
             Integer pieceCount,
             BigDecimal platformFee,
-            BigDecimal codFee
+            BigDecimal codFee,
+            BigDecimal membershipFee
     ) {
     }
 

@@ -1,3 +1,4 @@
+import { PickerDateField } from '@hlm-dates';
 import { useEffect, useId, useMemo, useState, type CSSProperties } from 'react';
 import { Button } from '@/shared/ui';
 import { formatMoney } from '@/features/reports/api/reportsApi';
@@ -170,21 +171,11 @@ export function ClaimDeductionsDialog({ open, items, onClose }: Props) {
           </select>
           <label style={styles.dateField}>
             <span style={styles.dateLabel}>From</span>
-            <input
-              type="date"
-              style={styles.dateInput}
-              value={fromDate}
-              onChange={(e) => setFromDate(e.target.value)}
-            />
+            <PickerDateField style={styles.dateInput} value={fromDate} onChange={setFromDate} />
           </label>
           <label style={styles.dateField}>
             <span style={styles.dateLabel}>To</span>
-            <input
-              type="date"
-              style={styles.dateInput}
-              value={toDate}
-              onChange={(e) => setToDate(e.target.value)}
-            />
+            <PickerDateField style={styles.dateInput} value={toDate} onChange={setToDate} />
           </label>
           {fromDate || toDate || statusFilter !== 'all' ? (
             <button

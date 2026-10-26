@@ -42,7 +42,7 @@ function googleEmbedUrl(key: string, address: string): string {
   return `https://www.google.com/maps/embed/v1/search?key=${encodeURIComponent(key)}&q=${encodeURIComponent(address)}`;
 }
 
-export function DropMap({ address }: { address: string }) {
+export function DropMap({ address, height = 168 }: { address: string; height?: number }) {
   const { session } = useAuth();
   const token = session?.accessToken ?? '';
   const [settings, setSettings] = useState<MapSettings | null>(settingsCache?.value ?? null);
@@ -115,7 +115,7 @@ export function DropMap({ address }: { address: string }) {
       <iframe
         title="Drop on Google Maps"
         src={googleEmbedUrl(settings.googleMapsApiKey, address)}
-        style={frameStyle}
+        style={{ ...frameStyle, height }}
         loading="lazy"
         referrerPolicy="origin"
       />
@@ -127,7 +127,7 @@ export function DropMap({ address }: { address: string }) {
 
   return (
     <div>
-      <div ref={frameRef} className="drop-map" style={frameStyle} />
+      <div ref={frameRef} className="drop-map" style={{ ...frameStyle, height }} />
       {pin.areaOnly ? <p style={noteStyle}>Area pin. The landmark above is the door.</p> : null}
     </div>
   );

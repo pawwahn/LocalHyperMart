@@ -19,12 +19,25 @@ import {
   type PayoutFilter,
 } from '../hooks/useVendorReports';
 import type { OrderPayout } from '../api/payoutsApi';
+import {
+  SHOP_COD_BILL_HINT,
+  SHOP_COD_BILL_LABEL,
+  SHOP_COD_BILL_SHORT,
+  SHOP_COD_STATUS_OPEN,
+} from '@/features/payouts/payoutCopy';
+import { modeTxnFields, salesRowShopHeld } from '../reportModeTxn';
 import { DateRangePresetBar } from '@hlm-dates/DateRangePresetBar';
+import {
+  VendorGstFilingPanel,
+  reportSectionTabStyles,
+} from '@/features/reports/components/VendorGstFilingPanel';
+
+type ReportSection = 'sales' | 'gst';
 
 const PAYOUT_FILTERS: Array<{ id: PayoutFilter; label: string }> = [
   { id: 'all', label: 'All orders' },
   { id: 'paid', label: 'Settled' },
-  { id: 'unpaid', label: 'Awaiting' },
+  { id: 'unpaid', label: 'Open' },
 ];
 
 type OrderSortKey = 'placed' | 'order' | 'status' | 'amount' | 'payout' | 'paidAt';
@@ -70,6 +83,7 @@ export function ReportsPage({ active = true }: { active?: boolean }) {
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(25);
   const [sort, setSort] = useState<SortState<OrderSortKey>>({ key: 'placed', dir: 'desc' });
+  const [section, setSection] = useState<ReportSection>('sales');
 
   const filteredRows = useMemo(() => {
     const q = orderQuery.trim().toLowerCase();
@@ -159,6 +173,31 @@ export function ReportsPage({ active = true }: { active?: boolean }) {
 
   return (
     <>
+      <div style={reportSectionTabStyles.sectionTabs} role="tablist" aria-label="Report type">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={section === 'sales'}
+          style={section === 'sales' ? reportSectionTabStyles.sectionTabOn : reportSectionTabStyles.sectionTab}
+          onClick={() => setSection('sales')}
+        >
+          Sales & payouts
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={section === 'gst'}
+          style={section === 'gst' ? reportSectionTabStyles.sectionTabOn : reportSectionTabStyles.sectionTab}
+          onClick={() => setSection('gst')}
+        >
+          GST filing pack
+        </button>
+      </div>
+
+      {section === 'gst' ? <VendorGstFilingPanel active={active} /> : null}
+
+      {section === 'sales' ? (
+      <>
       {error ? <Banner tone="danger">{error}</Banner> : null}
 
       <Card elevated padding="sm" style={styles.filterCard}>
@@ -238,18 +277,28 @@ export function ReportsPage({ active = true }: { active?: boolean }) {
               <Metric label="Orders" value={String(report.orderCount)} hint="Orders in range" />
               <Metric label="Gross" value={formatMoney(report.grossSales)} hint="Shop subtotal" />
               <Metric
-                label="Awaiting"
-                value={formatMoney(payoutSummary.unpaidAmount)}
+                label="Payout due"
+                value={formatMoney(payoutSummary.payoutDueAmount)}
                 hint={
-                  payoutSummary.unpaidOrders > 0
-                    ? `${payoutSummary.unpaidOrders} delivered, not paid out`
-                    : 'No delivered bags waiting'
+                  payoutSummary.payoutDueCount > 0
+                    ? `${payoutSummary.payoutDueCount} bag${payoutSummary.payoutDueCount === 1 ? '' : 's'} KoyaKart still pays you`
+                    : 'No bank payout waiting — shop COD is not paid out here'
                 }
+              />
+              <Metric
+                label={SHOP_COD_BILL_LABEL}
+                value={formatMoney(payoutSummary.feeDuePassThrough)}
+                hint={
+                  payoutSummary.feeDueCount > 0
+                    ? `${payoutSummary.feeDueCount} bag${payoutSummary.feeDueCount === 1 ? '' : 's'} · ${SHOP_COD_BILL_SHORT} Full bill on Payouts.`
+                    : 'No open shop COD bills'
+                }
+                muted={payoutSummary.feeDueCount === 0}
               />
               <Metric
                 label="Settled"
                 value={formatMoney(payoutSummary.paidAmount)}
-                hint={`${payoutSummary.paidOrders} paid`}
+                hint={`${payoutSummary.paidOrders} closed in settlements`}
               />
               <Metric label="Fee" value={moneyClarity.feeLabel} hint="Commission" muted />
               <Metric
@@ -258,7 +307,7 @@ export function ReportsPage({ active = true }: { active?: boolean }) {
                 hint={
                   moneyClarity.pendingClaimDebitTotal > 0
                     ? `After ${formatMoney(moneyClarity.pendingClaimDebitTotal)} claims`
-                    : 'Delivered bags not yet paid'
+                    : 'KoyaKart payout still owed to you (not shop COD goods)'
                 }
                 muted
               />
@@ -382,7 +431,12 @@ export function ReportsPage({ active = true }: { active?: boolean }) {
                           onSort={onSort}
                           style={styles.thSort}
                         />
-                        <th style={styles.th}>Mode / txn</th>
+                        <th
+                          style={styles.th}
+                          title="Buyer payment (COD/UPI) until settled; then KoyaKart payout or your bill payment ref"
+                        >
+                          Mode / txn
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
@@ -415,6 +469,8 @@ export function ReportsPage({ active = true }: { active?: boolean }) {
         </>
       ) : loading ? (
         <p style={styles.muted}>Loading report…</p>
+      ) : null}
+      </>
       ) : null}
     </>
   );
@@ -456,6 +512,8 @@ function OrderRow({
   const unitCount = row.itemCount || lineCount;
   const canExpand = lineCount > 0;
   const rejected = isRejectedSalesStatus(row.status);
+  const shopHeld = !rejected && salesRowShopHeld(row);
+  const modeTxn = modeTxnFields(row, payout);
   return (
     <Fragment>
       <tr>
@@ -499,6 +557,10 @@ function OrderRow({
             <span style={styles.rejectedPayout}>NOT PAYABLE</span>
           ) : payout?.paid ? (
             <span style={styles.paid}>SETTLED</span>
+          ) : shopHeld && isPayoutDueStatus(row.status) ? (
+            <span style={styles.feeDue} title={SHOP_COD_BILL_HINT}>
+              {SHOP_COD_STATUS_OPEN.toUpperCase()}
+            </span>
           ) : isPayoutDueStatus(row.status) ? (
             <span style={styles.pending}>AWAITING</span>
           ) : (
@@ -511,14 +573,12 @@ function OrderRow({
         <td style={styles.td}>
           {rejected ? (
             <span style={styles.sub}>Rejected — excluded from payout</span>
-          ) : payout?.paid ? (
-            <>
-              <div>{payout.payoutMethod ?? '—'}</div>
-              <div style={styles.sub}>{payout.transactionReference || 'No txn ref'}</div>
-              {payout.transactionNotes ? <div style={styles.sub}>{payout.transactionNotes}</div> : null}
-            </>
           ) : (
-            <span style={styles.sub}>Not paid yet</span>
+            <>
+              <div>{modeTxn.primary}</div>
+              {modeTxn.secondary ? <div style={styles.sub}>{modeTxn.secondary}</div> : null}
+              {modeTxn.tertiary ? <div style={styles.sub}>{modeTxn.tertiary}</div> : null}
+            </>
           )}
         </td>
       </tr>
@@ -814,6 +874,17 @@ const styles: Record<string, CSSProperties> = {
     borderRadius: 'var(--radius-full)',
     padding: '0.1rem 0.4rem',
     fontWeight: 700,
+  },
+  feeDue: {
+    display: 'inline-block',
+    padding: '0.12rem 0.4rem',
+    borderRadius: 999,
+    fontSize: '0.68rem',
+    fontWeight: 800,
+    letterSpacing: '0.02em',
+    color: '#c2410c',
+    background: '#fff7ed',
+    border: '1px solid #fdba74',
   },
   pending: {
     fontSize: '0.68rem',

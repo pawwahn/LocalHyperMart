@@ -64,6 +64,18 @@ public class VendorSalesReportResponse {
         private boolean vendorAgentDelivery;
         private BigDecimal subtotal;
         private int itemCount;
+        /** Buyer delivery fee included in shop COD cash (checkout rate — not shop rider pay). */
+        private BigDecimal deliveryFeeAmount;
+        /** Town-config pay to shop rider on vendor-agent delivery (you pay rider separately). */
+        private BigDecimal shopRiderPayAmount;
+        /** Buyer platform fee on shop-held cash (laundry / COD). */
+        private BigDecimal platformFeeAmount;
+        /** Buyer COD surcharge on shop-held cash (laundry / COD). */
+        private BigDecimal codFeeAmount;
+        /** Bundled buyer delivery / membership plan on shop-held COD. */
+        private BigDecimal membershipFeeAmount;
+        /** COD cash allocated to this bag (goods + shared delivery/platform/COD; excludes membership pool). */
+        private BigDecimal codCashCollectedAmount;
         private List<VendorSalesReportItem> items;
     }
 

@@ -44,6 +44,7 @@ class VendorSubOrderServiceTest {
     @Mock private com.hyperlocalmart.order.client.DeliveryClient deliveryClient;
     @Mock private TownClient townClient;
     @Mock private OrderMoneyUnwindService orderMoneyUnwindService;
+    @Mock private OrderTotalsSyncService orderTotalsSyncService;
 
     @InjectMocks
     private VendorSubOrderService vendorSubOrderService;
@@ -52,6 +53,11 @@ class VendorSubOrderServiceTest {
     void stubTownVendorAgentSettings() {
         lenient().when(townClient.getVendorAgentDeliverySettings(any()))
                 .thenReturn(new TownClient.VendorAgentDeliverySettings(false, BigDecimal.ZERO, BigDecimal.ZERO));
+        lenient().doAnswer(invocation -> {
+            Order order = invocation.getArgument(0);
+            order.setTotalAmount(OrderService.buyerPayableTotal(order));
+            return null;
+        }).when(orderTotalsSyncService).syncAfterLineChange(any(Order.class));
     }
 
     @Test

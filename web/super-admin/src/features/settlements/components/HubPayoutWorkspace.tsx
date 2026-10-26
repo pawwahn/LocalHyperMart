@@ -6,6 +6,7 @@ import { HubPaymentVerificationPanel } from './HubPaymentVerificationPanel';
 import { HubPaymentHistoryPanel } from './HubPaymentHistoryPanel';
 import { HubPaymentRequestsAdminPanel } from './HubPaymentRequestsAdminPanel';
 import type { ReportDatePreset } from '@/shared/dates/istReportPresets';
+import { SettlementPayStrip, SettlementScopeHeader } from './SettlementPayStrip';
 
 /** KoyaKart → hub vs hub → KoyaKart — never mixed on one screen. */
 export type HubPayoutTab = 'app-to-hub' | 'hub-to-app';
@@ -54,6 +55,8 @@ type Props = {
   canPayOrders: boolean;
   canCollectFranchise: boolean;
   saving: boolean;
+  payOrdersHint?: string | null;
+  payoutTxnFields?: ReactNode;
   commissionSection: ReactNode;
   /** Paid commission rows. Shares a tab with completed orders. */
   payoutRecords?: ReactNode;
@@ -86,6 +89,8 @@ export function HubPayoutWorkspace({
   canPayOrders,
   canCollectFranchise,
   saving,
+  payOrdersHint,
+  payoutTxnFields,
   commissionSection,
   payoutRecords,
   payoutRecordCount = 0,
@@ -176,20 +181,26 @@ export function HubPayoutWorkspace({
       {tab === 'app-to-hub' ? (
         <div style={styles.panel}>
           <Card padding="sm" style={styles.scopeCardApp}>
-            <p style={styles.scopeTitle}>Delivery commission only</p>
-            <p style={styles.muted}>
-              Pay the hub for completed trips in the date range above. Franchise and COD are on the other tab.
-            </p>
-            <div style={styles.scopeHero}>
-              <span style={styles.scopeLabel}>Selected to pay</span>
-              <strong style={styles.scopeAmount}>{formatMoney(selectedTotal)}</strong>
-              <span style={styles.muted}>
-                {selectedCount} of {openCount} payable trips selected
-              </span>
-            </div>
-            <Button size="sm" disabled={!canPayOrders || saving} onClick={onMarkPaid}>
-              {saving ? 'Saving…' : `Mark paid · ${formatMoney(selectedTotal)}`}
-            </Button>
+            <SettlementScopeHeader
+              title="Delivery commission only"
+              description="Pay the hub for completed trips in the date range above. Franchise and COD are on the other tab."
+            />
+            <SettlementPayStrip
+              amountLabel="Selected to pay"
+              amount={formatMoney(selectedTotal)}
+              amountMeta={
+                <>
+                  {selectedCount} of {openCount} payable trips selected
+                </>
+              }
+              txnFields={payoutTxnFields}
+              action={
+                <Button size="sm" disabled={!canPayOrders || saving} onClick={onMarkPaid}>
+                  {saving ? 'Saving…' : `Mark paid · ${formatMoney(selectedTotal)}`}
+                </Button>
+              }
+              hint={payOrdersHint}
+            />
           </Card>
           <nav style={styles.subTabs} role="tablist" aria-label="Hub payout work">
             <button
@@ -426,9 +437,11 @@ const styles: Record<string, CSSProperties> = {
   },
   panel: { display: 'grid', gap: '0.55rem', minWidth: 0 },
   scopeCardApp: {
-    gap: '0.4rem',
-    border: '1px solid #a7f3d0',
-    background: 'color-mix(in srgb, #ecfdf5 40%, var(--bg-elevated))',
+    display: 'grid',
+    gap: '0.5rem',
+    border: '1px solid #86efac',
+    background: 'linear-gradient(165deg, #ecfdf5 0%, var(--bg-elevated) 55%)',
+    boxShadow: '0 1px 3px rgba(5, 150, 105, 0.06)',
   },
   scopeCardHub: {
     gap: '0.4rem',

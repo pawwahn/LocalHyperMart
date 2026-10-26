@@ -1,6 +1,6 @@
 package com.hyperlocalmart.payment.web;
 
-import com.hyperlocalmart.payment.service.PaymentService;
+import com.hyperlocalmart.payment.service.PaymentWebhookIngressService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -10,13 +10,13 @@ import org.springframework.web.bind.annotation.*;
 @RequiredArgsConstructor
 public class PaymentWebhookController {
 
-    private final PaymentService paymentService;
+    private final PaymentWebhookIngressService webhookIngress;
 
     @PostMapping("/razorpay")
     public ResponseEntity<Void> razorpayWebhook(
             @RequestBody String rawBody,
             @RequestHeader(value = "X-Razorpay-Signature", required = false) String signature) {
-        paymentService.processRazorpayWebhook(rawBody, signature);
+        webhookIngress.razorpay(rawBody, signature);
         return ResponseEntity.ok().build();
     }
 
@@ -25,7 +25,7 @@ public class PaymentWebhookController {
             @RequestBody String rawBody,
             @RequestHeader(value = "x-webhook-timestamp", required = false) String timestamp,
             @RequestHeader(value = "x-webhook-signature", required = false) String signature) {
-        paymentService.processCashfreeWebhook(rawBody, timestamp, signature);
+        webhookIngress.cashfree(rawBody, timestamp, signature);
         return ResponseEntity.ok().build();
     }
 
@@ -33,7 +33,7 @@ public class PaymentWebhookController {
     public ResponseEntity<Void> phonepeWebhook(
             @RequestBody String rawBody,
             @RequestHeader(value = "Authorization", required = false) String authorization) {
-        paymentService.processPhonePeWebhook(rawBody, authorization);
+        webhookIngress.phonePe(rawBody, authorization);
         return ResponseEntity.ok().build();
     }
 }

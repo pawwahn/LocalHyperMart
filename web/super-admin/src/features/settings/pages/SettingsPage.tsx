@@ -49,6 +49,8 @@ const EMPTY: PlatformSettingsVm = {
   brandLogoMediaId: '',
   mealPlannerIconUrl: '',
   mealPlannerIconMediaId: '',
+  buyerCancelOrderEnabled: true,
+  buyerCancelItemsEnabled: true,
 };
 
 export function SettingsPage() {
@@ -569,6 +571,32 @@ export function SettingsPage() {
               ? 'Google is on. Paste a browser key restricted to this site, then save. OpenStreetMap stays idle.'
               : 'OpenStreetMap is on and free. Google stays idle until you switch and save.'}
           </p>
+        </Card>
+
+        <Card padding="sm" style={styles.card}>
+          <h2 style={styles.sectionTitle}>Buyer order cancellation</h2>
+          <p style={styles.mapHint}>
+            App-wide switches. Each town can turn these off separately. Both must be on for buyers to see cancel
+            actions.
+          </p>
+          <div style={styles.footerRow}>
+            <label style={styles.check}>
+              <input
+                type="checkbox"
+                checked={settings.buyerCancelOrderEnabled ?? true}
+                onChange={(e) => setSettings((s) => ({ ...s, buyerCancelOrderEnabled: e.target.checked }))}
+              />
+              Allow cancel entire order
+            </label>
+            <label style={styles.check}>
+              <input
+                type="checkbox"
+                checked={settings.buyerCancelItemsEnabled ?? true}
+                onChange={(e) => setSettings((s) => ({ ...s, buyerCancelItemsEnabled: e.target.checked }))}
+              />
+              Allow cancel individual items
+            </label>
+          </div>
         </Card>
 
         <Card padding="sm" style={styles.card}>

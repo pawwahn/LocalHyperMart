@@ -22,9 +22,15 @@ public class OrderDetailResponse {
     private String displayStatus;
     private Instant placedAt;
     private BigDecimal itemsSubtotal;
+    private String promoCode;
+    private BigDecimal promoDiscount;
     private BigDecimal deliveryFee;
     private boolean membershipCreditUsed;
     private BigDecimal membershipDeliveryWaived;
+    /** Bundled free-delivery plan purchased with this order (₹). */
+    private BigDecimal membershipFee;
+    /** QUARTERLY, HALF_YEAR, ANNUAL — when a plan was bundled. */
+    private String membershipSlab;
     private BigDecimal platformFee;
     private BigDecimal codFee;
     private BigDecimal storeCreditApplied;

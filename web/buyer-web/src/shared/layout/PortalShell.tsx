@@ -15,6 +15,8 @@ import {
   IconBasket,
   IconGrid,
   IconHome,
+  IconBeauty,
+  IconLaundry,
   IconMore,
   IconWallet,
 } from '@/features/shop/components/NavIcons';
@@ -52,7 +54,8 @@ export function PortalShell({
 }: Props) {
   const { session, logout } = useAuth();
   const buyerName = useBuyerDisplayName();
-  const { townLabel, openPicker, deliveryWindowLabel } = useTown();
+  const { townLabel, openPicker, deliveryWindowLabel, laundryEnabled, beautyEnabled } = useTown();
+  const serviceTabCount = (laundryEnabled ? 1 : 0) + (beautyEnabled ? 1 : 0);
   const { cart } = useShop();
   const location = useLocation();
   const navigate = useNavigate();
@@ -78,9 +81,11 @@ export function PortalShell({
       className="hlm-buyer-shell"
       style={{
         ...styles.page,
-        paddingBottom: showFloatingCart || hasFooter
+        paddingBottom: showFloatingCart
           ? 'calc(var(--tabbar-h) + var(--sticky-cart-h) + env(safe-area-inset-bottom, 0px) + 0.4rem)'
-          : 'calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px) + 0.75rem)',
+          : hasFooter
+            ? 'calc(var(--tabbar-h) + var(--glam-dock-h, 9.25rem) + env(safe-area-inset-bottom, 0px) + 0.5rem)'
+            : 'calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px) + 0.75rem)',
       }}
     >
       <TownPickerSheet />
@@ -230,7 +235,14 @@ export function PortalShell({
         <StickyCartBar itemCount={resolvedCount} totalLabel={resolvedTotal} />
       ) : null}
 
-      <nav className="hlm-buyer-tabbar" style={styles.tabbar} aria-label="Primary">
+      <nav
+        className="hlm-buyer-tabbar"
+        style={{
+          ...styles.tabbar,
+          gridTemplateColumns: `repeat(${5 + serviceTabCount}, 1fr)`,
+        }}
+        aria-label="Primary"
+      >
         <Tab to="/shop" current={location.pathname} label="Home" icon={(active) => <IconHome active={active} />} />
         <Tab
           to="/categories"
@@ -245,6 +257,22 @@ export function PortalShell({
           badge={resolvedCount}
           icon={(active) => <IconBasket active={active} />}
         />
+        {beautyEnabled ? (
+          <Tab
+            to="/beauty"
+            current={location.pathname}
+            label="Glam"
+            icon={(active) => <IconBeauty active={active} />}
+          />
+        ) : null}
+        {laundryEnabled ? (
+          <Tab
+            to="/laundry"
+            current={location.pathname}
+            label="Laundry"
+            icon={(active) => <IconLaundry active={active} />}
+          />
+        ) : null}
         <Tab
           to="/wallet"
           current={location.pathname}
@@ -318,17 +346,18 @@ const styles: Record<string, CSSProperties> = {
     zIndex: 40,
     margin: '0 calc(-1 * var(--shell-pad))',
     padding: '0 var(--shell-pad) 0.5rem',
-    background: 'var(--bg)',
+    background: '#FFFFFF',
     minWidth: 0,
   },
   shopHeaderCard: {
     display: 'grid',
     gap: '0.45rem',
     padding: '0.55rem 0.65rem 0.5rem',
-    borderRadius: '0 0 18px 18px',
-    background: 'linear-gradient(145deg, #0A6B1A 0%, #0C831F 42%, #0A7520 100%)',
-    boxShadow: '0 10px 28px rgba(12, 131, 31, 0.22)',
-    color: '#fff',
+    borderRadius: '0 0 16px 16px',
+    background: '#FFFFFF',
+    boxShadow: '0 4px 18px rgba(16, 24, 40, 0.07)',
+    color: 'var(--text)',
+    borderBottom: '2px solid var(--accent)',
   },
   shopHeaderRow: {
     display: 'flex',
@@ -383,7 +412,7 @@ const styles: Record<string, CSSProperties> = {
   shopHiName: {
     fontSize: '0.68rem',
     fontWeight: 600,
-    opacity: 0.92,
+    color: 'var(--text-muted)',
     letterSpacing: '-0.01em',
     overflow: 'hidden',
     textOverflow: 'ellipsis',
@@ -420,16 +449,16 @@ const styles: Record<string, CSSProperties> = {
     height: 36,
     minWidth: 36,
     fontSize: '0.95rem',
-    background: 'rgba(255, 255, 255, 0.18)',
-    border: '1px solid rgba(255, 255, 255, 0.28)',
-    color: '#fff',
+    background: 'var(--bg-muted)',
+    border: '1px solid var(--border)',
+    color: 'var(--text)',
   },
   shopAvatar: {
     width: 36,
     height: 36,
     borderRadius: 'var(--radius-full)',
-    border: '2px solid rgba(255, 255, 255, 0.55)',
-    background: 'rgba(255, 255, 255, 0.95)',
+    border: '2px solid color-mix(in srgb, var(--accent) 35%, var(--border))',
+    background: 'var(--accent-soft)',
     color: '#0C831F',
     fontFamily: 'var(--font-display)',
     fontWeight: 800,
@@ -444,32 +473,32 @@ const styles: Record<string, CSSProperties> = {
     alignItems: 'center',
     padding: '0.4rem 0.75rem',
     borderRadius: 999,
-    background: '#fff',
-    color: '#0C831F',
+    background: 'var(--accent)',
+    color: '#fff',
     textDecoration: 'none',
     fontWeight: 800,
     fontSize: '0.75rem',
     whiteSpace: 'nowrap',
+    boxShadow: '0 4px 12px rgba(12, 131, 31, 0.22)',
   },
   shopSupporterRibbon: {
     margin: 0,
     padding: '0.38rem 0.55rem',
     borderRadius: 10,
-    background: 'linear-gradient(90deg, rgba(255,255,255,0.22) 0%, rgba(247,206,70,0.35) 50%, rgba(255,255,255,0.18) 100%)',
-    border: '1px solid rgba(255, 255, 255, 0.28)',
+    background: 'linear-gradient(90deg, var(--accent-soft) 0%, var(--highlight-soft) 55%, var(--accent-soft) 100%)',
+    border: '1px solid color-mix(in srgb, var(--accent) 12%, var(--border))',
     fontFamily: 'Georgia, "Times New Roman", serif',
     fontStyle: 'italic',
     fontWeight: 700,
     fontSize: '0.72rem',
     letterSpacing: '0.02em',
-    color: '#FFFDF5',
+    color: '#064d14',
     textAlign: 'center',
     lineHeight: 1.35,
-    textShadow: '0 1px 2px rgba(0,0,0,0.12)',
   },
   shopSupporterEm: {
     marginRight: '0.28rem',
-    color: '#F7CE46',
+    color: '#E23744',
     fontStyle: 'normal',
   },
   locationCopy: {

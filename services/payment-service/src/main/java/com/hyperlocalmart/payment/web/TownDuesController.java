@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDate;
+import java.util.UUID;
 
 @RestController
 @RequiredArgsConstructor
@@ -28,10 +29,11 @@ public class TownDuesController {
             @AuthenticationPrincipal AuthUserPrincipal principal,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam(required = false) UUID townId,
             HttpServletRequest httpRequest) {
         if (principal == null || principal.getRoles() == null || !principal.getRoles().contains("SUPER_ADMIN")) {
             throw new BusinessException(ErrorCode.FORBIDDEN, "Super admin role required");
         }
-        return ResponseEntity.ok(ApiResponses.ok(httpRequest, townDuesService.dues(from, to)));
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest, townDuesService.dues(from, to, townId)));
     }
 }

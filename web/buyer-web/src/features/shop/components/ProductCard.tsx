@@ -19,6 +19,8 @@ type Props = {
   busy?: boolean;
   /** rail = compact scroller card. store = home merchandising card. */
   layout?: 'grid' | 'rail' | 'store';
+  /** Denser rail tile (e.g. best-deals sheet grid). */
+  compactRail?: boolean;
   /** Short delivery line on store cards, such as "In 2-4 hrs". */
   etaLabel?: string | null;
   onOpen: () => void;
@@ -43,6 +45,7 @@ export function ProductCard({
   quantity,
   busy,
   layout = 'grid',
+  compactRail = false,
   etaLabel,
   onOpen,
   onIncrease,
@@ -53,6 +56,7 @@ export function ProductCard({
   const showRating = ratingCount > 0 && avgRating > 0;
   const rail = layout === 'rail';
   const store = layout === 'store';
+  const dense = rail && compactRail;
   const offerLine = discountPercent && discountPercent > 0 ? `${discountPercent}% OFF` : specialOfferActive ? 'OFFER' : null;
 
   if (store) {
@@ -74,21 +78,23 @@ export function ProductCard({
               onIncrease={onIncrease}
               onDecrease={onDecrease}
               size="xs"
-              addMode="icon"
-              chrome="circle"
             />
           </div>
         </div>
         <button type="button" style={styles.bodyHit} onClick={onOpen} aria-label={`View ${name} details`}>
           <div style={styles.bodyStore}>
-            {etaLabel ? <p style={styles.eta}>{etaLabel}</p> : null}
+            <p style={{ ...styles.eta, visibility: etaLabel ? 'visible' : 'hidden' }}>{etaLabel || 'In 2-4 hrs'}</p>
             <h3 style={styles.nameStore}>{name}</h3>
             <p style={styles.unitStore}>{unit}</p>
-            {shopName ? <p style={styles.shopStore}>{shopName}</p> : null}
-            {offerLine ? <p style={styles.offerLine}>{offerLine}</p> : null}
+            <p style={{ ...styles.shopStore, visibility: shopName ? 'visible' : 'hidden' }}>{shopName || 'Shop'}</p>
+            <p style={{ ...styles.offerLine, visibility: offerLine ? 'visible' : 'hidden' }} aria-hidden={!offerLine}>
+              {offerLine || '0% OFF'}
+            </p>
             <div style={styles.priceRowStore}>
               <span style={styles.priceStore}>{priceLabel}</span>
-              {mrpLabel ? <span style={styles.mrpStore}>{mrpLabel}</span> : null}
+              <span style={{ ...styles.mrpStore, visibility: mrpLabel ? 'visible' : 'hidden' }} aria-hidden={!mrpLabel}>
+                {mrpLabel || '₹0'}
+              </span>
             </div>
           </div>
         </button>
@@ -97,21 +103,43 @@ export function ProductCard({
   }
 
   return (
-    <article className="hlm-product-card" style={rail ? styles.cardRail : styles.card}>
-      <div style={{ ...(rail ? styles.mediaRail : styles.media), background: visual.tint }}>
+    <article
+      className="hlm-product-card"
+      style={dense ? styles.cardRailDense : rail ? styles.cardRail : styles.card}
+    >
+      <div
+        style={{
+          ...(dense ? styles.mediaRailDense : rail ? styles.mediaRail : styles.media),
+          background: visual.tint,
+        }}
+      >
         <button type="button" style={styles.mediaHit} onClick={onOpen} aria-label={`View ${name}`} />
         {badge ? (
-          <span style={specialOfferActive ? styles.sale : styles.offer}>{badge}</span>
+          <span
+            style={
+              dense
+                ? specialOfferActive
+                  ? styles.saleDense
+                  : styles.offerDense
+                : specialOfferActive
+                  ? styles.sale
+                  : styles.offer
+            }
+          >
+            {badge}
+          </span>
         ) : null}
         {imageUrl ? (
           <img src={imageUrl} alt="" style={styles.photoContain} />
         ) : (
-          <span style={rail ? styles.emojiRail : styles.emoji} aria-hidden>
+          <span style={dense ? styles.emojiDense : rail ? styles.emojiRail : styles.emoji} aria-hidden>
             {visual.emoji}
           </span>
         )}
-        {imageCount > 1 ? <span style={rail ? styles.multiRail : styles.multi}>{imageCount}</span> : null}
-        <div style={rail ? styles.stepperWrapRail : styles.stepperWrap}>
+        {imageCount > 1 ? (
+          <span style={dense ? styles.multiDense : rail ? styles.multiRail : styles.multi}>{imageCount}</span>
+        ) : null}
+        <div style={dense ? styles.stepperWrapDense : rail ? styles.stepperWrapRail : styles.stepperWrap}>
           <QuantityStepper
             quantity={quantity}
             disabled={busy}
@@ -122,19 +150,35 @@ export function ProductCard({
         </div>
       </div>
       <button type="button" style={styles.bodyHit} onClick={onOpen} aria-label={`View ${name} details`}>
-        <div style={rail ? styles.bodyRail : styles.body}>
-          {shopName ? <p style={styles.shop}>{shopName}</p> : null}
-          <h3 style={rail ? styles.nameRail : styles.name}>{name}</h3>
-          <p style={rail ? styles.unitRail : styles.unit}>{unit}</p>
+        <div style={dense ? styles.bodyRailDense : rail ? styles.bodyRail : styles.body}>
+          <p
+            style={{
+              ...(dense ? styles.shopDense : styles.shop),
+              visibility: shopName ? 'visible' : 'hidden',
+            }}
+          >
+            {shopName || 'Shop'}
+          </p>
+          <h3 style={dense ? styles.nameRailDense : rail ? styles.nameRail : styles.name}>{name}</h3>
+          <p style={dense ? styles.unitRailDense : rail ? styles.unitRail : styles.unit}>{unit}</p>
           {showRating && !rail ? (
             <div style={styles.ratingRow}>
               <span style={styles.ratingChip}>★ {avgRating.toFixed(1)}</span>
             </div>
           ) : null}
           {vendorNote && !rail ? <p style={styles.note}>{vendorNote}</p> : null}
-          <div style={rail ? styles.priceRowRail : styles.priceRow}>
-            <span style={rail ? styles.priceRail : styles.price}>{priceLabel}</span>
-            {mrpLabel ? <span style={styles.mrp}>{mrpLabel}</span> : null}
+          <div style={dense ? styles.priceRowRailDense : rail ? styles.priceRowRail : styles.priceRow}>
+            <span style={dense ? styles.priceRailDense : rail ? styles.priceRail : styles.price}>{priceLabel}</span>
+            <span
+              style={{
+                ...styles.mrp,
+                ...(dense ? styles.mrpDense : {}),
+                visibility: mrpLabel ? 'visible' : 'hidden',
+              }}
+              aria-hidden={!mrpLabel}
+            >
+              {mrpLabel || '₹0'}
+            </span>
           </div>
         </div>
       </button>
@@ -157,14 +201,156 @@ const styles: Record<string, CSSProperties> = {
   cardRail: {
     background: '#fff',
     border: '1px solid var(--border)',
+    borderRadius: 12,
+    overflow: 'hidden',
+    display: 'grid',
+    gridTemplateRows: 'auto 1fr',
+    width: 132,
+    flex: '0 0 132px',
+    minWidth: 132,
+    boxShadow: 'var(--shadow-card)',
+  },
+  cardRailDense: {
+    background: '#fff',
+    border: '1px solid color-mix(in srgb, var(--border) 90%, #fff)',
     borderRadius: 10,
     overflow: 'hidden',
     display: 'grid',
     gridTemplateRows: 'auto 1fr',
-    width: 118,
-    flex: '0 0 118px',
-    minWidth: 118,
-    boxShadow: 'var(--shadow-card)',
+    width: '100%',
+    minWidth: 0,
+    boxShadow: '0 2px 10px rgba(16, 24, 40, 0.07)',
+  },
+  mediaRailDense: {
+    position: 'relative',
+    aspectRatio: '1 / 1',
+    display: 'grid',
+    placeItems: 'center',
+    overflow: 'hidden',
+  },
+  emojiDense: { fontSize: '1.35rem', lineHeight: 1 },
+  multiDense: {
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    zIndex: 2,
+    minWidth: 14,
+    height: 14,
+    borderRadius: 999,
+    background: 'rgba(2, 6, 12, 0.72)',
+    color: '#fff',
+    fontSize: '0.5rem',
+    fontWeight: 800,
+    display: 'grid',
+    placeItems: 'center',
+    padding: '0 0.18rem',
+    pointerEvents: 'none',
+  },
+  offerDense: {
+    position: 'absolute',
+    top: 4,
+    left: 4,
+    zIndex: 2,
+    background: 'var(--accent)',
+    color: '#fff',
+    fontSize: '0.48rem',
+    fontWeight: 800,
+    padding: '0.12rem 0.28rem',
+    borderRadius: 5,
+    letterSpacing: '0.02em',
+    maxWidth: '78%',
+    overflow: 'hidden',
+    whiteSpace: 'nowrap',
+    textOverflow: 'ellipsis',
+    pointerEvents: 'none',
+    boxShadow: '0 1px 4px rgba(0,0,0,0.12)',
+  },
+  saleDense: {
+    position: 'absolute',
+    top: 4,
+    left: 4,
+    zIndex: 2,
+    background: '#111',
+    color: 'var(--highlight)',
+    fontSize: '0.48rem',
+    fontWeight: 800,
+    padding: '0.12rem 0.28rem',
+    borderRadius: 5,
+    letterSpacing: '0.03em',
+    maxWidth: '78%',
+    overflow: 'hidden',
+    whiteSpace: 'nowrap',
+    pointerEvents: 'none',
+    boxShadow: '0 1px 4px rgba(0,0,0,0.18)',
+  },
+  stepperWrapDense: {
+    position: 'absolute',
+    right: 3,
+    bottom: 3,
+    zIndex: 3,
+    transform: 'scale(0.88)',
+    transformOrigin: '100% 100%',
+  },
+  bodyRailDense: {
+    padding: '0.26rem 0.28rem 0.32rem',
+    display: 'grid',
+    gap: '0.03rem',
+    alignContent: 'start',
+    minWidth: 0,
+    minHeight: '4.65rem',
+  },
+  shopDense: {
+    margin: 0,
+    fontSize: '0.48rem',
+    fontWeight: 700,
+    letterSpacing: '0.03em',
+    textTransform: 'uppercase',
+    color: 'var(--text-muted)',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+    minHeight: '0.85em',
+  },
+  nameRailDense: {
+    margin: 0,
+    fontFamily: 'var(--font-display)',
+    fontSize: '0.62rem',
+    fontWeight: 700,
+    lineHeight: 1.2,
+    letterSpacing: '-0.02em',
+    color: 'var(--text)',
+    overflow: 'hidden',
+    display: '-webkit-box',
+    WebkitLineClamp: 2,
+    WebkitBoxOrient: 'vertical',
+    wordBreak: 'break-word',
+    minHeight: '2.35em',
+  },
+  unitRailDense: {
+    margin: 0,
+    fontSize: '0.52rem',
+    color: 'var(--text-muted)',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  },
+  priceRowRailDense: {
+    display: 'flex',
+    alignItems: 'baseline',
+    gap: '0.12rem',
+    marginTop: '0.06rem',
+    minWidth: 0,
+    flexWrap: 'wrap',
+  },
+  priceRailDense: {
+    fontFamily: 'var(--font-display)',
+    fontWeight: 800,
+    fontSize: '0.68rem',
+    letterSpacing: '-0.03em',
+    color: 'var(--accent)',
+  },
+  mrpDense: {
+    fontSize: '0.52rem',
   },
   media: {
     position: 'relative',
@@ -175,7 +361,7 @@ const styles: Record<string, CSSProperties> = {
   },
   mediaRail: {
     position: 'relative',
-    aspectRatio: '1 / 0.92',
+    aspectRatio: '1 / 0.96',
     display: 'grid',
     placeItems: 'center',
     overflow: 'hidden',
@@ -202,7 +388,7 @@ const styles: Record<string, CSSProperties> = {
     display: 'block',
   },
   emoji: { fontSize: '2.25rem', lineHeight: 1 },
-  emojiRail: { fontSize: '1.65rem', lineHeight: 1 },
+  emojiRail: { fontSize: '1.85rem', lineHeight: 1 },
   multi: {
     position: 'absolute',
     top: 8,
@@ -305,11 +491,12 @@ const styles: Record<string, CSSProperties> = {
     minWidth: 0,
   },
   bodyRail: {
-    padding: '0.32rem 0.4rem 0.4rem',
+    padding: '0.38rem 0.45rem 0.48rem',
     display: 'grid',
-    gap: '0.04rem',
+    gap: '0.06rem',
     alignContent: 'start',
     minWidth: 0,
+    minHeight: '5.35rem',
   },
   shop: {
     margin: 0,
@@ -321,6 +508,7 @@ const styles: Record<string, CSSProperties> = {
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
+    minHeight: '0.95em',
   },
   name: {
     margin: 0,
@@ -339,9 +527,9 @@ const styles: Record<string, CSSProperties> = {
   nameRail: {
     margin: 0,
     fontFamily: 'var(--font-display)',
-    fontSize: '0.74rem',
+    fontSize: '0.8rem',
     fontWeight: 700,
-    lineHeight: 1.2,
+    lineHeight: 1.22,
     letterSpacing: '-0.02em',
     color: 'var(--text)',
     overflow: 'hidden',
@@ -349,6 +537,7 @@ const styles: Record<string, CSSProperties> = {
     WebkitLineClamp: 2,
     WebkitBoxOrient: 'vertical',
     wordBreak: 'break-word',
+    minHeight: '2.45em',
   },
   unit: {
     margin: 0,
@@ -360,7 +549,7 @@ const styles: Record<string, CSSProperties> = {
   },
   unitRail: {
     margin: 0,
-    fontSize: '0.62rem',
+    fontSize: '0.66rem',
     color: 'var(--text-muted)',
     overflow: 'hidden',
     textOverflow: 'ellipsis',
@@ -416,7 +605,7 @@ const styles: Record<string, CSSProperties> = {
   priceRail: {
     fontFamily: 'var(--font-display)',
     fontWeight: 800,
-    fontSize: '0.86rem',
+    fontSize: '0.92rem',
     letterSpacing: '-0.03em',
     color: 'var(--accent)',
   },
@@ -434,6 +623,8 @@ const styles: Record<string, CSSProperties> = {
     gridTemplateRows: 'auto 1fr',
     width: '100%',
     minWidth: 0,
+    height: '100%',
+    alignSelf: 'stretch',
   },
   mediaStore: {
     position: 'relative',
@@ -452,8 +643,8 @@ const styles: Record<string, CSSProperties> = {
   },
   stepperWrapStore: {
     position: 'absolute',
-    top: 6,
-    right: 6,
+    right: 5,
+    bottom: 5,
     zIndex: 3,
   },
   bodyStore: {
@@ -462,6 +653,7 @@ const styles: Record<string, CSSProperties> = {
     gap: '0.08rem',
     alignContent: 'start',
     minWidth: 0,
+    minHeight: '6.85rem',
   },
   eta: {
     margin: 0,
@@ -505,15 +697,18 @@ const styles: Record<string, CSSProperties> = {
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
+    minHeight: '0.95em',
   },
   offerLine: {
     margin: '0.12rem 0 0',
     paddingTop: '0.18rem',
+    minHeight: '1.32rem',
     borderTop: '1px dashed color-mix(in srgb, var(--border) 85%, transparent)',
     fontSize: '0.68rem',
     fontWeight: 800,
     letterSpacing: '0.01em',
     color: 'var(--accent)',
+    lineHeight: 1.2,
   },
   priceRowStore: {
     display: 'flex',

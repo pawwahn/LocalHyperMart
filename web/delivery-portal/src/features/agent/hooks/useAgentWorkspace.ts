@@ -7,6 +7,7 @@ import {
   fetchMyStats,
   pickFromHub,
   pickFromVendor,
+  type LaundryCashOutcome,
   toAssignmentView,
   type AgentStatsView,
   type AssignmentView,
@@ -30,7 +31,8 @@ type Options = {
 function filterByLeg(list: AssignmentView[], leg?: AgentLeg): AssignmentView[] {
   if (!leg) return list;
   if (leg === 'LAST_MILE') {
-    return list.filter((a) => a.legType === 'LAST_MILE' || a.legType === 'VENDOR_DIRECT');
+    return list.filter((a) =>
+      a.legType === 'LAST_MILE' || a.legType === 'VENDOR_DIRECT' || a.legType === 'LAUNDRY_TRIP');
   }
   return list.filter((a) => a.legType === leg);
 }
@@ -113,13 +115,13 @@ export function useAgentWorkspace(options: Options = {}) {
     [assignments, search],
   );
 
-  async function doPickVendor(id: string, status: string) {
+  async function doPickVendor(id: string, status: string, cashCollectionOutcome?: LaundryCashOutcome) {
     if (!session || status !== 'ASSIGNED') return;
     setActionId(id);
     setError(null);
     setNotice(null);
     try {
-      await pickFromVendor(session.accessToken, id, 'Verified qty');
+      await pickFromVendor(session.accessToken, id, 'Verified qty', cashCollectionOutcome);
       await reload();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not confirm pickup');
@@ -144,7 +146,13 @@ export function useAgentWorkspace(options: Options = {}) {
     }
   }
 
-  async function doDeliver(id: string, status: string, otp: string, recipientName = 'Customer') {
+  async function doDeliver(
+    id: string,
+    status: string,
+    otp: string,
+    recipientName = 'Customer',
+    cashCollectionOutcome?: LaundryCashOutcome,
+  ) {
     if (!session || status !== 'IN_PROGRESS') return;
     const code = otp.trim();
     if (!code) {
@@ -155,10 +163,18 @@ export function useAgentWorkspace(options: Options = {}) {
     setError(null);
     setNotice(null);
     try {
-      await deliverOrder(session.accessToken, id, code, recipientName.trim() || 'Customer');
+      await deliverOrder(
+        session.accessToken,
+        id,
+        code,
+        recipientName.trim() || 'Customer',
+        cashCollectionOutcome,
+      );
       setNotice('Delivery done. Good job!');
+      setError(null);
       await reload();
     } catch (err) {
+      setNotice(null);
       setError(err instanceof Error ? err.message : 'Could not finish delivery');
     } finally {
       setActionId(null);

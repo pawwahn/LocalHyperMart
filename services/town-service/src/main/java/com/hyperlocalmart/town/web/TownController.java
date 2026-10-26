@@ -2,6 +2,7 @@ package com.hyperlocalmart.town.web;
 
 import com.hyperlocalmart.common.api.ApiResponse;
 import com.hyperlocalmart.town.dto.request.CreateTownRequest;
+import com.hyperlocalmart.town.dto.request.PatchTownFeatureFlagsRequest;
 import com.hyperlocalmart.town.dto.request.UpdateTownConfigRequest;
 import com.hyperlocalmart.town.dto.request.UpdateTownCoverageRequest;
 import com.hyperlocalmart.town.dto.request.UpdateTownStatusRequest;
@@ -109,6 +110,17 @@ public class TownController {
                 townConfigService.updateOperationalConfig(townId, request, actorId)));
     }
 
+    @PatchMapping("/api/v1/towns/{townId}/config/features")
+    public ResponseEntity<ApiResponse<TownOperationalConfigResponse>> patchTownFeatureFlags(
+            @PathVariable UUID townId,
+            @RequestBody PatchTownFeatureFlagsRequest request,
+            HttpServletRequest httpRequest) {
+        AdminAuth.requireSuperAdmin(httpRequest);
+        UUID actorId = AdminAuth.requireUserId(httpRequest);
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                townConfigService.patchFeatureFlags(townId, request, actorId)));
+    }
+
     /** Buyer cart: theme color + whether Best deals is on for this town. */
     @GetMapping("/api/v1/towns/{townId}/shop-settings")
     public ResponseEntity<ApiResponse<TownShopSettingsResponse>> getShopSettings(
@@ -166,6 +178,13 @@ public class TownController {
             @PathVariable UUID townId,
             HttpServletRequest httpRequest) {
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, townConfigService.getOperationalConfig(townId)));
+    }
+
+    @GetMapping("/api/v1/internal/towns/{townId}/buyer-cancel-policy")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> buyerCancelPolicy(
+            @PathVariable UUID townId,
+            HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest, townConfigService.buyerCancelPolicy(townId)));
     }
 
     @GetMapping("/api/v1/internal/towns/{townId}/summary")

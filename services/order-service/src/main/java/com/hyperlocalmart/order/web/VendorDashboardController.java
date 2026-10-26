@@ -4,10 +4,12 @@ import com.hyperlocalmart.common.api.ApiResponse;
 import com.hyperlocalmart.common.exception.BusinessException;
 import com.hyperlocalmart.common.exception.ErrorCode;
 import com.hyperlocalmart.order.dto.response.VendorDashboardResponse;
+import com.hyperlocalmart.order.dto.response.VendorGstReportResponse;
 import com.hyperlocalmart.order.dto.response.VendorSalesReportResponse;
 import com.hyperlocalmart.order.entity.PaymentStatus;
 import com.hyperlocalmart.order.security.AuthUserPrincipal;
 import com.hyperlocalmart.order.service.VendorDashboardService;
+import com.hyperlocalmart.order.service.VendorGstReportService;
 import com.hyperlocalmart.order.service.VendorSalesReportService;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
@@ -26,6 +28,7 @@ public class VendorDashboardController {
 
     private final VendorDashboardService vendorDashboardService;
     private final VendorSalesReportService vendorSalesReportService;
+    private final VendorGstReportService vendorGstReportService;
 
     @GetMapping("/dashboard")
     public ResponseEntity<ApiResponse<VendorDashboardResponse>> getDashboard(
@@ -55,6 +58,22 @@ public class VendorDashboardController {
         requireVendor(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
                 vendorSalesReportService.getSalesReport(vendorId, from, to, includeItems, paymentStatus)));
+    }
+
+    /**
+     * Outward supplies (delivered bags) for GST return working: HSN summary, B2C document register, optional line detail.
+     */
+    @GetMapping("/gst-report")
+    public ResponseEntity<ApiResponse<VendorGstReportResponse>> getGstReport(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @RequestHeader("X-Vendor-Id") UUID vendorId,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam(defaultValue = "true") boolean includeLines,
+            HttpServletRequest httpRequest) {
+        requireVendor(principal);
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                vendorGstReportService.getReport(vendorId, from, to, includeLines)));
     }
 
     private void requireVendor(AuthUserPrincipal principal) {

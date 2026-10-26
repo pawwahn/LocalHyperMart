@@ -1,7 +1,7 @@
 import { useEffect, useState, type CSSProperties } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { PortalShell } from '@/shared/layout/PortalShell';
-import { Badge, Banner, Button, Card, EmptyState, LoadingBlock } from '@/shared/ui';
+import { Banner, Button, Card, EmptyState, LoadingBlock } from '@/shared/ui';
 import { useAuth } from '@/shared/auth/AuthContext';
 import { useShop } from '../hooks/useShop';
 import { useOrderDetail } from '../hooks/useOrderDetail';
@@ -17,15 +17,7 @@ import { ConfirmDialog } from '../components/ConfirmDialog';
 import { StarRating } from '../components/StarRating';
 import { ScratchCardSheet } from '../components/ScratchCardSheet';
 import type { ClaimType, OrderDetailDto } from '../api/shopApi';
-
-function statusTone(status: string): 'neutral' | 'success' | 'warning' | 'danger' | 'brand' {
-  const s = status.toLowerCase();
-  if (s.includes('deliver') || s.includes('complete') || s.includes('paid')) return 'success';
-  if (s.includes('cancel') || s.includes('fail')) return 'danger';
-  if (s.includes('pending') || s.includes('placed') || s.includes('confirm')) return 'brand';
-  if (s.includes('cod') || s.includes('unpaid')) return 'warning';
-  return 'neutral';
-}
+import { membershipSlabLabel } from '../lib/membershipSlabLabel';
 
 function money(v: number | null | undefined): string {
   return `₹${Number(v ?? 0).toFixed(2)}`;
@@ -74,6 +66,33 @@ function claimTypeLabel(type: string): string {
     default:
       return 'Missing';
   }
+}
+
+function displayPaymentLabel(order: OrderDetailDto): string {
+  return formatBuyerPaymentLabel({
+    paymentMethod: order.paymentMethod,
+    paymentStatus: order.paymentStatus,
+    orderStatus: order.status,
+  })
+    .replace('(', ' · ')
+    .replace(')', '');
+}
+
+function statusPillStyle(status: string): CSSProperties {
+  const s = status.toLowerCase();
+  if (s.includes('deliver') && !s.includes('out')) {
+    return styles.statusPillSuccess;
+  }
+  if (s.includes('out for') || s.includes('on the way') || s.includes('going')) {
+    return styles.statusPillRoute;
+  }
+  if (s.includes('cancel') || s.includes('fail')) {
+    return styles.statusPillDanger;
+  }
+  if (s.includes('pending') || s.includes('payment')) {
+    return styles.statusPillWarn;
+  }
+  return styles.statusPillBrand;
 }
 
 type CancelTarget =
@@ -242,16 +261,22 @@ export function OrderDetailPage() {
     }
   }
 
+  const statusLabel = order?.displayStatus || order?.status || '';
+
   return (
     <PortalShell
-      title="Order details"
-      subtitle={order?.orderNumber ?? 'Items you ordered'}
+      hideTitle
       cartCount={cart?.itemCount ?? 0}
       onRefresh={() => void reload()}
       showDeliveryBanner={false}
+      showTownPicker={false}
     >
+      <div style={styles.pageRail}>
       <Link to="/orders" style={styles.back}>
-        ← Back to my orders
+        <span style={styles.backChev} aria-hidden>
+          ‹
+        </span>
+        My orders
       </Link>
 
       {loading && !order ? (
@@ -266,71 +291,74 @@ export function OrderDetailPage() {
         />
       ) : order ? (
         <div style={styles.stack}>
-          <Card elevated style={styles.headerCard}>
-            <div style={styles.headerTop}>
-              <div>
-                <p style={styles.orderNo}>{order.orderNumber}</p>
-                <p style={styles.meta}>
-                  Payment:{' '}
-                  {formatBuyerPaymentLabel({
-                    paymentMethod: order.paymentMethod,
-                    paymentStatus: order.paymentStatus,
-                    orderStatus: order.status,
-                  })}
-                </p>
-              </div>
-              <div style={styles.badgeCol}>
-                <Badge tone={statusTone(order.displayStatus || order.status)}>
-                  {order.displayStatus || order.status}
-                </Badge>
-              </div>
+          <section style={styles.heroCard}>
+            <div style={styles.heroTop}>
+              <span style={{ ...styles.statusPill, ...statusPillStyle(statusLabel) }}>{statusLabel}</span>
+              <span style={styles.payChip}>{displayPaymentLabel(order)}</span>
             </div>
-            <div style={styles.actions}>
+            <h1 style={styles.heroOrderNo}>{order.orderNumber}</h1>
+            <p style={styles.heroTotalRow}>
+              <span style={styles.heroTotalLabel}>
+                {order.paymentMethod === 'COD' && order.paymentStatus !== 'PAID'
+                  ? 'Pay at delivery'
+                  : 'Order total'}
+              </span>
+              <span style={styles.heroTotalAmount}>{money(order.totalAmount)}</span>
+            </p>
+
+            <div style={styles.actionPrimary}>
               {canPayOnline ? (
-                <Button variant="primary" disabled={payBusy} onClick={() => void onPayOnline()}>
-                  {payBusy ? 'Opening payment…' : `Pay ₹${Number(order.totalAmount ?? 0).toFixed(2)}`}
+                <Button variant="primary" fullWidth disabled={payBusy} onClick={() => void onPayOnline()}>
+                  {payBusy ? 'Opening payment…' : `Pay ${money(order.totalAmount)} now`}
                 </Button>
               ) : null}
               <Button
                 variant={canPayOnline ? 'ghost' : 'primary'}
+                fullWidth
                 disabled={!canDownloadInvoice || invoiceBusy}
                 onClick={() => void downloadInvoice()}
               >
                 {invoiceBusy ? 'Preparing PDF…' : 'Download invoice'}
               </Button>
-              {order.canCancelOrder ? (
-                <Button
-                  variant="danger"
-                  disabled={cancelBusy}
-                  onClick={() => setCancelTarget({ kind: 'order' })}
-                >
-                  Cancel order
-                </Button>
-              ) : null}
-              {order.canFileClaim && claimableItems.length > 0 ? (
-                <Button
-                  variant="ghost"
-                  disabled={claimBusy}
-                  onClick={() => {
-                    setClaimPresetItemId(null);
-                    setClaimOpen(true);
-                  }}
-                >
-                  Report issue
-                </Button>
-              ) : null}
-              <p style={{ ...styles.hint, visibility: canDownloadInvoice ? 'hidden' : 'visible' }}>
-                Invoice will be available once payment is confirmed.
-              </p>
             </div>
+            {!canDownloadInvoice && !canPayOnline ? (
+              <p style={styles.hint}>Invoice appears after payment is confirmed.</p>
+            ) : null}
             {invoiceError ? <Banner tone="danger">{invoiceError}</Banner> : null}
+
+            {order.canCancelOrder || (order.canFileClaim && claimableItems.length > 0) ? (
+              <div style={styles.actionSecondary}>
+                {order.canCancelOrder ? (
+                  <button
+                    type="button"
+                    style={styles.linkActionDanger}
+                    disabled={cancelBusy}
+                    onClick={() => setCancelTarget({ kind: 'order' })}
+                  >
+                    Cancel order
+                  </button>
+                ) : null}
+                {order.canFileClaim && claimableItems.length > 0 ? (
+                  <button
+                    type="button"
+                    style={styles.linkAction}
+                    disabled={claimBusy}
+                    onClick={() => {
+                      setClaimPresetItemId(null);
+                      setClaimOpen(true);
+                    }}
+                  >
+                    Report issue
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
             {order.canCancelOrder ? (
               <p style={styles.cancelHint}>
-                You can cancel before shops mark items ready. After that, cancel individual items
-                that are still waiting.
+                Cancel before shops mark ready; after that, cancel individual items still waiting.
               </p>
             ) : null}
-          </Card>
+          </section>
 
           {order.scratchCard ? (
             <Card elevated style={styles.scratchCard}>
@@ -433,15 +461,18 @@ export function OrderDetailPage() {
           ) : null}
 
           <section style={styles.section}>
-            <h2 style={styles.h2}>
-              {(order.items?.length ?? 0) === 0
-                ? 'Items in this order'
-                : `${unitCount} item${unitCount === 1 ? '' : 's'} in this order`}
-            </h2>
+            <div style={styles.sectionHead}>
+              <h2 style={styles.h2}>Items</h2>
+              {(order.items?.length ?? 0) > 0 ? (
+                <span style={styles.countBadge}>
+                  {unitCount} pc{unitCount === 1 ? '' : 's'}
+                </span>
+              ) : null}
+            </div>
             {(order.items?.length ?? 0) === 0 ? (
               <LoadingBlock label="Loading items…" />
             ) : (
-              <Card padding="sm" style={styles.itemList}>
+              <div style={styles.itemList}>
                 {order.items.map((item, index) => {
                   const cancelled = (item.status ?? 'ACTIVE').toUpperCase() === 'CANCELLED';
                   const canClaim =
@@ -542,7 +573,7 @@ export function OrderDetailPage() {
                     </div>
                   );
                 })}
-              </Card>
+              </div>
             )}
           </section>
 
@@ -588,13 +619,27 @@ export function OrderDetailPage() {
           ) : null}
 
           <Card elevated style={styles.totals}>
+            <p style={styles.totalsTitle}>Bill summary</p>
             <div style={styles.totalRow}>
               <span>Items subtotal</span>
               <strong>{money(order.itemsSubtotal)}</strong>
             </div>
+            {(order.promoDiscount ?? 0) > 0 ? (
+              <div style={styles.totalRow}>
+                <span>{order.promoCode ? `Coupon · ${order.promoCode}` : 'Coupon discount'}</span>
+                <strong style={styles.creditAmount}>−{money(order.promoDiscount)}</strong>
+              </div>
+            ) : null}
             <div style={styles.totalRow}>
               <span>Delivery fee</span>
-              <strong>{money(order.deliveryFee)}</strong>
+              {(order.membershipDeliveryWaived ?? 0) > 0 && Number(order.deliveryFee) === 0 ? (
+                <strong>
+                  <span style={styles.struckDelivery}>{money(order.membershipDeliveryWaived)}</span>{' '}
+                  <span style={styles.freeDelivery}>Free</span>
+                </strong>
+              ) : (
+                <strong>{money(order.deliveryFee)}</strong>
+              )}
             </div>
             <div style={styles.totalRow}>
               <span>Platform fee</span>
@@ -604,6 +649,15 @@ export function OrderDetailPage() {
               <div style={styles.totalRow}>
                 <span>COD charge</span>
                 <strong>{money(order.codFee)}</strong>
+              </div>
+            ) : null}
+            {(order.membershipFee ?? 0) > 0 ? (
+              <div style={styles.totalRow}>
+                <span>
+                  Free delivery plan
+                  {order.membershipSlab ? ` · ${membershipSlabLabel(order.membershipSlab)}` : ''}
+                </span>
+                <strong>{money(order.membershipFee)}</strong>
               </div>
             ) : null}
             {(order.storeCreditApplied ?? 0) > 0 ? (
@@ -623,17 +677,23 @@ export function OrderDetailPage() {
           </Card>
 
           {formatAddress(order.deliveryAddress).length > 0 ? (
-            <Card style={styles.addressCard}>
-              <h2 style={styles.h2}>Delivered to</h2>
+            <section style={styles.addressCard}>
+              <h2 style={styles.h2}>
+                <span style={styles.addressPin} aria-hidden>
+                  📍
+                </span>{' '}
+                Delivery address
+              </h2>
               {formatAddress(order.deliveryAddress).map((line) => (
-                <p key={line} style={styles.meta}>
+                <p key={line} style={styles.addressLine}>
                   {line}
                 </p>
               ))}
-            </Card>
+            </section>
           ) : null}
         </div>
       ) : null}
+      </div>
 
       {scratchOpen && order?.scratchCard && session?.accessToken ? (
         <ScratchCardSheet
@@ -694,40 +754,177 @@ export function OrderDetailPage() {
 }
 
 const styles: Record<string, CSSProperties> = {
+  pageRail: {
+    width: 'min(100%, 26rem)',
+    marginInline: 'auto',
+    display: 'grid',
+    gap: '0.55rem',
+    minWidth: 0,
+  },
   back: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '0.15rem',
     color: 'var(--accent)',
     textDecoration: 'none',
-    fontWeight: 700,
-    fontSize: '0.92rem',
+    fontWeight: 800,
+    fontSize: '0.88rem',
+    padding: '0.35rem 0.5rem 0.35rem 0.15rem',
+    marginLeft: '-0.15rem',
+    borderRadius: 10,
   },
-  stack: { display: 'grid', gap: '0.9rem' },
-  headerCard: { padding: '1rem 1.05rem', animation: 'none' },
-  headerTop: {
+  backChev: { fontSize: '1.25rem', lineHeight: 1, marginTop: -1 },
+  stack: { display: 'grid', gap: '0.65rem' },
+  heroCard: {
+    padding: '0.85rem 0.9rem 0.95rem',
+    borderRadius: 18,
+    background:
+      'linear-gradient(165deg, var(--bg-elevated) 0%, color-mix(in srgb, var(--accent-soft) 28%, var(--bg-elevated)) 100%)',
+    border: '1px solid color-mix(in srgb, var(--accent) 14%, var(--border))',
+    boxShadow: 'var(--shadow-soft)',
+    display: 'grid',
+    gap: '0.45rem',
+  },
+  heroTop: {
     display: 'flex',
+    alignItems: 'center',
     justifyContent: 'space-between',
-    gap: '0.75rem',
-    alignItems: 'flex-start',
+    gap: '0.5rem',
+    flexWrap: 'wrap',
   },
-  orderNo: { margin: 0, fontWeight: 800, fontFamily: 'var(--font-display)', fontSize: '1.05rem' },
-  meta: { margin: '0.25rem 0 0', color: 'var(--text-muted)', fontSize: '0.85rem' },
-  badgeCol: { display: 'grid', gap: '0.35rem', justifyItems: 'end' },
-  actions: { display: 'grid', gap: '0.45rem', marginTop: '0.85rem' },
-  hint: { margin: 0, color: 'var(--text-muted)', fontSize: '0.78rem' },
-  cancelHint: { margin: '0.55rem 0 0', color: 'var(--text-muted)', fontSize: '0.8rem', lineHeight: 1.4 },
-  section: { display: 'grid', gap: '0.4rem' },
-  h2: {
+  statusPill: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    padding: '0.22rem 0.55rem',
+    borderRadius: 999,
+    fontSize: '0.62rem',
+    fontWeight: 800,
+    letterSpacing: '0.05em',
+    textTransform: 'uppercase',
+  },
+  statusPillBrand: {
+    background: 'linear-gradient(135deg, var(--accent-soft), #d1fae5)',
+    color: 'var(--accent)',
+    border: '1px solid color-mix(in srgb, var(--accent) 22%, transparent)',
+  },
+  statusPillRoute: {
+    background: 'linear-gradient(135deg, #fff7ed, #ffedd5)',
+    color: '#c2410c',
+    border: '1px solid #fed7aa',
+  },
+  statusPillSuccess: {
+    background: 'rgba(22, 163, 74, 0.14)',
+    color: '#15803d',
+  },
+  statusPillDanger: {
+    background: 'var(--danger-soft)',
+    color: 'var(--danger)',
+  },
+  statusPillWarn: {
+    background: '#fffbeb',
+    color: '#92400e',
+    border: '1px solid #fde68a',
+  },
+  payChip: {
+    fontSize: '0.72rem',
+    fontWeight: 700,
+    color: 'var(--text-muted)',
+    padding: '0.2rem 0.45rem',
+    borderRadius: 8,
+    background: 'color-mix(in srgb, var(--bg-muted) 70%, transparent)',
+  },
+  heroOrderNo: {
     margin: 0,
-    fontSize: '0.95rem',
     fontWeight: 800,
     fontFamily: 'var(--font-display)',
+    fontSize: '1.15rem',
+    letterSpacing: '-0.03em',
+    lineHeight: 1.15,
+  },
+  heroTotalRow: {
+    margin: 0,
+    display: 'flex',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    gap: '0.75rem',
+  },
+  heroTotalLabel: { fontSize: '0.78rem', fontWeight: 650, color: 'var(--text-muted)' },
+  heroTotalAmount: {
+    fontSize: '1.35rem',
+    fontWeight: 900,
+    letterSpacing: '-0.03em',
+    fontVariantNumeric: 'tabular-nums',
+    color: 'var(--text)',
+  },
+  actionPrimary: { display: 'grid', gap: '0.4rem', marginTop: '0.15rem' },
+  actionSecondary: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: '0.35rem 0.75rem',
+    paddingTop: '0.15rem',
+  },
+  linkAction: {
+    appearance: 'none',
+    border: 'none',
+    background: 'transparent',
+    color: 'var(--accent)',
+    fontWeight: 800,
+    fontSize: '0.78rem',
+    padding: '0.35rem 0',
+    minHeight: 40,
+    cursor: 'pointer',
+  },
+  linkActionDanger: {
+    appearance: 'none',
+    border: 'none',
+    background: 'transparent',
+    color: 'var(--danger)',
+    fontWeight: 800,
+    fontSize: '0.78rem',
+    padding: '0.35rem 0',
+    minHeight: 40,
+    cursor: 'pointer',
+  },
+  meta: { margin: '0.25rem 0 0', color: 'var(--text-muted)', fontSize: '0.85rem' },
+  hint: { margin: 0, color: 'var(--text-muted)', fontSize: '0.75rem', lineHeight: 1.35 },
+  cancelHint: { margin: 0, color: 'var(--text-muted)', fontSize: '0.76rem', lineHeight: 1.4 },
+  section: { display: 'grid', gap: '0.35rem' },
+  sectionHead: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: '0.5rem',
+    paddingInline: '0.1rem',
+  },
+  countBadge: {
+    fontSize: '0.68rem',
+    fontWeight: 800,
+    color: 'var(--accent)',
+    background: 'var(--accent-soft)',
+    padding: '0.15rem 0.45rem',
+    borderRadius: 999,
+  },
+  h2: {
+    margin: 0,
+    fontSize: '0.92rem',
+    fontWeight: 800,
+    fontFamily: 'var(--font-display)',
+    letterSpacing: '-0.02em',
   },
   list: { display: 'grid', gap: '0.4rem' },
-  itemList: { padding: '0.15rem 0.85rem', display: 'grid' },
+  itemList: {
+    padding: '0.35rem 0.65rem',
+    display: 'grid',
+    borderRadius: 16,
+    background: 'var(--bg-elevated)',
+    border: '1px solid color-mix(in srgb, var(--border) 88%, transparent)',
+    boxShadow: 'var(--shadow-card)',
+  },
   itemRow: {
     display: 'grid',
     gap: '0.12rem',
-    padding: '0.55rem 0',
-    borderBottom: '1px solid var(--border)',
+    padding: '0.48rem 0',
+    borderBottom: '1px solid color-mix(in srgb, var(--border) 75%, transparent)',
   },
   itemRowLast: { borderBottom: 'none' },
   itemTop: {
@@ -758,7 +955,7 @@ const styles: Record<string, CSSProperties> = {
     fontSize: '0.75rem',
     fontWeight: 600,
   },
-  itemName: { margin: 0, fontWeight: 700, fontSize: '0.92rem', lineHeight: 1.25, minWidth: 0 },
+  itemName: { margin: 0, fontWeight: 750, fontSize: '0.88rem', lineHeight: 1.25, minWidth: 0 },
   cancelled: { textDecoration: 'line-through', color: 'var(--text-muted)' },
   creditNote: { margin: '0.1rem 0 0', fontSize: '0.75rem', color: 'var(--text-muted)', lineHeight: 1.35 },
   textAction: {
@@ -779,16 +976,54 @@ const styles: Record<string, CSSProperties> = {
     fontSize: '0.92rem',
     fontVariantNumeric: 'tabular-nums',
   },
-  totals: { padding: '0.9rem 1rem', display: 'grid', gap: '0.4rem' },
+  totals: {
+    padding: '0.75rem 0.85rem 0.85rem',
+    display: 'grid',
+    gap: '0.35rem',
+    borderRadius: 16,
+  },
+  totalsTitle: {
+    margin: '0 0 0.15rem',
+    fontSize: '0.72rem',
+    fontWeight: 800,
+    letterSpacing: '0.06em',
+    textTransform: 'uppercase',
+    color: 'var(--text-muted)',
+  },
   totalRow: {
     display: 'flex',
     justifyContent: 'space-between',
     gap: '0.75rem',
-    fontSize: '0.9rem',
+    fontSize: '0.84rem',
+    fontWeight: 600,
   },
-  grand: { marginTop: '0.25rem', paddingTop: '0.45rem', borderTop: '1px solid var(--border)' },
-  grandAmount: { fontSize: '1.05rem' },
-  addressCard: { padding: '0.9rem 1rem', display: 'grid', gap: '0.25rem' },
+  grand: {
+    marginTop: '0.2rem',
+    padding: '0.55rem 0.6rem',
+    borderRadius: 12,
+    background: 'linear-gradient(135deg, var(--accent-soft), color-mix(in srgb, var(--accent-soft) 40%, #ecfdf5))',
+    border: '1px solid color-mix(in srgb, var(--accent) 18%, transparent)',
+  },
+  grandAmount: { fontSize: '1.12rem', fontWeight: 900 },
+  struckDelivery: {
+    textDecoration: 'line-through',
+    color: 'var(--text-muted)',
+    fontWeight: 600,
+    marginRight: '0.15rem',
+  },
+  freeDelivery: { color: 'var(--accent)', fontWeight: 800 },
+  creditAmount: { color: 'var(--accent)', fontWeight: 800 },
+  addressCard: {
+    padding: '0.75rem 0.85rem',
+    display: 'grid',
+    gap: '0.3rem',
+    borderRadius: 16,
+    background: 'var(--bg-elevated)',
+    border: '1px solid color-mix(in srgb, var(--border) 88%, transparent)',
+    boxShadow: 'var(--shadow-card)',
+  },
+  addressPin: { fontSize: '0.85rem' },
+  addressLine: { margin: 0, color: 'var(--text)', fontSize: '0.84rem', fontWeight: 600, lineHeight: 1.4 },
   scratchCard: { padding: '0.7rem 0.85rem' },
   scratchRow: {
     display: 'flex',

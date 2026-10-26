@@ -5,11 +5,16 @@ import com.hyperlocalmart.common.exception.ErrorCode;
 import com.hyperlocalmart.order.client.PaymentClient;
 import com.hyperlocalmart.order.client.TownClient;
 import com.hyperlocalmart.order.dto.response.ScratchCardResponse;
+import com.hyperlocalmart.order.entity.BeautyOrder;
+import com.hyperlocalmart.order.entity.LaundryOrder;
 import com.hyperlocalmart.order.entity.Order;
 import com.hyperlocalmart.order.entity.OrderScratchCard;
 import com.hyperlocalmart.order.entity.ScratchCardStatus;
+import com.hyperlocalmart.order.repository.BeautyOrderRepository;
+import com.hyperlocalmart.order.repository.LaundryOrderRepository;
 import com.hyperlocalmart.order.repository.OrderRepository;
 import com.hyperlocalmart.order.repository.OrderScratchCardRepository;
+import com.hyperlocalmart.order.scratch.ScratchServiceKind;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -33,31 +38,148 @@ public class ScratchCardService {
 
     private final OrderScratchCardRepository scratchCardRepository;
     private final OrderRepository orderRepository;
+    private final LaundryOrderRepository laundryOrderRepository;
+    private final BeautyOrderRepository beautyOrderRepository;
     private final TownClient townClient;
     private final PaymentClient paymentClient;
     private final PlatformTransactionManager transactionManager;
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void issueIfEligible(Order order) {
-        if (order == null || scratchCardRepository.existsByOrderId(order.getId())) {
+        if (order == null) {
             return;
         }
-        TownClient.ScratchSettings settings = townClient.getScratchSettings(order.getTownId());
-        if (!settings.enabled()) {
+        issueIfEligible(
+                order.getTownId(),
+                order.getBuyerId(),
+                order.getId(),
+                ScratchServiceKind.GROCERY,
+                goodsTotal(order));
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void issueIfEligible(LaundryOrder order) {
+        if (order == null) {
             return;
         }
-        BigDecimal goodsPaid = goodsTotal(order);
-        if (goodsPaid.compareTo(settings.minGoodsAmount()) <= 0) {
+        issueIfEligible(
+                order.getTownId(),
+                order.getBuyerId(),
+                order.getId(),
+                ScratchServiceKind.LAUNDRY,
+                laundryGoodsTotal(order));
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void issueIfEligibleAfterBeautyRating(BeautyOrder order) {
+        if (order == null) {
+            return;
+        }
+        TownClient.ScratchSettings settings = townClient.getScratchSettings(order.getTownId(), ScratchServiceKind.BEAUTY.name());
+        if (!settings.enabled() || !settings.issueAfterRating()) {
+            return;
+        }
+        String prepayMode = order.getPrepayMode() == null || order.getPrepayMode().isBlank()
+                ? "FULL"
+                : order.getPrepayMode().trim().toUpperCase();
+        if (!matchesPrepayFilter(prepayMode, settings.prepayModeFilter())) {
+            return;
+        }
+        if ("PARTIAL".equals(prepayMode)) {
+            if (!settings.partialPrepayEnabled()) {
+                return;
+            }
+            BigDecimal prepayPaid = order.getPrepayAmount() == null ? BigDecimal.ZERO : order.getPrepayAmount();
+            issueCore(
+                    order.getTownId(),
+                    order.getBuyerId(),
+                    order.getId(),
+                    ScratchServiceKind.BEAUTY,
+                    prepayPaid,
+                    settings.partialMinPrepayAmount(),
+                    settings.partialRewardMin(),
+                    settings.partialRewardMax());
+            return;
+        }
+        issueCore(
+                order.getTownId(),
+                order.getBuyerId(),
+                order.getId(),
+                ScratchServiceKind.BEAUTY,
+                beautyServiceTotal(order),
+                settings.minGoodsAmount(),
+                settings.rewardMin(),
+                settings.rewardMax());
+    }
+
+    private void issueCore(
+            UUID townId,
+            UUID buyerId,
+            UUID orderId,
+            ScratchServiceKind serviceKind,
+            BigDecimal eligibleAmount,
+            BigDecimal threshold,
+            BigDecimal rewardMin,
+            BigDecimal rewardMax) {
+        if (townId == null || buyerId == null || orderId == null || scratchCardRepository.existsByOrderId(orderId)) {
+            return;
+        }
+        if (threshold == null || rewardMin == null || rewardMax == null) {
+            return;
+        }
+        BigDecimal amount = eligibleAmount == null ? BigDecimal.ZERO : eligibleAmount;
+        if (amount.compareTo(threshold) <= 0) {
             return;
         }
         scratchCardRepository.save(OrderScratchCard.builder()
-                .orderId(order.getId())
-                .buyerId(order.getBuyerId())
-                .townId(order.getTownId())
+                .orderId(orderId)
+                .buyerId(buyerId)
+                .townId(townId)
+                .serviceKind(serviceKind.name())
                 .status(ScratchCardStatus.ISSUED)
-                .rewardMin(settings.rewardMin().setScale(2, RoundingMode.HALF_UP))
-                .rewardMax(settings.rewardMax().setScale(2, RoundingMode.HALF_UP))
+                .rewardMin(rewardMin.setScale(2, RoundingMode.HALF_UP))
+                .rewardMax(rewardMax.setScale(2, RoundingMode.HALF_UP))
                 .build());
+    }
+
+    private void issueIfEligible(
+            UUID townId,
+            UUID buyerId,
+            UUID orderId,
+            ScratchServiceKind serviceKind,
+            BigDecimal eligibleGoodsAmount) {
+        if (townId == null || buyerId == null || orderId == null || scratchCardRepository.existsByOrderId(orderId)) {
+            return;
+        }
+        TownClient.ScratchSettings settings = townClient.getScratchSettings(townId, serviceKind.name());
+        if (!settings.enabled() || settings.issueAfterRating()) {
+            return;
+        }
+        issueCore(
+                townId,
+                buyerId,
+                orderId,
+                serviceKind,
+                eligibleGoodsAmount,
+                settings.minGoodsAmount(),
+                settings.rewardMin(),
+                settings.rewardMax());
+    }
+
+    private static boolean matchesPrepayFilter(String orderPrepayMode, String filter) {
+        String mode = orderPrepayMode == null || orderPrepayMode.isBlank()
+                ? "FULL"
+                : orderPrepayMode.trim().toUpperCase();
+        if (filter == null || filter.isBlank() || "BOTH".equalsIgnoreCase(filter)) {
+            return true;
+        }
+        if ("FULL".equalsIgnoreCase(filter)) {
+            return "FULL".equals(mode);
+        }
+        if ("PARTIAL".equalsIgnoreCase(filter)) {
+            return "PARTIAL".equals(mode);
+        }
+        return true;
     }
 
     @Transactional(readOnly = true)
@@ -82,8 +204,6 @@ public class ScratchCardService {
 
     @Transactional
     public ScratchCardResponse reveal(UUID buyerId, UUID orderId) {
-        // Commit the drawn amount before the wallet call so a retry keeps the same figure.
-        // Wallet credit is already idempotent on SCRATCH_CARD + card id.
         reserveRevealAmount(buyerId, orderId);
         OrderScratchCard card = scratchCardRepository.lockByOrderIdAndBuyerId(orderId, buyerId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "No scratch card for this order"));
@@ -91,8 +211,7 @@ public class ScratchCardService {
             return toResponse(card);
         }
         BigDecimal amount = card.getRevealedAmount();
-        Order order = orderRepository.findById(orderId).orElse(null);
-        String orderNumber = order != null ? order.getOrderNumber() : "";
+        String orderNumber = resolveOrderNumber(orderId);
         paymentClient.creditWallet(
                 buyerId,
                 amount,
@@ -131,6 +250,16 @@ public class ScratchCardService {
         return items.subtract(promo).max(BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP);
     }
 
+    static BigDecimal laundryGoodsTotal(LaundryOrder order) {
+        BigDecimal goods = order.getGoodsAmount() == null ? BigDecimal.ZERO : order.getGoodsAmount();
+        return goods.setScale(2, RoundingMode.HALF_UP);
+    }
+
+    static BigDecimal beautyServiceTotal(BeautyOrder order) {
+        BigDecimal service = order.getServiceAmount() == null ? BigDecimal.ZERO : order.getServiceAmount();
+        return service.setScale(2, RoundingMode.HALF_UP);
+    }
+
     private static BigDecimal pickAmount(BigDecimal min, BigDecimal max) {
         int lo = min.setScale(0, RoundingMode.CEILING).intValue();
         int hi = max.setScale(0, RoundingMode.FLOOR).intValue();
@@ -141,14 +270,19 @@ public class ScratchCardService {
         return BigDecimal.valueOf(value).setScale(2, RoundingMode.HALF_UP);
     }
 
-    private ScratchCardResponse toResponse(OrderScratchCard card) {
-        String orderNumber = orderRepository.findById(card.getOrderId())
+    private String resolveOrderNumber(UUID orderId) {
+        return orderRepository.findById(orderId)
                 .map(Order::getOrderNumber)
-                .orElse(null);
+                .or(() -> laundryOrderRepository.findById(orderId).map(LaundryOrder::getOrderNumber))
+                .or(() -> beautyOrderRepository.findById(orderId).map(BeautyOrder::getOrderNumber))
+                .orElse("");
+    }
+
+    private ScratchCardResponse toResponse(OrderScratchCard card) {
         return ScratchCardResponse.builder()
                 .id(card.getId())
                 .orderId(card.getOrderId())
-                .orderNumber(orderNumber)
+                .orderNumber(resolveOrderNumber(card.getOrderId()))
                 .status(card.getStatus())
                 .rewardMin(card.getRewardMin())
                 .rewardMax(card.getRewardMax())

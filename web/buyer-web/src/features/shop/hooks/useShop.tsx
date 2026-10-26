@@ -14,6 +14,7 @@ import { ApiError } from '@/shared/api/http';
 import { wasBuyAgainKept } from '../lib/buyAgainKeep';
 import {
   addToCart,
+  attachCartMembership,
   applyPromo,
   changeCartTown,
   createAddress,
@@ -30,6 +31,7 @@ import {
   fetchPaymentCheckout,
   placeOrder,
   removeCartItem,
+  removeCartMembership,
   removePromo,
   switchCartLine,
   updateAddress,
@@ -237,6 +239,7 @@ function useShopState() {
       minOrderLabel: cartRef.current?.minOrderLabel ?? moneyLabel(0),
       minOrderMet: false,
       items: [],
+      membershipAddon: null,
     };
   }
 
@@ -866,6 +869,34 @@ function useShopState() {
     }
   }
 
+  async function doAttachMembership(slab: string): Promise<boolean> {
+    if (!session?.accessToken || !townId) {
+      setError('Select a town first');
+      return false;
+    }
+    return (
+      (await withCartBusy('membership', async () => {
+        const next = await attachCartMembership(session.accessToken, townId, slab);
+        applyServerCart(next);
+        setNotice('Free delivery plan added to your basket');
+        setError(null);
+        return true;
+      })) ?? false
+    );
+  }
+
+  async function doRemoveMembership(): Promise<boolean> {
+    if (!session?.accessToken || !townId) return false;
+    return (
+      (await withCartBusy('membership', async () => {
+        const next = await removeCartMembership(session.accessToken, townId);
+        applyServerCart(next);
+        setNotice('Free delivery plan removed');
+        return true;
+      })) ?? false
+    );
+  }
+
   async function doRemovePromo() {
     await withCartBusy('promo', async () => {
       applyServerCart(await removePromo(session!.accessToken, townId));
@@ -1014,6 +1045,7 @@ function useShopState() {
 
   function basketAlreadyOnServer(local: CartView): boolean {
     if (!local.cartId) return false;
+    if (desiredQtyRef.current.size > 0) return false;
     return local.items.every((line) => {
       if (isPlaceholderListingId(line.listingId) || line.itemId.startsWith('optimistic-')) return false;
       const onServer = serverCartRef.current?.items.find(
@@ -1027,6 +1059,7 @@ function useShopState() {
     if (!session || !townId) {
       return { cart: cartRef.current, error: !session ? 'Sign in to place an order' : 'Choose your town first' };
     }
+    await waitForCartSync();
     const local = cartRef.current;
     if (!local?.items.length) {
       return { cart: local, error: null };
@@ -1037,7 +1070,7 @@ function useShopState() {
 
     let latest: CartView;
     try {
-      latest = await fetchCart(session.accessToken, townId);
+      latest = serverCartRef.current ?? (await fetchCart(session.accessToken, townId));
     } catch (err) {
       if (local.cartId && local.items.every((line) => !line.itemId.startsWith('optimistic-'))) {
         return { cart: local, error: null };
@@ -1045,7 +1078,15 @@ function useShopState() {
       return { cart: local, error: friendlyCartError(err, 'Could not reach the cart service') };
     }
 
-    for (const line of local.items) {
+    const linesToSync = local.items.filter((line) => {
+      if (isPlaceholderListingId(line.listingId)) return true;
+      const onServer = latest.items.find(
+        (i) => sameListingId(i.listingId, line.listingId) && !i.itemId.startsWith('optimistic-'),
+      );
+      return !onServer || onServer.quantity !== line.quantity;
+    });
+
+    for (const line of linesToSync) {
       if (isPlaceholderListingId(line.listingId)) {
         return { cart: local, error: `${line.name} is a preview item and cannot be ordered.` };
       }
@@ -1055,9 +1096,7 @@ function useShopState() {
       try {
         latest = !onServer
           ? await addToCart(session.accessToken, townId, line.listingId, line.quantity)
-          : onServer.quantity === line.quantity
-            ? latest
-            : await updateCartItem(session.accessToken, onServer.itemId, line.quantity);
+          : await updateCartItem(session.accessToken, onServer.itemId, line.quantity);
         applyServerCart(latest);
       } catch (err) {
         return {
@@ -1066,7 +1105,25 @@ function useShopState() {
         };
       }
     }
+    if (!cartRef.current?.cartId && latest.cartId) {
+      applyServerCart(latest);
+    }
     return { cart: cartRef.current, error: null };
+  }
+
+  /** Finish debounced cart updates before checkout UI (fast when basket is already synced). */
+  async function prepareCartForCheckout(): Promise<{ ok: true } | { ok: false; error: string }> {
+    const persisted = await persistBasketToServer();
+    if (persisted.error) {
+      return { ok: false, error: persisted.error };
+    }
+    if (!persisted.cart?.items.length) {
+      return { ok: false, error: 'Cart is empty' };
+    }
+    if (!persisted.cart.cartId) {
+      return { ok: false, error: 'Could not save your basket. Try again in a moment.' };
+    }
+    return { ok: true };
   }
 
   async function doCheckout(opts?: { useStoreCredit?: boolean; paymentMethod?: 'COD' | 'ONLINE'; paymentGateway?: string }): Promise<CheckoutOutcome> {
@@ -1120,7 +1177,7 @@ function useShopState() {
         if (!checkout?.gatewayOrderId && paymentId) {
           checkout = await pollUntilCheckoutReady(
             () => fetchPaymentCheckout(session.accessToken, paymentId),
-            { timeoutMs: 28_000, intervalMs: 350 },
+            { timeoutMs: 18_000, intervalMs: 200 },
           );
         }
         if (checkout?.gatewayOrderId) {
@@ -1222,6 +1279,9 @@ function useShopState() {
     doSwitchShop,
     doApplyPromo,
     doRemovePromo,
+    doAttachMembership,
+    doRemoveMembership,
+    prepareCartForCheckout,
     doCreateAddress,
     doUpdateAddress,
     doDeleteAddress,

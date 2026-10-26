@@ -1,11 +1,16 @@
 package com.hyperlocalmart.delivery.client;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hyperlocalmart.common.api.ApiResponse;
+import com.hyperlocalmart.common.exception.BusinessException;
+import com.hyperlocalmart.common.exception.ErrorCode;
 import com.hyperlocalmart.delivery.config.OrderServiceProperties;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientResponseException;
 
 import java.time.LocalDate;
 import java.util.HashMap;
@@ -16,6 +21,8 @@ import java.util.UUID;
 @Component
 @RequiredArgsConstructor
 public class OrderClient {
+
+    private static final ObjectMapper JSON = new ObjectMapper();
 
     private final RestClient.Builder restClientBuilder;
     private final OrderServiceProperties orderServiceProperties;
@@ -177,11 +184,102 @@ public class OrderClient {
         if (vendorSubOrderId != null) {
             body.put("vendorSubOrderId", vendorSubOrderId);
         }
+        try {
+            client.post()
+                    .uri("/api/v1/internal/orders/{orderId}/delivered", orderId)
+                    .body(body)
+                    .retrieve()
+                    .toBodilessEntity();
+        } catch (RestClientResponseException ex) {
+            throw mapOrderClientError(ex, "Could not mark order delivered");
+        }
+    }
+
+    private static BusinessException mapOrderClientError(RestClientResponseException ex, String fallback) {
+        String message = extractApiMessage(ex.getResponseBodyAsString());
+        if (message == null || message.isBlank()) {
+            message = fallback;
+        }
+        int status = ex.getStatusCode().value();
+        if (status == 409) {
+            return new BusinessException(ErrorCode.CONFLICT, message);
+        }
+        if (status == 404) {
+            return new BusinessException(ErrorCode.NOT_FOUND, message);
+        }
+        if (status == 400) {
+            return new BusinessException(ErrorCode.VALIDATION_ERROR, message);
+        }
+        return new BusinessException(ErrorCode.INTERNAL_ERROR, message);
+    }
+
+    private static String extractApiMessage(String body) {
+        if (body == null || body.isBlank()) {
+            return null;
+        }
+        try {
+            JsonNode root = JSON.readTree(body);
+            JsonNode msg = root.get("message");
+            return msg != null && msg.isTextual() ? msg.asText() : null;
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    public void completeLaundryAgentTrip(UUID laundryOrderId, UUID agentUserId, String tripKind) {
+        RestClient client = restClientBuilder.baseUrl(orderServiceProperties.getBaseUrl()).build();
+        Map<String, Object> body = Map.of(
+                "agentUserId", agentUserId,
+                "tripKind", tripKind == null ? "" : tripKind);
         client.post()
-                .uri("/api/v1/internal/orders/{orderId}/delivered", orderId)
+                .uri("/api/v1/internal/laundry-orders/{orderId}/agent-trip-complete", laundryOrderId)
                 .body(body)
                 .retrieve()
                 .toBodilessEntity();
+    }
+
+    public void recordLaundryAgentCash(UUID laundryOrderId, UUID agentUserId, String tripKind, String outcome) {
+        if (outcome == null || outcome.isBlank()) {
+            return;
+        }
+        RestClient client = restClientBuilder.baseUrl(orderServiceProperties.getBaseUrl()).build();
+        Map<String, Object> body = Map.of(
+                "agentUserId", agentUserId,
+                "tripKind", tripKind == null ? "" : tripKind,
+                "outcome", outcome.trim().toUpperCase());
+        client.post()
+                .uri("/api/v1/internal/laundry-orders/{orderId}/agent-cash", laundryOrderId)
+                .body(body)
+                .retrieve()
+                .toBodilessEntity();
+    }
+
+    public LaundryAgentCollect getLaundryAgentCollect(UUID laundryOrderId, String tripKind) {
+        RestClient client = restClientBuilder.baseUrl(orderServiceProperties.getBaseUrl()).build();
+        String kind = tripKind == null || tripKind.isBlank() ? "DROP_TO_CUSTOMER" : tripKind;
+        ApiResponse<Map<String, Object>> response = client.get()
+                .uri("/api/v1/internal/laundry-orders/{orderId}/agent-collect?tripKind={tripKind}",
+                        laundryOrderId, kind)
+                .retrieve()
+                .body(new ParameterizedTypeReference<ApiResponse<Map<String, Object>>>() {});
+        if (response == null || response.getData() == null) {
+            throw new IllegalStateException("Laundry collect snapshot missing");
+        }
+        Map<String, Object> data = response.getData();
+        return new LaundryAgentCollect(
+                strVal(data.get("paymentMethod")),
+                decimalVal(data.get("collectCashAmount")),
+                strVal(data.get("paymentStatus")),
+                strVal(data.get("laundryStatus")),
+                strVal(data.get("laundryStatusLabel")));
+    }
+
+    public record LaundryAgentCollect(
+            String paymentMethod,
+            java.math.BigDecimal collectCashAmount,
+            String paymentStatus,
+            String laundryStatus,
+            String laundryStatusLabel) {
     }
 
     public record SubOrderSnapshot(

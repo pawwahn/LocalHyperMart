@@ -279,6 +279,17 @@ public class SettlementController {
                 "items", settlementService.listSentSubscriptionBills(vendorId))));
     }
 
+    /** Admin sends a draft shop-fee bill that was created without issuing the invoice yet. */
+    @PostMapping("/admin/vendor-bills/{settlementId}/send")
+    public ResponseEntity<ApiResponse<SettlementResponse>> sendVendorCollectionBill(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @PathVariable UUID settlementId,
+            HttpServletRequest httpRequest) {
+        requireSuperAdmin(principal);
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                settlementService.sendVendorCollectionBill(principal.getUserId(), settlementId)));
+    }
+
     /** Admin confirms a vendor-reported payment on a bill (shop-cash commission / extra charge). */
     @PostMapping("/admin/vendor-bills/{settlementId}/confirm")
     public ResponseEntity<ApiResponse<SettlementResponse>> confirmVendorBillPayment(

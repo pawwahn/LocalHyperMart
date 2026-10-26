@@ -23,6 +23,8 @@ import org.springframework.util.StringUtils;
 
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.util.Comparator;
+import java.util.Locale;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -63,9 +65,10 @@ public class TownAdService {
     @Transactional(readOnly = true)
     public TownAdsResponse listPublicAds(UUID townId) {
         requireTown(townId);
+        List<TownAd> townAds = townAdRepository.findByTownIdOrderBySlotAscSlotIndexAsc(townId);
         Map<AdKey, TownAd> merged = new LinkedHashMap<>();
         Set<AdKey> locallyHidden = new HashSet<>();
-        for (TownAd ad : townAdRepository.findByTownIdOrderBySlotAscSlotIndexAsc(townId)) {
+        for (TownAd ad : townAds) {
             AdKey key = new AdKey(ad.getSlot(), ad.getSlotIndex());
             if (ad.isEnabled() && isRenderable(ad)) {
                 merged.put(key, ad);
@@ -84,22 +87,29 @@ public class TownAdService {
             }
             merged.putIfAbsent(key, ad);
         }
-        Set<AdKey> bookedToday = staysCovering(townId, LocalDate.now(IST));
-        merged.keySet().retainAll(bookedToday);
-        List<TownAdResponse> items = merged.values().stream().map(ad -> toResponse(ad, List.of(ad.getTownId()))).toList();
-        return TownAdsResponse.builder().townId(townId).items(items).build();
-    }
 
-    /** A creative is on the buyer app only while a company holds that room for today. */
-    private Set<AdKey> staysCovering(UUID townId, LocalDate day) {
-        Set<AdKey> open = new HashSet<>();
-        for (AdInvoice stay : adInvoiceRepository.findActiveInRange(day, day, null, LIVE_STAYS)) {
+        LocalDate today = LocalDate.now(IST);
+        List<TownAdResponse> items = new ArrayList<>();
+        Set<UUID> usedCreativeIds = new HashSet<>();
+        for (AdInvoice stay : adInvoiceRepository.findActiveInRange(today, today, null, LIVE_STAYS)) {
             if (!stayCoversTown(stay, townId)) {
                 continue;
             }
-            open.add(new AdKey(stay.getSlot(), stay.getSlotIndex()));
+            AdKey bookedKey = new AdKey(stay.getSlot(), stay.getSlotIndex());
+            if (locallyHidden.contains(bookedKey)) {
+                continue;
+            }
+            TownAd creative = merged.get(bookedKey);
+            if (creative == null || !creative.isEnabled() || !isRenderable(creative)) {
+                continue;
+            }
+            if (!usedCreativeIds.add(creative.getId())) {
+                continue;
+            }
+            items.add(toResponse(creative, List.of(creative.getTownId()), stay.getSlotIndex()));
         }
-        return open;
+        items.sort(Comparator.comparing(TownAdResponse::getSlot).thenComparingInt(TownAdResponse::getSlotIndex));
+        return TownAdsResponse.builder().townId(townId).items(items).build();
     }
 
     private boolean stayCoversTown(AdInvoice stay, UUID townId) {
@@ -362,6 +372,10 @@ public class TownAdService {
     }
 
     private TownAdResponse toResponse(TownAd ad, List<UUID> targetTownIds) {
+        return toResponse(ad, targetTownIds, ad.getSlotIndex());
+    }
+
+    private TownAdResponse toResponse(TownAd ad, List<UUID> targetTownIds, int slotIndex) {
         List<TownAdImageDto> images = readImages(ad);
         String imageUrl = images.isEmpty() ? ad.getImageUrl() : images.get(0).getUrl();
         UUID mediaId = ad.getImageMediaId();
@@ -373,7 +387,7 @@ public class TownAdService {
                 .townId(ad.getTownId())
                 .slot(ad.getSlot())
                 .slotKey(toSlotKey(ad.getSlot()))
-                .slotIndex(ad.getSlotIndex())
+                .slotIndex(slotIndex)
                 .shopName(ad.getShopName())
                 .headline(ad.getHeadline())
                 .bodyText(ad.getBodyText())

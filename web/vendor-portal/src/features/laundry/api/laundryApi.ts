@@ -9,6 +9,8 @@ export type LaundryProfile = {
   priceEditAllowed: boolean;
   dailyPieceCapacity?: number | null;
   closedWeekdays?: string | null;
+  blockedPickupDate?: string | null;
+  blockedPickupSlots?: string | null;
   pickupCharge?: number | null;
   dropCharge?: number | null;
   pickupAndDropCharge?: number | null;
@@ -29,6 +31,8 @@ export type LaundryOrder = {
   goodsAmount: number;
   logisticsCharge?: number | null;
   amountCollected: number;
+  agentCashPickupReport?: string | null;
+  agentCashDropReport?: string | null;
   platformFeeAmount: number;
   codFee?: number | null;
   pieceCount: number;
@@ -36,8 +40,11 @@ export type LaundryOrder = {
   addressText: string;
   contactName?: string | null;
   contactPhone?: string | null;
-  pickupSlotStart?: string | null;
-  pickupSlotEnd?: string | null;
+  tripAgentId?: string | null;
+  tripAgentName?: string | null;
+  tripAgentPhone?: string | null;
+  requestedPickupStart?: string | null;
+  requestedPickupEnd?: string | null;
   pickupSlotStart?: string | null;
   pickupSlotEnd?: string | null;
   estimatedReadyAt?: string | null;
@@ -57,9 +64,9 @@ export type LaundryOrder = {
   }>;
 };
 
-import { LAUNDRY_ITEMS, LAUNDRY_SERVICES } from '@hlm-laundry';
+import { LAUNDRY_ITEMS, LAUNDRY_SERVICES, PICKUP_SLOTS, parseBlockedSlotIds } from '@hlm-laundry';
 
-export { LAUNDRY_ITEMS, LAUNDRY_SERVICES };
+export { LAUNDRY_ITEMS, LAUNDRY_SERVICES, PICKUP_SLOTS, parseBlockedSlotIds };
 
 export const WEEKDAYS = ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY'] as const;
 
@@ -87,6 +94,19 @@ export function laundryPayLabel(status: string): string {
   return status;
 }
 
+/** Agent-reported cash at pickup or drop (vendor-facing copy). */
+export function laundryAgentCashVendorNote(
+  pickup?: string | null,
+  drop?: string | null,
+): string | null {
+  if (pickup === 'NOT_COLLECTED') {
+    return 'Agent: cash not collected at pickup — mark Payment received when the customer pays at the shop.';
+  }
+  if (pickup === 'COLLECTED') return 'Agent: cash collected at pickup.';
+  if (drop === 'COLLECTED') return 'Agent: cash collected on delivery.';
+  return null;
+}
+
 export async function fetchMyLaundry(token: string): Promise<LaundryProfile> {
   return apiRequest<LaundryProfile>('/api/v1/vendors/me/laundry', { token });
 }
@@ -105,7 +125,12 @@ export async function saveLaundryRates(
 
 export async function saveLaundryOps(
   token: string,
-  body: { dailyPieceCapacity?: number; clearDailyPieceCapacity?: boolean; closedWeekdays: string },
+  body: {
+    dailyPieceCapacity?: number;
+    clearDailyPieceCapacity?: boolean;
+    closedWeekdays?: string;
+    blockedPickupSlots?: string;
+  },
 ): Promise<LaundryProfile> {
   return apiRequest<LaundryProfile>('/api/v1/vendors/me/laundry/ops', { method: 'PUT', token, body });
 }
@@ -123,6 +148,7 @@ export async function actOnLaundryOrder(
     pickupSlotStart?: string;
     pickupSlotEnd?: string;
     estimatedReadyAt?: string;
+    agentId?: string;
     lines?: Array<{ lineId: string; confirmedQuantity?: number; unitPrice?: number; conditionNote?: string }>;
   },
 ): Promise<LaundryOrder> {

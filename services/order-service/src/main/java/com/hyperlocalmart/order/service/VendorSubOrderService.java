@@ -42,6 +42,7 @@ public class VendorSubOrderService {
     private final DeliveryClient deliveryClient;
     private final TownClient townClient;
     private final OrderMoneyUnwindService orderMoneyUnwindService;
+    private final OrderTotalsSyncService orderTotalsSyncService;
 
     @Transactional(readOnly = true)
     public PageResponse<VendorSubOrderResponse> listSubOrders(UUID vendorId, VendorSubOrderStatus status, int page, int size) {
@@ -649,13 +650,7 @@ public class VendorSubOrderService {
             newItemsSubtotal = BigDecimal.ZERO;
         }
         order.setItemsSubtotal(newItemsSubtotal);
-        boolean empty = newItemsSubtotal.compareTo(BigDecimal.ZERO) == 0;
-        if (empty) {
-            order.setDeliveryFee(BigDecimal.ZERO);
-            order.setPlatformFee(BigDecimal.ZERO);
-            order.setCodFee(BigDecimal.ZERO);
-        }
-        order.setTotalAmount(OrderService.buyerPayableTotal(order));
+        orderTotalsSyncService.syncAfterLineChange(order);
         orderRepository.save(order);
     }
 

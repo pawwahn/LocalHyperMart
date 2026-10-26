@@ -2,6 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties }
 import { useAuth } from '@/shared/auth/AuthContext';
 import { ApiError } from '@/shared/api/http';
 import { Button, Card } from '@/shared/ui';
+import { ConfirmDialog } from '@/features/orders/components/ConfirmDialog';
+import { AssignVendorAgentDialog } from '@/features/delivery/components/AssignVendorAgentDialog';
+import { useVendorShop } from '@/features/shop/hooks/useVendorShop';
+import { LaundryCustomerNote } from '@hlm-laundry';
 import {
   actOnLaundryOrder,
   fetchVendorLaundryOrders,
@@ -9,6 +13,7 @@ import {
   laundryPayLabel,
   laundryServiceLabel,
   laundryTripLabel,
+  laundryAgentCashVendorNote,
   type LaundryOrder,
 } from '../api/laundryApi';
 
@@ -42,6 +47,49 @@ const TRACK = ['Sent', 'Pickup', 'Shop', 'Ready', 'Done'] as const;
 
 type Filter = 'open' | 'due' | 'done';
 
+type PendingConfirm = {
+  title: string;
+  description: string;
+  danger?: boolean;
+  confirmLabel?: string;
+  onConfirm: () => void;
+};
+
+function actionConfirm(action: string, order: LaundryOrder, run: () => void): PendingConfirm {
+  const label = ACTION_LABEL[action] ?? action;
+  if (action === 'CANCEL') {
+    return {
+      title: 'Reject this order?',
+      description: 'The customer gets wallet credit for what they paid. This cannot be undone.',
+      danger: true,
+      confirmLabel: 'Yes, reject',
+      onConfirm: run,
+    };
+  }
+  if (action === 'SETTLE_PAYMENT') {
+    return {
+      title: 'Payment received?',
+      description: `Mark cash as collected for ${order.orderNumber}.`,
+      confirmLabel: 'Yes, received',
+      onConfirm: run,
+    };
+  }
+  if (action === 'SET_ESTIMATE') {
+    return {
+      title: 'Save estimate?',
+      description: `Update ready time for ${order.orderNumber}.`,
+      confirmLabel: 'Save',
+      onConfirm: run,
+    };
+  }
+  return {
+    title: `${label}?`,
+    description: `${label} for order ${order.orderNumber}.`,
+    confirmLabel: label,
+    onConfirm: run,
+  };
+}
+
 function rupee(value: number): string {
   const amount = Number(value) || 0;
   return Number.isInteger(amount) ? `₹${amount}` : `₹${amount.toFixed(2)}`;
@@ -55,24 +103,54 @@ function lineSignature(order: LaundryOrder): string {
   return order.lines.map((line) => `${line.id}:${line.confirmedQuantity}:${line.conditionNote ?? ''}`).join('|');
 }
 
+/** Customer pickup not done yet — shop assigns agent; no “Picked up” / cash settle on card. */
+function isPickupScheduledPhase(order: LaundryOrder): boolean {
+  const needsPickup = order.logistics === 'PICKUP_AND_DROP' || order.logistics === 'PICKUP_ONLY';
+  return needsPickup && order.status === 'PICKUP_SCHEDULED';
+}
+
 function stepIndex(status: string): number {
   if (status === 'REQUESTED') return 0;
-  if (status === 'ACCEPTED' || status === 'PICKUP_SCHEDULED' || status === 'PICKED_UP') return 1;
-  if (status === 'AT_SHOP' || status === 'IN_PROCESS') return 2;
+  if (status === 'ACCEPTED' || status === 'PICKUP_SCHEDULED') return 1;
+  if (status === 'PICKED_UP' || status === 'AT_SHOP' || status === 'IN_PROCESS') return 2;
   if (status === 'READY' || status === 'OUT_FOR_DROP') return 3;
   if (status === 'DELIVERED') return 4;
   return -1;
+}
+
+function istHour(when: Date): number {
+  return Number(new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Kolkata', hour: 'numeric', hour12: false }).format(when));
+}
+
+function clockLabel(hour: number): string {
+  const h = ((hour % 24) + 24) % 24;
+  if (h === 0) return '12 AM';
+  if (h === 12) return '12 PM';
+  if (h < 12) return `${h} AM`;
+  return `${h - 12} PM`;
+}
+
+function mapsSearchUrl(address: string): string {
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address.trim())}`;
 }
 
 function slotLabel(start?: string | null, end?: string | null): string {
   if (!start) return '';
   const from = new Date(start);
   if (Number.isNaN(from.getTime())) return '';
-  const day = from.toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
-  if (!end) return day;
-  const to = new Date(end);
-  if (Number.isNaN(to.getTime())) return day;
-  return `${day} – ${to.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' })}`;
+  const startClock = clockLabel(istHour(from));
+  const to = end ? new Date(end) : null;
+  let time = startClock;
+  if (to && !Number.isNaN(to.getTime())) {
+    const endClock = clockLabel(istHour(to));
+    const startPeriod = startClock.slice(-2);
+    const endPeriod = endClock.slice(-2);
+    time = startPeriod === endPeriod
+      ? `${startClock.slice(0, -3)}–${endClock}`
+      : `${startClock}–${endClock}`;
+  }
+  const day = new Intl.DateTimeFormat('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short' }).format(from);
+  return `${day} · ${time}`;
 }
 
 function statusTone(status: string): CSSProperties {
@@ -83,48 +161,69 @@ function statusTone(status: string): CSSProperties {
   return styles.statusWork;
 }
 
-export function LaundryRequests() {
+export function LaundryRequests({ active = true, reloadToken = 0 }: { active?: boolean; reloadToken?: number }) {
   const { session } = useAuth();
+  const { shop } = useVendorShop();
   const token = session?.accessToken ?? '';
   const [orders, setOrders] = useState<LaundryOrder[]>([]);
   const [baseline, setBaseline] = useState<Record<string, string>>({});
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const [filter, setFilter] = useState<Filter>('open');
   const [estimates, setEstimates] = useState<Record<string, string>>({});
-  const [comments, setComments] = useState<Record<string, string>>({});
   const [scheduleFor, setScheduleFor] = useState<string | null>(null);
   const [slotStart, setSlotStart] = useState('');
   const [slotEnd, setSlotEnd] = useState('');
   const [actingId, setActingId] = useState<string | null>(null);
+  const [assignOrder, setAssignOrder] = useState<LaundryOrder | null>(null);
+  const [confirm, setConfirm] = useState<PendingConfirm | null>(null);
+  const [copyHint, setCopyHint] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const seen = useRef(new Set<string>());
 
+  const agentScope = useMemo(() => {
+    if (!session?.accessToken || !session.vendorId || !shop?.shopId || !shop?.townId) return null;
+    return {
+      token: session.accessToken,
+      vendorId: session.vendorId,
+      shopId: shop.shopId,
+      townId: shop.townId,
+    };
+  }, [session?.accessToken, session?.vendorId, shop?.shopId, shop?.townId]);
+
   const remember = useCallback((rows: LaundryOrder[]) => {
     setOrders(rows);
     setBaseline(Object.fromEntries(rows.map((order) => [order.id, lineSignature(order)])));
-    const fresh = rows.filter((order) => order.status === 'REQUESTED' && !seen.current.has(order.id));
+    const fresh = rows.filter((order) =>
+      (order.status === 'REQUESTED' || order.status === 'PICKUP_SCHEDULED' || order.status === 'ACCEPTED')
+      && !seen.current.has(order.id));
     rows.forEach((order) => seen.current.add(order.id));
     if (fresh.length > 0) {
       setExpanded((prev) => new Set([...prev, ...fresh.map((order) => order.id)]));
     }
   }, []);
 
-  const load = useCallback(() => {
+  const load = useCallback((silent = false) => {
     if (!token) {
       setLoading(false);
       return;
     }
-    setLoading(true);
+    if (!silent) setLoading(true);
     void fetchVendorLaundryOrders(token)
-      .then(remember)
+      .then((rows) => {
+        remember(Array.isArray(rows) ? rows : []);
+        setError(null);
+      })
       .catch((err) => setError(err instanceof ApiError || err instanceof Error ? err.message : 'Could not load requests'))
       .finally(() => setLoading(false));
   }, [remember, token]);
 
   useEffect(() => {
-    load();
-  }, [load]);
+    if (!active) return;
+    load(false);
+    const id = window.setInterval(() => load(true), 10_000);
+    return () => window.clearInterval(id);
+  }, [active, load, reloadToken]);
 
   function patchLine(orderId: string, lineId: string, patch: Partial<LaundryOrder['lines'][number]>) {
     setOrders((prev) => prev.map((row) => row.id === orderId
@@ -159,9 +258,6 @@ export function LaundryRequests() {
         const raw = estimates[order.id];
         if (raw) body.estimatedReadyAt = new Date(raw).toISOString();
       }
-      if (action === 'SET_COMMENT') {
-        body.note = comments[order.id] ?? '';
-      }
       const next = await actOnLaundryOrder(token, order.id, body);
       setOrders((prev) => prev.map((row) => (row.id === order.id ? next : row)));
       setBaseline((prev) => ({ ...prev, [order.id]: lineSignature(next) }));
@@ -170,6 +266,35 @@ export function LaundryRequests() {
       setError(err instanceof ApiError || err instanceof Error ? err.message : 'Could not update request');
     } finally {
       setActingId(null);
+    }
+  }
+
+  async function assignTripAgent(order: LaundryOrder, agentId: string) {
+    if (!token) return;
+    if (actingId != null && actingId !== order.id) {
+      setError('Finish the other ticket action first, then assign again.');
+      return;
+    }
+    setError(null);
+    setActingId(order.id);
+    try {
+      const next = await actOnLaundryOrder(token, order.id, { action: 'ASSIGN_AGENT', agentId });
+      setOrders((prev) => prev.map((row) => (row.id === order.id ? next : row)));
+    } catch (err) {
+      setError(err instanceof ApiError || err instanceof Error ? err.message : 'Could not assign agent');
+    } finally {
+      setActingId(null);
+    }
+  }
+
+  async function copyAddress(order: LaundryOrder) {
+    if (!order.addressText?.trim()) return;
+    try {
+      await navigator.clipboard.writeText(order.addressText.trim());
+      setCopyHint(order.id);
+      window.setTimeout(() => setCopyHint((prev) => (prev === order.id ? null : prev)), 2000);
+    } catch {
+      setError('Could not copy address');
     }
   }
 
@@ -234,10 +359,22 @@ export function LaundryRequests() {
         const pieces = order.lines.reduce((sum, line) => sum + Number(line.confirmedQuantity || 0), 0);
         const pieceTotal = order.lines.reduce((sum, line) => sum + Number(line.unitPrice) * Number(line.confirmedQuantity || 0), 0);
         const liveCollect = pieceTotal + trip + Number(order.platformFeeAmount || 0) + Number(order.codFee || 0);
-        const primary = NEXT_STEP.find((action) => order.allowedActions.includes(action));
-        const extras = order.allowedActions.filter((action) => action !== 'ADJUST' && action !== 'CANCEL' && action !== primary);
+        const pickupScheduledPhase = isPickupScheduledPhase(order);
+        const primary = pickupScheduledPhase
+          ? undefined
+          : NEXT_STEP.find((action) => order.allowedActions.includes(action));
+        const extras = pickupScheduledPhase
+          ? []
+          : order.allowedActions.filter((action) =>
+              action !== 'ADJUST'
+              && action !== 'CANCEL'
+              && action !== 'ASSIGN_AGENT'
+              && action !== primary);
         const step = stepIndex(order.status);
-        const pickup = slotLabel(order.pickupSlotStart, order.pickupSlotEnd);
+        const pickup = slotLabel(
+          order.pickupSlotStart ?? order.requestedPickupStart,
+          order.pickupSlotEnd ?? order.requestedPickupEnd,
+        );
         const busy = actingId === order.id;
         return (
           <Card
@@ -269,6 +406,12 @@ export function LaundryRequests() {
                   <span>{pieces} {pieces === 1 ? 'piece' : 'pieces'}</span>
                   <span>·</span>
                   <span>{laundryTripLabel(order.logistics)}</span>
+                  {pickup ? (
+                    <>
+                      <span>·</span>
+                      <span style={styles.slotOnHead}>{pickup}</span>
+                    </>
+                  ) : null}
                   <span>·</span>
                   <span>{order.paymentMethod === 'UPI' ? 'UPI' : 'Cash'} {laundryPayLabel(order.paymentStatus).toLowerCase()}</span>
                 </span>
@@ -293,11 +436,49 @@ export function LaundryRequests() {
                   ) : null}
                 </p>
                 {order.addressText ? <p style={styles.address}>{order.addressText}</p> : null}
+                {order.addressText ? (
+                  <div style={styles.navigate}>
+                    <a
+                      href={mapsSearchUrl(order.addressText)}
+                      target="_blank"
+                      rel="noreferrer"
+                      style={styles.mapLink}
+                    >
+                      Open in Maps
+                    </a>
+                    <button type="button" style={styles.textBtn} onClick={() => void copyAddress(order)}>
+                      {copyHint === order.id ? 'Copied' : 'Copy address'}
+                    </button>
+                    {order.tripAgentName ? (
+                      <span style={styles.agentChip}>
+                        Trip agent:{' '}
+                        <strong>{order.tripAgentName}</strong>
+                        {order.tripAgentPhone ? (
+                          <>
+                            {' · '}
+                            <a href={`tel:${order.tripAgentPhone}`} style={styles.phone}>{order.tripAgentPhone}</a>
+                          </>
+                        ) : null}
+                      </span>
+                    ) : (
+                      <span style={styles.navigateHint}>
+                        Share Maps with your staff, or assign an agent on the right.
+                      </span>
+                    )}
+                  </div>
+                ) : null}
                 <p style={styles.chips}>
                   <span style={styles.chip}>{laundryTripLabel(order.logistics)}</span>
                   {pickup ? <span style={styles.chip}>Pickup {pickup}</span> : null}
                 </p>
-                {order.specialInstructions ? <p style={styles.noteLine}>{order.specialInstructions}</p> : null}
+                {laundryAgentCashVendorNote(order.agentCashPickupReport, order.agentCashDropReport) ? (
+                  <p style={styles.agentCashNote}>
+                    {laundryAgentCashVendorNote(order.agentCashPickupReport, order.agentCashDropReport)}
+                  </p>
+                ) : null}
+                {order.paymentMethod !== 'UPI' && order.paymentStatus === 'COLLECTED' ? (
+                  <p style={styles.vendorPaidNote}>Payment received marked by Vendor</p>
+                ) : null}
                 <ul style={styles.lines}>
                   {order.lines.map((line) => {
                     const name = laundryItemLabel(line.itemType, line.otherLabel);
@@ -330,41 +511,115 @@ export function LaundryRequests() {
                   <strong>{order.paymentMethod === 'UPI' ? 'Paid online' : 'Collect'}</strong>
                   <strong>{rupee(liveCollect)}</strong>
                 </div>
-                <p style={styles.noteLine}>Customer: {order.buyerComment || order.specialInstructions || 'No comment'}</p>
+                <LaundryCustomerNote note={order.specialInstructions || order.buyerComment} />
                 <label style={styles.field}>
                   Estimated ready
                   <input style={styles.input} type="datetime-local" value={estimates[order.id] ?? ''} onChange={(e) => setEstimates((prev) => ({ ...prev, [order.id]: e.target.value }))} />
                 </label>
-                <label style={styles.field}>
-                  Shop comment
-                  <input style={styles.input} maxLength={400} value={comments[order.id] ?? ''} placeholder="Noted at pickup or handover" onChange={(e) => setComments((prev) => ({ ...prev, [order.id]: e.target.value }))} />
-                </label>
                 <div style={styles.slotRow}>
-                  <Button variant="secondary" size="sm" disabled={busy} onClick={() => void act(order, 'SET_ESTIMATE')}>Save estimate</Button>
-                  <Button variant="secondary" size="sm" disabled={busy} onClick={() => void act(order, 'SET_COMMENT')}>Save comment</Button>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    disabled={busy}
+                    onClick={() => setConfirm(actionConfirm('SET_ESTIMATE', order, () => void act(order, 'SET_ESTIMATE')))}
+                  >
+                    Save estimate
+                  </Button>
                 </div>
               </div>
             ) : null}
             <div style={styles.actions}>
-              {primary ? (
-                <Button size="sm" disabled={busy} style={styles.primary} onClick={() => void act(order, primary)}>
-                  {busy ? '…' : ACTION_LABEL[primary]}
-                </Button>
-              ) : null}
-              {extras.filter((action) => !['SET_ESTIMATE', 'SET_COMMENT', 'ADJUST', 'SCHEDULE_PICKUP', 'ACCEPT'].includes(action)).map((action) => (
-                <Button key={action} variant="ghost" size="sm" disabled={busy} onClick={() => void act(order, action)}>
-                  {ACTION_LABEL[action] ?? action}
-                </Button>
-              ))}
-              {order.allowedActions.includes('CANCEL') ? (
-                <Button variant="danger" size="sm" disabled={busy} onClick={() => void act(order, 'CANCEL')}>
-                  Reject order
+              <div style={styles.actionsMain}>
+                {primary ? (
+                  <Button
+                    size="sm"
+                    disabled={busy}
+                    style={styles.primary}
+                    onClick={() => setConfirm(actionConfirm(primary, order, () => void act(order, primary)))}
+                  >
+                    {busy ? '…' : ACTION_LABEL[primary]}
+                  </Button>
+                ) : null}
+                {extras.filter((action) => !['SET_ESTIMATE', 'SET_COMMENT', 'ADJUST', 'SCHEDULE_PICKUP', 'ACCEPT'].includes(action)).map((action) => (
+                  <Button
+                    key={action}
+                    variant="ghost"
+                    size="sm"
+                    disabled={busy}
+                    onClick={() => setConfirm(actionConfirm(action, order, () => void act(order, action)))}
+                  >
+                    {ACTION_LABEL[action] ?? action}
+                  </Button>
+                ))}
+                {order.allowedActions.includes('CANCEL') ? (
+                  <Button
+                    variant="danger"
+                    size="sm"
+                    disabled={busy}
+                    onClick={() => setConfirm(actionConfirm('CANCEL', order, () => void act(order, 'CANCEL')))}
+                  >
+                    Reject order
+                  </Button>
+                ) : null}
+              </div>
+              {order.allowedActions.includes('ASSIGN_AGENT') ? (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  disabled={busy || !agentScope}
+                  style={styles.assignAgent}
+                  onClick={() => setConfirm({
+                    title: order.tripAgentId ? 'Reassign agent?' : 'Assign agent?',
+                    description: `Choose a delivery agent for ${order.orderNumber}. They will see the customer address and your shop name.`,
+                    confirmLabel: 'Continue',
+                    onConfirm: () => setAssignOrder(order),
+                  })}
+                >
+                  {order.tripAgentId ? 'Reassign agent' : 'Assign agent'}
                 </Button>
               ) : null}
             </div>
           </Card>
         );
       })}
+      <ConfirmDialog
+        open={confirm != null}
+        title={confirm?.title ?? ''}
+        description={confirm?.description ?? ''}
+        confirmLabel={confirm?.confirmLabel}
+        danger={confirm?.danger}
+        busy={actingId != null}
+        onClose={() => {
+          if (actingId) return;
+          setConfirm(null);
+        }}
+        onConfirm={() => {
+          const run = confirm?.onConfirm;
+          setConfirm(null);
+          run?.();
+        }}
+      />
+      <AssignVendorAgentDialog
+        open={assignOrder != null}
+        title="Assign trip agent"
+        confirmLabel="Assign agent"
+        subOrderLabel={
+          assignOrder
+            ? `${assignOrder.orderNumber} · ${assignOrder.contactName || 'Customer'}${assignOrder.addressText ? ` · ${assignOrder.addressText}` : ''}`
+            : ''
+        }
+        scope={agentScope}
+        busy={actingId != null && assignOrder != null && actingId === assignOrder.id}
+        onClose={() => {
+          if (actingId) return;
+          setAssignOrder(null);
+        }}
+        onConfirm={(agentId) => {
+          if (!assignOrder) return;
+          const order = assignOrder;
+          void assignTripAgent(order, agentId).then(() => setAssignOrder(null));
+        }}
+      />
     </section>
   );
 }
@@ -415,6 +670,7 @@ const styles: Record<string, CSSProperties> = {
   titleRow: { display: 'flex', gap: '0.4rem', alignItems: 'center', flexWrap: 'wrap' },
   orderNo: { fontSize: '0.95rem' },
   summary: { display: 'flex', gap: '0.35rem', flexWrap: 'wrap', color: 'var(--text-muted)', fontSize: '0.78rem', fontWeight: 650 },
+  slotOnHead: { color: 'var(--text)', fontWeight: 800 },
   pill: {
     fontSize: '0.65rem',
     fontWeight: 800,
@@ -437,6 +693,16 @@ const styles: Record<string, CSSProperties> = {
   who: { margin: 0, display: 'flex', gap: '0.45rem', flexWrap: 'wrap', alignItems: 'baseline', fontSize: '0.86rem' },
   phone: { color: 'var(--accent-hover)', fontWeight: 800, fontSize: '0.82rem' },
   address: { margin: 0, color: 'var(--text-muted)', fontSize: '0.78rem' },
+  navigate: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: '0.45rem 0.65rem',
+    alignItems: 'center',
+    fontSize: '0.78rem',
+  },
+  mapLink: { color: 'var(--accent-hover)', fontWeight: 800, textDecoration: 'none' },
+  navigateHint: { color: 'var(--text-muted)', fontWeight: 650, flex: '1 1 12rem' },
+  agentChip: { color: 'var(--text-muted)', flex: '1 1 12rem' },
   chips: { margin: 0, display: 'flex', gap: '0.3rem', flexWrap: 'wrap' },
   chip: {
     fontSize: '0.7rem',
@@ -447,6 +713,28 @@ const styles: Record<string, CSSProperties> = {
     border: '1px solid var(--border)',
   },
   noteLine: { margin: 0, fontSize: '0.78rem', fontWeight: 700 },
+  agentCashNote: {
+    margin: 0,
+    padding: '0.35rem 0.45rem',
+    borderRadius: 8,
+    fontSize: '0.76rem',
+    fontWeight: 650,
+    lineHeight: 1.35,
+    background: 'color-mix(in srgb, var(--warning-soft, #fef3c7) 80%, transparent)',
+    border: '1px solid #fde68a',
+    color: '#92400e',
+  },
+  vendorPaidNote: {
+    margin: 0,
+    padding: '0.35rem 0.45rem',
+    borderRadius: 8,
+    fontSize: '0.76rem',
+    fontWeight: 700,
+    lineHeight: 1.35,
+    background: 'color-mix(in srgb, var(--accent) 12%, transparent)',
+    border: '1px solid color-mix(in srgb, var(--accent) 28%, transparent)',
+    color: 'var(--accent-hover)',
+  },
   lines: { listStyle: 'none', margin: 0, padding: '0.35rem 0.45rem', display: 'grid', gap: '0.4rem', borderRadius: 'var(--radius-md)', border: '1px solid var(--border)', background: 'var(--bg)' },
   line: { display: 'flex', flexWrap: 'wrap', gap: '0.35rem 0.5rem', alignItems: 'center' },
   stepper: { display: 'inline-flex', alignItems: 'center', border: '1px solid var(--border)', borderRadius: 999, background: '#fff', colorScheme: 'light', overflow: 'hidden' },
@@ -486,10 +774,13 @@ const styles: Record<string, CSSProperties> = {
     flexWrap: 'wrap',
     gap: '0.4rem',
     alignItems: 'center',
+    justifyContent: 'space-between',
     padding: '0.5rem 0.7rem',
     borderTop: '1px solid var(--border)',
     background: 'color-mix(in srgb, var(--bg) 55%, var(--bg-elevated))',
   },
+  actionsMain: { display: 'flex', flexWrap: 'wrap', gap: '0.4rem', alignItems: 'center', flex: '1 1 auto' },
+  assignAgent: { marginLeft: 'auto', flexShrink: 0 },
   primary: { minHeight: 44 },
   empty: { display: 'grid', gap: '0.15rem', padding: '0.7rem 0.8rem' },
   muted: { color: 'var(--text-muted)', fontSize: '0.78rem' },
