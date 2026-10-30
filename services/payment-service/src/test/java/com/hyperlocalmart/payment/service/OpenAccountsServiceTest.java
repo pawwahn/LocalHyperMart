@@ -16,6 +16,7 @@ import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
@@ -250,6 +251,41 @@ class OpenAccountsServiceTest {
     }
 
     @Test
+    void glamShopHeldAndOnlineSlice_producesSendBillAndPayLines() {
+        UUID beautyVendor = UUID.fromString("c96f4110-c577-4c55-a4a6-abf4a79928c4");
+        UUID chirala = UUID.fromString("a8e7366c-2bd8-4376-b18b-7ba110f4d69f");
+        UUID visitBag = UUID.fromString("1e3b3524-f51c-4f1c-965d-6a110010027b");
+        UUID onlineBag = UUID.nameUUIDFromBytes(("beauty-online:" + visitBag).getBytes(StandardCharsets.UTF_8));
+
+        when(orderClient.settlementBagKeys(any(), any())).thenReturn(List.of(
+                new OrderClient.BagKey(beautyVendor, chirala, visitBag),
+                new OrderClient.BagKey(beautyVendor, chirala, onlineBag)));
+        when(vendorClient.getVendorShopDisplayName(beautyVendor)).thenReturn("U V Beauty Parlour");
+        when(settlementService.listCandidates(eq(chirala), eq(beautyVendor), any(), any())).thenReturn(
+                SettlementCandidateView.builder()
+                        .vendorId(beautyVendor)
+                        .townId(chirala)
+                        .pendingClaimChargebacks(BigDecimal.ZERO)
+                        .items(List.of(
+                                glamBag(onlineBag, "G261026-0001 (UPI with KoyaKart)", "ONLINE", false, "47.95", "50.00"),
+                                glamBag(visitBag, "G261026-0001", "COD", true, "701.05", null)))
+                        .build());
+        when(vendorClient.quoteCommercialTerms(eq(beautyVendor), any(), any(), anyList(), eq(false), eq(true)))
+                .thenReturn(quote("701.05", "50.00", "651.05", "flat"));
+
+        List<OpenAccountsService.Line> lines = openAccountsService.scan(null, null);
+
+        assertThat(lines.stream().filter(l -> "U V Beauty Parlour".equals(l.partyName())).toList())
+                .hasSize(2);
+        assertThat(lines.stream().anyMatch(l -> "SEND_BILL".equals(l.action()) && l.partyName().equals("U V Beauty Parlour")))
+                .isTrue();
+        assertThat(lines.stream().anyMatch(l -> "PAY".equals(l.action())
+                && l.partyName().equals("U V Beauty Parlour")
+                && l.amount().compareTo(new BigDecimal("50.00")) == 0))
+                .isTrue();
+    }
+
+    @Test
     void alreadySettledBag_isLeftToTheSavedSettlement() {
         when(orderClient.deliveredVendorTowns(any(), any())).thenReturn(List.of(
                 new OrderClient.VendorTown(vendorId, townId)));
@@ -270,6 +306,31 @@ class OpenAccountsServiceTest {
                         .build());
 
         assertThat(openAccountsService.scan(null, null)).isEmpty();
+    }
+
+    private static SettlementCandidateView.Item glamBag(
+            UUID subOrderId,
+            String orderNumber,
+            String method,
+            boolean vendorAgent,
+            String subtotal,
+            String onlineRemittance) {
+        SettlementCandidateView.Item.ItemBuilder builder = SettlementCandidateView.Item.builder()
+                .subOrderId(subOrderId)
+                .orderId(subOrderId)
+                .orderNumber(orderNumber)
+                .paymentMethod(method)
+                .vendorAgentDelivery(vendorAgent)
+                .subtotal(new BigDecimal(subtotal))
+                .platformFee(new BigDecimal("2.00"))
+                .parlourPaymentFee(new BigDecimal("30.00"))
+                .placedAt(Instant.parse("2026-10-25T19:07:09Z"))
+                .deliveredAt(Instant.parse("2026-10-30T16:32:53Z"))
+                .alreadySettled(false);
+        if (onlineRemittance != null) {
+            builder.onlineRemittanceAmount(new BigDecimal(onlineRemittance));
+        }
+        return builder.build();
     }
 
     private static SettlementCandidateView.Item bag(

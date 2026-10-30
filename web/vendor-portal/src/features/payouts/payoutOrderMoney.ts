@@ -3,12 +3,13 @@ import {
   type OrderCashHolder,
   type VendorSettlement,
 } from '@/features/reports/api/payoutsApi';
-import { isShopHeldCash } from '@/features/payouts/vendorPayable';
+import { isShopHeldCash, koyaKartPayoutGross } from '@/features/payouts/vendorPayable';
 import type { SalesReportRow } from '@/features/reports/api/reportsApi';
 
 export function shopPassThroughFees(row: SalesReportRow): number {
   return (
     Number(row.platformFeeAmount ?? 0) +
+    Number(row.parlourPaymentFeeAmount ?? 0) +
     Number(row.codFeeAmount ?? 0) +
     Number(row.membershipFeeAmount ?? 0)
   );
@@ -75,7 +76,7 @@ export function computeOrderMoney(
     cashHolders: Record<string, OrderCashHolder | undefined>;
   },
 ): OrderMoney {
-  const amount = Number(row.subtotal ?? 0);
+  const amount = koyaKartPayoutGross(row);
   const paid = Boolean(ctx.payouts[row.subOrderId]?.paid);
   const settled = ctx.settled.map[row.subOrderId];
   const claim = ctx.settled.claims[row.subOrderId] ?? 0;

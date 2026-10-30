@@ -143,6 +143,8 @@ public class SettlementService {
                             .platformFee(item.platformFee())
                             .codFee(item.codFee())
                             .membershipFee(item.membershipFee())
+                            .parlourPaymentFee(item.parlourPaymentFee())
+                            .onlineRemittanceAmount(item.onlineRemittanceAmount())
                             .alreadySettled(settled.contains(item.subOrderId()))
                             .build();
                 })
@@ -305,9 +307,18 @@ public class SettlementService {
         if (membershipFees.signum() < 0) {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Membership charge cannot be negative");
         }
+        BigDecimal parlourFees = collection
+                ? resolved.stream()
+                .map(item -> item.parlourPaymentFee() == null ? BigDecimal.ZERO : item.parlourPaymentFee())
+                .reduce(BigDecimal.ZERO, BigDecimal::add)
+                .setScale(2, RoundingMode.HALF_UP)
+                : BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+        if (parlourFees.signum() < 0) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Parlour booking fee cannot be negative");
+        }
         BigDecimal net;
         if (collection) {
-            net = commission.add(platformFees).add(codFees).add(membershipFees).add(otherCharges);
+            net = commission.add(platformFees).add(codFees).add(membershipFees).add(parlourFees).add(otherCharges);
             if (net.compareTo(BigDecimal.ZERO) <= 0) {
                 throw new BusinessException(ErrorCode.VALIDATION_ERROR,
                         "Nothing to collect — no commission, platform fee, or extra charge on this batch. Monthly subscription is billed on the Subscription tab.");
@@ -336,7 +347,7 @@ public class SettlementService {
                         ? SettlementPeriodType.CUSTOM : request.getPeriodType())
                 .grossAmount(gross)
                 .commissionAmount(collection
-                        ? commission.add(platformFees).add(codFees).add(membershipFees)
+                        ? commission.add(platformFees).add(codFees).add(membershipFees).add(parlourFees)
                         : commission)
                 .netAmount(net)
                 .status(SettlementStatus.DRAFT)
@@ -414,6 +425,18 @@ public class SettlementService {
             membershipLine.setCreatedBy(actorId);
             membershipLine.setUpdatedBy(actorId);
             settlement.getLineItems().add(membershipLine);
+        }
+
+        if (collection && parlourFees.signum() > 0) {
+            SettlementLineItem parlourLine = SettlementLineItem.builder()
+                    .settlement(settlement)
+                    .lineType("PARLOUR_FEE")
+                    .amount(parlourFees)
+                    .description("Pay-at-parlour booking fee collected from shop-held cash")
+                    .build();
+            parlourLine.setCreatedBy(actorId);
+            parlourLine.setUpdatedBy(actorId);
+            settlement.getLineItems().add(parlourLine);
         }
 
         for (VendorSettlementAdjustment adj : pendingAdjustments) {
@@ -1463,6 +1486,8 @@ public class SettlementService {
                         ctx.paymentMethod(),
                         ctx.vendorAgentDelivery(),
                         BigDecimal.ZERO,
+                        null,
+                        null,
                         null,
                         null,
                         null,

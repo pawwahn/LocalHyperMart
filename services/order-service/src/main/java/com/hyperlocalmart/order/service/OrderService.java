@@ -123,9 +123,10 @@ public class OrderService {
 
     @Transactional(readOnly = true)
     public OrderInternalSnapshotResponse getOrderSnapshot(UUID orderId, UUID buyerId) {
-        Order order = orderRepository.findByIdAndBuyerId(orderId, buyerId)
-                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Order not found"));
-        return OrderInternalSnapshotResponse.builder()
+        var grocery = orderRepository.findByIdAndBuyerId(orderId, buyerId);
+        if (grocery.isPresent()) {
+            Order order = grocery.get();
+            return OrderInternalSnapshotResponse.builder()
                 .orderId(order.getId())
                 .buyerId(order.getBuyerId())
                 .townId(order.getTownId())
@@ -136,6 +137,10 @@ public class OrderService {
                 .totalAmount(buyerPayableTotal(order))
                 .buyerPhone(order.getBuyerPhoneSnapshot())
                 .build();
+        }
+        return beautyOrderService.paymentOrderSnapshot(orderId, buyerId)
+                .or(() -> laundryOrderService.paymentOrderSnapshot(orderId, buyerId))
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Order not found"));
     }
 
     @Transactional(readOnly = true)

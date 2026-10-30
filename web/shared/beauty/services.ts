@@ -96,7 +96,45 @@ export const BEAUTY_SERVICES = [
   },
 ] as const;
 
+export const BEAUTY_SERVICE_CATEGORIES = [
+  {
+    id: 'MAKEUP',
+    label: 'Makeup',
+    emoji: '💄',
+    serviceIds: ['NATURAL_GLOW', 'PARTY_GLAM', 'HD_CAMERA', 'BRIDAL_FULL'],
+  },
+  {
+    id: 'HAIR',
+    label: 'Hair & drape',
+    emoji: '💇',
+    serviceIds: ['HAIR_STYLING', 'SAREE_DRAPE'],
+  },
+  {
+    id: 'HANDS',
+    label: 'Hands & feet',
+    emoji: '💅',
+    serviceIds: ['MEHENDI', 'MANICURE', 'PEDICURE'],
+  },
+  {
+    id: 'SKIN',
+    label: 'Skin',
+    emoji: '🧖',
+    serviceIds: ['FACIAL', 'THREADING', 'WAXING'],
+  },
+] as const;
+
+export type BeautyServiceCategoryId = (typeof BEAUTY_SERVICE_CATEGORIES)[number]['id'];
+
 export type BeautyServiceId = (typeof BEAUTY_SERVICES)[number]['id'];
+
+export function beautyServicesInCategory(
+  categoryId: BeautyServiceCategoryId,
+): Array<(typeof BEAUTY_SERVICES)[number]> {
+  const row = BEAUTY_SERVICE_CATEGORIES.find((c) => c.id === categoryId);
+  if (!row) return [...BEAUTY_SERVICES];
+  const ids = new Set<string>(row.serviceIds);
+  return BEAUTY_SERVICES.filter((s) => ids.has(s.id));
+}
 
 export const BEAUTY_VENUES = [
   { id: 'AT_HOME', label: 'At my home', emoji: '🏠', hint: 'Artist travels to you' },

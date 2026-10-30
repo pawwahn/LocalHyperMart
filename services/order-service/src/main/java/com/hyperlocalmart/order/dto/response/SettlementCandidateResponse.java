@@ -46,5 +46,12 @@ public class SettlementCandidateResponse {
         BigDecimal codFee;
         /** Buyer membership / delivery plan on the order. Billed back when the shop holds the cash. */
         BigDecimal membershipFee;
+        /** Glam pay-at-parlour buyer fee (not town platform fee). Billed back when the shop holds visit cash. */
+        BigDecimal parlourPaymentFee;
+        /**
+         * SUCCESS UPI total KoyaKart must remit on Pay (glam online slice). Commission for the booking is billed
+         * on the paired visit / send-bill slice — do not quote per-order flat again on Pay.
+         */
+        BigDecimal onlineRemittanceAmount;
     }
 }

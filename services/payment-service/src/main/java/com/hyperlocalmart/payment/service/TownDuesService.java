@@ -67,46 +67,40 @@ public class TownDuesService {
     private final TownClient townClient;
     private final OpenAccountsService openAccountsService;
 
-    @Transactional(readOnly = true)
     public TownDuesResponse dues(LocalDate from, LocalDate to) {
         return dues(from, to, null);
     }
 
-    @Transactional(readOnly = true)
     public TownDuesResponse dues(LocalDate from, LocalDate to, UUID townId) {
+        return dues(from, to, townId, true);
+    }
+
+    /**
+     * Ledger rows (bills, settlements, hub COD) are fast DB reads.
+     * {@code includeOpenWork=false} skips the cross-service open scan so Accounts can paint immediately.
+     */
+    public TownDuesResponse dues(LocalDate from, LocalDate to, UUID townId, boolean includeOpenWork) {
+        return dues(from, to, townId, includeOpenWork, false);
+    }
+
+    /**
+     * @param openWorkOnly when true, skips ledger DB reads — use after a fast {@code includeOpenWork=false} load.
+     */
+    public TownDuesResponse dues(
+            LocalDate from, LocalDate to, UUID townId, boolean includeOpenWork, boolean openWorkOnly) {
         long started = System.nanoTime();
+        long ledgerMs = 0;
+        long openMs = 0;
         List<Draft> drafts = new ArrayList<>();
-        drafts.addAll(unbilledCod(from, to));
-        drafts.addAll(openHubBills(from, to));
-        drafts.addAll(openSettlements(from, to));
-        drafts.addAll(unbilledFranchise(from, to));
-        try {
-            for (OpenAccountsService.Line open : openAccountsService.scan(from, to, townId)) {
-                drafts.add(new Draft(
-                        open.townId(),
-                        open.party(),
-                        open.partyId(),
-                        open.partyName(),
-                        open.action(),
-                        open.what(),
-                        open.periodStart(),
-                        open.periodEnd(),
-                        open.amount(),
-                        open.itemCount(),
-                        open.reference(),
-                        open.detail(),
-                        open.commission(),
-                        open.platformFee(),
-                        open.codFee(),
-                        open.membershipFee(),
-                        open.penalty(),
-                        null,
-                        null,
-                        null,
-                        null));
-            }
-        } catch (RuntimeException ex) {
-            log.warn("Open accounts scan failed: {}", ex.toString());
+        if (!openWorkOnly) {
+            long t0 = System.nanoTime();
+            drafts.addAll(ledgerDrafts(from, to));
+            ledgerMs = (System.nanoTime() - t0) / 1_000_000;
+        }
+        if (includeOpenWork || openWorkOnly) {
+            long t0 = System.nanoTime();
+            drafts.addAll(openWorkDrafts(from, to, townId));
+            openMs = (System.nanoTime() - t0) / 1_000_000;
         }
 
         if (townId != null) {
@@ -149,12 +143,60 @@ public class TownDuesService {
                 .towns(towns)
                 .build();
         log.info(
-                "Town dues loaded in {} ms · towns={} lines={} townFilter={}",
+                "Town dues loaded in {} ms (ledger {} ms, open {} ms) · towns={} lines={} townFilter={} openWork={} openWorkOnly={}",
                 (System.nanoTime() - started) / 1_000_000,
+                ledgerMs,
+                openMs,
                 towns.size(),
                 towns.stream().mapToInt(t -> t.getLines().size()).sum(),
-                townId);
+                townId,
+                includeOpenWork,
+                openWorkOnly);
         return response;
+    }
+
+    @Transactional(readOnly = true)
+    List<Draft> ledgerDrafts(LocalDate from, LocalDate to) {
+        List<Draft> drafts = new ArrayList<>();
+        drafts.addAll(unbilledCod(from, to));
+        drafts.addAll(openHubBills(from, to));
+        drafts.addAll(openSettlements(from, to));
+        drafts.addAll(unbilledFranchise(from, to));
+        return drafts;
+    }
+
+    /** Heavy scan — do not run inside a long DB transaction (HTTP to order/vendor/delivery). */
+    List<Draft> openWorkDrafts(LocalDate from, LocalDate to, UUID townId) {
+        List<Draft> drafts = new ArrayList<>();
+        try {
+            for (OpenAccountsService.Line open : openAccountsService.scan(from, to, townId)) {
+                drafts.add(new Draft(
+                        open.townId(),
+                        open.party(),
+                        open.partyId(),
+                        open.partyName(),
+                        open.action(),
+                        open.what(),
+                        open.periodStart(),
+                        open.periodEnd(),
+                        open.amount(),
+                        open.itemCount(),
+                        open.reference(),
+                        open.detail(),
+                        open.commission(),
+                        open.platformFee(),
+                        open.codFee(),
+                        open.membershipFee(),
+                        open.penalty(),
+                        null,
+                        null,
+                        null,
+                        null));
+            }
+        } catch (RuntimeException ex) {
+            log.warn("Open accounts scan failed: {}", ex.toString());
+        }
+        return drafts;
     }
 
     private List<Draft> unbilledCod(LocalDate from, LocalDate to) {

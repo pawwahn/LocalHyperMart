@@ -102,8 +102,11 @@ public class VendorBeautyClient {
             Integer slotIntervalMinutes,
             String staffOverrides,
             java.math.BigDecimal bookingMinPrepayAmount,
-            List<RateView> rates
+            List<RateView> rates,
+            List<WorkPhotoView> workPhotos
     ) {
+        @JsonIgnoreProperties(ignoreUnknown = true)
+        public record WorkPhotoView(UUID mediaId, String url) {}
         @JsonIgnoreProperties(ignoreUnknown = true)
         public record RateView(
                 String serviceType,

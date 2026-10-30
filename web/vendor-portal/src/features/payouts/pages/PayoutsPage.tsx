@@ -44,7 +44,12 @@ import {
   type VendorFeeQuote,
   type VendorSettlement,
 } from '@/features/reports/api/payoutsApi';
-import { awaitingDeliveredRows, isShopHeldCash } from '@/features/payouts/vendorPayable';
+import {
+  awaitingDeliveredRows,
+  isGlamRemittanceRow,
+  isShopHeldCash,
+  koyaKartPayoutGross,
+} from '@/features/payouts/vendorPayable';
 import {
   SHOP_COD_BILL_HINT,
   SHOP_COD_BILL_LABEL,
@@ -221,6 +226,7 @@ type AwaitingSplit = {
   /** Platform + COD + delivery plan on shop-held cash. */
   shopPassThrough: number;
   shopPlatform: number;
+  shopParlour: number;
   shopCod: number;
   shopPlan: number;
   shopFee: number;
@@ -228,6 +234,13 @@ type AwaitingSplit = {
 
 function shopGoodsSubtotal(row: SalesReportRow): number {
   return Number(row.subtotal ?? 0);
+}
+
+function isGlamPartialPrepayRow(row: SalesReportRow): boolean {
+  return (
+    (row.orderLineKind || '').toUpperCase() === 'GLAM' &&
+    (row.prepayMode || '').trim().toUpperCase() === 'PARTIAL'
+  );
 }
 
 /** Shop COD pool on this bag (goods + shared buyer fees; excludes bundled delivery plan). */
@@ -239,6 +252,9 @@ function shopCodCashCollected(row: SalesReportRow): number | null {
 
 /** Full COD the buyer paid for this bag (includes delivery plan — all app fees except commission are pass-through). */
 function shopBuyerPaidTotal(row: SalesReportRow): number {
+  if (isGlamPartialPrepayRow(row) && row.amountDueTotal != null) {
+    return Math.round(Number(row.amountDueTotal) * 100) / 100;
+  }
   const pool = shopCodCashCollected(row) ?? shopGoodsSubtotal(row);
   const plan = Number(row.membershipFeeAmount ?? 0);
   return Math.round((pool + plan) * 100) / 100;
@@ -247,6 +263,7 @@ function shopBuyerPaidTotal(row: SalesReportRow): number {
 function shopBuyerFeeParts(row: SalesReportRow) {
   return {
     platform: Number(row.platformFeeAmount ?? 0),
+    parlour: Number(row.parlourPaymentFeeAmount ?? 0),
     cod: Number(row.codFeeAmount ?? 0),
     plan: Number(row.membershipFeeAmount ?? 0),
   };
@@ -255,6 +272,7 @@ function shopBuyerFeeParts(row: SalesReportRow) {
 type ShopFeeBreakdown = {
   commission: number;
   platform: number;
+  parlour: number;
   cod: number;
   plan: number;
   total: number;
@@ -262,13 +280,14 @@ type ShopFeeBreakdown = {
 
 function shopFeeBreakdown(commission: number | undefined, row: SalesReportRow): ShopFeeBreakdown | null {
   if (commission == null) return null;
-  const { platform, cod, plan } = shopBuyerFeeParts(row);
+  const { platform, parlour, cod, plan } = shopBuyerFeeParts(row);
   return {
     commission,
     platform,
+    parlour,
     cod,
     plan,
-    total: Math.round((commission + platform + cod + plan) * 100) / 100,
+    total: Math.round((commission + platform + parlour + cod + plan) * 100) / 100,
   };
 }
 
@@ -276,6 +295,12 @@ function ShopFeeBreakdownView({ parts }: { parts: ShopFeeBreakdown }) {
   const lines: { label: string; amount: number; plan?: boolean }[] = [];
   if (parts.commission > 0) lines.push({ label: 'Commission (on goods)', amount: parts.commission });
   if (parts.platform > 0) lines.push({ label: 'Platform (app)', amount: parts.platform });
+  if (parts.parlour > 0) {
+    lines.push({
+      label: 'Pay-at-parlour fee (partial prepay)',
+      amount: parts.parlour,
+    });
+  }
   if (parts.cod > 0) lines.push({ label: 'COD charge (app)', amount: parts.cod });
   if (parts.plan > 0) lines.push({ label: 'Delivery plan (app)', amount: parts.plan, plan: true });
   if (lines.length === 0) return null;
@@ -314,10 +339,35 @@ function shopCashKeepAfterFees(row: SalesReportRow, commission: number): number 
 
 /** Buyer payment lines — sum to shopBuyerPaidTotal (goods are yours; marked lines go to KoyaKart). */
 function shopCodCashLines(row: SalesReportRow): { label: string; amount: number; remit?: boolean; muted?: boolean }[] {
+  if (isGlamPartialPrepayRow(row)) {
+    const total = Number(row.amountDueTotal ?? 0);
+    const online = Number(row.onlineRemittanceAmount ?? row.prepayAmount ?? 0);
+    const visit = Math.max(0, Math.round((total - online) * 100) / 100);
+    const goods = shopGoodsSubtotal(row);
+    const platform = Number(row.platformFeeAmount ?? 0);
+    const parlour = Number(row.parlourPaymentFeeAmount ?? 0);
+    const lines: { label: string; amount: number; remit?: boolean; muted?: boolean }[] = [];
+    if (goods > 0) lines.push({ label: 'Service + travel (yours)', amount: goods });
+    if (online > 0) {
+      lines.push({ label: 'Paid online (with KoyaKart)', amount: online, muted: true });
+    }
+    if (visit > 0) lines.push({ label: 'Collected at visit (cash)', amount: visit });
+    if (platform > 0) lines.push({ label: 'Platform', amount: platform, remit: true, muted: true });
+    if (parlour > 0) {
+      lines.push({
+        label: 'Pay-at-parlour fee',
+        amount: parlour,
+        remit: true,
+        muted: true,
+      });
+    }
+    return lines;
+  }
   const lines: { label: string; amount: number; remit?: boolean; muted?: boolean }[] = [];
   const goods = shopGoodsSubtotal(row);
   const delivery = Number(row.deliveryFeeAmount ?? 0);
   const platform = Number(row.platformFeeAmount ?? 0);
+  const parlour = Number(row.parlourPaymentFeeAmount ?? 0);
   const cod = Number(row.codFeeAmount ?? 0);
   const plan = Number(row.membershipFeeAmount ?? 0);
   if (goods > 0) lines.push({ label: 'Goods (yours)', amount: goods });
@@ -331,6 +381,7 @@ function shopCodCashLines(row: SalesReportRow): { label: string; amount: number;
   }
   if (plan > 0) lines.push({ label: 'Delivery plan', amount: plan, remit: true, muted: true });
   if (platform > 0) lines.push({ label: 'Platform', amount: platform, remit: true, muted: true });
+  if (parlour > 0) lines.push({ label: 'Pay-at-parlour', amount: parlour, remit: true, muted: true });
   if (cod > 0) lines.push({ label: 'COD charge', amount: cod, remit: true, muted: true });
   const paid = shopBuyerPaidTotal(row);
   const sum = lines.reduce((s, l) => s + l.amount, 0);
@@ -350,7 +401,14 @@ function ShopCashCell({ row, shopHeld }: { row: SalesReportRow; shopHeld: boolea
   const lines = shopCodCashLines(row);
   return (
     <>
-      <div style={styles.cashCollected} title="Total COD the buyer paid (same as customer receipt)">
+      <div
+        style={styles.cashCollected}
+        title={
+          isGlamPartialPrepayRow(row)
+            ? 'Full booking total on the buyer receipt (online prepay + visit cash)'
+            : 'Total COD the buyer paid (same as customer receipt)'
+        }
+      >
         {formatMoney(paid)}
       </div>
       {lines.length > 0 ? (
@@ -380,7 +438,7 @@ function ShopNetKeepView({ row, breakdown }: { row: SalesReportRow; breakdown: S
   const rider = row.vendorAgentDelivery ? shopRiderPay(row) : 0;
   const afterCommission = Math.round((goods - commission) * 100) / 100;
   const keep = shopCashKeepAfterFees(row, commission);
-  const passThrough = Math.round((breakdown.platform + breakdown.cod + breakdown.plan) * 100) / 100;
+  const passThrough = Math.round((breakdown.platform + breakdown.parlour + breakdown.cod + breakdown.plan) * 100) / 100;
   return (
     <div style={styles.cashKeepBlock}>
       <div style={styles.cashKeepHint}>You keep {formatMoney(keep)}</div>
@@ -394,8 +452,18 @@ function ShopNetKeepView({ row, breakdown }: { row: SalesReportRow; breakdown: S
       ) : null}
       {passThrough > 0 ? (
         <div style={styles.cashKeepNote}>
-          Buyer paid {formatMoney(paid)} COD — remit {formatMoney(breakdown.total)} to KoyaKart (incl.{' '}
-          {formatMoney(passThrough)} app fees)
+          {isGlamPartialPrepayRow(row) ? (
+            <>
+              Booking {formatMoney(paid)} — ₹{Number(row.prepayAmount ?? 0).toFixed(0)} already with KoyaKart. Remit{' '}
+              {formatMoney(breakdown.total)} from visit cash (commission {formatMoney(commission)} + app fees{' '}
+              {formatMoney(passThrough)}). Customer prepay is not commission.
+            </>
+          ) : (
+            <>
+              Buyer paid {formatMoney(paid)} COD — remit {formatMoney(breakdown.total)} to KoyaKart (incl.{' '}
+              {formatMoney(passThrough)} app fees)
+            </>
+          )}
         </div>
       ) : null}
     </div>
@@ -406,6 +474,7 @@ function shopSplitBreakdownText(split: AwaitingSplit): string | null {
   const parts: string[] = [];
   if (split.shopCommission > 0) parts.push(`comm ${formatMoney(split.shopCommission)}`);
   if (split.shopPlatform > 0) parts.push(`plat ${formatMoney(split.shopPlatform)}`);
+  if (split.shopParlour > 0) parts.push(`parlour ${formatMoney(split.shopParlour)}`);
   if (split.shopCod > 0) parts.push(`COD ${formatMoney(split.shopCod)}`);
   if (split.shopPlan > 0) parts.push(`plan ${formatMoney(split.shopPlan)}`);
   return parts.length ? parts.join(' · ') : null;
@@ -426,6 +495,7 @@ function splitAwaiting(
     shopCommission: 0,
     shopPassThrough: 0,
     shopPlatform: 0,
+    shopParlour: 0,
     shopCod: 0,
     shopPlan: 0,
     shopFee: 0,
@@ -441,13 +511,14 @@ function splitAwaiting(
       out.shopCommission += commission;
       out.shopPassThrough += passThrough;
       out.shopPlatform += buyer.platform;
+      out.shopParlour += buyer.parlour;
       out.shopCod += buyer.cod;
       out.shopPlan += buyer.plan;
       out.shopFee += commission + passThrough;
     } else {
-      const fee = commission;
+      const fee = isGlamRemittanceRow(row) ? 0 : commission;
       out.payCount += 1;
-      out.payGross += goods;
+      out.payGross += koyaKartPayoutGross(row);
       out.payFee += fee;
     }
   }
@@ -1118,9 +1189,17 @@ export function PayoutsPage() {
   useEffect(() => {
     if (!session || !holdersReady) return;
     const payRows: SalesReportRow[] = [];
+    const payQuoteRows: SalesReportRow[] = [];
     const shopRows: SalesReportRow[] = [];
     for (const row of awaitingRows) {
-      (isShopHeld(resolveCashHolder(row, cashHolders[row.subOrderId])) ? shopRows : payRows).push(row);
+      if (isShopHeld(resolveCashHolder(row, cashHolders[row.subOrderId]))) {
+        shopRows.push(row);
+      } else {
+        payRows.push(row);
+        if (!isGlamRemittanceRow(row)) {
+          payQuoteRows.push(row);
+        }
+      }
     }
     let cancelled = false;
     const quoteGroup = (rows: SalesReportRow[]) =>
@@ -1135,12 +1214,17 @@ export function PayoutsPage() {
             })),
           ).catch(() => null)
         : Promise.resolve(null);
-    void Promise.all([quoteGroup(payRows), quoteGroup(shopRows)]).then(([payQuote, shopQuote]) => {
+    void Promise.all([quoteGroup(payQuoteRows), quoteGroup(shopRows)]).then(([payQuote, shopQuote]) => {
       if (cancelled) return;
       const fees: Record<string, number> = {};
       let ok = true;
+      for (const row of payRows) {
+        if (isGlamRemittanceRow(row)) {
+          fees[row.subOrderId] = 0;
+        }
+      }
       for (const [rows, q] of [
-        [payRows, payQuote],
+        [payQuoteRows, payQuote],
         [shopRows, shopQuote],
       ] as const) {
         if (!rows.length) continue;
@@ -2047,7 +2131,13 @@ export function PayoutsPage() {
                             </td>
                           ) : (
                             <td style={{ ...styles.tdAwaitingRight, color: 'var(--metric-awaiting)', fontWeight: 800 }}>
-                              {fee == null ? '—' : formatMoney(Number(row.subtotal ?? 0) - fee)}
+                              {fee == null
+                                ? '—'
+                                : formatMoney(
+                                    isGlamRemittanceRow(row)
+                                      ? koyaKartPayoutGross(row)
+                                      : Number(row.subtotal ?? 0) - fee,
+                                  )}
                             </td>
                           )}
                           <td style={styles.tdAwaiting}>

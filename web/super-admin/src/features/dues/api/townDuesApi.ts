@@ -74,11 +74,15 @@ export function fetchTownDues(
   token: string,
   range?: { from?: string; to?: string },
   townId?: string,
+  includeOpenWork = true,
+  openWorkOnly = false,
 ): Promise<TownDuesReport> {
   const q = new URLSearchParams();
   if (range?.from) q.set('from', range.from);
   if (range?.to) q.set('to', range.to);
   if (townId) q.set('townId', townId);
+  q.set('includeOpenWork', includeOpenWork ? 'true' : 'false');
+  if (openWorkOnly) q.set('openWorkOnly', 'true');
   const query = q.toString();
   return apiRequest<TownDuesReport>(`/api/v1/payments/admin/town-dues${query ? `?${query}` : ''}`, { token }).then(
     (report) => ({

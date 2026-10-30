@@ -65,6 +65,11 @@ public class PaymentProperties {
         return notBlank(razorpayWebhookSecret);
     }
 
+    /** Local stub webhooks only; leave unset in QA/production. */
+    public boolean isDevWebhookBypassEnabled() {
+        return notBlank(devWebhookBypassSecret);
+    }
+
     private static boolean notBlank(String value) {
         return value != null && !value.isBlank();
     }

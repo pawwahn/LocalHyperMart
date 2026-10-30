@@ -42,7 +42,7 @@ export type BeautyOrder = {
 const ACTION_LABEL: Record<string, string> = {
   EN_ROUTE: 'On the way',
   START: 'Start session',
-  COMPLETE: 'Complete',
+  COMPLETE: 'End session',
   CANCEL: 'Cancel booking',
 };
 
@@ -57,7 +57,7 @@ export async function fetchVendorBeautyOrders(token: string): Promise<BeautyOrde
 export async function actOnBeautyOrder(
   token: string,
   orderId: string,
-  body: { action: string; note?: string },
+  body: { action: string; note?: string; visitCashCollected?: boolean },
 ): Promise<BeautyOrder> {
   return apiRequest<BeautyOrder>(`/api/v1/orders/vendor/beauty/${orderId}/actions`, {
     method: 'POST',
@@ -96,6 +96,11 @@ export function writeGlamScheduleCache(vendorId: string, schedule: { dayOpen: st
   }
 }
 
+export type BeautyWorkPhoto = {
+  mediaId: string;
+  url: string;
+};
+
 export type BeautyRateRow = {
   serviceType: string;
   label?: string | null;
@@ -119,6 +124,7 @@ export type BeautyProfile = {
   staffOverrides?: string | null | Record<string, unknown>;
   homeVisitCharge?: number | null;
   rates?: BeautyRateRow[];
+  workPhotos?: BeautyWorkPhoto[];
 };
 
 /** Normalize glam profile from API (schedule + staffOverrides field shapes). */
@@ -145,10 +151,15 @@ export function normalizeBeautyProfile(row: BeautyProfile): BeautyProfile {
     durationMinutes: Number(rate.durationMinutes ?? 60),
     paused: Boolean(rate.paused),
   }));
+  const workPhotos = (row.workPhotos ?? []).map((photo) => ({
+    mediaId: String(photo.mediaId),
+    url: photo.url,
+  }));
   const next: BeautyProfile = {
     ...row,
     blockedSlotsByDate: row.blockedSlotsByDate ?? ext.blocked_slots_by_date ?? '{}',
     homeVisitCharge: homeVisitRaw == null ? 0 : Number(homeVisitRaw),
+    workPhotos,
     rates,
     slotDayOpen: schedule.dayOpen,
     slotDayClose: schedule.dayClose,
@@ -209,6 +220,33 @@ export async function saveBeautyRates(
   return normalizeBeautyProfile(row);
 }
 
+export async function saveBeautyWorkPhotos(
+  token: string,
+  body: { mediaIds: string[] },
+): Promise<BeautyProfile> {
+  const row = await apiRequest<BeautyProfile>(`/api/v1/vendors/me/beauty/work-photos`, { method: 'PUT', token, body });
+  return normalizeBeautyProfile(row);
+}
+
+export async function uploadGlamWorkPhoto(token: string, file: File): Promise<BeautyWorkPhoto> {
+  const form = new FormData();
+  form.append('file', file);
+  form.append('context', 'BEAUTY_WORK');
+  const response = await fetch('/api/v1/media/upload', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+    body: form,
+  });
+  const payload = (await response.json()) as {
+    message?: string;
+    data?: { mediaId?: string; url?: string };
+  };
+  if (!response.ok || !payload.data?.mediaId || !payload.data?.url) {
+    throw new Error(payload.message || 'Image upload failed');
+  }
+  return { mediaId: payload.data.mediaId, url: payload.data.url };
+}
+
 export async function saveBeautyOps(
   token: string,
   body: {
@@ -221,6 +259,7 @@ export async function saveBeautyOps(
     staffOverrideDate?: string;
     staffCountForDate?: number;
     homeVisitCharge?: number;
+    studioAddress?: string;
   },
 ): Promise<BeautyProfile> {
   const row = await apiRequest<BeautyProfile>(`/api/v1/vendors/me/beauty/ops`, { method: 'PUT', token, body });
@@ -228,7 +267,9 @@ export async function saveBeautyOps(
 }
 
 export {
+  BEAUTY_SERVICE_CATEGORIES,
   BEAUTY_SERVICES,
+  beautyServicesInCategory,
   BEAUTY_SLOTS,
   beautySlotIdFromIso,
   buildBeautySlots,
@@ -242,5 +283,6 @@ export {
   effectiveStaffForDate,
   parseStaffOverrides,
   serializeStaffOverrides,
+  type BeautyServiceCategoryId,
   type BeautySlotRow,
 } from '@hlm-beauty';

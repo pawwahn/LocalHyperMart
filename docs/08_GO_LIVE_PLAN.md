@@ -16,6 +16,7 @@ Companion backlog: root `README.md` → Phase 1 checklist + Pending. PRD rules: 
 3. **Bulk price CSV** in Phase 1 (not Phase 2).
 4. Buyer support = **phone** (town hub admin); legal policies published by **super-admin**.
 5. Town minimums: **≥1 vendor**, **~1000** master catalog items, **~10** delivery agents (or hub-decided).
+6. **Hosting:** Early prod may run on **VPS (e.g. Hostinger)**; **target AWS `ap-south-1` by ~50 towns** (or earlier if load requires)—see `docs/11_AWS_PILOT_HOSTING.md` § *Hosting evolution policy*. **There is no application kill-switch at town 50**; migration is a **planned** ops project, not an automatic outage.
 
 **Do not** attempt a “web-only” public launch to skip Flutter.
 

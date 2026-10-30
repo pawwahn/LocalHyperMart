@@ -14,12 +14,15 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
 
 import java.math.BigDecimal;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
 @Component
 @RequiredArgsConstructor
-public class PaymentClient {
+public class PaymentClient implements SuccessfulOnlineTotalLookup {
 
     private final RestClient.Builder restClientBuilder;
     private final PaymentServiceProperties paymentServiceProperties;
@@ -256,23 +259,49 @@ public class PaymentClient {
      * Sum of SUCCESS gateway captures for this order (source of truth for partial prepay).
      * Returns null when payment-service is unreachable.
      */
+    @Override
     public BigDecimal sumSuccessfulPaymentsForOrder(UUID orderId) {
-        try {
-            RestClient client = restClientBuilder.baseUrl(paymentServiceProperties.getBaseUrl()).build();
-            ApiResponse<CollectedSuccessResult> response = client.get()
-                    .uri("/api/v1/internal/payments/orders/{orderId}/collected-success", orderId)
-                    .retrieve()
-                    .body(new ParameterizedTypeReference<ApiResponse<CollectedSuccessResult>>() {});
-            if (response == null || response.getData() == null || response.getData().amount() == null) {
-                return null;
-            }
-            return response.getData().amount();
-        } catch (RuntimeException ex) {
+        if (orderId == null) {
             return null;
         }
+        Map<UUID, BigDecimal> batch = sumSuccessfulPaymentsForOrders(List.of(orderId));
+        return batch.get(orderId);
     }
 
-    public record CollectedSuccessResult(BigDecimal amount) {
+    public Map<UUID, BigDecimal> sumSuccessfulPaymentsForOrders(Collection<UUID> orderIds) {
+        if (orderIds == null || orderIds.isEmpty()) {
+            return Map.of();
+        }
+        List<UUID> ids = orderIds.stream().filter(java.util.Objects::nonNull).distinct().toList();
+        if (ids.isEmpty()) {
+            return Map.of();
+        }
+        Map<UUID, BigDecimal> out = new HashMap<>();
+        try {
+            RestClient client = restClientBuilder.baseUrl(paymentServiceProperties.getBaseUrl()).build();
+            for (int i = 0; i < ids.size(); i += 400) {
+                List<UUID> chunk = ids.subList(i, Math.min(i + 400, ids.size()));
+                ApiResponse<List<CollectedSuccessBatchRow>> response = client.post()
+                        .uri("/api/v1/internal/payments/orders/collected-success/batch")
+                        .body(Map.of("orderIds", chunk))
+                        .retrieve()
+                        .body(new ParameterizedTypeReference<ApiResponse<List<CollectedSuccessBatchRow>>>() {});
+                if (response == null || response.getData() == null) {
+                    continue;
+                }
+                for (CollectedSuccessBatchRow row : response.getData()) {
+                    if (row != null && row.orderId() != null && row.amount() != null) {
+                        out.put(row.orderId(), row.amount());
+                    }
+                }
+            }
+        } catch (RuntimeException ex) {
+            return Map.of();
+        }
+        return out;
+    }
+
+    public record CollectedSuccessBatchRow(UUID orderId, BigDecimal amount) {
     }
 
     public record PaymentInitiateResult(

@@ -69,6 +69,10 @@ public class SettlementCandidateView {
         BigDecimal codFee;
         /** Buyer membership / delivery plan in shop-held cash. */
         BigDecimal membershipFee;
+        /** Glam pay-at-parlour booking fee in shop-held visit cash. */
+        BigDecimal parlourPaymentFee;
+        /** SUCCESS UPI to remit on KoyaKart pays vendor (glam online slice). */
+        BigDecimal onlineRemittanceAmount;
         boolean alreadySettled;
     }
 }

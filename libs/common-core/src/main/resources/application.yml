@@ -1,0 +1,3 @@
+hyperlocalmart:
+  security:
+    internal-service-secret: ${HLM_INTERNAL_SERVICE_SECRET:}

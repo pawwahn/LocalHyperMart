@@ -1,8 +1,15 @@
 package com.hyperlocalmart.order.service;
 
+import com.hyperlocalmart.order.beauty.BeautyOrderStatus;
+import com.hyperlocalmart.order.beauty.BeautyPaymentMethod;
+import com.hyperlocalmart.order.beauty.BeautyPaymentStatus;
+import com.hyperlocalmart.order.beauty.BeautySettlementItems;
+import com.hyperlocalmart.order.beauty.BeautySettlementMoney;
+import com.hyperlocalmart.order.client.SuccessfulOnlineTotalLookup;
 import com.hyperlocalmart.order.dto.response.DeliveredVendorTown;
 import com.hyperlocalmart.order.dto.response.SettlementBagKey;
 import com.hyperlocalmart.order.dto.response.SettlementCandidateResponse;
+import com.hyperlocalmart.order.entity.BeautyOrder;
 import com.hyperlocalmart.order.entity.LaundryOrder;
 import com.hyperlocalmart.order.entity.Order;
 import com.hyperlocalmart.order.entity.PaymentMethod;
@@ -11,6 +18,7 @@ import com.hyperlocalmart.order.entity.VendorSubOrder;
 import com.hyperlocalmart.order.entity.VendorSubOrderStatus;
 import com.hyperlocalmart.order.laundry.LaundryOrderStatus;
 import com.hyperlocalmart.order.laundry.LaundryPaymentStatus;
+import com.hyperlocalmart.order.repository.BeautyOrderRepository;
 import com.hyperlocalmart.order.repository.LaundryOrderRepository;
 import com.hyperlocalmart.order.repository.VendorSubOrderRepository;
 import lombok.RequiredArgsConstructor;
@@ -32,6 +40,12 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
+/**
+ * Single registry of completed work eligible for vendor settlement and Super Admin Accounts open scans.
+ * Include every current and upcoming billable service (grocery bags, laundry, glam, future verticals).
+ * Launch checklist for a new service: wire all four entry points below + unit test — see
+ * {@code .cursor/rules/financial-accountability.mdc} ("New / upcoming service vertical").
+ */
 @Service
 @RequiredArgsConstructor
 public class SettlementCandidateService {
@@ -40,6 +54,8 @@ public class SettlementCandidateService {
 
     private final VendorSubOrderRepository vendorSubOrderRepository;
     private final LaundryOrderRepository laundryOrderRepository;
+    private final BeautyOrderRepository beautyOrderRepository;
+    private final SuccessfulOnlineTotalLookup onlinePayments;
 
     /**
      * Lists vendor bags eligible for payout: status must be {@code DELIVERED}
@@ -59,6 +75,12 @@ public class SettlementCandidateService {
         rows.stream().map(this::toItem).forEach(items::add);
         laundryOrderRepository.findSettlementCandidates(vendorId, townId, start, end).stream()
                 .map(this::toLaundryItem)
+                .forEach(items::add);
+        List<BeautyOrder> beautyOrders =
+                beautyOrderRepository.findSettlementCandidates(vendorId, townId, start, end);
+        onlinePayments.prefetch(beautyOrders.stream().map(BeautyOrder::getId).toList());
+        beautyOrders.stream()
+                .flatMap(order -> BeautySettlementItems.toItems(order, onlinePayments).stream())
                 .forEach(items::add);
         return SettlementCandidateResponse.builder()
                 .vendorId(vendorId)
@@ -98,6 +120,48 @@ public class SettlementCandidateService {
             }
             out.add(new SettlementBagKey(vendorId, townId, orderId));
         }
+        List<Object[]> beautyRows = beautyOrderRepository.findSettlementKeys(start, end);
+        List<UUID> beautyOrderIds = new ArrayList<>();
+        for (Object[] row : beautyRows) {
+            if (row == null || row.length < 3) {
+                continue;
+            }
+            UUID orderId = uuid(row[2]);
+            if (orderId != null) {
+                beautyOrderIds.add(orderId);
+            }
+        }
+        Map<UUID, BeautyOrder> beautyById = new LinkedHashMap<>();
+        if (!beautyOrderIds.isEmpty()) {
+            for (BeautyOrder order : beautyOrderRepository.findAllById(beautyOrderIds)) {
+                beautyById.put(order.getId(), order);
+            }
+            onlinePayments.prefetch(beautyOrderIds);
+        }
+        for (Object[] row : beautyRows) {
+            if (row == null || row.length < 3) {
+                continue;
+            }
+            UUID vendorId = uuid(row[0]);
+            UUID townId = uuid(row[1]);
+            UUID orderId = uuid(row[2]);
+            if (vendorId == null || townId == null || orderId == null) {
+                continue;
+            }
+            out.add(new SettlementBagKey(vendorId, townId, orderId));
+            BeautyOrder order = beautyById.get(orderId);
+            if (order == null || order.getStatus() != BeautyOrderStatus.COMPLETED) {
+                continue;
+            }
+            BigDecimal online = onlinePayments.sumSuccessfulPaymentsForOrder(orderId);
+            BigDecimal total = BeautySettlementMoney.orderTotal(order);
+            if (BeautySettlementMoney.vendorHoldsVisitCash(order, online)
+                    && online.signum() > 0
+                    && online.compareTo(total) < 0) {
+                out.add(new SettlementBagKey(
+                        vendorId, townId, BeautySettlementItems.onlineSliceId(orderId)));
+            }
+        }
         return out;
     }
 
@@ -110,6 +174,9 @@ public class SettlementCandidateService {
             addVendorTown(towns, row);
         }
         for (Object[] row : laundryOrderRepository.findDeliveredVendorTowns(start, end)) {
+            addVendorTown(towns, row);
+        }
+        for (Object[] row : beautyOrderRepository.findDeliveredVendorTowns(start, end)) {
             addVendorTown(towns, row);
         }
         return new ArrayList<>(towns.values());
@@ -140,6 +207,15 @@ public class SettlementCandidateService {
             for (LaundryOrder order : laundryOrderRepository.findByVendorIdAndIdIn(vendorId, laundryIds)) {
                 if (order.getStatus() == LaundryOrderStatus.DELIVERED) {
                     items.add(toLaundryItem(order));
+                    found.add(order.getId());
+                }
+            }
+        }
+        List<UUID> beautyIds = subOrderIds.stream().filter(id -> !found.contains(id)).toList();
+        if (!beautyIds.isEmpty()) {
+            for (BeautyOrder order : beautyOrderRepository.findByVendorIdAndIdIn(vendorId, beautyIds)) {
+                if (order.getStatus() == BeautyOrderStatus.COMPLETED) {
+                    items.addAll(BeautySettlementItems.toItems(order, onlinePayments));
                 }
             }
         }
@@ -187,6 +263,7 @@ public class SettlementCandidateService {
                 .platformFee(OrderBuyerFeeShare.platformFee(subOrder))
                 .codFee(OrderBuyerFeeShare.codFee(subOrder))
                 .membershipFee(OrderBuyerFeeShare.membershipFee(subOrder))
+                .parlourPaymentFee(null)
                 .build();
     }
 
@@ -213,6 +290,7 @@ public class SettlementCandidateService {
                         ? BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP)
                         : order.getCodFee())
                 .membershipFee(BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP))
+                .parlourPaymentFee(null)
                 .build();
     }
 
@@ -224,5 +302,12 @@ public class SettlementCandidateService {
             return PaymentStatus.REFUNDED;
         }
         return PaymentStatus.PENDING;
+    }
+
+    private static BigDecimal money(BigDecimal value) {
+        if (value == null) {
+            return BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+        }
+        return value.setScale(2, RoundingMode.HALF_UP);
     }
 }

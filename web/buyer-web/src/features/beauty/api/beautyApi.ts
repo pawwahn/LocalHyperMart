@@ -2,6 +2,11 @@ import { Capacitor } from '@capacitor/core';
 import { apiRequest } from '@/shared/api/http';
 import { scheduleFromArtist } from '@hlm-beauty';
 
+export type BeautyWorkPhoto = {
+  mediaId: string;
+  url: string;
+};
+
 export type BeautyRate = {
   serviceType: string;
   label?: string | null;
@@ -31,6 +36,7 @@ export type BeautyArtist = {
   slotDayClose?: string | null;
   slotIntervalMinutes?: number | null;
   bookingMinPrepayAmount?: number | null;
+  workPhotos?: BeautyWorkPhoto[];
   rates: BeautyRate[];
 };
 
@@ -128,12 +134,17 @@ export {
 export function normalizeBeautyArtist(row: BeautyArtist): BeautyArtist {
   const ext = row as BeautyArtist & { blocked_slots_by_date?: string | null };
   const sch = scheduleFromArtist(row);
+  const workPhotos = (row.workPhotos ?? []).map((photo) => ({
+    mediaId: String(photo.mediaId),
+    url: photo.url,
+  }));
   return {
     ...row,
     blockedSlotsByDate: row.blockedSlotsByDate ?? ext.blocked_slots_by_date ?? '{}',
     slotDayOpen: sch.dayOpen,
     slotDayClose: sch.dayClose,
     slotIntervalMinutes: sch.intervalMinutes,
+    workPhotos,
   };
 }
 

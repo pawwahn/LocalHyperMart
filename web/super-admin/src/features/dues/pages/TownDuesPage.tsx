@@ -32,6 +32,7 @@ import {
   type TownDueLine,
   type TownDuesReport,
 } from '../api/townDuesApi';
+import { mergeTownDuesReports } from '../api/mergeTownDues';
 import { TownDuesCalendar, type DuesCalendarItem } from '../components/TownDuesCalendar';
 import { BankPaidOnField } from '@/features/settlements/BankPaidOnField';
 import { defaultBankPaidOn, todayIstDate, validateBankPaidOn } from '@/features/settlements/bankPaidOnUtils';
@@ -216,6 +217,7 @@ export function TownDuesPage() {
   const [loginPhones, setLoginPhones] = useState<Map<string, string>>(new Map());
   const [report, setReport] = useState<TownDuesReport | null>(null);
   const [loading, setLoading] = useState(true);
+  const [scanningOpen, setScanningOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -257,15 +259,21 @@ export function TownDuesPage() {
   const loadDues = useCallback(async () => {
     if (!token) return;
     setLoading(true);
+    setScanningOpen(false);
     setError(null);
     try {
-      const data = await fetchTownDues(token, range, townId || undefined);
-      setReport(data);
+      const ledger = await fetchTownDues(token, range, townId || undefined, false);
+      setReport(ledger);
+      setLoading(false);
+      setScanningOpen(true);
+      const open = await fetchTownDues(token, range, townId || undefined, true, true);
+      setReport(mergeTownDuesReports(ledger, open));
     } catch (err) {
       setReport(null);
       setError(err instanceof ApiError || err instanceof Error ? err.message : 'Could not load accounts');
     } finally {
       setLoading(false);
+      setScanningOpen(false);
     }
   }, [token, range?.from, range?.to, townId]);
 
@@ -606,6 +614,9 @@ export function TownDuesPage() {
       <style>{DUES_CSS}</style>
       {error ? <Banner tone="danger">{error}</Banner> : null}
       {notice ? <Banner tone="success">{notice}</Banner> : null}
+      {scanningOpen ? (
+        <Banner tone="info">Loading unbilled shop bags and delivery fees… ledger rows above are already up to date.</Banner>
+      ) : null}
       <Card padding="sm" style={styles.card}>
         <div className="dues-tabs" role="tablist" aria-label="Accounts">
           <button
@@ -701,12 +712,18 @@ export function TownDuesPage() {
               </button>
             ))}
           </div>
-          <Button type="button" size="sm" style={styles.refresh} disabled={loading} onClick={() => void loadDues()}>
-            {loading ? 'Loading…' : 'Refresh'}
+          <Button
+            type="button"
+            size="sm"
+            style={styles.refresh}
+            disabled={loading || scanningOpen}
+            onClick={() => void loadDues()}
+          >
+            {loading ? 'Loading…' : scanningOpen ? 'Scanning…' : 'Refresh'}
           </Button>
         </div>
         <p style={styles.hint}>
-          All open includes unfinished bills and bags not billed yet (delivery scan uses the last 120 days for speed). Pick a town or date chip to narrow the load. Bills waiting in the ledger are always included.
+          Bills and settlements in the ledger load first; unbilled shop bags and hub or agent delivery fees follow (last 120 days on All open). Pick a town or date chip to narrow the scan.
         </p>
       </Card>
 

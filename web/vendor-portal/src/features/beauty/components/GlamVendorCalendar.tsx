@@ -303,7 +303,7 @@ export function GlamVendorCalendar({
     return cells;
   }, [anchorDate]);
 
-  const displayDate = view === 'today' ? today : anchorDate;
+  const displayDate = view === 'today' || view === 'daily' ? anchorDate : today;
   const canEditManual = manualBlockEditable && (view === 'today' || view === 'daily');
 
   const dayStats = useMemo(() => {
@@ -326,12 +326,16 @@ export function GlamVendorCalendar({
     return { openSpots, partialSlots, fullSlots };
   }, [displayDate, orders, profile, staffForDate, slots]);
 
+  function shiftDay(delta: number) {
+    onAnchorDateChange(addDaysIst(displayDate, delta));
+  }
+
   function navPrev() {
     if (view === 'monthly') {
       const { y, m } = parseYmd(anchorDate);
       onAnchorDateChange(m === 1 ? `${y - 1}-12-01` : `${y}-${String(m - 1).padStart(2, '0')}-01`);
     } else if (view === 'weekly') onAnchorDateChange(addDaysIst(anchorDate, -7));
-    else onAnchorDateChange(addDaysIst(anchorDate, -1));
+    else shiftDay(-1);
   }
 
   function navNext() {
@@ -339,7 +343,7 @@ export function GlamVendorCalendar({
       const { y, m } = parseYmd(anchorDate);
       onAnchorDateChange(m === 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2, '0')}-01`);
     } else if (view === 'weekly') onAnchorDateChange(addDaysIst(anchorDate, 7));
-    else onAnchorDateChange(addDaysIst(anchorDate, 1));
+    else shiftDay(1);
   }
 
   const periodTitle =
@@ -499,12 +503,12 @@ export function GlamVendorCalendar({
         </button>
         <div style={styles.navCenter}>
           <span style={styles.period}>{periodTitle}</span>
-          {view === 'today' && displayDate === today ? <span style={styles.todayChip}>Today</span> : null}
+          {displayDate === today ? <span style={styles.todayChip}>Today</span> : null}
         </div>
         <button type="button" style={styles.navBtn} onClick={navNext} aria-label="Next">
           ›
         </button>
-        {view === 'daily' ? (
+        {view === 'today' || view === 'daily' ? (
           <PickerDateField
             value={anchorDate}
             style={styles.dateInput}

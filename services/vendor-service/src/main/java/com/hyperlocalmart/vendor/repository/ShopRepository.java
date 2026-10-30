@@ -17,4 +17,6 @@ public interface ShopRepository extends JpaRepository<Shop, UUID> {
     List<Shop> findByVendorIdAndStatus(UUID vendorId, ShopStatus status);
 
     List<Shop> findByVendorIdOrderByCreatedAtAsc(UUID vendorId);
+
+    List<Shop> findByVendor_IdIn(Collection<UUID> vendorIds);
 }

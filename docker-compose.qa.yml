@@ -10,6 +10,8 @@ x-java-build: &java-build
 
 x-java-env: &java-env
   JWT_SECRET: ${JWT_SECRET}
+  HLM_INTERNAL_SERVICE_SECRET: ${HLM_INTERNAL_SERVICE_SECRET}
+  SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-hlm-secure}
   SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER}
   SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
   SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
@@ -169,6 +171,7 @@ services:
       PHONEPE_WEBHOOK_USERNAME: ${PHONEPE_WEBHOOK_USERNAME:-}
       PHONEPE_WEBHOOK_PASSWORD: ${PHONEPE_WEBHOOK_PASSWORD:-}
       PAYMENT_RETURN_URL: ${PAYMENT_RETURN_URL:-http://localhost:5175/shop}
+      PAYMENT_DEV_WEBHOOK_BYPASS: ${PAYMENT_DEV_WEBHOOK_BYPASS:-}
       RAZORPAY_KEY_ID: ${RAZORPAY_KEY_ID:-}
       RAZORPAY_KEY_SECRET: ${RAZORPAY_KEY_SECRET:-}
       RAZORPAY_WEBHOOK_SECRET: ${RAZORPAY_WEBHOOK_SECRET:-}
@@ -232,9 +235,16 @@ services:
         JAR_PATH: gateway/api-gateway/target/api-gateway-1.0.0-SNAPSHOT.jar
     environment:
       <<: *java-env
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      HLM_GATEWAY_RATE_LIMIT: ${HLM_GATEWAY_RATE_LIMIT:-true}
+      HLM_CORS_ALLOWED_ORIGIN_PATTERN: ${HLM_CORS_ALLOWED_ORIGIN_PATTERN:-*}
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_started
       user-service:
         condition: service_started
       catalog-service:

@@ -11,6 +11,8 @@ export type ConfirmDialogProps = {
   busy?: boolean;
   /** Single OK button for post-action alerts (not yes/no). */
   alertOnly?: boolean;
+  /** Optional warning strip (e.g. collect cash before confirming). */
+  warnBanner?: string;
   onConfirm: () => void;
   onClose: () => void;
 };
@@ -25,6 +27,7 @@ export function ConfirmDialog({
   danger,
   busy,
   alertOnly,
+  warnBanner,
   onConfirm,
   onClose,
 }: ConfirmDialogProps) {
@@ -60,6 +63,7 @@ export function ConfirmDialog({
           {title}
         </h2>
         <p style={styles.description}>{description}</p>
+        {warnBanner ? <p style={styles.warnBanner}>{warnBanner}</p> : null}
         <div style={styles.actions}>
           {alertOnly ? null : (
             <Button type="button" variant="ghost" disabled={busy} onClick={onClose}>
@@ -114,6 +118,17 @@ const styles: Record<string, CSSProperties> = {
     color: 'var(--text-muted)',
     fontSize: '0.92rem',
     lineHeight: 1.45,
+  },
+  warnBanner: {
+    margin: 0,
+    padding: '0.55rem 0.65rem',
+    borderRadius: 10,
+    background: '#fef9c3',
+    border: '1px solid #fde047',
+    color: '#854d0e',
+    fontSize: '0.82rem',
+    fontWeight: 700,
+    lineHeight: 1.4,
   },
   actions: {
     display: 'flex',

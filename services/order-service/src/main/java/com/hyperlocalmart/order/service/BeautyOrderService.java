@@ -5,6 +5,7 @@ import com.hyperlocalmart.common.beauty.BeautySlotSchedule;
 import com.hyperlocalmart.common.beauty.BeautySlots;
 import com.hyperlocalmart.common.exception.BusinessException;
 import com.hyperlocalmart.common.exception.ErrorCode;
+import com.hyperlocalmart.order.beauty.BeautyBookingFees;
 import com.hyperlocalmart.order.beauty.BeautyMove;
 import com.hyperlocalmart.order.beauty.BeautyOrderStatus;
 import com.hyperlocalmart.order.beauty.BeautyOrderWorkflow;
@@ -24,7 +25,11 @@ import com.hyperlocalmart.order.dto.beauty.PlaceBeautyOrderRequest;
 import com.hyperlocalmart.order.dto.beauty.RateBeautyOrderRequest;
 import com.hyperlocalmart.order.entity.BeautyOrderRating;
 import com.hyperlocalmart.order.repository.BeautyOrderRatingRepository;
+import com.hyperlocalmart.order.dto.response.OrderInternalSnapshotResponse;
 import com.hyperlocalmart.order.dto.response.PaymentInfoResponse;
+import com.hyperlocalmart.order.entity.OrderStatus;
+import com.hyperlocalmart.order.entity.PaymentMethod;
+import com.hyperlocalmart.order.entity.PaymentStatus;
 import com.hyperlocalmart.order.entity.BeautyDaySeq;
 import com.hyperlocalmart.order.entity.BeautyOrder;
 import com.hyperlocalmart.order.entity.BeautyOrderEvent;
@@ -51,6 +56,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.Optional;
 import java.util.UUID;
 
 @Service
@@ -94,6 +100,12 @@ public class BeautyOrderService {
                         .slotDayClose(shop.slotSchedule().dayCloseText())
                         .slotIntervalMinutes(shop.slotSchedule().intervalMinutes())
                         .bookingMinPrepayAmount(moneyOrZero(shop.bookingMinPrepayAmount()))
+                        .workPhotos(shop.workPhotos() == null ? List.of() : shop.workPhotos().stream()
+                                .map(photo -> BeautyArtistCard.WorkPhoto.builder()
+                                        .mediaId(photo.mediaId())
+                                        .url(photo.url())
+                                        .build())
+                                .toList())
                         .rates(shop.rates() == null ? List.of() : shop.rates().stream()
                                 .filter(rate -> rate.unitPrice() != null && rate.unitPrice().signum() > 0 && !rate.hidden())
                                 .map(rate -> BeautyArtistCard.ServiceRate.builder()
@@ -238,9 +250,8 @@ public class BeautyOrderService {
         BigDecimal minPrepay = townMinPrepay.signum() > 0 ? townMinPrepay : moneyOrZero(artist.bookingMinPrepayAmount());
         boolean partialRequested = "PARTIAL".equalsIgnoreCase(
                 request.getPrepayMode() == null ? "" : request.getPrepayMode().trim());
-        BigDecimal parlourFee = partialRequested
-                ? moneyOrZero(glamPay.beautyParlourPaymentFee())
-                : BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+        BigDecimal parlourFee = BeautyBookingFees.parlourPaymentFee(
+                venue, partialRequested, glamPay.beautyParlourPaymentFee());
         BigDecimal amountDueTotal = servicePrice.add(travel).add(platformFee).add(codFee).add(parlourFee)
                 .setScale(2, RoundingMode.HALF_UP);
         BigDecimal payNow = resolvePrepayAmount(amountDueTotal, minPrepay, partialRequested);
@@ -341,6 +352,38 @@ public class BeautyOrderService {
     }
 
     @Transactional(readOnly = true)
+    public Optional<OrderInternalSnapshotResponse> paymentOrderSnapshot(UUID orderId, UUID buyerId) {
+        return orderRepository.findById(orderId)
+                .filter(order -> order.getBuyerId().equals(buyerId))
+                .map(order -> {
+                    BigDecimal charge;
+                    if (order.getStatus() == BeautyOrderStatus.AWAITING_PAYMENT && isPartialPrepayPlan(order)) {
+                        BigDecimal prepay = moneyOrZero(order.getPrepayAmount());
+                        charge = prepay.signum() > 0 ? prepay : balanceDue(order);
+                    } else {
+                        charge = balanceDue(order);
+                    }
+                    if (charge.signum() <= 0) {
+                        charge = orderTotal(order);
+                    }
+                    OrderStatus status = order.getStatus() == BeautyOrderStatus.AWAITING_PAYMENT
+                            ? OrderStatus.PAYMENT_PENDING
+                            : OrderStatus.PLACED;
+                    return OrderInternalSnapshotResponse.builder()
+                            .orderId(order.getId())
+                            .buyerId(order.getBuyerId())
+                            .townId(order.getTownId())
+                            .orderNumber(order.getOrderNumber())
+                            .status(status)
+                            .paymentStatus(PaymentStatus.PENDING)
+                            .paymentMethod(PaymentMethod.ONLINE)
+                            .totalAmount(charge)
+                            .buyerPhone(order.getContactPhone())
+                            .build();
+                });
+    }
+
+    @Transactional(readOnly = true)
     public BeautyOrderResponse buyerOrder(UUID buyerId, UUID orderId) {
         BeautyOrder order = requireOrder(orderId);
         if (!order.getBuyerId().equals(buyerId)) {
@@ -355,7 +398,9 @@ public class BeautyOrderService {
         if (!order.getBuyerId().equals(buyerId)) {
             throw new BusinessException(ErrorCode.FORBIDDEN, "This booking is not yours");
         }
-        return move(order, buyerId, BeautyMove.CANCEL, "Cancelled by customer");
+        BeautyActionRequest cancel = new BeautyActionRequest();
+        cancel.setNote("Cancelled by customer");
+        return move(order, buyerId, BeautyMove.CANCEL, cancel);
     }
 
     @Transactional
@@ -382,13 +427,23 @@ public class BeautyOrderService {
         if (increment.signum() <= 0) {
             increment = moneyOrZero(order.getPrepayAmount());
         }
-        if (increment.signum() <= 0) {
+        if (increment.signum() <= 0 && !(awaitingFirst && isPartialPrepayPlan(order))) {
             increment = balanceDue(order);
+        }
+        if (awaitingFirst && isPartialPrepayPlan(order)) {
+            BigDecimal prepayCap = moneyOrZero(order.getPrepayAmount());
+            if (prepayCap.signum() > 0 && increment.compareTo(prepayCap) > 0) {
+                increment = prepayCap;
+            }
         }
         BigDecimal total = orderTotal(order);
         BigDecimal collected = moneyOrZero(order.getAmountCollected()).add(increment).setScale(2, RoundingMode.HALF_UP);
         if (collected.compareTo(total) > 0) {
             collected = total;
+        }
+        BigDecimal verified = paymentClient.sumSuccessfulPaymentsForOrder(order.getId());
+        if (verified != null && verified.signum() > 0) {
+            collected = verified.min(total).setScale(2, RoundingMode.HALF_UP);
         }
         order.setAmountCollected(collected);
         if (awaitingFirst) {
@@ -482,7 +537,7 @@ public class BeautyOrderService {
         } catch (IllegalArgumentException ex) {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Unknown action");
         }
-        return move(order, userId, move, request.getNote());
+        return move(order, userId, move, request);
     }
 
     @Transactional(readOnly = true)
@@ -526,19 +581,35 @@ public class BeautyOrderService {
         return toResponse(order);
     }
 
-    private BeautyOrderResponse move(BeautyOrder order, UUID actorId, BeautyMove move, String note) {
+    private BeautyOrderResponse move(BeautyOrder order, UUID actorId, BeautyMove move, BeautyActionRequest request) {
+        String note = request == null ? null : request.getNote();
         BeautyOrderStatus from = order.getStatus();
         BeautyOrderStatus to = BeautyOrderWorkflow.next(order.getVenue(), from, move);
-        order.setStatus(to);
-        order.setUpdatedBy(actorId);
         if (to == BeautyOrderStatus.COMPLETED) {
-            order.setCompletedAt(Instant.now());
-            if (order.getPaymentMethod() == BeautyPaymentMethod.CASH
-                    && moneyOrZero(order.getAmountCollected()).signum() <= 0) {
+            BigDecimal total = orderTotal(order);
+            BigDecimal collected = moneyOrZero(order.getAmountCollected());
+            BigDecimal balance = total.subtract(collected).max(BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP);
+            if (balance.signum() > 0) {
+                if (request == null || !Boolean.TRUE.equals(request.getVisitCashCollected())) {
+                    throw new BusinessException(ErrorCode.VALIDATION_ERROR,
+                            "Confirm that you collected ₹" + balance.toPlainString() + " at the visit before ending the session");
+                }
+                collected = collected.add(balance).setScale(2, RoundingMode.HALF_UP);
+                order.setAmountCollected(collected);
+                order.setPaymentStatus(BeautyPaymentStatus.COLLECTED);
+                String cashNote = "Visit balance ₹" + balance.toPlainString() + " collected";
+                note = note == null || note.isBlank() ? cashNote : note + " · " + cashNote;
+            } else if (order.getPaymentMethod() == BeautyPaymentMethod.CASH
+                    && collected.signum() <= 0) {
                 order.setAmountCollected(buyerPayable(order));
                 order.setPaymentStatus(BeautyPaymentStatus.COLLECTED);
+            } else if (collected.compareTo(total) >= 0) {
+                order.setPaymentStatus(BeautyPaymentStatus.COLLECTED);
             }
+            order.setCompletedAt(Instant.now());
         }
+        order.setStatus(to);
+        order.setUpdatedBy(actorId);
         orderRepository.save(order);
         event(order, actorId, move.name(), from.name(), to.name(), note);
         return toResponse(order);
@@ -547,6 +618,10 @@ public class BeautyOrderService {
     private BeautyOrderResponse toResponse(BeautyOrder order) {
         var existingRating = ratingRepository.findByOrderId(order.getId());
         boolean canRate = order.getStatus() == BeautyOrderStatus.COMPLETED && existingRating.isEmpty();
+        BigDecimal total = orderTotal(order);
+        BigDecimal collected = resolvedAmountCollected(order);
+        BigDecimal balance = total.subtract(collected).max(BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP);
+        BeautyPaymentStatus paymentStatus = paymentStatusForCollected(order, collected, total);
         return BeautyOrderResponse.builder()
                 .id(order.getId())
                 .orderNumber(order.getOrderNumber())
@@ -564,15 +639,15 @@ public class BeautyOrderService {
                 .status(order.getStatus().name())
                 .statusLabel(order.getStatus().label())
                 .paymentMethod(order.getPaymentMethod().name())
-                .paymentStatus(order.getPaymentStatus().name())
+                .paymentStatus(paymentStatus.name())
                 .serviceAmount(order.getServiceAmount())
                 .travelCharge(order.getTravelCharge())
                 .platformFeeAmount(order.getPlatformFeeAmount())
                 .codFee(order.getCodFee())
                 .parlourPaymentFee(order.getParlourPaymentFee())
-                .amountCollected(order.getAmountCollected())
-                .amountDueTotal(orderTotal(order))
-                .balanceDue(balanceDue(order))
+                .amountCollected(collected)
+                .amountDueTotal(total)
+                .balanceDue(balance)
                 .prepayAmount(order.getPrepayAmount())
                 .durationMinutes(order.getDurationMinutes())
                 .specialInstructions(order.getSpecialInstructions())
@@ -600,11 +675,11 @@ public class BeautyOrderService {
         BeautyOrderStatus status = order.getStatus();
         if (status == BeautyOrderStatus.CONFIRMED && order.getVenue() == BeautyVenue.AT_HOME) {
             out.add("EN_ROUTE");
-        }
-        if (status == BeautyOrderStatus.CONFIRMED || status == BeautyOrderStatus.EN_ROUTE) {
+        } else if (status == BeautyOrderStatus.CONFIRMED && order.getVenue() == BeautyVenue.AT_STUDIO) {
             out.add("START");
-        }
-        if (status == BeautyOrderStatus.IN_SERVICE) {
+        } else if (status == BeautyOrderStatus.EN_ROUTE) {
+            out.add("START");
+        } else if (status == BeautyOrderStatus.IN_SERVICE) {
             out.add("COMPLETE");
         }
         if (status == BeautyOrderStatus.CONFIRMED || status == BeautyOrderStatus.EN_ROUTE) {
@@ -783,6 +858,36 @@ public class BeautyOrderService {
     private static BigDecimal balanceDue(BeautyOrder order) {
         return orderTotal(order).subtract(moneyOrZero(order.getAmountCollected())).max(BigDecimal.ZERO)
                 .setScale(2, RoundingMode.HALF_UP);
+    }
+
+    /** Gateway SUCCESS rows are authoritative when payment-service is reachable. */
+    private BigDecimal resolvedAmountCollected(BeautyOrder order) {
+        BigDecimal stored = moneyOrZero(order.getAmountCollected());
+        BigDecimal fromPayments = paymentClient.sumSuccessfulPaymentsForOrder(order.getId());
+        if (fromPayments == null) {
+            return stored;
+        }
+        return fromPayments.setScale(2, RoundingMode.HALF_UP);
+    }
+
+    private static BeautyPaymentStatus paymentStatusForCollected(
+            BeautyOrder order, BigDecimal collected, BigDecimal total) {
+        if (order.getPaymentMethod() == BeautyPaymentMethod.CASH
+                && order.getStatus() == BeautyOrderStatus.COMPLETED
+                && collected.compareTo(total) >= 0) {
+            return BeautyPaymentStatus.COLLECTED;
+        }
+        if (collected.compareTo(total) >= 0 && total.signum() > 0) {
+            return BeautyPaymentStatus.COLLECTED;
+        }
+        if (collected.signum() > 0) {
+            return BeautyPaymentStatus.PARTIAL;
+        }
+        return order.getPaymentStatus() == null ? BeautyPaymentStatus.DUE : order.getPaymentStatus();
+    }
+
+    private static boolean isPartialPrepayPlan(BeautyOrder order) {
+        return "PARTIAL".equalsIgnoreCase(order.getPrepayMode() == null ? "" : order.getPrepayMode().trim());
     }
 
     private static BigDecimal resolvePrepayAmount(BigDecimal total, BigDecimal minPrepay, boolean partialRequested) {

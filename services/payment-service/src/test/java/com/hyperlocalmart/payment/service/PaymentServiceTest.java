@@ -120,6 +120,40 @@ class PaymentServiceTest {
     }
 
     @Test
+    void initiate_usesExplicitChargeAmountForPartialPrepay() {
+        UUID buyerId = UUID.randomUUID();
+        UUID orderId = UUID.randomUUID();
+        UUID townId = UUID.randomUUID();
+
+        InitiatePaymentRequest request = new InitiatePaymentRequest();
+        request.setOrderId(orderId);
+        request.setTownId(townId);
+        request.setGateway(PaymentGateway.RAZORPAY);
+        request.setAmount(new BigDecimal("50.00"));
+        request.setOrderNumber("GLAM-001");
+        request.setOrderStatus("PAYMENT_PENDING");
+        request.setPaymentMethod("ONLINE");
+
+        when(paymentRepository.findFirstByOrderIdAndStatusOrderByCreatedAtDesc(orderId, PaymentStatus.PENDING))
+                .thenReturn(Optional.empty());
+        when(paymentRepository.save(any())).thenAnswer(invocation -> {
+            com.hyperlocalmart.payment.entity.Payment payment = invocation.getArgument(0);
+            if (payment.getId() == null) {
+                payment.setId(UUID.randomUUID());
+            }
+            storedPayment.set(payment);
+            return payment;
+        });
+        when(paymentRepository.findById(any())).thenAnswer(invocation -> Optional.ofNullable(storedPayment.get()));
+        when(paymentProperties.isRazorpayConfigured()).thenReturn(false);
+
+        PaymentResponse response = paymentService.initiate(buyerId, request, "idem-partial");
+
+        assertThat(response.getAmount()).isEqualByComparingTo("50.00");
+        assertThat(storedPayment.get().getAmount()).isEqualByComparingTo("50.00");
+    }
+
+    @Test
     void initiate_returnsCachedIdempotentResponse() {
         UUID buyerId = UUID.randomUUID();
         UUID paymentId = UUID.randomUUID();

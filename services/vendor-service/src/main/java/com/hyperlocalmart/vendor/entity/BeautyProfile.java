@@ -94,4 +94,9 @@ public class BeautyProfile extends BaseAuditEntity {
     @Column(name = "booking_min_prepay_amount", nullable = false, precision = 12, scale = 2)
     @Builder.Default
     private BigDecimal bookingMinPrepayAmount = BigDecimal.ZERO;
+
+    /** JSON array of up to 10 media UUIDs for glam portfolio. */
+    @Column(name = "work_photo_media_ids", nullable = false, length = 600)
+    @Builder.Default
+    private String workPhotoMediaIds = "[]";
 }

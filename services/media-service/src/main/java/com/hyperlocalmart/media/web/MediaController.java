@@ -44,7 +44,8 @@ public class MediaController {
                 && !principal.getRoles().contains("VENDOR")
                 && !principal.getRoles().contains("SUPER_ADMIN")
                 && !"LAUNDRY_ITEM".equalsIgnoreCase(context)
-                && !"BEAUTY_REFERENCE".equalsIgnoreCase(context)) {
+                && !"BEAUTY_REFERENCE".equalsIgnoreCase(context)
+                && !"BEAUTY_WORK".equalsIgnoreCase(context)) {
             throw new BusinessException(ErrorCode.FORBIDDEN, "Customers can upload laundry or beauty reference photos only");
         }
         MediaUploadResponse uploaded = mediaService.upload(file, context, principal.getUserId());

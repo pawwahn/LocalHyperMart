@@ -4,13 +4,29 @@ import type { SalesReportRow } from '@/features/reports/api/reportsApi';
 
 export type PayableRow = Pick<
   SalesReportRow,
-  'subOrderId' | 'status' | 'subtotal' | 'paymentMethod' | 'vendorAgentDelivery'
+  | 'subOrderId'
+  | 'status'
+  | 'subtotal'
+  | 'paymentMethod'
+  | 'vendorAgentDelivery'
+  | 'onlineRemittanceAmount'
 >;
+
+/** KoyaKart-held UPI to return to the shop (glam remittance uses this, not prorated goods). */
+export function koyaKartPayoutGross(row: PayableRow): number {
+  const remit = Number(row.onlineRemittanceAmount ?? 0);
+  if (remit > 0) return remit;
+  return Number(row.subtotal ?? 0);
+}
+
+export function isGlamRemittanceRow(row: PayableRow): boolean {
+  return Number(row.onlineRemittanceAmount ?? 0) > 0;
+}
 
 export type ShopHeldFeeRow = PayableRow &
   Pick<
     SalesReportRow,
-    'platformFeeAmount' | 'codFeeAmount' | 'membershipFeeAmount'
+    'platformFeeAmount' | 'codFeeAmount' | 'membershipFeeAmount' | 'parlourPaymentFeeAmount'
   >;
 
 export type PayoutFlag = { paid?: boolean; amount?: number | null };
@@ -84,6 +100,7 @@ export function computeUnpaidDelivered(
 export function shopHeldPassThroughFees(row: ShopHeldFeeRow): number {
   return (
     Number(row.platformFeeAmount ?? 0) +
+    Number(row.parlourPaymentFeeAmount ?? 0) +
     Number(row.codFeeAmount ?? 0) +
     Number(row.membershipFeeAmount ?? 0)
   );
@@ -119,7 +136,7 @@ export function computeAdminPayoutDue(
   for (const row of rows) {
     if (!isUnpaidDelivered(row, payouts[row.subOrderId])) continue;
     if (rowIsShopHeld(row, holders[row.subOrderId])) continue;
-    amount += Number(row.subtotal ?? 0);
+    amount += koyaKartPayoutGross(row);
     count += 1;
   }
   return { amount, count };

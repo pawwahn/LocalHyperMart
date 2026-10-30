@@ -3,7 +3,7 @@ import { useAuth } from '@/shared/auth/AuthContext';
 import { ApiError } from '@/shared/api/http';
 import { Button, Card } from '@/shared/ui';
 import { ConfirmDialog } from '@/features/orders/components/ConfirmDialog';
-import { beautyBookingTotal, beautyPaymentPlanView } from '@hlm-beauty';
+import { beautyBookingTotal, beautyPaymentPlanView, primaryBeautyWorkflowAction } from '@hlm-beauty';
 import {
   actOnBeautyOrder,
   beautyActionLabel,
@@ -49,7 +49,14 @@ export function BeautyBookings({ active = true, reloadToken = 0 }: { active?: bo
   const [orders, setOrders] = useState<BeautyOrder[]>([]);
   const [filter, setFilter] = useState<Filter>('open');
   const [actingId, setActingId] = useState<string | null>(null);
-  const [confirm, setConfirm] = useState<{ title: string; description: string; action: string; orderId: string } | null>(null);
+  const [confirm, setConfirm] = useState<{
+    title: string;
+    description: string;
+    action: string;
+    orderId: string;
+    warnBanner?: string;
+    visitCashCollected?: boolean;
+  } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -87,12 +94,15 @@ export function BeautyBookings({ active = true, reloadToken = 0 }: { active?: bo
     });
   }, [filter, orders]);
 
-  async function runAction(orderId: string, action: string) {
+  async function runAction(orderId: string, action: string, visitCashCollected?: boolean) {
     if (!token || actingId) return;
     setActingId(orderId);
     setError(null);
     try {
-      const next = await actOnBeautyOrder(token, orderId, { action });
+      const next = await actOnBeautyOrder(token, orderId, {
+        action,
+        ...(visitCashCollected ? { visitCashCollected: true } : {}),
+      });
       setOrders((prev) => prev.map((row) => (row.id === orderId ? next : row)));
     } catch (err) {
       setError(err instanceof ApiError || err instanceof Error ? err.message : 'Could not update booking');
@@ -102,8 +112,19 @@ export function BeautyBookings({ active = true, reloadToken = 0 }: { active?: bo
     }
   }
 
-  function askAction(order: BeautyOrder, action: string) {
+  function askAction(order: BeautyOrder, action: string, pay?: ReturnType<typeof beautyPaymentPlanView>) {
     const label = beautyActionLabel(action);
+    if (action === 'COMPLETE' && pay && pay.dueAtVisit > 0.01) {
+      setConfirm({
+        title: 'End session?',
+        description: `Confirm the visit is complete for ${order.orderNumber}.`,
+        warnBanner: `Collect ${rupee(pay.dueAtVisit)} from the customer before ending. This is recorded for accounts and audit.`,
+        action,
+        orderId: order.id,
+        visitCashCollected: true,
+      });
+      return;
+    }
     setConfirm({
       title: `${label}?`,
       description: `${label} for ${order.orderNumber}.`,
@@ -133,6 +154,8 @@ export function BeautyBookings({ active = true, reloadToken = 0 }: { active?: bo
       {shown.length === 0 ? <p style={styles.muted}>{filter === 'open' ? 'No open bookings.' : 'No completed bookings yet.'}</p> : null}
       {shown.map((order) => {
         const pay = beautyPaymentPlanView(order, 'vendor');
+        const primary = primaryBeautyWorkflowAction(order.allowedActions);
+        const canCancel = (order.allowedActions ?? []).includes('CANCEL');
         return (
         <Card key={order.id} style={styles.card}>
           <div style={styles.cardTop}>
@@ -163,16 +186,24 @@ export function BeautyBookings({ active = true, reloadToken = 0 }: { active?: bo
             </div>
           </div>
           <div style={styles.actions}>
-            {(order.allowedActions ?? []).map((action) => (
+            {primary ? (
               <Button
-                key={action}
-                variant={action === 'CANCEL' ? 'ghost' : 'primary'}
+                variant="primary"
                 disabled={actingId === order.id}
-                onClick={() => askAction(order, action)}
+                onClick={() => askAction(order, primary, pay)}
               >
-                {beautyActionLabel(action)}
+                {beautyActionLabel(primary)}
               </Button>
-            ))}
+            ) : null}
+            {canCancel ? (
+              <Button
+                variant="ghost"
+                disabled={actingId === order.id}
+                onClick={() => askAction(order, 'CANCEL')}
+              >
+                {beautyActionLabel('CANCEL')}
+              </Button>
+            ) : null}
           </div>
         </Card>
         );
@@ -182,11 +213,12 @@ export function BeautyBookings({ active = true, reloadToken = 0 }: { active?: bo
         title={confirm?.title ?? ''}
         description={confirm?.description ?? ''}
         confirmLabel={confirm ? beautyActionLabel(confirm.action) : 'OK'}
+        warnBanner={confirm?.warnBanner}
         danger={confirm?.action === 'CANCEL'}
         busy={Boolean(confirm && actingId === confirm.orderId)}
         onClose={() => setConfirm(null)}
         onConfirm={() => {
-          if (confirm) void runAction(confirm.orderId, confirm.action);
+          if (confirm) void runAction(confirm.orderId, confirm.action, confirm.visitCashCollected);
         }}
       />
     </div>

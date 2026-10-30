@@ -1,8 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ShopHomeJumpCard } from '../config/shopHomeJumpCards';
 import { scrollToHomeRailSection } from '../config/shopHomeJumpCards';
 
-const CAROUSEL_CSS = `
+const GRID_CSS = `
   @keyframes hlm-jump-shimmer {
     0% { transform: translateX(-120%) skewX(-12deg); opacity: 0; }
     35% { opacity: 0.35; }
@@ -10,43 +9,33 @@ const CAROUSEL_CSS = `
   }
 
   .hlm-jump-carousel-wrap {
-    margin: 0.55rem -0.85rem 0.75rem;
-    width: calc(100% + 1.7rem);
+    margin: 0.55rem 0 0.65rem;
+    width: 100%;
     min-width: 0;
   }
 
-  .hlm-jump-carousel-scroller {
-    display: flex;
-    gap: 0.65rem;
-    overflow-x: auto;
-    scroll-snap-type: x mandatory;
-    scroll-behavior: smooth;
-    padding: 0.15rem 0.85rem 0.55rem;
-    scrollbar-width: none;
-    -webkit-overflow-scrolling: touch;
-  }
-
-  .hlm-jump-carousel-scroller::-webkit-scrollbar {
-    display: none;
+  .hlm-jump-carousel-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0.4rem;
+    min-width: 0;
   }
 
   .hlm-jump-card {
-    flex: 0 0 min(88vw, 19.5rem);
-    scroll-snap-align: center;
-    scroll-snap-stop: always;
     position: relative;
-    min-height: 9.25rem;
+    min-height: 0;
     border: none;
-    border-radius: 22px;
-    padding: 0.95rem 0.85rem 0.85rem;
+    border-radius: 14px;
+    padding: 0.45rem 0.42rem 0.48rem;
     text-align: left;
     cursor: pointer;
     overflow: hidden;
     box-shadow:
-      0 12px 28px rgba(15, 23, 42, 0.14),
+      0 8px 18px rgba(15, 23, 42, 0.12),
       inset 0 1px 0 rgba(255, 255, 255, 0.22);
-    transition: transform 160ms ease, box-shadow 160ms ease;
+    transition: transform 160ms ease;
     -webkit-tap-highlight-color: transparent;
+    min-width: 0;
   }
 
   .hlm-jump-card::after {
@@ -56,7 +45,7 @@ const CAROUSEL_CSS = `
     background: linear-gradient(
       105deg,
       transparent 40%,
-      rgba(255, 255, 255, 0.12) 50%,
+      rgba(255, 255, 255, 0.1) 50%,
       transparent 60%
     );
     animation: hlm-jump-shimmer 4.5s ease-in-out infinite;
@@ -78,31 +67,24 @@ const CAROUSEL_CSS = `
   .hlm-jump-card-inner {
     position: relative;
     z-index: 1;
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: 0.35rem;
-    align-items: stretch;
-    min-height: 7.1rem;
-  }
-
-  .hlm-jump-card-copy {
     display: flex;
     flex-direction: column;
     align-items: flex-start;
-    gap: 0.35rem;
+    gap: 0.22rem;
+    min-height: 6.5rem;
     min-width: 0;
-    padding-right: 0.25rem;
   }
 
   .hlm-jump-card-tag {
-    font-size: 0.58rem;
+    font-size: 0.48rem;
     font-weight: 800;
-    letter-spacing: 0.06em;
+    letter-spacing: 0.05em;
     text-transform: uppercase;
-    padding: 0.2rem 0.45rem;
+    padding: 0.12rem 0.32rem;
     border-radius: 999px;
     background: rgba(255, 255, 255, 0.22);
     border: 1px solid rgba(255, 255, 255, 0.28);
+    line-height: 1.2;
   }
 
   .hlm-jump-card--dark .hlm-jump-card-tag {
@@ -114,22 +96,24 @@ const CAROUSEL_CSS = `
   .hlm-jump-card-title {
     margin: 0;
     font-family: var(--font-display, var(--font-body));
-    font-size: 1.05rem;
+    font-size: clamp(0.62rem, 2.4vw, 0.78rem);
     font-weight: 800;
-    line-height: 1.15;
+    line-height: 1.12;
     letter-spacing: -0.03em;
   }
 
   .hlm-jump-card-sub {
     margin: 0;
-    font-size: 0.72rem;
+    font-size: clamp(0.5rem, 1.85vw, 0.6rem);
     font-weight: 600;
-    line-height: 1.35;
+    line-height: 1.28;
     opacity: 0.92;
     display: -webkit-box;
-    -webkit-line-clamp: 2;
+    -webkit-line-clamp: 3;
     -webkit-box-orient: vertical;
     overflow: hidden;
+    flex: 1;
+    min-height: 0;
   }
 
   .hlm-jump-card-cta {
@@ -137,69 +121,34 @@ const CAROUSEL_CSS = `
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    min-height: 2rem;
-    padding: 0 0.85rem;
+    min-height: 1.55rem;
+    padding: 0 0.42rem;
     border-radius: 999px;
     border: none;
     background: #fff;
     color: #1a1820;
-    font-size: 0.68rem;
+    font-size: clamp(0.48rem, 1.7vw, 0.58rem);
     font-weight: 800;
-    letter-spacing: 0.04em;
+    letter-spacing: 0.03em;
     text-transform: uppercase;
-    box-shadow: 0 4px 14px rgba(15, 23, 42, 0.12);
+    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.1);
+    white-space: nowrap;
+    max-width: 100%;
   }
 
   .hlm-jump-card--light .hlm-jump-card-cta {
     color: #0C831F;
   }
 
-  .hlm-jump-card-art {
-    position: relative;
-    width: 4.6rem;
-    flex-shrink: 0;
-    align-self: end;
-  }
-
-  .hlm-jump-card-emoji {
+  .hlm-jump-card-emoji-row {
     position: absolute;
+    right: 0.2rem;
+    bottom: 0.15rem;
+    font-size: 0.85rem;
     line-height: 1;
-    filter: drop-shadow(0 6px 12px rgba(15, 23, 42, 0.18));
-  }
-
-  .hlm-jump-carousel-meta {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 0.45rem;
-    padding: 0.1rem 0.85rem 0;
-  }
-
-  .hlm-jump-dot {
-    width: 5px;
-    height: 5px;
-    border-radius: 50%;
-    background: #c4c0d4;
-    border: none;
-    padding: 0;
-    cursor: pointer;
-  }
-
-  .hlm-jump-dot--on {
-    background: #0C831F;
-    transform: scale(1.15);
-  }
-
-  .hlm-jump-counter {
-    font-size: 0.62rem;
-    font-weight: 800;
-    letter-spacing: 0.02em;
-    color: #fff;
-    background: rgba(15, 23, 42, 0.78);
-    padding: 0.22rem 0.5rem;
-    border-radius: 999px;
-    min-width: 2.1rem;
-    text-align: center;
+    opacity: 0.85;
+    pointer-events: none;
+    filter: drop-shadow(0 2px 4px rgba(15, 23, 42, 0.15));
   }
 
   .hlm-home-rail-flash {
@@ -215,21 +164,6 @@ const CAROUSEL_CSS = `
     scroll-margin-top: 4.75rem;
   }
 
-  @media (min-width: 520px) {
-    .hlm-jump-carousel-wrap {
-      margin-left: 0;
-      margin-right: 0;
-      width: 100%;
-    }
-    .hlm-jump-carousel-scroller {
-      padding-left: 0;
-      padding-right: 0;
-    }
-    .hlm-jump-card {
-      flex-basis: min(42vw, 20rem);
-    }
-  }
-
   @media (prefers-reduced-motion: reduce) {
     .hlm-jump-card::after {
       animation: none;
@@ -242,42 +176,12 @@ type Props = {
 };
 
 export function ShopHomeJumpCarousel({ cards }: Props) {
-  const scrollerRef = useRef<HTMLDivElement>(null);
-  const [index, setIndex] = useState(0);
-
-  const syncIndex = useCallback(() => {
-    const el = scrollerRef.current;
-    if (!el || cards.length === 0) return;
-    const card = el.querySelector<HTMLElement>('.hlm-jump-card');
-    if (!card) return;
-    const stride = card.offsetWidth + 10;
-    const i = Math.round(el.scrollLeft / stride);
-    setIndex(Math.max(0, Math.min(cards.length - 1, i)));
-  }, [cards.length]);
-
-  useEffect(() => {
-    const el = scrollerRef.current;
-    if (!el) return;
-    el.addEventListener('scroll', syncIndex, { passive: true });
-    return () => el.removeEventListener('scroll', syncIndex);
-  }, [syncIndex]);
-
-  function goTo(i: number) {
-    const el = scrollerRef.current;
-    if (!el) return;
-    const card = el.querySelector<HTMLElement>('.hlm-jump-card');
-    if (!card) return;
-    const stride = card.offsetWidth + 10;
-    el.scrollTo({ left: stride * i, behavior: 'smooth' });
-    setIndex(i);
-  }
-
   if (cards.length === 0) return null;
 
   return (
     <div className="hlm-jump-carousel-wrap" aria-label="Shop highlights">
-      <style>{CAROUSEL_CSS}</style>
-      <div ref={scrollerRef} className="hlm-jump-carousel-scroller">
+      <style>{GRID_CSS}</style>
+      <div className="hlm-jump-carousel-grid">
         {cards.map((card) => (
           <button
             key={card.id}
@@ -287,46 +191,16 @@ export function ShopHomeJumpCarousel({ cards }: Props) {
             onClick={() => scrollToHomeRailSection(card.sectionId)}
           >
             <div className="hlm-jump-card-inner">
-              <div className="hlm-jump-card-copy">
-                {card.brandTag ? <span className="hlm-jump-card-tag">{card.brandTag}</span> : null}
-                <h3 className="hlm-jump-card-title">{card.title}</h3>
-                <p className="hlm-jump-card-sub">{card.subtitle}</p>
-                <span className="hlm-jump-card-cta">{card.ctaLabel} →</span>
-              </div>
-              <div className="hlm-jump-card-art" aria-hidden>
-                {card.emojis.map((emoji, i) => (
-                  <span
-                    key={`${card.id}-${i}`}
-                    className="hlm-jump-card-emoji"
-                    style={{
-                      fontSize: i === 0 ? '2.1rem' : i === 1 ? '1.65rem' : '1.35rem',
-                      right: i === 0 ? '0.1rem' : i === 1 ? '0.5rem' : '0.2rem',
-                      bottom: i === 0 ? '0.2rem' : i === 1 ? '1.8rem' : '0.05rem',
-                      left: i === 2 ? '0.15rem' : 'auto',
-                      zIndex: 3 - i,
-                    }}
-                  >
-                    {emoji}
-                  </span>
-                ))}
-              </div>
+              {card.brandTag ? <span className="hlm-jump-card-tag">{card.brandTag}</span> : null}
+              <h3 className="hlm-jump-card-title">{card.title}</h3>
+              <p className="hlm-jump-card-sub">{card.subtitle}</p>
+              <span className="hlm-jump-card-cta">{card.ctaLabel} →</span>
             </div>
+            <span className="hlm-jump-card-emoji-row" aria-hidden>
+              {card.emojis[0]}
+            </span>
           </button>
         ))}
-      </div>
-      <div className="hlm-jump-carousel-meta">
-        {cards.map((card, i) => (
-          <button
-            key={card.id}
-            type="button"
-            className={`hlm-jump-dot${i === index ? ' hlm-jump-dot--on' : ''}`}
-            aria-label={`Go to slide ${i + 1}`}
-            onClick={() => goTo(i)}
-          />
-        ))}
-        <span className="hlm-jump-counter">
-          {index + 1}/{cards.length}
-        </span>
       </div>
     </div>
   );

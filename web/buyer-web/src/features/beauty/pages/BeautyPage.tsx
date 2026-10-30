@@ -10,6 +10,7 @@ import { CheckoutDismissedError, openGatewayCheckout } from '@/features/shop/lib
 import { PaymentGatewayChoices, usePaymentGateways } from '@/features/shop/components/PaymentGatewayChoices';
 import { confirmOnlinePayment } from '@/features/shop/api/shopApi';
 import { resolveCheckoutForPayment } from '@/features/shop/lib/paymentCheckoutPoll';
+import { GlamWorkGallerySheet } from '../components/GlamWorkGallerySheet';
 import {
   BEAUTY_OCCASIONS,
   BEAUTY_SERVICES,
@@ -423,6 +424,26 @@ const SKIN = `
   margin: 0;
   line-height: 1.35;
 }
+.hlm-glam-artist-work {
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 0.65rem;
+  font-weight: 800;
+  color: #db2777;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+  justify-self: start;
+  -webkit-tap-highlight-color: transparent;
+}
+.hlm-glam-artist-work:disabled {
+  opacity: 0.45;
+  cursor: default;
+  text-decoration: none;
+}
 .hlm-glam-rating {
   display: inline-flex;
   align-items: center;
@@ -738,6 +759,11 @@ const SKIN = `
   background: #f9fafb;
   border: 1px solid #e5e7eb;
 }
+.hlm-glam-studio-warn {
+  color: #b91c1c;
+  background: #fef2f2;
+  border-color: #fecaca;
+}
 @media (max-width: 360px) {
   .hlm-glam-occasions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
@@ -991,8 +1017,10 @@ export function BeautyPage() {
   const [photoBusy, setPhotoBusy] = useState(false);
   const [prepayMode, setPrepayMode] = useState<'FULL' | 'PARTIAL'>('FULL');
   const [confirming, setConfirming] = useState(false);
+  const [workGalleryArtistId, setWorkGalleryArtistId] = useState<string | null>(null);
   const now = useMemo(() => new Date(), [slotDate, slotId]);
   const artist = artists.find((row) => row.vendorId === artistId) ?? null;
+  const workGalleryArtist = artists.find((row) => row.vendorId === workGalleryArtistId) ?? null;
   const bookingSchedule = useMemo(() => {
     if (liveSchedule?.vendorId === artistId) return liveSchedule.schedule;
     return scheduleFromArtist(artist);
@@ -1144,7 +1172,8 @@ export function BeautyPage() {
     0,
     townMinPrepay > 0 ? townMinPrepay : Number(artist?.bookingMinPrepayAmount ?? 0),
   );
-  const parlourFee = prepayMode === 'PARTIAL' ? Math.max(0, townParlourFee) : 0;
+  const parlourFee =
+    prepayMode === 'PARTIAL' && venue === 'AT_STUDIO' ? Math.max(0, townParlourFee) : 0;
   const total = baseTotal + parlourFee;
   const partialAllowed = minPrepay > 0 && minPrepay < total;
   const payNow = prepayMode === 'PARTIAL' && partialAllowed ? minPrepay : total;
@@ -1173,8 +1202,17 @@ export function BeautyPage() {
 
   const slotOk = slotBookable(artist, slotDate, slotId, now, slotAvailability, visibleSlots);
   const needsAddress = venue === 'AT_HOME';
+  const studioOk = venue !== 'AT_STUDIO' || Boolean(artist?.studioAddress?.trim());
   const canBook =
-    Boolean(artist && chosenRates.length > 0 && servicePrice > 0 && slotOk && upiEnabled && (!needsAddress || addressId));
+    Boolean(
+      artist &&
+        chosenRates.length > 0 &&
+        servicePrice > 0 &&
+        slotOk &&
+        upiEnabled &&
+        studioOk &&
+        (!needsAddress || addressId),
+    );
 
   useEffect(() => {
     if (!partialAllowed && prepayMode === 'PARTIAL') setPrepayMode('FULL');
@@ -1353,11 +1391,18 @@ export function BeautyPage() {
             ) : (
               <div className="hlm-glam-artists">
                 {artists.map((row) => (
-                  <button
+                  <div
                     key={row.vendorId}
-                    type="button"
+                    role="button"
+                    tabIndex={0}
                     className={`hlm-glam-artist${artistId === row.vendorId ? ' hlm-glam-artist-on' : ''}`}
                     onClick={() => selectArtist(row.vendorId)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        selectArtist(row.vendorId);
+                      }
+                    }}
                   >
                     <div className="hlm-glam-artist-top">
                       <span className="hlm-glam-artist-avatar" aria-hidden>
@@ -1370,7 +1415,19 @@ export function BeautyPage() {
                       {row.yearsExperience ? <span>{row.yearsExperience}+ yrs exp.</span> : null}
                     </p>
                     {row.tagline ? <p className="hlm-glam-artist-tag">{row.tagline}</p> : null}
-                  </button>
+                    {(row.workPhotos?.length ?? 0) > 0 ? (
+                      <button
+                        type="button"
+                        className="hlm-glam-artist-work"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setWorkGalleryArtistId(row.vendorId);
+                        }}
+                      >
+                        Our work ({row.workPhotos!.length})
+                      </button>
+                    ) : null}
+                  </div>
                 ))}
               </div>
             )}
@@ -1469,8 +1526,14 @@ export function BeautyPage() {
                       </button>
                     ))}
                   </div>
-                  {venue === 'AT_STUDIO' && artist.studioAddress ? (
-                    <p className="hlm-glam-studio">Studio: {artist.studioAddress}</p>
+                  {venue === 'AT_STUDIO' ? (
+                    artist.studioAddress ? (
+                      <p className="hlm-glam-studio">Studio: {artist.studioAddress}</p>
+                    ) : (
+                      <p className="hlm-glam-studio hlm-glam-studio-warn">
+                        This artist has not shared a studio address yet. Choose home visit or pick another artist.
+                      </p>
+                    )
                   ) : null}
                 </div>
               </div>
@@ -1642,6 +1705,13 @@ export function BeautyPage() {
           ) : null}
         </div>
       ) : null}
+
+      <GlamWorkGallerySheet
+        open={workGalleryArtistId != null}
+        artistName={workGalleryArtist?.businessName ?? 'Artist'}
+        photos={workGalleryArtist?.workPhotos ?? []}
+        onClose={() => setWorkGalleryArtistId(null)}
+      />
 
       {confirming ? (
         <div style={styles.sheetBackdrop} role="presentation" onClick={() => !busy && setConfirming(false)}>

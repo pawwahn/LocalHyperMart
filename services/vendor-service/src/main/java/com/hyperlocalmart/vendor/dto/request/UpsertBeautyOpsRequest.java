@@ -30,4 +30,7 @@ public class UpsertBeautyOpsRequest {
 
     /** Extra charge (INR) when the customer books at home. Null leaves stored value. */
     private BigDecimal homeVisitCharge;
+
+    /** Where customers meet you for at-studio bookings. Null leaves stored value. */
+    private String studioAddress;
 }

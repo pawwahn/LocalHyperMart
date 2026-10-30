@@ -1,12 +1,17 @@
 import { Fragment, useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { ApiError } from '@/shared/api/http';
 import {
+  BEAUTY_SERVICE_CATEGORIES,
   BEAUTY_SERVICES,
+  beautyServicesInCategory,
   saveBeautyRates,
   slugCustomTreatmentCode,
   type BeautyProfile,
   type BeautyRateRow,
+  type BeautyServiceCategoryId,
 } from '../api/beautyApi';
+
+type TreatmentTab = BeautyServiceCategoryId | 'CUSTOM';
 
 type CustomTreatmentRow = {
   key: string;
@@ -90,6 +95,12 @@ export function GlamTreatmentsCard({ token, profile, onSaved, onError, onToast }
   const [paused, setPaused] = useState<Record<string, boolean>>({});
   const [customRows, setCustomRows] = useState<CustomTreatmentRow[]>([]);
   const [saving, setSaving] = useState(false);
+  const [treatmentTab, setTreatmentTab] = useState<TreatmentTab>('MAKEUP');
+
+  const visibleServices = useMemo(
+    () => (treatmentTab === 'CUSTOM' ? [] : beautyServicesInCategory(treatmentTab)),
+    [treatmentTab],
+  );
 
   useEffect(() => {
     const applied = applyRatesToForm(profile?.rates);
@@ -147,93 +158,123 @@ export function GlamTreatmentsCard({ token, profile, onSaved, onError, onToast }
         </div>
       </div>
 
-      <div style={styles.rateGrid}>
-        <span style={styles.colHead}>Treatment</span>
-        <span style={styles.colHead}>Price ₹</span>
-        <span style={styles.colHead}>Mins</span>
-        <span style={styles.colHead}>Buyers see?</span>
-        {BEAUTY_SERVICES.map((service) => (
-          <Fragment key={service.id}>
-            <span style={styles.serviceLabel}>
-              {service.emoji} {service.label}
-            </span>
-            <input
-              style={styles.price}
-              inputMode="decimal"
-              placeholder="—"
-              value={prices[service.id] ?? ''}
-              onChange={(e) => setPrices((prev) => ({ ...prev, [service.id]: e.target.value.replace(/[^\d.]/g, '') }))}
-            />
-            <input
-              style={styles.price}
-              inputMode="numeric"
-              value={minutes[service.id] ?? ''}
-              onChange={(e) => setMinutes((prev) => ({ ...prev, [service.id]: e.target.value.replace(/\D/g, '').slice(0, 3) }))}
-            />
-            <button
-              type="button"
-              style={paused[service.id] ? styles.hiddenBtn : styles.visibleBtn}
-              disabled={!prices[service.id]?.trim()}
-              title={!prices[service.id]?.trim() ? 'Add a price first' : undefined}
-              onClick={() => setPaused((prev) => ({ ...prev, [service.id]: !prev[service.id] }))}
-            >
-              {paused[service.id] ? 'Hidden' : 'Visible'}
-            </button>
-          </Fragment>
+      <div style={styles.categoryTabs} role="tablist" aria-label="Treatment categories">
+        {BEAUTY_SERVICE_CATEGORIES.map((cat) => (
+          <button
+            key={cat.id}
+            type="button"
+            role="tab"
+            aria-selected={treatmentTab === cat.id}
+            style={treatmentTab === cat.id ? styles.categoryTabOn : styles.categoryTab}
+            onClick={() => setTreatmentTab(cat.id)}
+          >
+            <span aria-hidden>{cat.emoji}</span> {cat.label}
+          </button>
         ))}
-      </div>
-
-      <div style={styles.customBlock}>
-        <p style={styles.customTitle}>Custom treatments</p>
-        <p style={styles.customSub}>Packages or services not in the list above.</p>
-        {customRows.map((row, index) => (
-          <div key={row.key} style={styles.customRow}>
-            <input
-              style={styles.customName}
-              placeholder="e.g. Gel pedicure"
-              value={row.label}
-              onChange={(e) =>
-                setCustomRows((prev) => prev.map((item, i) => (i === index ? { ...item, label: e.target.value } : item)))
-              }
-            />
-            <input
-              style={styles.price}
-              inputMode="decimal"
-              placeholder="₹"
-              value={row.price}
-              onChange={(e) =>
-                setCustomRows((prev) =>
-                  prev.map((item, i) => (i === index ? { ...item, price: e.target.value.replace(/[^\d.]/g, '') } : item)),
-                )
-              }
-            />
-            <input
-              style={styles.price}
-              inputMode="numeric"
-              placeholder="min"
-              value={row.minutes}
-              onChange={(e) =>
-                setCustomRows((prev) =>
-                  prev.map((item, i) => (i === index ? { ...item, minutes: e.target.value.replace(/\D/g, '').slice(0, 3) } : item)),
-                )
-              }
-            />
-            <button
-              type="button"
-              style={row.paused ? styles.hiddenBtn : styles.visibleBtn}
-              onClick={() => setCustomRows((prev) => prev.map((item, i) => (i === index ? { ...item, paused: !item.paused } : item)))}
-            >
-              {row.paused ? 'Hidden' : 'Visible'}
-            </button>
-            <button type="button" style={styles.removeBtn} aria-label="Remove treatment" onClick={() => setCustomRows((prev) => prev.filter((_, i) => i !== index))}>
-              ×
-            </button>
-          </div>
-        ))}
-        <button type="button" style={styles.chip} onClick={addCustomTreatment}>
-          + Add custom treatment
+        <button
+          type="button"
+          role="tab"
+          aria-selected={treatmentTab === 'CUSTOM'}
+          style={treatmentTab === 'CUSTOM' ? styles.categoryTabOn : styles.categoryTab}
+          onClick={() => setTreatmentTab('CUSTOM')}
+        >
+          <span aria-hidden>➕</span> Custom
+          {customRows.length > 0 ? <span style={styles.tabBadge}>{customRows.length}</span> : null}
         </button>
       </div>
+
+      {treatmentTab !== 'CUSTOM' ? (
+        <div style={styles.rateGrid}>
+          <span style={styles.colHead}>Treatment</span>
+          <span style={styles.colHead}>Price ₹</span>
+          <span style={styles.colHead}>Mins</span>
+          <span style={styles.colHead}>Buyers see?</span>
+          {visibleServices.map((service) => (
+            <Fragment key={service.id}>
+              <span style={styles.serviceLabel}>
+                {service.emoji} {service.label}
+              </span>
+              <input
+                style={styles.price}
+                inputMode="decimal"
+                placeholder="—"
+                value={prices[service.id] ?? ''}
+                onChange={(e) => setPrices((prev) => ({ ...prev, [service.id]: e.target.value.replace(/[^\d.]/g, '') }))}
+              />
+              <input
+                style={styles.price}
+                inputMode="numeric"
+                value={minutes[service.id] ?? ''}
+                onChange={(e) => setMinutes((prev) => ({ ...prev, [service.id]: e.target.value.replace(/\D/g, '').slice(0, 3) }))}
+              />
+              <button
+                type="button"
+                style={paused[service.id] ? styles.hiddenBtn : styles.visibleBtn}
+                disabled={!prices[service.id]?.trim()}
+                title={!prices[service.id]?.trim() ? 'Add a price first' : undefined}
+                onClick={() => setPaused((prev) => ({ ...prev, [service.id]: !prev[service.id] }))}
+              >
+                {paused[service.id] ? 'Hidden' : 'Visible'}
+              </button>
+            </Fragment>
+          ))}
+        </div>
+      ) : (
+        <div style={styles.customBlock}>
+          <p style={styles.customTitle}>Custom treatments</p>
+          <p style={styles.customSub}>Packages or services not in the standard catalog.</p>
+          {customRows.length === 0 ? (
+            <p style={styles.customEmpty}>No custom treatments yet — add one below.</p>
+          ) : null}
+          {customRows.map((row, index) => (
+            <div key={row.key} style={styles.customRow}>
+              <input
+                style={styles.customName}
+                placeholder="e.g. Gel pedicure"
+                value={row.label}
+                onChange={(e) =>
+                  setCustomRows((prev) => prev.map((item, i) => (i === index ? { ...item, label: e.target.value } : item)))
+                }
+              />
+              <input
+                style={styles.price}
+                inputMode="decimal"
+                placeholder="₹"
+                value={row.price}
+                onChange={(e) =>
+                  setCustomRows((prev) =>
+                    prev.map((item, i) => (i === index ? { ...item, price: e.target.value.replace(/[^\d.]/g, '') } : item)),
+                  )
+                }
+              />
+              <input
+                style={styles.price}
+                inputMode="numeric"
+                placeholder="min"
+                value={row.minutes}
+                onChange={(e) =>
+                  setCustomRows((prev) =>
+                    prev.map((item, i) => (i === index ? { ...item, minutes: e.target.value.replace(/\D/g, '').slice(0, 3) } : item)),
+                  )
+                }
+              />
+              <button
+                type="button"
+                style={row.paused ? styles.hiddenBtn : styles.visibleBtn}
+                onClick={() => setCustomRows((prev) => prev.map((item, i) => (i === index ? { ...item, paused: !item.paused } : item)))}
+              >
+                {row.paused ? 'Hidden' : 'Visible'}
+              </button>
+              <button type="button" style={styles.removeBtn} aria-label="Remove treatment" onClick={() => setCustomRows((prev) => prev.filter((_, i) => i !== index))}>
+                ×
+              </button>
+            </div>
+          ))}
+          <button type="button" style={styles.chip} onClick={addCustomTreatment}>
+            + Add custom treatment
+          </button>
+        </div>
+      )}
 
       <div style={styles.actions}>
         <button type="button" style={styles.primary} disabled={saving || !dirty} onClick={() => void save()}>
@@ -269,6 +310,53 @@ const styles: Record<string, CSSProperties> = {
   },
   title: { margin: 0, fontSize: '0.82rem', fontWeight: 800, color: '#831843', letterSpacing: '-0.02em' },
   sub: { margin: '0.12rem 0 0', fontSize: '0.65rem', lineHeight: 1.35, color: '#6b7280', fontWeight: 600 },
+  categoryTabs: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: '0.3rem',
+    padding: '0.25rem',
+    borderRadius: 12,
+    border: '1px solid #fce7f3',
+    background: '#fff',
+  },
+  categoryTab: {
+    flex: '1 1 auto',
+    minHeight: 34,
+    padding: '0.25rem 0.45rem',
+    borderRadius: 9,
+    border: '1px solid transparent',
+    background: 'transparent',
+    color: '#6b7280',
+    fontWeight: 700,
+    fontSize: '0.65rem',
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+    whiteSpace: 'nowrap',
+  },
+  categoryTabOn: {
+    flex: '1 1 auto',
+    minHeight: 34,
+    padding: '0.25rem 0.45rem',
+    borderRadius: 9,
+    border: '1px solid #f9a8d4',
+    background: '#fdf2f8',
+    color: '#831843',
+    fontWeight: 800,
+    fontSize: '0.65rem',
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+    whiteSpace: 'nowrap',
+    boxShadow: '0 2px 6px rgba(190, 24, 93, 0.08)',
+  },
+  tabBadge: {
+    marginLeft: '0.2rem',
+    padding: '0 0.3rem',
+    borderRadius: 999,
+    background: '#fce7f3',
+    color: '#9d174d',
+    fontSize: '0.58rem',
+    fontWeight: 800,
+  },
   rateGrid: {
     display: 'grid',
     gridTemplateColumns: 'minmax(8rem, 1fr) 4.5rem 3.5rem 5rem',
@@ -306,7 +394,8 @@ const styles: Record<string, CSSProperties> = {
     fontSize: '0.65rem',
     cursor: 'pointer',
   },
-  customBlock: { display: 'grid', gap: '0.35rem', paddingTop: '0.35rem', borderTop: '1px dashed #e5e7eb' },
+  customBlock: { display: 'grid', gap: '0.35rem' },
+  customEmpty: { margin: 0, fontSize: '0.65rem', color: '#9ca3af', fontWeight: 600 },
   customTitle: { margin: 0, fontSize: '0.78rem', fontWeight: 800, color: '#374151' },
   customSub: { margin: 0, fontSize: '0.62rem', color: '#6b7280', fontWeight: 600 },
   customRow: { display: 'flex', flexWrap: 'wrap', gap: '0.35rem', alignItems: 'center' },

@@ -5,6 +5,7 @@ import { ApiError } from '@/shared/api/http';
 import { Toast } from '@/shared/ui';
 import { BeautyBookings } from '../components/BeautyBookings';
 import { GlamTreatmentsCard } from '../components/GlamTreatmentsCard';
+import { GlamWorkPhotosCard } from '../components/GlamWorkPhotosCard';
 import { GlamVendorCalendar, type CalView } from '../components/GlamVendorCalendar';
 import {
   buildBeautySlots,
@@ -26,6 +27,16 @@ import {
 } from '../api/beautyApi';
 
 const INTERVAL_OPTIONS = [15, 30, 45, 60] as const;
+
+type GlamDeskTab = 'treatments' | 'gallery' | 'setup' | 'calendar' | 'bookings';
+
+const GLAM_DESK_TABS: { id: GlamDeskTab; label: string; emoji: string }[] = [
+  { id: 'treatments', label: 'Treatments', emoji: '₹' },
+  { id: 'gallery', label: 'Our work', emoji: '📷' },
+  { id: 'setup', label: 'Hours & team', emoji: '⚙️' },
+  { id: 'calendar', label: 'Calendar', emoji: '📅' },
+  { id: 'bookings', label: 'Bookings', emoji: '📋' },
+];
 
 function buildStaffOverrideMap(
   base: Record<string, number>,
@@ -71,9 +82,12 @@ export function GlamDeskPage() {
   const [scheduleBusy, setScheduleBusy] = useState(false);
   const [homeVisitInput, setHomeVisitInput] = useState('0');
   const [homeVisitBusy, setHomeVisitBusy] = useState(false);
+  const [studioAddressInput, setStudioAddressInput] = useState('');
+  const [studioBusy, setStudioBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savedOpen, setSavedOpen] = useState(false);
   const [savedMessage, setSavedMessage] = useState('');
+  const [deskTab, setDeskTab] = useState<GlamDeskTab>('treatments');
 
   usePortalChrome({
     title: 'Koya Glam',
@@ -108,12 +122,19 @@ export function GlamDeskPage() {
     const value = Math.max(0, Number(row.homeVisitCharge ?? 0));
     setHomeVisitInput(Number.isFinite(value) ? String(value) : '0');
   }
+
+  function applyStudioToForm(row: BeautyProfile) {
+    setStudioAddressInput(String(row.studioAddress ?? '').trim());
+  }
+
+  const savedStudio = String(profile?.studioAddress ?? '').trim();
+  const studioDirty = profile != null && savedStudio !== studioAddressInput.trim();
   const slots = useMemo(() => buildBeautySlots(schedule), [schedule]);
   const staffForDate = useCallback(
     (date: string) => effectiveStaffForDate(staffCount, dayStaffOverrides, date),
     [staffCount, dayStaffOverrides],
   );
-  const calendarFocusDate = calView === 'today' ? today : anchorDate;
+  const calendarFocusDate = calView === 'today' || calView === 'daily' ? anchorDate : today;
   const staffOnFocusDay = staffForDate(calendarFocusDate);
   const hasDayOverride = dayStaffOverrides[calendarFocusDate] != null;
 
@@ -126,6 +147,7 @@ export function GlamDeskPage() {
         setStaffCount(Math.max(1, normalized.staffCount ?? 1));
         applyScheduleToForm(normalized);
         applyHomeVisitToForm(normalized);
+        applyStudioToForm(normalized);
         setError(null);
       })
       .catch((err) => setError(err instanceof ApiError || err instanceof Error ? err.message : 'Could not load glam profile'));
@@ -239,6 +261,25 @@ export function GlamDeskPage() {
     }
   }
 
+  async function saveStudioAddress() {
+    if (!token || studioBusy) return;
+    const address = studioAddressInput.trim();
+    setStudioBusy(true);
+    setError(null);
+    try {
+      const saved = await saveBeautyOps(token, { studioAddress: address });
+      setProfile((prev) => mergeBeautyProfileAfterOps(prev, saved));
+      applyStudioToForm(saved);
+      setSavedMessage(address ? 'Studio address saved for customers' : 'Studio address cleared');
+      setSavedOpen(true);
+    } catch (err) {
+      setError(err instanceof ApiError || err instanceof Error ? err.message : 'Could not save studio address');
+      if (profile) applyStudioToForm(profile);
+    } finally {
+      setStudioBusy(false);
+    }
+  }
+
   async function saveHomeVisitCharge() {
     if (!token || homeVisitBusy) return;
     const amount = Math.max(0, Math.round(homeVisitDraft));
@@ -311,17 +352,49 @@ export function GlamDeskPage() {
       <Toast open={savedOpen} message={savedMessage} tone="success" placement="center" durationMs={3500} onClose={() => setSavedOpen(false)} />
       {profile?.enabled ? (
         <>
-          <GlamTreatmentsCard
-            token={token}
-            profile={profile}
-            onSaved={(saved) => setProfile((prev) => mergeBeautyProfileAfterOps(prev, saved))}
-            onError={(message) => setError(message)}
-            onToast={(message) => {
-              setSavedMessage(message);
-              setSavedOpen(true);
-            }}
-          />
+          <div style={styles.deskTabs} role="tablist" aria-label="Glam sections">
+            {GLAM_DESK_TABS.map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                role="tab"
+                aria-selected={deskTab === tab.id}
+                style={deskTab === tab.id ? styles.deskTabOn : styles.deskTab}
+                onClick={() => setDeskTab(tab.id)}
+              >
+                <span aria-hidden>{tab.emoji}</span> {tab.label}
+              </button>
+            ))}
+          </div>
 
+          {deskTab === 'treatments' ? (
+            <GlamTreatmentsCard
+              token={token}
+              profile={profile}
+              onSaved={(saved) => setProfile((prev) => mergeBeautyProfileAfterOps(prev, saved))}
+              onError={(message) => setError(message)}
+              onToast={(message) => {
+                setSavedMessage(message);
+                setSavedOpen(true);
+              }}
+            />
+          ) : null}
+
+          {deskTab === 'gallery' ? (
+            <GlamWorkPhotosCard
+              token={token}
+              profile={profile}
+              onSaved={(saved) => setProfile((prev) => mergeBeautyProfileAfterOps(prev, saved))}
+              onError={(message) => setError(message)}
+              onToast={(message) => {
+                setSavedMessage(message);
+                setSavedOpen(true);
+              }}
+            />
+          ) : null}
+
+          {deskTab === 'setup' ? (
+            <>
           <div style={styles.teamCard}>
             <div style={styles.teamIcon} aria-hidden>
               💄
@@ -385,6 +458,44 @@ export function GlamDeskPage() {
           </div>
 
           <div style={styles.scheduleCard}>
+            <p style={styles.scheduleTitle}>At studio address</p>
+            <div style={styles.scheduleRow}>
+              <label style={{ ...styles.field, flex: 1 }}>
+                Where customers meet you
+                <input
+                  type="text"
+                  maxLength={300}
+                  value={studioAddressInput}
+                  style={styles.studioInput}
+                  placeholder="e.g. Main Road, near Ganesh Temple"
+                  onChange={(e) => setStudioAddressInput(e.target.value)}
+                  aria-label="Studio address for at-studio bookings"
+                />
+              </label>
+              <button
+                type="button"
+                style={styles.saveBtn}
+                disabled={studioBusy || !studioDirty}
+                onClick={() => void saveStudioAddress()}
+              >
+                {studioBusy ? 'Saving…' : studioDirty ? 'Save address' : 'Saved'}
+              </button>
+            </div>
+            <p style={styles.scheduleHint}>
+              {studioDirty ? (
+                <>
+                  <strong style={{ color: '#b45309' }}>Not saved yet</strong> — customers who pick <strong>At studio</strong>{' '}
+                  need this before they can pay.
+                </>
+              ) : savedStudio ? (
+                <>Customers see: {savedStudio}</>
+              ) : (
+                <>If empty, your shop address from registration is used when available.</>
+              )}
+            </p>
+          </div>
+
+          <div style={styles.scheduleCard}>
             <p style={styles.scheduleTitle}>At my home visit charge</p>
             <div style={styles.scheduleRow}>
               <label style={styles.field}>
@@ -422,7 +533,11 @@ export function GlamDeskPage() {
               )}
             </p>
           </div>
+            </>
+          ) : null}
 
+          {deskTab === 'calendar' ? (
+            <>
           {(calView === 'today' || calView === 'daily') && (
             <div style={styles.dayStaffCard}>
               <div style={styles.teamBody}>
@@ -472,17 +587,60 @@ export function GlamDeskPage() {
             orders={orders}
             onToggleManualBlock={(date, slotId) => void toggleManualBlock(date, slotId)}
           />
+            </>
+          ) : null}
+
+          {deskTab === 'bookings' ? <BeautyBookings active reloadToken={tick} /> : null}
         </>
       ) : (
         <p style={styles.muted}>Glam is not turned on for this shop. Super admin enables the artist profile.</p>
       )}
-      <BeautyBookings active reloadToken={tick} />
+      {!profile?.enabled ? <BeautyBookings active reloadToken={tick} /> : null}
     </div>
   );
 }
 
 const styles: Record<string, CSSProperties> = {
   wrap: { display: 'grid', gap: '0.55rem' },
+  deskTabs: {
+    display: 'flex',
+    gap: '0.3rem',
+    overflowX: 'auto',
+    padding: '0.3rem',
+    borderRadius: 14,
+    border: '1px solid var(--border, #e5e7eb)',
+    background: 'var(--bg-muted, #f8fafc)',
+    WebkitOverflowScrolling: 'touch',
+  },
+  deskTab: {
+    flex: '0 0 auto',
+    minHeight: 38,
+    padding: '0.35rem 0.65rem',
+    borderRadius: 10,
+    border: 'none',
+    background: 'transparent',
+    color: 'var(--text-muted, #6b7280)',
+    fontWeight: 700,
+    fontSize: '0.72rem',
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+    whiteSpace: 'nowrap',
+  },
+  deskTabOn: {
+    flex: '0 0 auto',
+    minHeight: 38,
+    padding: '0.35rem 0.65rem',
+    borderRadius: 10,
+    border: '1px solid #f9a8d4',
+    background: '#fff',
+    color: '#831843',
+    fontWeight: 800,
+    fontSize: '0.72rem',
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+    whiteSpace: 'nowrap',
+    boxShadow: '0 2px 8px rgba(190, 24, 93, 0.1)',
+  },
   errorBanner: {
     padding: '0.45rem 0.6rem',
     borderRadius: 10,
@@ -550,6 +708,15 @@ const styles: Record<string, CSSProperties> = {
   field: { display: 'grid', gap: '0.2rem', fontSize: '0.62rem', fontWeight: 800, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.04em' },
   timeInput: { minHeight: 38, borderRadius: 10, border: '1px solid #e5e7eb', padding: '0 0.45rem', fontSize: '0.78rem', fontWeight: 600 },
   select: { minHeight: 38, borderRadius: 10, border: '1px solid #e5e7eb', padding: '0 0.45rem', fontSize: '0.78rem', fontWeight: 600, minWidth: 88 },
+  studioInput: {
+    width: '100%',
+    minHeight: 40,
+    borderRadius: 10,
+    border: '1px solid var(--border, #e5e7eb)',
+    padding: '0 0.55rem',
+    fontSize: '0.78rem',
+    fontWeight: 600,
+  },
   chargeInput: {
     minHeight: 38,
     minWidth: 100,

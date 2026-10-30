@@ -5,6 +5,7 @@ import com.hyperlocalmart.common.exception.BusinessException;
 import com.hyperlocalmart.common.exception.ErrorCode;
 import com.hyperlocalmart.vendor.dto.request.UpsertBeautyOpsRequest;
 import com.hyperlocalmart.vendor.dto.request.UpsertBeautyRatesRequest;
+import com.hyperlocalmart.vendor.dto.request.UpsertBeautyWorkPhotosRequest;
 import com.hyperlocalmart.vendor.dto.response.BeautyArtistResponse;
 import com.hyperlocalmart.vendor.security.AuthUserPrincipal;
 import com.hyperlocalmart.vendor.service.BeautyVendorService;
@@ -50,6 +51,16 @@ public class BeautyMeController {
             HttpServletRequest httpRequest) {
         requireVendor(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, beautyVendorService.upsertRatesByVendor(principal.getUserId(), request)));
+    }
+
+    @PutMapping("/work-photos")
+    public ResponseEntity<ApiResponse<BeautyArtistResponse>> upsertWorkPhotos(
+            @Valid @RequestBody UpsertBeautyWorkPhotosRequest request,
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            HttpServletRequest httpRequest) {
+        requireVendor(principal);
+        return ResponseEntity.ok(
+                ApiResponses.ok(httpRequest, beautyVendorService.upsertWorkPhotosByVendor(principal.getUserId(), request)));
     }
 
     private static void requireVendor(AuthUserPrincipal principal) {

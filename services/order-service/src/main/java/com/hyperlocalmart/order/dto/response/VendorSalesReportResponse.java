@@ -74,8 +74,20 @@ public class VendorSalesReportResponse {
         private BigDecimal codFeeAmount;
         /** Bundled buyer delivery / membership plan on shop-held COD. */
         private BigDecimal membershipFeeAmount;
+        /** Glam pay-at-parlour booking fee (app pass-through; not {@link #platformFeeAmount}). */
+        private BigDecimal parlourPaymentFeeAmount;
         /** COD cash allocated to this bag (goods + shared delivery/platform/COD; excludes membership pool). */
         private BigDecimal codCashCollectedAmount;
+        /** GROCERY, LAUNDRY, or GLAM — payout copy differs for glam partial prepay. */
+        private String orderLineKind;
+        /** Glam: full buyer receipt total (service + travel + app fees). */
+        private BigDecimal amountDueTotal;
+        /** Glam partial prepay: minimum paid online at booking (with KoyaKart). */
+        private BigDecimal prepayAmount;
+        /** Glam FULL or PARTIAL. */
+        private String prepayMode;
+        /** Glam UPI slice: SUCCESS total KoyaKart remits on Pay (not prorated goods). */
+        private BigDecimal onlineRemittanceAmount;
         private List<VendorSalesReportItem> items;
     }
 

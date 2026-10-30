@@ -13,7 +13,11 @@ import com.hyperlocalmart.order.dto.laundry.LaundryActionRequest;
 import com.hyperlocalmart.order.dto.laundry.LaundryOrderResponse;
 import com.hyperlocalmart.order.dto.laundry.LaundryShopCard;
 import com.hyperlocalmart.order.dto.laundry.PlaceLaundryOrderRequest;
+import com.hyperlocalmart.order.dto.response.OrderInternalSnapshotResponse;
 import com.hyperlocalmart.order.dto.response.PaymentInfoResponse;
+import com.hyperlocalmart.order.entity.OrderStatus;
+import com.hyperlocalmart.order.entity.PaymentMethod;
+import com.hyperlocalmart.order.entity.PaymentStatus;
 import com.hyperlocalmart.order.entity.LaundryDaySeq;
 import com.hyperlocalmart.order.entity.LaundryOrder;
 import com.hyperlocalmart.order.entity.LaundryOrderEvent;
@@ -46,6 +50,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
@@ -227,6 +232,25 @@ public class LaundryOrderService {
         return orderRepository.findByBuyerIdAndTownIdOrderByPlacedAtDesc(buyerId, townId).stream()
                 .map(order -> toResponse(order, false))
                 .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public Optional<OrderInternalSnapshotResponse> paymentOrderSnapshot(UUID orderId, UUID buyerId) {
+        return orderRepository.findById(orderId)
+                .filter(order -> order.getBuyerId().equals(buyerId))
+                .map(order -> OrderInternalSnapshotResponse.builder()
+                        .orderId(order.getId())
+                        .buyerId(order.getBuyerId())
+                        .townId(order.getTownId())
+                        .orderNumber(order.getOrderNumber())
+                        .status(order.getStatus() == LaundryOrderStatus.AWAITING_PAYMENT
+                                ? OrderStatus.PAYMENT_PENDING
+                                : OrderStatus.PLACED)
+                        .paymentStatus(PaymentStatus.PENDING)
+                        .paymentMethod(PaymentMethod.ONLINE)
+                        .totalAmount(buyerPayable(order))
+                        .buyerPhone(order.getContactPhone())
+                        .build());
     }
 
     @Transactional(readOnly = true)

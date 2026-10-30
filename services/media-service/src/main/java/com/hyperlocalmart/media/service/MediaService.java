@@ -14,6 +14,7 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Locale;
@@ -59,6 +60,17 @@ public class MediaService {
         }
         if (file.getSize() > MAX_BYTES) {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, "File exceeds max size of 5MB");
+        }
+
+        byte[] header;
+        try (InputStream headerStream = file.getInputStream()) {
+            header = ImageFileSignatures.readHeader(headerStream, 16);
+        } catch (IOException e) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Could not read uploaded file");
+        }
+        if (!ImageFileSignatures.matchesDeclaredType(contentType, header)) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR,
+                    "File content does not match a supported image type");
         }
 
         UUID id = UUID.randomUUID();

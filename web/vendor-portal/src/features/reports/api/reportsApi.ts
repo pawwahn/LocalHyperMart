@@ -41,6 +41,17 @@ export type SalesReportRow = {
   codFeeAmount?: number | null;
   /** Shop-held cash: bundled delivery / membership plan remitted to KoyaKart. */
   membershipFeeAmount?: number | null;
+  /** Glam pay-at-parlour booking fee remitted to KoyaKart (not platformFeeAmount). */
+  parlourPaymentFeeAmount?: number | null;
+  /** GROCERY, LAUNDRY, or GLAM. */
+  orderLineKind?: string | null;
+  /** Glam buyer receipt total. */
+  amountDueTotal?: number | null;
+  /** Glam partial prepay paid online at booking. */
+  prepayAmount?: number | null;
+  prepayMode?: string | null;
+  /** Glam UPI slice: amount KoyaKart remits (SUCCESS gateway total). */
+  onlineRemittanceAmount?: number | null;
   /** COD cash for this bag (buyer paid share incl. delivery/platform on mixed orders). */
   codCashCollectedAmount?: number | null;
   items?: SalesReportItem[] | null;

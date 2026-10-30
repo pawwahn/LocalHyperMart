@@ -30,10 +30,13 @@ public class TownDuesController {
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
             @RequestParam(required = false) UUID townId,
+            @RequestParam(defaultValue = "true") boolean includeOpenWork,
+            @RequestParam(defaultValue = "false") boolean openWorkOnly,
             HttpServletRequest httpRequest) {
         if (principal == null || principal.getRoles() == null || !principal.getRoles().contains("SUPER_ADMIN")) {
             throw new BusinessException(ErrorCode.FORBIDDEN, "Super admin role required");
         }
-        return ResponseEntity.ok(ApiResponses.ok(httpRequest, townDuesService.dues(from, to, townId)));
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                townDuesService.dues(from, to, townId, includeOpenWork, openWorkOnly)));
     }
 }

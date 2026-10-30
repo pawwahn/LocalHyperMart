@@ -1,12 +1,15 @@
 export {
   BEAUTY_OCCASIONS,
+  BEAUTY_SERVICE_CATEGORIES,
   BEAUTY_SERVICES,
   BEAUTY_VENUES,
   beautyOccasionLabel,
+  beautyServicesInCategory,
   beautyServiceLabel,
   slugCustomTreatmentCode,
   beautyVenueLabel,
   type BeautyOccasionId,
+  type BeautyServiceCategoryId,
   type BeautyServiceId,
   type BeautyVenueId,
 } from './services';
@@ -41,6 +44,7 @@ export {
   type BeautyPaymentPlanView,
   type BeautySettlementTone,
 } from './paymentPlan';
+export { primaryBeautyWorkflowAction } from './vendorWorkflow';
 export {
   type BeautySlotRow,
   type BeautySlotScheduleConfig,

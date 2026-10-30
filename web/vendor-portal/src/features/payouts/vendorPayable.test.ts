@@ -4,6 +4,7 @@ import {
   adminPayoutHint,
   awaitingDeliveredRows,
   computeAdminPayoutDue,
+  koyaKartPayoutGross,
   computeShopHeldFeeDue,
   computeUnpaidDelivered,
   isClosedSalesStatus,
@@ -100,6 +101,15 @@ describe('shop-held COD vs admin payout', () => {
     const r = row('upi', 'DELIVERED', 199, { paymentMethod: 'UPI' });
     expect(rowIsShopHeld(r)).toBe(false);
     expect(computeAdminPayoutDue([r])).toEqual({ amount: 199, count: 1 });
+  });
+
+  it('glam partial UPI slice uses remittance amount for KK payout', () => {
+    const remit = {
+      ...row('glam-upi', 'DELIVERED', 47.95, { paymentMethod: 'ONLINE', vendorAgentDelivery: false }),
+      onlineRemittanceAmount: 50,
+    };
+    expect(koyaKartPayoutGross(remit)).toBe(50);
+    expect(computeAdminPayoutDue([remit])).toEqual({ amount: 50, count: 1 });
   });
 
   it('hub COD delivered unpaid is admin payout (KoyaKart holds / pays vendor)', () => {

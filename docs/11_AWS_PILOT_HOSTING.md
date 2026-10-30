@@ -215,6 +215,45 @@ On-demand, 24×7, **light–moderate** traffic for 4 towns. Verify in [AWS Prici
 
 ---
 
+## Hosting evolution policy (VPS → AWS)
+
+**Decision rule:** Use **Hostinger (or similar VPS) for early production** while the business is small. **Plan and execute migration to AWS `ap-south-1`** when the platform is commercially real—**target around ~50 enabled towns with healthy GMV**, or earlier if capacity metrics force it.
+
+### This does **not** break production at town 50
+
+| Question | Answer |
+|----------|--------|
+| Is there a **hard cap** at 50 towns in code? | **No.** Town creation and buyer/vendor flows are **not** blocked by town count. Town **51** does not fail because of this policy. |
+| Does prod **shut off** automatically at 50 towns? | **No.** Nothing in the application enforces hosting provider or town limits. |
+| What **does** happen at ~50 towns? | **Ops/business trigger:** schedule AWS migration, budget, and runbooks—not an automatic cutover. |
+| Can we stay on VPS past 50 towns? | **Yes**, if metrics are comfortable and risk is accepted—but **plan** AWS before load, payouts, and uptime expectations outgrow one provider/VM. |
+
+**Production keeps running on the current host** until a **planned** migration finishes (RDS restore/cutover, DNS to ALB, webhook smoke tests). Treat migration like a **release window**, not a cliff edge.
+
+### Migrate to AWS when **any** of these is true
+
+- **~50 towns** enabled and operating with real orders (default trigger).
+- **Sustained load pain** on VPS (RAM/CPU, DB on same box, checkout/webhook lag, Kafka lag)—**even below 50 towns**.
+- **Revenue / COD / UPI volume** where multi-hour outage is unacceptable.
+- **Compliance or partners** require Multi-AZ DB, WAF, or documented DR.
+
+### Migrate **early** (before 50) if needed
+
+Do not wait for an arbitrary town count if the **VPS is already saturated**. Town count and order rate are **independent** (many light towns vs few heavy towns).
+
+### What stays the same in AWS
+
+Same **git repo**, **services**, **Flyway schemas**, **API paths**, and (ideally) the same **public API hostname** for Razorpay webhooks. Change **endpoints and secrets**, not business rules—see [Deploy approach](#deploy-approach-matches-repo-today) above.
+
+### VPS prod checklist (until AWS)
+
+- Nightly **Postgres backups off-server**; test restore at least once.
+- **Separate DB VPS** from app when affordable (easier RDS cutover later).
+- **No prod secrets in git**; use `docs/QA_SECURITY_CHECKLIST.md` before promote.
+- Monitor disk, RAM, 5xx, payment webhook failures.
+
+---
+
 ## Related docs
 
 | Doc | Topic |

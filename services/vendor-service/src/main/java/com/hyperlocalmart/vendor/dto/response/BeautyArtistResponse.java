@@ -39,6 +39,16 @@ public class BeautyArtistResponse {
     @Builder.Default
     private List<RateRow> rates = new ArrayList<>();
 
+    @Builder.Default
+    private List<WorkPhoto> workPhotos = new ArrayList<>();
+
+    @Data
+    @Builder
+    public static class WorkPhoto {
+        private UUID mediaId;
+        private String url;
+    }
+
     @Data
     @Builder
     public static class RateRow {

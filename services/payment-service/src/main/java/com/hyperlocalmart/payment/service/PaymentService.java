@@ -41,6 +41,8 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.Collection;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -103,12 +105,33 @@ public class PaymentService {
 
     @Transactional(readOnly = true)
     public BigDecimal sumSuccessfulPaymentsForOrder(UUID orderId) {
-        return paymentRepository.findByOrderIdOrderByCreatedAtDesc(orderId).stream()
-                .filter(p -> p.getStatus() == PaymentStatus.SUCCESS)
-                .map(Payment::getAmount)
-                .map(amount -> amount == null ? BigDecimal.ZERO : amount)
-                .reduce(BigDecimal.ZERO, BigDecimal::add)
-                .setScale(2, RoundingMode.HALF_UP);
+        return sumSuccessfulPaymentsForOrders(List.of(orderId)).getOrDefault(orderId, BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP));
+    }
+
+    @Transactional(readOnly = true)
+    public Map<UUID, BigDecimal> sumSuccessfulPaymentsForOrders(Collection<UUID> orderIds) {
+        if (orderIds == null || orderIds.isEmpty()) {
+            return Map.of();
+        }
+        List<UUID> ids = orderIds.stream().filter(java.util.Objects::nonNull).distinct().toList();
+        if (ids.isEmpty()) {
+            return Map.of();
+        }
+        Map<UUID, BigDecimal> out = new HashMap<>();
+        for (int i = 0; i < ids.size(); i += 400) {
+            List<UUID> chunk = ids.subList(i, Math.min(i + 400, ids.size()));
+            for (Object[] row : paymentRepository.sumSuccessAmountsByOrderId(chunk)) {
+                if (row == null || row.length < 2 || row[0] == null) {
+                    continue;
+                }
+                UUID orderId = row[0] instanceof UUID id ? id : UUID.fromString(row[0].toString());
+                BigDecimal amount = row[1] instanceof BigDecimal bd
+                        ? bd
+                        : new BigDecimal(row[1].toString());
+                out.put(orderId, amount.setScale(2, RoundingMode.HALF_UP));
+            }
+        }
+        return out;
     }
 
     @Transactional
@@ -375,7 +398,8 @@ public class PaymentService {
                 authorization,
                 paymentProperties.getPhonepeWebhookUsername(),
                 paymentProperties.getPhonepeWebhookPassword());
-        if (!signatureValid && !paymentProperties.isPhonePeConfigured()) {
+        if (!signatureValid && !paymentProperties.isPhonePeConfigured()
+                && paymentProperties.isDevWebhookBypassEnabled()) {
             signatureValid = paymentProperties.getDevWebhookBypassSecret().equals(authorization);
         }
         PaymentWebhookLog log = PaymentWebhookLog.builder()
@@ -512,14 +536,21 @@ public class PaymentService {
             Payment existingPending = paymentRepository
                     .findFirstByOrderIdAndStatusOrderByCreatedAtDesc(request.getOrderId(), PaymentStatus.PENDING)
                     .orElse(null);
+            BigDecimal chargeAmount = resolvePaymentChargeAmount(request, order);
             if (existingPending != null) {
+                if (existingPending.getAmount() == null
+                        || existingPending.getAmount().compareTo(chargeAmount) != 0) {
+                    existingPending.setAmount(chargeAmount);
+                    existingPending.setGatewayOrderId(null);
+                    existingPending.setGatewaySession(null);
+                }
                 if ((existingPending.getGatewayOrderId() == null || existingPending.getGatewayOrderId().isBlank())
                         && existingPending.getGateway() != request.getGateway()) {
                     requireConfigured(request.getGateway());
                     existingPending.setGateway(request.getGateway());
                     existingPending.setBuyerPhone(request.getBuyerPhone());
-                    paymentRepository.save(existingPending);
                 }
+                paymentRepository.save(existingPending);
                 return existingPending.getId();
             }
             requireConfigured(request.getGateway());
@@ -527,7 +558,7 @@ public class PaymentService {
                     .orderId(request.getOrderId())
                     .townId(request.getTownId())
                     .buyerId(buyerId)
-                    .amount(order.totalAmount())
+                    .amount(chargeAmount)
                     .gateway(request.getGateway())
                     .buyerPhone(request.getBuyerPhone())
                     .status(PaymentStatus.PENDING)
@@ -600,6 +631,15 @@ public class PaymentService {
                     request.getBuyerPhone());
         }
         return orderClient.getOrder(request.getOrderId(), buyerId);
+    }
+
+    /** Glam/laundry partial prepay passes an explicit charge; grocery uses full order total from order-service. */
+    private static BigDecimal resolvePaymentChargeAmount(
+            InitiatePaymentRequest request, OrderClient.OrderSnapshot order) {
+        if (request.getAmount() != null && request.getAmount().signum() > 0) {
+            return request.getAmount().setScale(2, RoundingMode.HALF_UP);
+        }
+        return order.totalAmount();
     }
 
     private void validateOrderForPayment(OrderClient.OrderSnapshot order, UUID townId, UUID buyerId) {
@@ -716,6 +756,9 @@ public class PaymentService {
             return RazorpaySignatures.verifyWebhook(rawBody, headerSignature, paymentProperties.getRazorpayWebhookSecret());
         }
         if (paymentProperties.isRazorpayConfigured()) {
+            return false;
+        }
+        if (!paymentProperties.isDevWebhookBypassEnabled()) {
             return false;
         }
         String signature = headerSignature;

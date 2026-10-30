@@ -6,6 +6,7 @@ import com.hyperlocalmart.common.exception.BusinessException;
 import com.hyperlocalmart.common.exception.ErrorCode;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.InvalidDataAccessResourceUsageException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.validation.FieldError;
@@ -42,6 +43,23 @@ public class GlobalExceptionHandler {
                 .correlationId(CorrelationIdFilter.getCorrelationId(request))
                 .build();
         return ResponseEntity.badRequest().body(body);
+    }
+
+    @ExceptionHandler(InvalidDataAccessResourceUsageException.class)
+    public ResponseEntity<ApiResponse<Void>> handleInvalidSql(
+            InvalidDataAccessResourceUsageException ex, HttpServletRequest request) {
+        String raw = ex.getMostSpecificCause() != null ? ex.getMostSpecificCause().getMessage() : ex.getMessage();
+        String message = ErrorCode.INTERNAL_ERROR.getDefaultMessage();
+        if (raw != null) {
+            String lower = raw.toLowerCase();
+            if (lower.contains("work_photo_media_ids") || lower.contains("does not exist")) {
+                message = "Database schema is out of date — restart vendor-service (Flyway V24) or run the latest DB migrations";
+            }
+        }
+        org.slf4j.LoggerFactory.getLogger(GlobalExceptionHandler.class)
+                .error("SQL resource error on {} {}: {}", request.getMethod(), request.getRequestURI(), raw, ex);
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(errorBody(ErrorCode.INTERNAL_ERROR.name(), message, request, null));
     }
 
     @ExceptionHandler(DataIntegrityViolationException.class)

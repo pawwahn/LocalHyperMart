@@ -8,11 +8,14 @@ import com.hyperlocalmart.common.exception.ErrorCode;
 import com.hyperlocalmart.vendor.beauty.BeautyServiceCatalog;
 import com.hyperlocalmart.vendor.entity.BeautyVendorTreatment;
 import com.hyperlocalmart.vendor.dto.request.UpsertBeautyOpsRequest;
+import com.hyperlocalmart.vendor.beauty.BeautyWorkPhotos;
 import com.hyperlocalmart.vendor.dto.request.UpsertBeautyProfileRequest;
+import com.hyperlocalmart.vendor.dto.request.UpsertBeautyWorkPhotosRequest;
 import com.hyperlocalmart.vendor.dto.request.UpsertBeautyRatesRequest;
 import com.hyperlocalmart.vendor.dto.response.BeautyArtistResponse;
 import com.hyperlocalmart.vendor.entity.BeautyProfile;
 import com.hyperlocalmart.vendor.entity.BeautyRate;
+import com.hyperlocalmart.vendor.entity.Shop;
 import com.hyperlocalmart.vendor.entity.Vendor;
 import com.hyperlocalmart.vendor.entity.VendorStatus;
 import com.hyperlocalmart.vendor.entity.ServiceOffering;
@@ -20,6 +23,7 @@ import com.hyperlocalmart.vendor.repository.BeautyProfileRepository;
 import com.hyperlocalmart.vendor.repository.BeautyRateRepository;
 import com.hyperlocalmart.vendor.repository.BeautyVendorTreatmentRepository;
 import com.hyperlocalmart.vendor.repository.ServiceOfferingRepository;
+import com.hyperlocalmart.vendor.repository.ShopRepository;
 import com.hyperlocalmart.vendor.repository.VendorRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -57,6 +61,7 @@ public class BeautyVendorService {
     private final BeautyRateRepository rateRepository;
     private final BeautyVendorTreatmentRepository treatmentRepository;
     private final ServiceOfferingRepository offeringRepository;
+    private final ShopRepository shopRepository;
 
     @Transactional(readOnly = true)
     public List<BeautyArtistResponse> listForTown(UUID townId, boolean bookableOnly) {
@@ -75,6 +80,7 @@ public class BeautyVendorService {
                         Collectors.toMap(BeautyVendorTreatment::getServiceCode, Function.identity(), (a, b) -> a, LinkedHashMap::new)));
         Map<UUID, ServiceOffering> offerings = offeringRepository.findAll().stream()
                 .collect(Collectors.toMap(ServiceOffering::getId, Function.identity()));
+        Map<UUID, String> shopAddresses = shopAddressesByVendor(ids);
         List<BeautyArtistResponse> out = new ArrayList<>();
         for (Vendor vendor : vendors) {
             if (!isBeautyVendor(vendor, offerings)) {
@@ -91,7 +97,8 @@ public class BeautyVendorService {
                     profile,
                     rates.getOrDefault(vendor.getId(), List.of()),
                     treatments.getOrDefault(vendor.getId(), Map.of()),
-                    offerings);
+                    offerings,
+                    shopAddresses.get(vendor.getId()));
             out.add(bookableOnly ? toBookable(row) : row);
         }
         out.sort(Comparator.comparing(
@@ -108,7 +115,13 @@ public class BeautyVendorService {
         List<BeautyRate> rates = rateRepository.findByVendorIdOrderByServiceTypeAsc(vendorId);
         Map<String, BeautyVendorTreatment> treatments = treatmentRepository.findByVendorIdOrderByServiceCodeAsc(vendorId).stream()
                 .collect(Collectors.toMap(BeautyVendorTreatment::getServiceCode, Function.identity(), (a, b) -> a, LinkedHashMap::new));
-        return toResponse(vendor, profile, rates, treatments, offeringsById());
+        return toResponse(
+                vendor,
+                profile,
+                rates,
+                treatments,
+                offeringsById(),
+                shopAddressForVendor(vendorId));
     }
 
     @Transactional(readOnly = true)
@@ -222,7 +235,24 @@ public class BeautyVendorService {
             profile.setHomeVisitCharge(
                     request.getHomeVisitCharge().max(BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP));
         }
+        if (request.getStudioAddress() != null) {
+            String studio = trim(request.getStudioAddress());
+            profile.setStudioAddress(studio == null || studio.isBlank() ? null : studio.length() > 300 ? studio.substring(0, 300) : studio);
+        }
         applyStaffOverride(profile, request.getStaffOverrideDate(), request.getStaffCountForDate());
+        profile.setUpdatedBy(userId);
+        profileRepository.saveAndFlush(profile);
+        return get(vendor.getId());
+    }
+
+    @Transactional
+    public BeautyArtistResponse upsertWorkPhotosByVendor(UUID userId, UpsertBeautyWorkPhotosRequest request) {
+        Vendor vendor = vendorRepository.findByUserId(userId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Vendor not found"));
+        BeautyProfile profile = profileRepository.findById(vendor.getId())
+                .orElseThrow(() -> new BusinessException(ErrorCode.VALIDATION_ERROR, "Glam is not turned on for this shop"));
+        List<UUID> normalized = BeautyWorkPhotos.normalize(request.getMediaIds());
+        profile.setWorkPhotoMediaIds(BeautyWorkPhotos.serialize(normalized));
         profile.setUpdatedBy(userId);
         profileRepository.saveAndFlush(profile);
         return get(vendor.getId());
@@ -355,7 +385,8 @@ public class BeautyVendorService {
             BeautyProfile profile,
             List<BeautyRate> rates,
             Map<String, BeautyVendorTreatment> treatments,
-            Map<UUID, ServiceOffering> offerings) {
+            Map<UUID, ServiceOffering> offerings,
+            String shopAddressFallback) {
         ServiceOffering offering = vendor.getServiceId() == null ? null : offerings.get(vendor.getServiceId());
         return BeautyArtistResponse.builder()
                 .vendorId(vendor.getId())
@@ -370,7 +401,7 @@ public class BeautyVendorService {
                 .ratingScore(profile == null ? new BigDecimal("4.80") : profile.getRatingScore())
                 .ratingCount(profile == null ? 0 : profile.getRatingCount())
                 .homeVisitCharge(profile == null ? BigDecimal.ZERO : profile.getHomeVisitCharge())
-                .studioAddress(profile == null ? null : profile.getStudioAddress())
+                .studioAddress(resolveStudioAddress(profile, shopAddressFallback))
                 .closedWeekdays(profile == null ? "" : profile.getClosedWeekdays())
                 .blockedSlotDate(liveBlockedDate(profile))
                 .blockedSlotIds(liveBlockedSlots(profile))
@@ -389,7 +420,53 @@ public class BeautyVendorService {
                         .sorted(Comparator.comparing(BeautyRate::getServiceType))
                         .map(rate -> toRateRow(rate, treatments.get(rate.getServiceType())))
                         .toList())
+                .workPhotos(profile == null
+                        ? List.of()
+                        : BeautyWorkPhotos.toRows(profile.getWorkPhotoMediaIds()))
                 .build();
+    }
+
+    private Map<UUID, String> shopAddressesByVendor(List<UUID> vendorIds) {
+        if (vendorIds == null || vendorIds.isEmpty()) {
+            return Map.of();
+        }
+        Map<UUID, String> out = new LinkedHashMap<>();
+        for (Shop shop : shopRepository.findByVendor_IdIn(vendorIds)) {
+            if (shop.getVendor() == null) {
+                continue;
+            }
+            UUID vendorId = shop.getVendor().getId();
+            if (out.containsKey(vendorId)) {
+                continue;
+            }
+            String address = trim(shop.getAddress());
+            if (address != null && !address.isBlank()) {
+                out.put(vendorId, address);
+            }
+        }
+        return out;
+    }
+
+    private String shopAddressForVendor(UUID vendorId) {
+        return shopRepository.findByVendorIdOrderByCreatedAtAsc(vendorId).stream()
+                .map(Shop::getAddress)
+                .map(BeautyVendorService::trim)
+                .filter(a -> a != null && !a.isBlank())
+                .findFirst()
+                .orElse(null);
+    }
+
+    private static String resolveStudioAddress(BeautyProfile profile, String shopAddressFallback) {
+        if (profile != null) {
+            String studio = trim(profile.getStudioAddress());
+            if (studio != null && !studio.isBlank()) {
+                return studio;
+            }
+        }
+        if (shopAddressFallback != null && !shopAddressFallback.isBlank()) {
+            return shopAddressFallback.trim();
+        }
+        return null;
     }
 
     private static BeautyArtistResponse.RateRow toRateRow(BeautyRate rate, BeautyVendorTreatment custom) {

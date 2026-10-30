@@ -482,7 +482,7 @@ export function BeautyAdminPage() {
               </button>
             </div>
             <p style={styles.hint}>
-              Min prepay is non-refundable. Extra fee is added to the booking total when the customer chooses pay-at-parlour.
+              Min prepay is non-refundable. Extra fee applies only to partial prepay at the studio (not home visits).
             </p>
           </div>
         ) : null}

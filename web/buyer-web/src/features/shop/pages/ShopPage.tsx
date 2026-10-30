@@ -34,8 +34,9 @@ import { useBrowserVoiceSearch } from '../hooks/useBrowserVoiceSearch';
 import { useShop } from '../hooks/useShop';
 import { BuyAgainBar } from '../components/BuyAgainBar';
 import { ShopHomeJumpCarousel } from '../components/ShopHomeJumpCarousel';
+import { ShopServiceBannerCarousel } from '../components/ShopServiceBannerCarousel';
 import { buildShopHomeJumpCards, HOME_RAIL_SECTION_IDS } from '../config/shopHomeJumpCards';
-import { BeautyGlamBanner } from '@/features/beauty/components/BeautyGlamBanner';
+import { buildShopServiceBanners } from '../config/shopServiceBanners';
 
 const SEARCH_HINTS = ['Egg', 'Bread', 'Milk', 'Rice', 'Maggi', 'Tomato'];
 const RECENT_SEARCHES_KEY = 'koyakart-recent-searches';
@@ -102,7 +103,16 @@ function sortParams(sort: ItemSort): { sort: string; dir: string } {
 export function ShopPage({ browseOnly = false }: Props) {
   const navigate = useNavigate();
   const { isAuthenticated, session } = useAuth();
-  const { townId, townLabel, bestDealsEnabled, deliveryWindowLabel, beautyEnabled, beautyReady } = useTown();
+  const {
+    townId,
+    townLabel,
+    bestDealsEnabled,
+    deliveryWindowLabel,
+    beautyEnabled,
+    beautyReady,
+    laundryEnabled,
+    laundryReady,
+  } = useTown();
   const {
     cart,
     busy,
@@ -441,6 +451,11 @@ export function ShopPage({ browseOnly = false }: Props) {
   );
   const showOffers = offerItems.length >= 2;
   const jumpCards = useMemo(() => buildShopHomeJumpCards(townLabel), [townLabel]);
+  const serviceBanners = useMemo(
+    () => buildShopServiceBanners({ beautyEnabled, laundryEnabled }),
+    [beautyEnabled, laundryEnabled],
+  );
+  const townServicesReady = beautyReady && laundryReady;
 
   const loadPage = useCallback(
     async (nextPage: number, append: boolean) => {
@@ -645,8 +660,8 @@ export function ShopPage({ browseOnly = false }: Props) {
       {!browseOnly && !inCategory && !searching ? (
         <ShopHomeJumpCarousel cards={jumpCards} />
       ) : null}
-      {!browseOnly && !inCategory && !searching && isAuthenticated && beautyReady && beautyEnabled ? (
-        <BeautyGlamBanner />
+      {!browseOnly && !inCategory && !searching && townServicesReady && serviceBanners.length > 0 ? (
+        <ShopServiceBannerCarousel banners={serviceBanners} />
       ) : null}
       {!browseOnly && !inCategory && !searching && isAuthenticated && session?.accessToken && townId ? (
         <BuyAgainBar
