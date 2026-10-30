@@ -1,0 +1,38 @@
+# === MONOREPO & INFRA EXCLUSIONS ===
+node_modules/
+infra/
+infra/**
+scripts/
+.github/
+
+# === WEBAPPS EXCLUSIONS (Next.js/Vite portals inside /web) ===
+web/**/node_modules/
+web/**/.next/
+web/**/dist/
+web/**/build/
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# === JAVA MICROSERVICES EXCLUSIONS (Inside /services, /gateway, /libs) ===
+**/target/
+**/.gradle/
+**/build/
+**/.settings/
+**/.classpath
+**/.project
+**/*.class
+**/*.jar
+**/*.war
+.mvn/
+mvnw
+mvnw.cmd
+gradlew
+gradlew.bat
+
+# === DATA & LOGS EXCLUSIONS ===
+*.log
+*.db
+*.sqlite
+.bugs identified/
+.env*

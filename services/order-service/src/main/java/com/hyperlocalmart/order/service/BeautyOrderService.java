@@ -359,7 +359,15 @@ public class BeautyOrderService {
     }
 
     @Transactional
-    public void markOnlinePaid(UUID orderId, UUID buyerId, BigDecimal paidAmountFromGateway) {
+    public void markOnlinePaid(UUID orderId, UUID buyerId) {
+        markOnlinePaid(orderId, buyerId, null);
+    }
+
+    /**
+     * @param capturedAmount gateway capture for this payment (partial prepay is often less than order total)
+     */
+    @Transactional
+    public void markOnlinePaid(UUID orderId, UUID buyerId, BigDecimal capturedAmount) {
         BeautyOrder order = requireOrder(orderId);
         if (!order.getBuyerId().equals(buyerId)) {
             throw new BusinessException(ErrorCode.FORBIDDEN, "This order is not yours");
@@ -370,27 +378,23 @@ public class BeautyOrderService {
         if (!awaitingFirst && !balancePay) {
             return;
         }
-        BigDecimal remaining = balanceDue(order);
-        BigDecimal increment = moneyOrZero(paidAmountFromGateway);
+        BigDecimal increment = moneyOrZero(capturedAmount);
         if (increment.signum() <= 0) {
             increment = moneyOrZero(order.getPrepayAmount());
         }
-        if (increment.signum() <= 0 && awaitingFirst && isPartialPrepay(order)) {
-            throw new BusinessException(ErrorCode.CONFLICT,
-                    "Could not apply payment — prepay amount missing. Contact support.");
-        }
         if (increment.signum() <= 0) {
-            increment = remaining;
+            increment = balanceDue(order);
         }
-        if (increment.compareTo(remaining) > 0) {
-            increment = remaining;
-        }
+        BigDecimal total = orderTotal(order);
         BigDecimal collected = moneyOrZero(order.getAmountCollected()).add(increment).setScale(2, RoundingMode.HALF_UP);
+        if (collected.compareTo(total) > 0) {
+            collected = total;
+        }
         order.setAmountCollected(collected);
         if (awaitingFirst) {
             order.setStatus(BeautyOrderStatus.CONFIRMED);
         }
-        if (collected.compareTo(orderTotal(order)) >= 0) {
+        if (collected.compareTo(total) >= 0) {
             order.setPaymentStatus(BeautyPaymentStatus.COLLECTED);
         } else {
             order.setPaymentStatus(BeautyPaymentStatus.PARTIAL);
@@ -399,7 +403,7 @@ public class BeautyOrderService {
         orderRepository.save(order);
         String from = awaitingFirst ? BeautyOrderStatus.AWAITING_PAYMENT.name() : order.getStatus().name();
         event(order, buyerId, "PAY", from, order.getStatus().name(),
-                collected.compareTo(orderTotal(order)) >= 0 ? "Online payment received" : "Partial prepay received");
+                collected.compareTo(total) >= 0 ? "Online payment received" : "Partial prepay received");
     }
 
     @Transactional
@@ -543,9 +547,6 @@ public class BeautyOrderService {
     private BeautyOrderResponse toResponse(BeautyOrder order) {
         var existingRating = ratingRepository.findByOrderId(order.getId());
         boolean canRate = order.getStatus() == BeautyOrderStatus.COMPLETED && existingRating.isEmpty();
-        BigDecimal collectedOnline = resolveOnlineCollected(order);
-        BigDecimal totalDue = orderTotal(order);
-        BigDecimal balance = totalDue.subtract(collectedOnline).max(BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP);
         return BeautyOrderResponse.builder()
                 .id(order.getId())
                 .orderNumber(order.getOrderNumber())
@@ -569,9 +570,9 @@ public class BeautyOrderService {
                 .platformFeeAmount(order.getPlatformFeeAmount())
                 .codFee(order.getCodFee())
                 .parlourPaymentFee(order.getParlourPaymentFee())
-                .amountCollected(collectedOnline)
-                .amountDueTotal(totalDue)
-                .balanceDue(balance)
+                .amountCollected(order.getAmountCollected())
+                .amountDueTotal(orderTotal(order))
+                .balanceDue(balanceDue(order))
                 .prepayAmount(order.getPrepayAmount())
                 .durationMinutes(order.getDurationMinutes())
                 .specialInstructions(order.getSpecialInstructions())
@@ -782,18 +783,6 @@ public class BeautyOrderService {
     private static BigDecimal balanceDue(BeautyOrder order) {
         return orderTotal(order).subtract(moneyOrZero(order.getAmountCollected())).max(BigDecimal.ZERO)
                 .setScale(2, RoundingMode.HALF_UP);
-    }
-
-    private BigDecimal resolveOnlineCollected(BeautyOrder order) {
-        BigDecimal fromPayments = paymentClient.sumSuccessfulPaymentsForOrder(order.getId());
-        if (fromPayments != null) {
-            return fromPayments.max(BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP);
-        }
-        return moneyOrZero(order.getAmountCollected());
-    }
-
-    private static boolean isPartialPrepay(BeautyOrder order) {
-        return order.getPrepayMode() != null && "PARTIAL".equalsIgnoreCase(order.getPrepayMode().trim());
     }
 
     private static BigDecimal resolvePrepayAmount(BigDecimal total, BigDecimal minPrepay, boolean partialRequested) {

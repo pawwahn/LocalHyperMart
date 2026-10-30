@@ -138,19 +138,21 @@ export function TownProvider({ children }: { children: ReactNode }) {
     void reloadTowns();
   }, [reloadTowns]);
 
-  // Keep preference aligned with logged-in session town when present.
+  // After login / profile refresh, align stored preference with session town (session wins).
   useEffect(() => {
     if (!session?.townId) return;
-    if (pref?.townId === session.townId) return;
-    const match = towns.find((t) => t.id === session.townId);
-    const next: TownPreference = {
-      townId: session.townId,
-      displayName: match?.displayName ?? pref?.displayName ?? 'Selected town',
-      stateCode: match?.stateCode ?? pref?.stateCode,
-    };
-    saveTownPreference(next);
-    setPref(next);
-  }, [session?.townId, towns, pref?.townId, pref?.displayName, pref?.stateCode]);
+    setPref((current) => {
+      if (current?.townId === session.townId) return current;
+      const match = towns.find((t) => t.id === session.townId);
+      const next: TownPreference = {
+        townId: session.townId,
+        displayName: match?.displayName ?? current?.displayName ?? 'Selected town',
+        stateCode: match?.stateCode ?? current?.stateCode,
+      };
+      saveTownPreference(next);
+      return next;
+    });
+  }, [session?.townId, towns]);
 
   // Prompt until the buyer has a town (Gate A: no silent pilot-town fallback).
   useEffect(() => {
@@ -161,13 +163,6 @@ export function TownProvider({ children }: { children: ReactNode }) {
   }, [loading, pref?.townId, session?.townId, towns.length]);
 
   const townId = session?.townId || pref?.townId || '';
-  const [laundryTownId, setLaundryTownId] = useState(townId);
-  if (laundryTownId !== townId) {
-    setLaundryTownId(townId);
-    setLaundryEnabled(false);
-    setLaundryReady(false);
-    setPlatformFee(0);
-  }
   const hasTown = Boolean(townId);
   const townLabel = hasTown ? labelFor(pref, towns, townId) : 'Choose your town';
 
@@ -328,9 +323,12 @@ export function TownProvider({ children }: { children: ReactNode }) {
       setError(null);
 
       if (session) {
+        const accessToken = session.accessToken;
+        // Apply town on session immediately so shop-settings (laundry/glam tabs) reload for the new town.
+        setSession({ ...session, townId: town.id });
         if (previousTownId && previousTownId !== town.id) {
           try {
-            await changeCartTown(session.accessToken, town.id, true);
+            await changeCartTown(accessToken, town.id, true);
           } catch (err) {
             setSwitchNotice(
               err instanceof Error
@@ -339,11 +337,9 @@ export function TownProvider({ children }: { children: ReactNode }) {
             );
           }
         }
-        const updated = { ...session, townId: town.id };
-        setSession(updated);
         void apiRequest('/api/v1/users/me', {
           method: 'PATCH',
-          token: session.accessToken,
+          token: accessToken,
           body: { defaultTownId: town.id },
           timeoutMs: 8_000,
         }).catch(() => undefined);

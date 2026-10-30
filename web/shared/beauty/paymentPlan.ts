@@ -73,10 +73,19 @@ export function beautyPaymentPlanView(
 ): BeautyPaymentPlanView {
   const total = beautyBookingTotal(input);
   const paidOnline = Math.max(0, Number(input.amountCollected || 0));
-  const dueAtVisit =
-    input.balanceDue != null ? Math.max(0, Number(input.balanceDue)) : Math.max(0, total - paidOnline);
-  const plan: 'FULL' | 'PARTIAL' = inferPartialPlan(input) ? 'PARTIAL' : 'FULL';
+  const computedDue = Math.max(0, total - paidOnline);
+  let dueAtVisit =
+    input.balanceDue != null ? Math.max(0, Number(input.balanceDue)) : computedDue;
   const ps = (input.paymentStatus || '').toUpperCase();
+  // Trust amountCollected + total when API balanceDue is stale (e.g. partial ₹50 paid but balance stored as 0).
+  if (paidOnline + 0.01 < total && ps !== 'COLLECTED') {
+    dueAtVisit = Math.max(dueAtVisit, computedDue);
+  } else if (paidOnline + 0.01 >= total) {
+    dueAtVisit = 0;
+  } else if (Math.abs(dueAtVisit - computedDue) > 0.02 && paidOnline > 0) {
+    dueAtVisit = computedDue;
+  }
+  const plan: 'FULL' | 'PARTIAL' = inferPartialPlan(input) ? 'PARTIAL' : 'FULL';
   const methodUp = (input.paymentMethod || '').toUpperCase();
   const isUpi = methodUp === 'UPI';
   const paymentMethodLabel = isUpi ? 'UPI' : 'Cash at visit';
@@ -132,10 +141,17 @@ export function beautyPaymentPlanView(
     settlementBadge = isUpi ? 'Payment pending' : `Collect ₹${roundMoney(total)} at visit`;
     settlementTone = 'warn';
   } else if (dueAtVisit > 0.01) {
-    settlementBadge =
-      audience === 'vendor'
-        ? `Collect ₹${roundMoney(dueAtVisit)} at visit`
-        : `₹${roundMoney(dueAtVisit)} due at visit`;
+    if (ps === 'PARTIAL' && paidOnline > 0) {
+      settlementBadge =
+        audience === 'vendor'
+          ? `₹${roundMoney(paidOnline)} online · collect ₹${roundMoney(dueAtVisit)}`
+          : `₹${roundMoney(paidOnline)} paid online · ₹${roundMoney(dueAtVisit)} due at visit`;
+    } else {
+      settlementBadge =
+        audience === 'vendor'
+          ? `Collect ₹${roundMoney(dueAtVisit)} at visit`
+          : `₹${roundMoney(dueAtVisit)} due at visit`;
+    }
     settlementTone = 'warn';
   } else if (paidOnline >= total && total > 0 && isUpi) {
     settlementBadge = plan === 'PARTIAL' ? 'All paid online' : 'Paid in full online';
