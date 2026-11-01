@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties, type PointerEvent } from 'react';
 import type { CatalogItemView } from '../api/shopApi';
+import { IconChevronDown } from '@/shared/ui/ChromeIcons';
 import { ProductCard } from './ProductCard';
 
 type Props = {
@@ -204,7 +205,9 @@ export function ProductRail({
               aria-label="Show previous products"
               onClick={() => nudge(-1)}
             >
-              ‹
+              <span style={styles.arrowIconPrev} aria-hidden>
+                <IconChevronDown />
+              </span>
             </button>
             <button
               type="button"
@@ -212,7 +215,9 @@ export function ProductRail({
               aria-label="Show next products"
               onClick={() => nudge(1)}
             >
-              ›
+              <span style={styles.arrowIconNext} aria-hidden>
+                <IconChevronDown />
+              </span>
             </button>
           </div>
         ) : null}
@@ -263,9 +268,9 @@ const styles: Record<string, CSSProperties> = {
   title: {
     margin: 0,
     fontFamily: 'var(--font-display)',
-    fontSize: '1.02rem',
-    fontWeight: 800,
-    letterSpacing: '-0.03em',
+    fontSize: '0.95rem',
+    fontWeight: 700,
+    letterSpacing: '-0.025em',
     color: 'var(--text)',
     minWidth: 0,
   },
@@ -275,17 +280,17 @@ const styles: Record<string, CSSProperties> = {
     flexShrink: 0,
   },
   arrow: {
-    width: 40,
-    height: 40,
+    width: 34,
+    height: 34,
     padding: 0,
-    borderRadius: 999,
-    border: '1px solid var(--border)',
+    borderRadius: 10,
+    border: '1px solid color-mix(in srgb, var(--border) 90%, transparent)',
     background: 'var(--bg-elevated)',
-    color: 'var(--text)',
-    fontSize: '1.35rem',
-    lineHeight: 1,
+    color: 'var(--text-muted)',
     cursor: 'pointer',
     display: 'grid',
     placeItems: 'center',
   },
+  arrowIconPrev: { display: 'grid', transform: 'rotate(90deg)' },
+  arrowIconNext: { display: 'grid', transform: 'rotate(-90deg)' },
 };

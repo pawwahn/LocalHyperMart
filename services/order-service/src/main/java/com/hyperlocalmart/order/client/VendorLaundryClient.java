@@ -81,6 +81,7 @@ public class VendorLaundryClient {
             UUID vendorId,
             UUID townId,
             String businessName,
+            String serviceFor,
             String phone,
             String vendorStatus,
             boolean enabled,

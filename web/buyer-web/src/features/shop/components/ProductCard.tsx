@@ -1,5 +1,5 @@
 import type { CSSProperties } from 'react';
-import { productVisual } from '../lib/productVisual';
+import { productInitial, productVisual } from '../lib/productVisual';
 import { QuantityStepper } from './QuantityStepper';
 
 type Props = {
@@ -67,8 +67,8 @@ export function ProductCard({
           {imageUrl ? (
             <img src={imageUrl} alt="" style={styles.photoStore} />
           ) : (
-            <span style={styles.emoji} aria-hidden>
-              {visual.emoji}
+            <span style={styles.initial} aria-hidden>
+              {productInitial(name)}
             </span>
           )}
           <div style={styles.stepperWrapStore}>
@@ -130,10 +130,10 @@ export function ProductCard({
           </span>
         ) : null}
         {imageUrl ? (
-          <img src={imageUrl} alt="" style={styles.photoContain} />
+          <img src={imageUrl} alt="" style={dense ? styles.photoDense : styles.photoContain} />
         ) : (
-          <span style={dense ? styles.emojiDense : rail ? styles.emojiRail : styles.emoji} aria-hidden>
-            {visual.emoji}
+          <span style={dense ? styles.initialDense : rail ? styles.initialRail : styles.initial} aria-hidden>
+            {productInitial(name)}
           </span>
         )}
         {imageCount > 1 ? (
@@ -146,6 +146,7 @@ export function ProductCard({
             onIncrease={onIncrease}
             onDecrease={onDecrease}
             size={rail ? 'xs' : 'sm'}
+            addMode={dense ? 'icon' : 'label'}
           />
         </div>
       </div>
@@ -196,7 +197,6 @@ const styles: Record<string, CSSProperties> = {
     gridTemplateRows: 'auto 1fr',
     minWidth: 0,
     boxShadow: 'var(--shadow-card)',
-    animation: 'hlm-fade-up 260ms ease both',
   },
   cardRail: {
     background: '#fff',
@@ -226,9 +226,18 @@ const styles: Record<string, CSSProperties> = {
     aspectRatio: '1 / 1',
     display: 'grid',
     placeItems: 'center',
+    alignContent: 'center',
     overflow: 'hidden',
+    padding: '0.28rem 0.22rem 1.85rem',
+    boxSizing: 'border-box',
   },
-  emojiDense: { fontSize: '1.35rem', lineHeight: 1 },
+  initialDense: {
+    fontFamily: 'var(--font-display)',
+    fontSize: '0.95rem',
+    fontWeight: 700,
+    lineHeight: 1,
+    color: 'color-mix(in srgb, var(--text) 55%, var(--text-muted))',
+  },
   multiDense: {
     position: 'absolute',
     top: 4,
@@ -285,11 +294,9 @@ const styles: Record<string, CSSProperties> = {
   },
   stepperWrapDense: {
     position: 'absolute',
-    right: 3,
-    bottom: 3,
+    right: 4,
+    bottom: 4,
     zIndex: 3,
-    transform: 'scale(0.88)',
-    transformOrigin: '100% 100%',
   },
   bodyRailDense: {
     padding: '0.26rem 0.28rem 0.32rem',
@@ -387,8 +394,30 @@ const styles: Record<string, CSSProperties> = {
     objectFit: 'contain',
     display: 'block',
   },
-  emoji: { fontSize: '2.25rem', lineHeight: 1 },
-  emojiRail: { fontSize: '1.85rem', lineHeight: 1 },
+  photoDense: {
+    width: '100%',
+    height: '100%',
+    maxWidth: '100%',
+    maxHeight: '100%',
+    objectFit: 'contain',
+    objectPosition: 'center center',
+    display: 'block',
+    pointerEvents: 'none',
+  },
+  initial: {
+    fontFamily: 'var(--font-display)',
+    fontSize: '1.35rem',
+    fontWeight: 700,
+    lineHeight: 1,
+    color: 'color-mix(in srgb, var(--text) 50%, var(--text-muted))',
+  },
+  initialRail: {
+    fontFamily: 'var(--font-display)',
+    fontSize: '1.1rem',
+    fontWeight: 700,
+    lineHeight: 1,
+    color: 'color-mix(in srgb, var(--text) 50%, var(--text-muted))',
+  },
   multi: {
     position: 'absolute',
     top: 8,

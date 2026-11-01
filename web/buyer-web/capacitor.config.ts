@@ -18,7 +18,7 @@ const config: CapacitorConfig = {
   },
   android: {
     allowMixedContent: true,
-    backgroundColor: '#0C831F',
+    backgroundColor: '#009111',
   },
   plugins: {
     CapacitorHttp: {
@@ -29,13 +29,13 @@ const config: CapacitorConfig = {
     },
     SplashScreen: {
       launchAutoHide: false,
-      backgroundColor: '#0C831F',
+      backgroundColor: '#009111',
       showSpinner: false,
       launchFadeOutDuration: 220,
     },
     StatusBar: {
       style: 'DARK',
-      backgroundColor: '#0C831F',
+      backgroundColor: '#009111',
     },
     Keyboard: {
       resize: 'native',

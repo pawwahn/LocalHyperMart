@@ -6,6 +6,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
@@ -78,4 +79,35 @@ public interface BeautyOrderRepository extends JpaRepository<BeautyOrder, UUID> 
             """)
     List<BeautyOrder> findSalesReportByVendorId(
             @Param("vendorId") UUID vendorId, @Param("start") Instant start, @Param("end") Instant end);
+
+    @Query("""
+            select coalesce(sum(o.platformFeeAmount), 0)
+            from BeautyOrder o
+            where o.status = com.hyperlocalmart.order.beauty.BeautyOrderStatus.COMPLETED
+              and (:townId is null or o.townId = :townId)
+              and coalesce(o.completedAt, o.slotEnd, o.placedAt) >= :start
+              and coalesce(o.completedAt, o.slotEnd, o.placedAt) < :end
+            """)
+    BigDecimal sumCompletedPlatformFee(
+            @Param("townId") UUID townId, @Param("start") Instant start, @Param("end") Instant end);
+
+    @Query("""
+            select coalesce(sum(o.amountCollected), 0)
+            from BeautyOrder o
+            where o.status = com.hyperlocalmart.order.beauty.BeautyOrderStatus.CANCELLED
+              and (:townId is null or o.townId = :townId)
+              and o.updatedAt >= :start
+              and o.updatedAt < :end
+              and o.amountCollected > 0
+            """)
+    BigDecimal sumNonRefundedPrepayOnCancelled(
+            @Param("townId") UUID townId, @Param("start") Instant start, @Param("end") Instant end);
+
+    @Query("""
+            select o from BeautyOrder o
+            where o.status = com.hyperlocalmart.order.beauty.BeautyOrderStatus.IN_SERVICE
+              and o.slotEnd is not null
+              and o.slotEnd < :before
+            """)
+    List<BeautyOrder> findInServicePastSlotEnd(@Param("before") Instant before);
 }

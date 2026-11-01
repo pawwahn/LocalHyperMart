@@ -52,7 +52,7 @@ function shortTxnTitle(tx: CustomerWalletTxn): string {
 function statusTone(status: string): CSSProperties {
   const s = status.toUpperCase();
   if (s === 'DELIVERED' || s === 'ACTIVE' || s === 'RESOLVED') {
-    return { ...styles.pill, color: '#0C831F', background: '#E7F6EC' };
+    return { ...styles.pill, color: '#009111', background: '#E7F6EC' };
   }
   if (s === 'CANCELLED' || s === 'REJECTED' || s === 'PAYMENT_FAILED') {
     return { ...styles.pill, color: '#E03546', background: '#FDE8EA' };

@@ -20,18 +20,23 @@ export function DeliveryUnlockChip({ addMore, nextFee, progress, layout = 'stack
   const dash = `${pct * c} ${c}`;
   const title = `Add ₹${formatRupees(addMore)} more`;
   const sub = nextFee <= 0 ? 'for free delivery' : `to get delivery at ₹${formatRupees(nextFee)}`;
+  const benefit =
+    nextFee <= 0 ? 'for free delivery' : `for delivery at ₹${formatRupees(nextFee)}`;
   const inlineLine =
     nextFee <= 0
       ? `${title} for free delivery`
       : `${title} · delivery ₹${formatRupees(nextFee)}`;
   const compact = layout === 'compact';
   const inline = layout === 'inline' || compact;
-  const compactLine = title;
+  /** Sticky bar: full intent in as few words as possible (may wrap to 2 lines). */
+  const compactLine = `${title} ${benefit}`;
+  const ariaLabel = `${title} ${benefit}`;
   const ringSize = compact ? 22 : layout === 'inline' ? 28 : 32;
   return (
     <div
       className={`cart-unlock${inline ? ' cart-unlock--inline' : ''}${compact ? ' cart-unlock--compact' : ''}`}
-      title={`${title} ${sub}`}
+      title={ariaLabel}
+      aria-label={ariaLabel}
     >
       <style>{CHIP_CSS}</style>
       <div style={{ ...styles.ring, width: ringSize, height: ringSize }} aria-hidden>
@@ -87,14 +92,15 @@ const CHIP_CSS = `
     overflow: hidden;
   }
   .cart-unlock--compact .cart-unlock-inline {
-    font-size: 0.78rem;
+    font-size: 0.72rem;
     font-weight: 800;
-    line-height: 1.2;
+    line-height: 1.22;
     letter-spacing: -0.01em;
-    white-space: nowrap;
-    overflow: visible;
-    text-overflow: clip;
-    display: block;
+    min-width: 0;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
   }
 `;
 

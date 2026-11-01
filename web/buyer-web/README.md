@@ -15,6 +15,17 @@ Open **http://localhost:5175**
 
 Requires gateway on `http://localhost:8080`.
 
+## Android (Capacitor)
+
+Same UI as web; see repo **`docs/MOBILE_WEB_PARITY.md`**.
+
+```powershell
+npm run android:sync   # build + cap sync
+npm run android:open   # Android Studio
+```
+
+Physical device: build with `$env:VITE_API_BASE_URL='http://<your-pc-lan-ip>:8080'`.
+
 ## What works in v0.1
 
 - Register / login (sets default town to Narsaraopet)

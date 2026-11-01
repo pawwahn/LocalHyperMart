@@ -12,9 +12,7 @@ const BAND_CSS = `
     min-height: clamp(7.1rem, 16vw, 8.6rem);
     border-radius: 16px;
     overflow: hidden;
-    box-shadow:
-      0 10px 28px rgba(140, 170, 70, 0.28),
-      0 1px 0 rgba(255, 255, 255, 0.45) inset;
+    box-shadow: var(--shadow-card, 0 1px 4px rgba(16, 24, 40, 0.06));
     min-width: 0;
     align-items: stretch;
   }
@@ -26,18 +24,9 @@ const BAND_CSS = `
     gap: 0.55rem;
     padding: 0.7rem 0.8rem;
     background:
-      radial-gradient(ellipse 70% 90% at 0% 0%, rgba(255, 255, 255, 0.38), transparent 50%),
-      radial-gradient(ellipse 50% 80% at 100% 110%, rgba(120, 150, 60, 0.22), transparent 55%),
-      linear-gradient(128deg, #96b648 0%, #A7C957 48%, #b8d46a 100%);
-    color: #1f3312;
+      linear-gradient(135deg, color-mix(in srgb, var(--accent) 88%, #0a3d12) 0%, var(--accent) 100%);
+    color: #fff;
     min-width: 0;
-  }
-  .hlm-home-promo-band-primary::after {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(105deg, transparent 36%, rgba(255, 255, 255, 0.14) 50%, transparent 64%);
-    pointer-events: none;
   }
   .hlm-home-promo-band-primary-copy {
     position: relative;
@@ -53,7 +42,7 @@ const BAND_CSS = `
     font-size: clamp(0.78rem, 2.1vw, 0.98rem);
     line-height: 1.15;
     letter-spacing: -0.02em;
-    color: #1f3312;
+    color: #fff;
   }
   .hlm-home-promo-pills {
     display: flex;
@@ -68,15 +57,15 @@ const BAND_CSS = `
     gap: 0.22rem;
     padding: 0.18rem 0.46rem 0.2rem 0.34rem;
     border-radius: 999px;
-    background: var(--highlight, #F7CE46);
-    color: #0a3d12;
-    box-shadow: 0 2px 0 rgba(10, 61, 18, 0.12);
+    background: rgba(255, 255, 255, 0.18);
+    color: #fff;
+    border: 1px solid rgba(255, 255, 255, 0.28);
     font-family: var(--font-display);
-    font-weight: 800;
-    font-size: clamp(0.68rem, 1.9vw, 0.86rem);
-    letter-spacing: 0.04em;
+    font-weight: 600;
+    font-size: clamp(0.68rem, 1.9vw, 0.82rem);
+    letter-spacing: -0.01em;
     line-height: 1;
-    text-transform: uppercase;
+    text-transform: none;
     white-space: nowrap;
   }
   .hlm-home-promo-pill svg {
@@ -90,20 +79,17 @@ const BAND_CSS = `
     font-weight: 700;
     line-height: 1.25;
     letter-spacing: -0.02em;
-    color: #2d4a1e;
+    color: rgba(255, 255, 255, 0.92);
   }
   .hlm-promo-local {
-    display: inline-block;
-    padding: 0.02em 0.28em 0.05em;
-    border-radius: 5px;
-    background: rgba(255, 255, 255, 0.45);
-    color: #1f3312;
+    font-weight: 700;
+    color: #fff;
   }
   .hlm-home-promo-band-plans {
     justify-self: start;
-    border: 1px solid rgba(31, 51, 18, 0.28);
-    background: rgba(255, 255, 255, 0.35);
-    color: #1f3312;
+    border: 1px solid rgba(255, 255, 255, 0.35);
+    background: rgba(255, 255, 255, 0.14);
+    color: #fff;
     font-size: 0.68rem;
     font-weight: 800;
     border-radius: 999px;
@@ -154,14 +140,6 @@ const BAND_CSS = `
       radial-gradient(ellipse 80% 70% at 0% 100%, rgba(12, 131, 31, 0.12), transparent 52%),
       linear-gradient(128deg, #f5fbf7 0%, #ffffff 42%, #e9f5ec 100%);
   }
-  .hlm-home-promo-band-secondary::after {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(105deg, transparent 40%, rgba(255, 255, 255, 0.45) 50%, transparent 60%);
-    pointer-events: none;
-    opacity: 0.65;
-  }
   .hlm-home-promo-brand-copy {
     position: relative;
     z-index: 1;
@@ -180,42 +158,35 @@ const BAND_CSS = `
   }
   .hlm-home-promo-brand-title-block {
     display: grid;
-    width: max-content;
+    gap: 0.12rem;
     max-width: 100%;
     min-width: 0;
     font-family: var(--font-display);
-    font-weight: 800;
-    font-size: clamp(0.78rem, 2.9vw, 1.05rem);
-    line-height: 1.12;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    color: #064d14;
+    font-weight: 700;
+    font-size: clamp(0.82rem, 2.6vw, 1rem);
+    line-height: 1.15;
+    letter-spacing: -0.03em;
+    color: var(--text);
   }
   .hlm-home-promo-brand-title-line {
     display: block;
-    white-space: nowrap;
+    color: var(--text-muted);
+    font-size: 0.72em;
+    font-weight: 600;
   }
   .hlm-home-promo-brand-title-block em {
     font-style: normal;
     display: block;
-    text-align: center;
-    font-size: 1.06em;
-    letter-spacing: 0.05em;
-    word-spacing: 0.15em;
-    background: linear-gradient(120deg, #086318 0%, #0C831F 55%, #0a6b1a 100%);
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
+    font-size: 1.05em;
+    font-weight: 700;
+    color: var(--accent);
   }
   .hlm-home-promo-brand-sub {
     margin: 0;
-    text-align: center;
-    white-space: nowrap;
-    font-size: clamp(0.5rem, 2.35vw, 0.68rem);
-    font-weight: 700;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
-    color: #5a7260;
+    font-size: clamp(0.58rem, 2vw, 0.68rem);
+    font-weight: 500;
+    letter-spacing: -0.01em;
+    color: var(--text-muted);
     line-height: 1.25;
   }
   .hlm-home-promo-brand-logo-wrap {
@@ -403,15 +374,15 @@ export function DeliveryHero({ showPlans, onOpenPlans }: Props) {
           <div className="hlm-home-promo-pills">
             <span className="hlm-home-promo-pill">
               <IconFuel />
-              PETROL
+              Petrol
             </span>
             <span className="hlm-home-promo-pill">
               <IconClock />
-              TIME
+              Time
             </span>
             <span className="hlm-home-promo-pill">
               <IconBolt />
-              ENERGY
+              Energy
             </span>
           </div>
           <p className="hlm-home-promo-band-title">
@@ -439,9 +410,9 @@ export function DeliveryHero({ showPlans, onOpenPlans }: Props) {
         <div className="hlm-home-promo-brand-copy">
           <div className="hlm-home-promo-brand-stack">
             <div className="hlm-home-promo-brand-title-block">
-              <span className="hlm-home-promo-brand-title-line">Your Home Town</span>
-              <em>Market Place</em>
-              <p className="hlm-home-promo-brand-sub">Your town · your kart</p>
+              <span className="hlm-home-promo-brand-title-line">Your home town</span>
+              <em>{APP_NAME}</em>
+              <p className="hlm-home-promo-brand-sub">Local shops, one app</p>
             </div>
           </div>
         </div>

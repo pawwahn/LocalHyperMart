@@ -86,9 +86,11 @@ export async function fetchPublicLegal(): Promise<PublicLegal> {
         : 'Could not load policies';
     throw new Error(msg);
   }
-  const data =
+  const data: Record<string, unknown> =
     payload && typeof payload === 'object' && 'data' in payload && payload.data
-      ? payload.data
-      : (payload as Record<string, unknown>);
+      ? (payload.data as Record<string, unknown>)
+      : payload && typeof payload === 'object'
+        ? (payload as Record<string, unknown>)
+        : {};
   return mapPublicLegal(data);
 }

@@ -1,4 +1,5 @@
 import { ApiError, apiRequest, type PageData } from '@/shared/api/http';
+import { vendorNameWithServiceFor } from '@hlm-vendor';
 
 export type CatalogItemDto = {
   listingId: string;
@@ -8,6 +9,7 @@ export type CatalogItemDto = {
   name: string;
   unit: string;
   shopName: string;
+  serviceFor?: string | null;
   vendorId: string;
   mrp?: number | null;
   price: number;
@@ -311,7 +313,7 @@ export function toCatalogItem(dto: CatalogItemDto): CatalogItemView {
     name: dto.name,
     categoryId: dto.categoryId ?? null,
     category: dto.category ?? null,
-    shopName: dto.shopName,
+    shopName: vendorNameWithServiceFor(dto.shopName, dto.serviceFor),
     unit: dto.unit,
     price: Number(price),
     priceLabel: money(price),
@@ -808,21 +810,41 @@ export async function placeCodOrder(
   return placeOrder(token, { ...input, paymentMethod: 'COD' });
 }
 
-export async function confirmOnlinePayment(
-  token: string,
-  input: {
-    gateway?: string;
-    gatewayOrderId?: string;
-    razorpayOrderId?: string;
-    razorpayPaymentId?: string;
-    razorpaySignature?: string;
-  },
-): Promise<unknown> {
+export type ConfirmOnlinePaymentInput = {
+  gateway?: string;
+  gatewayOrderId?: string;
+  razorpayOrderId?: string;
+  razorpayPaymentId?: string;
+  razorpaySignature?: string;
+};
+
+export async function confirmOnlinePayment(token: string, input: ConfirmOnlinePaymentInput): Promise<unknown> {
   return apiRequest('/api/v1/payments/confirm', {
     token,
     method: 'POST',
     body: input,
   });
+}
+
+/** Cashfree can lag behind the modal — poll confirm briefly after the SDK returns. */
+export async function confirmOnlinePaymentResilient(
+  token: string,
+  input: ConfirmOnlinePaymentInput,
+): Promise<unknown> {
+  const cashfree = input.gateway === 'CASHFREE';
+  const waitsMs = cashfree ? [0, 700, 1400, 2400, 4000, 6500, 10_000] : [0];
+  let lastErr: unknown;
+  for (const wait of waitsMs) {
+    if (wait > 0) await new Promise((resolve) => window.setTimeout(resolve, wait));
+    try {
+      return await confirmOnlinePayment(token, input);
+    } catch (err) {
+      lastErr = err;
+      const msg = err instanceof ApiError || err instanceof Error ? err.message : '';
+      if (!cashfree || !/not complete yet/i.test(msg)) throw err;
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error('Payment confirmation failed');
 }
 
 export type PaymentCheckoutDto = {

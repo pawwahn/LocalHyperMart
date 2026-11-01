@@ -1,0 +1,26 @@
+---
+description: Online payment (Razorpay, Cashfree, PhonePe) — phone, gateway sync, buyer checkout polling
+globs: "{services/payment-service/**,services/order-service/**,web/buyer-web/**/shop/**,web/buyer-web/**/beauty/**,web/buyer-web/**/laundry/**}"
+alwaysApply: false
+---
+
+# Online payment gateways
+
+## Buyer phone (Cashfree)
+
+- Cashfree **requires a 10-digit Indian mobile** on create-order. Use `IndianMobilePhones` (common-core) on the server.
+- **Grocery** orders: pass `principal.getPhone()` into `OrderService.createOrder`.
+- **Glam / laundry / any vertical without address phone**: set contact/payment phone from `principal.getPhone()` and optional `contactPhone` on the place request; validate before `initiatePayment`.
+- **payment-service**: backfill `Payment.buyerPhone` from order snapshot when missing; `RazorpayGatewaySyncService.resolveBuyerPhone` before Cashfree create.
+
+## Gateway session creation
+
+- **Cashfree and PhonePe** must create gateway session **synchronously** on initiate and on `GET /payments/{id}/checkout` — do not queue behind Razorpay workers.
+- When switching gateway on a pending payment row, clear `gatewayOrderId` and `gatewaySession`.
+- `needsGatewaySync`: also true when Cashfree has order id but no `gatewaySession`.
+
+## Buyer web checkout
+
+- Use `resolveOnlineCheckout` from `shop/lib/loadOnlineCheckout.ts` (poll + optional retry) instead of ad-hoc loops.
+- Pass `session` phone into `openGatewayCheckout` prefill and into place APIs as `contactPhone` when the vertical may lack address phone.
+- Store last gateway in `sessionStorage` key `hlm:lastPaymentGateway` for Pay now retries.

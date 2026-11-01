@@ -13,6 +13,8 @@ const DEALS_SHEET_CSS = `
     background:
       radial-gradient(ellipse 80% 50% at 50% 0%, rgba(167, 201, 87, 0.14), transparent 55%),
       linear-gradient(180deg, #f6faf6 0%, #ffffff 28%);
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.5rem 0.4rem;
   }
 
   .hlm-deals-grid .hlm-product-card {
@@ -23,10 +25,23 @@ const DEALS_SHEET_CSS = `
     transform: scale(0.98);
   }
 
-  @media (min-width: 520px) {
+  @media (min-width: 400px) {
     .hlm-deals-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+  }
+
+  @media (min-width: 560px) {
+    .hlm-deals-grid {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
       padding-left: 0.65rem !important;
       padding-right: 0.65rem !important;
+    }
+  }
+
+  @media (min-width: 720px) {
+    .hlm-deals-grid {
+      grid-template-columns: repeat(5, minmax(0, 1fr));
     }
   }
 `;
@@ -289,7 +304,7 @@ const styles: Record<string, CSSProperties> = {
   priceChip: {
     fontSize: '0.68rem',
     fontWeight: 800,
-    color: 'var(--town-theme, #0C831F)',
+    color: 'var(--town-theme, #009111)',
     background: '#fff',
     borderRadius: 5,
     padding: '0.08rem 0.28rem',
@@ -298,7 +313,7 @@ const styles: Record<string, CSSProperties> = {
   priceChipActive: {
     fontSize: '0.68rem',
     fontWeight: 800,
-    color: 'var(--town-theme, #0C831F)',
+    color: 'var(--town-theme, #009111)',
     background: '#fff',
     borderRadius: 5,
     padding: '0.08rem 0.28rem',
@@ -308,8 +323,6 @@ const styles: Record<string, CSSProperties> = {
     overflowY: 'auto',
     padding: '0.5rem 0.38rem 1rem',
     display: 'grid',
-    gridTemplateColumns: 'repeat(5, minmax(0, 1fr))',
-    gap: '0.42rem 0.32rem',
     alignContent: 'start',
     alignItems: 'start',
     WebkitOverflowScrolling: 'touch',

@@ -81,6 +81,7 @@ public class CatalogBrowseService {
         Map<UUID, List<String>> imagesByMaster = imageUrlsByMaster(masterIds);
 
         List<CatalogItemResponse> items = listings.getContent().stream()
+                .filter(listing -> shops.containsKey(listing.getShopId()))
                 .map(listing -> {
                     List<String> custom = imagesByListing.getOrDefault(listing.getId(), List.of());
                     List<String> master = imagesByMaster.getOrDefault(listing.getMasterItem().getId(), List.of());
@@ -209,6 +210,7 @@ public class CatalogBrowseService {
         Map<UUID, List<String>> imagesByMaster = imageUrlsByMaster(masterIds);
 
         return listings.stream()
+                .filter(listing -> shops.containsKey(listing.getShopId()))
                 .map(listing -> {
                     List<String> custom = imagesByListing.getOrDefault(listing.getId(), List.of());
                     List<String> master = imagesByMaster.getOrDefault(listing.getMasterItem().getId(), List.of());
@@ -309,6 +311,7 @@ public class CatalogBrowseService {
                 .name(listing.getMasterItem().getName())
                 .unit(listing.getMasterItem().getUnit().getCode())
                 .shopName(shopName)
+                .serviceFor(shop == null ? null : shop.serviceFor())
                 .vendorId(vendorId)
                 .mrp(mrp)
                 .price(listing.getPrice())

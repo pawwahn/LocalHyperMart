@@ -1,10 +1,11 @@
 import type { CSSProperties } from 'react';
 import { Link } from 'react-router-dom';
 import type { ShopServiceBanner } from '../config/shopServiceBanners';
+import { ServiceGlamIcon, ServiceLaundryIcon } from './JumpCardIcons';
 
 const GRID_CSS = `
   .hlm-service-banner-wrap {
-    margin: 0.35rem 0 0.4rem;
+    margin: 0.25rem 0 0.45rem;
     min-width: 0;
   }
   .hlm-service-banner-grid {
@@ -24,34 +25,33 @@ type Props = {
   banners: ShopServiceBanner[];
 };
 
-function ServiceBannerCard({ banner, compact }: { banner: ShopServiceBanner; compact: boolean }) {
-  if (compact) {
-    return (
-      <Link
-        to={banner.to}
-        style={{ ...styles.bannerCompact, background: banner.background }}
-        aria-label={banner.ariaLabel}
-      >
-        <span style={styles.emojiCompact} aria-hidden>
-          {banner.emoji}
-        </span>
-        <strong style={styles.titleCompact}>{banner.title}</strong>
-        <span style={styles.hintCompact}>{banner.hint}</span>
-        <span style={{ ...styles.ctaCompact, color: banner.ctaColor }}>{banner.cta}</span>
-      </Link>
-    );
-  }
-
+function ServiceIcon({ id, accent }: { id: ShopServiceBanner['id']; accent: string }) {
+  const wrap: CSSProperties = {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    display: 'grid',
+    placeItems: 'center',
+    background: `color-mix(in srgb, ${accent} 11%, var(--bg-muted))`,
+    color: accent,
+    flexShrink: 0,
+  };
   return (
-    <Link to={banner.to} style={{ ...styles.banner, background: banner.background }} aria-label={banner.ariaLabel}>
-      <span style={styles.emoji} aria-hidden>
-        {banner.emoji}
-      </span>
+    <span style={wrap} aria-hidden>
+      {id === 'glam' ? <ServiceGlamIcon /> : <ServiceLaundryIcon />}
+    </span>
+  );
+}
+
+function ServiceBannerCard({ banner }: { banner: ShopServiceBanner }) {
+  return (
+    <Link to={banner.to} style={styles.card} aria-label={banner.ariaLabel}>
+      <ServiceIcon id={banner.id} accent={banner.accent} />
       <span style={styles.copy}>
         <strong style={styles.title}>{banner.title}</strong>
         <span style={styles.hint}>{banner.hint}</span>
       </span>
-      <span style={{ ...styles.cta, color: banner.ctaColor }}>{banner.cta}</span>
+      <span style={{ ...styles.cta, color: banner.accent }}>{banner.cta}</span>
     </Link>
   );
 }
@@ -66,7 +66,7 @@ export function ShopServiceBannerCarousel({ banners }: Props) {
       <style>{GRID_CSS}</style>
       <div className={`hlm-service-banner-grid ${multi ? 'hlm-service-banner-grid--multi' : 'hlm-service-banner-grid--one'}`}>
         {banners.map((banner) => (
-          <ServiceBannerCard key={banner.id} banner={banner} compact={multi} />
+          <ServiceBannerCard key={banner.id} banner={banner} />
         ))}
       </div>
     </div>
@@ -74,82 +74,46 @@ export function ShopServiceBannerCarousel({ banners }: Props) {
 }
 
 const styles: Record<string, CSSProperties> = {
-  banner: {
+  card: {
     display: 'flex',
     alignItems: 'center',
-    gap: '0.45rem',
-    padding: '0.42rem 0.5rem',
-    minHeight: 48,
-    borderRadius: 14,
+    gap: '0.5rem',
+    padding: '0.5rem 0.55rem',
+    minHeight: 56,
+    borderRadius: 12,
     textDecoration: 'none',
-    color: '#fff',
-    boxShadow: '0 6px 20px rgba(15, 23, 42, 0.12)',
-  },
-  emoji: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    background: 'rgba(255, 255, 255, 0.18)',
-    display: 'grid',
-    placeItems: 'center',
-    fontSize: '1.1rem',
-    flexShrink: 0,
-  },
-  copy: { flex: 1, minWidth: 0, display: 'grid', gap: '0.05rem' },
-  title: { fontSize: '0.88rem', fontWeight: 900, letterSpacing: '-0.02em' },
-  hint: { fontSize: '0.65rem', fontWeight: 600, opacity: 0.92 },
-  cta: {
-    flexShrink: 0,
-    minHeight: 30,
-    padding: '0 0.75rem',
-    borderRadius: 999,
-    background: '#fff',
-    fontSize: '0.72rem',
-    fontWeight: 900,
-    display: 'inline-flex',
-    alignItems: 'center',
-  },
-  bannerCompact: {
-    display: 'grid',
-    gap: '0.28rem',
-    padding: '0.45rem 0.5rem 0.5rem',
-    minHeight: 0,
-    borderRadius: 14,
-    textDecoration: 'none',
-    color: '#fff',
-    boxShadow: '0 6px 20px rgba(15, 23, 42, 0.12)',
-    alignContent: 'start',
+    color: 'var(--text)',
+    background: 'var(--bg-elevated)',
+    border: '1px solid color-mix(in srgb, var(--border) 88%, transparent)',
+    boxShadow: 'var(--shadow-card)',
     minWidth: 0,
   },
-  emojiCompact: {
-    width: 32,
-    height: 32,
-    borderRadius: 9,
-    background: 'rgba(255, 255, 255, 0.18)',
-    display: 'grid',
-    placeItems: 'center',
-    fontSize: '1rem',
+  copy: { flex: 1, minWidth: 0, display: 'grid', gap: '0.12rem' },
+  title: {
+    fontFamily: 'var(--font-display)',
+    fontSize: '0.82rem',
+    fontWeight: 700,
+    letterSpacing: '-0.02em',
+    lineHeight: 1.2,
   },
-  titleCompact: { fontSize: '0.82rem', fontWeight: 900, letterSpacing: '-0.02em', lineHeight: 1.15 },
-  hintCompact: {
-    fontSize: '0.6rem',
-    fontWeight: 600,
-    opacity: 0.92,
+  hint: {
+    fontSize: '0.64rem',
+    fontWeight: 500,
+    color: 'var(--text-muted)',
     lineHeight: 1.3,
     display: '-webkit-box',
     WebkitLineClamp: 2,
     WebkitBoxOrient: 'vertical',
     overflow: 'hidden',
   },
-  ctaCompact: {
-    justifySelf: 'start',
-    marginTop: '0.12rem',
-    minHeight: 28,
+  cta: {
+    flexShrink: 0,
+    minHeight: 32,
     padding: '0 0.65rem',
     borderRadius: 999,
-    background: '#fff',
+    background: 'var(--bg-muted)',
     fontSize: '0.68rem',
-    fontWeight: 900,
+    fontWeight: 600,
     display: 'inline-flex',
     alignItems: 'center',
   },

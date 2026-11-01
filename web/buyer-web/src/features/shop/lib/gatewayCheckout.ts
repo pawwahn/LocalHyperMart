@@ -11,14 +11,21 @@ export type PaidCheckout = {
   razorpaySignature?: string;
 };
 
-type CashfreeCheckout = {
-  checkout: (options: { paymentSessionId: string; redirectTarget: string }) => Promise<{
-    error?: { message?: string };
-    paymentDetails?: unknown;
-  }>;
+type CashfreeCheckoutResult = {
+  error?: { message?: string };
+  redirect?: boolean;
+  paymentDetails?: { paymentMessage?: string } | unknown;
 };
 
-type CashfreeLoader = (options: { mode: 'sandbox' | 'production' }) => CashfreeCheckout;
+type CashfreeInstance = {
+  checkout: (options: {
+    paymentSessionId: string;
+    redirectTarget?: string;
+    returnUrl?: string;
+  }) => Promise<CashfreeCheckoutResult>;
+};
+
+type CashfreeLoader = (options: { mode: 'sandbox' | 'production' }) => CashfreeInstance | Promise<CashfreeInstance>;
 
 type PhonePeCheckoutApi = {
   transact: (options: {
@@ -35,6 +42,8 @@ declare global {
     PhonePeCheckout?: PhonePeCheckoutApi;
   }
 }
+
+const CASHFREE_CHECKOUT_TIMEOUT_MS = 180_000;
 
 export function checkoutCanOpen(checkout: GatewayCheckout | null | undefined): checkout is GatewayCheckout {
   if (!checkout?.gatewayOrderId) return false;
@@ -84,25 +93,83 @@ function loadScript(id: string, src: string): Promise<void> {
   });
 }
 
+function ensureCashfreeModalZIndex() {
+  if (document.getElementById('hlm-cashfree-z')) return;
+  const style = document.createElement('style');
+  style.id = 'hlm-cashfree-z';
+  style.textContent = `
+    .cashfree-modal-container,
+    .cashfree-overlay,
+    .cf-modal-root,
+    .cf-modal,
+    #cf-modal,
+    div[class*="cashfree" i],
+    iframe[src*="cashfree" i] {
+      z-index: 2147483000 !important;
+    }
+  `;
+  document.head.appendChild(style);
+}
+
+async function getCashfreeInstance(mode: 'sandbox' | 'production'): Promise<CashfreeInstance> {
+  await loadScript('cashfree', 'https://sdk.cashfree.com/js/v3/cashfree.js');
+  const loader = window.Cashfree;
+  if (!loader) throw new Error('Cashfree checkout did not load');
+  const instance = await Promise.resolve(loader({ mode }));
+  if (!instance?.checkout) throw new Error('Cashfree checkout did not load');
+  return instance;
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = window.setTimeout(() => reject(new Error(message)), ms);
+    promise
+      .then((value) => {
+        window.clearTimeout(timer);
+        resolve(value);
+      })
+      .catch((err) => {
+        window.clearTimeout(timer);
+        reject(err);
+      });
+  });
+}
+
 async function openCashfree(checkout: GatewayCheckout): Promise<PaidCheckout> {
   if (!checkout.paymentSessionId) {
     throw new Error('Cashfree checkout did not start. Add Cashfree keys and try again.');
   }
-  await loadScript('cashfree', 'https://sdk.cashfree.com/js/v3/cashfree.js');
-  const load = window.Cashfree;
-  if (!load) throw new Error('Cashfree checkout did not load');
+  ensureCashfreeModalZIndex();
   const mode = checkout.mode === 'production' ? 'production' : 'sandbox';
-  const result = await load({ mode }).checkout({
-    paymentSessionId: checkout.paymentSessionId,
-    redirectTarget: '_modal',
-  });
+  const cashfree = await getCashfreeInstance(mode);
+
+  const runCheckout = (redirectTarget: string) =>
+    withTimeout(
+      cashfree.checkout({
+        paymentSessionId: checkout.paymentSessionId!,
+        redirectTarget,
+      }),
+      CASHFREE_CHECKOUT_TIMEOUT_MS,
+      'Cashfree checkout timed out. If you paid, open your booking and tap Pay now again.',
+    );
+
+  let result = await runCheckout('_modal');
+
+  if (result.redirect) {
+    result = await runCheckout('_self');
+  }
+
   if (result.error) {
     const message = result.error.message || '';
-    if (/cancel|closed|dismiss/i.test(message)) throw new CheckoutDismissedError();
+    if (/cancel|closed|dismiss|abort/i.test(message)) throw new CheckoutDismissedError();
     throw new Error(message || 'Cashfree payment failed');
   }
-  if (!result.paymentDetails) throw new CheckoutDismissedError();
-  return { gateway: 'CASHFREE', gatewayOrderId: checkout.gatewayOrderId };
+
+  if (result.paymentDetails) {
+    return { gateway: 'CASHFREE', gatewayOrderId: checkout.gatewayOrderId };
+  }
+
+  throw new CheckoutDismissedError();
 }
 
 function phonePeApi(): PhonePeCheckoutApi | undefined {

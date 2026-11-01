@@ -166,7 +166,7 @@ export function LaundryRequests({ active = true, reloadToken = 0 }: { active?: b
   const { shop } = useVendorShop();
   const token = session?.accessToken ?? '';
   const [orders, setOrders] = useState<LaundryOrder[]>([]);
-  const [baseline, setBaseline] = useState<Record<string, string>>({});
+  const [, setBaseline] = useState<Record<string, string>>({});
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const [filter, setFilter] = useState<Filter>('open');
   const [estimates, setEstimates] = useState<Record<string, string>>({});
@@ -225,17 +225,13 @@ export function LaundryRequests({ active = true, reloadToken = 0 }: { active?: b
     return () => window.clearInterval(id);
   }, [active, load, reloadToken]);
 
-  function patchLine(orderId: string, lineId: string, patch: Partial<LaundryOrder['lines'][number]>) {
-    setOrders((prev) => prev.map((row) => row.id === orderId
-      ? { ...row, lines: row.lines.map((item) => item.id === lineId ? { ...item, ...patch } : item) }
-      : row));
-  }
-
   async function act(order: LaundryOrder, action: string) {
     if (!token || actingId) return;
     setError(null);
     if (action === 'SCHEDULE_PICKUP' && scheduleFor !== order.id) {
       setScheduleFor(order.id);
+      setSlotStart(String(order.pickupSlotStart ?? order.requestedPickupStart ?? ''));
+      setSlotEnd(String(order.pickupSlotEnd ?? order.requestedPickupEnd ?? ''));
       setExpanded((prev) => {
         const next = new Set(prev);
         next.add(order.id);

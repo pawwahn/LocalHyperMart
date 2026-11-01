@@ -1,6 +1,9 @@
 import { fileURLToPath, URL } from 'node:url';
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import { viteCapacitorAliases } from '../shared/native/viteCapacitorAliases';
+
+const portalRoot = new URL('.', import.meta.url);
 
 // Dev server proxies /api to the Spring Gateway so the browser stays same-origin (no CORS hassle).
 export default defineConfig({
@@ -8,11 +11,13 @@ export default defineConfig({
   base: process.env.VITE_BASE || '/',
   resolve: {
     alias: {
+      ...viteCapacitorAliases(portalRoot),
       '@': fileURLToPath(new URL('./src', import.meta.url)),
       '@hlm-theme': fileURLToPath(new URL('../shared/theme', import.meta.url)),
       '@hlm-legal': fileURLToPath(new URL('../shared/legal', import.meta.url)),
       '@hlm-brand': fileURLToPath(new URL('../shared/brand/index.ts', import.meta.url)),
       '@hlm-dates': fileURLToPath(new URL('../shared/dates', import.meta.url)),
+      '@hlm-native': fileURLToPath(new URL('../shared/native', import.meta.url)),
     },
     dedupe: ['react', 'react-dom', 'react-router-dom'],
   },

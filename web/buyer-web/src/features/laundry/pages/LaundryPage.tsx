@@ -7,11 +7,12 @@ import { useAuth } from '@/shared/auth/AuthContext';
 import { useTown } from '@/shared/town/TownContext';
 import { ApiError } from '@/shared/api/http';
 import { QuantityStepper } from '@/features/shop/components/QuantityStepper';
-import { CheckoutDismissedError, checkoutCanOpen, openGatewayCheckout } from '@/features/shop/lib/gatewayCheckout';
+import { CheckoutDismissedError, openGatewayCheckout } from '@/features/shop/lib/gatewayCheckout';
 import { PaymentGatewayChoices, usePaymentGateways } from '@/features/shop/components/PaymentGatewayChoices';
-import { confirmOnlinePayment, fetchPaymentCheckout } from '@/features/shop/api/shopApi';
-import { pollUntilCheckoutReady } from '@/features/shop/lib/paymentCheckoutPoll';
+import { confirmOnlinePaymentResilient } from '@/features/shop/api/shopApi';
+import { resolveOnlineCheckout, tenDigitIndianPhone } from '@/features/shop/lib/loadOnlineCheckout';
 import { listAddresses, type AddressDto } from '@/features/shop/api/shopApi';
+import { vendorNameWithServiceFor } from '@hlm-vendor';
 import {
   LAUNDRY_ITEMS,
   LAUNDRY_SERVICES,
@@ -21,6 +22,7 @@ import {
   laundryLabel,
   parseBlockedSlotIds,
   placeLaundryOrder,
+  retryLaundryPayment,
   uploadLaundryPhoto,
   type LaundryShop,
 } from '../api/laundryApi';
@@ -268,6 +270,10 @@ function LaundryBooking() {
     setBusy(true);
     setError(null);
     try {
+      const contactPhone = tenDigitIndianPhone(session?.phone);
+      if (paymentMethod === 'UPI') {
+        sessionStorage.setItem('hlm:lastPaymentGateway', paymentGateway);
+      }
       const placed = await placeLaundryOrder(token, {
         townId,
         vendorId: shop.vendorId,
@@ -275,6 +281,7 @@ function LaundryBooking() {
         logistics,
         paymentMethod,
         paymentGateway: paymentMethod === 'UPI' ? paymentGateway : undefined,
+        contactPhone: contactPhone ?? undefined,
         specialInstructions: note.trim() || undefined,
         slaAcknowledged: true,
         requestedPickupStart: needsPickup && slot ? slotInstant(pickupDate, slot.start) : undefined,
@@ -292,21 +299,18 @@ function LaundryBooking() {
       setConfirming(false);
       let payError: string | null = null;
       if (paymentMethod === 'UPI') {
-        let checkout = placed.payment?.checkout ?? null;
-        const paymentId = placed.payment?.paymentId;
-        if (!checkout?.gatewayOrderId && paymentId) {
-          checkout = await pollUntilCheckoutReady(() => fetchPaymentCheckout(token, paymentId));
-        }
-        if (!checkoutCanOpen(checkout)) {
-          payError = 'Online payment is not configured yet. Use cash, or tap Pay now on the order.';
-        } else {
-          try {
-            const paid = await openGatewayCheckout(checkout, { contact: session?.phone });
-            await confirmOnlinePayment(token, paid);
-          } catch (err) {
-            if (!(err instanceof CheckoutDismissedError)) {
-              payError = err instanceof ApiError || err instanceof Error ? err.message : 'Payment failed';
-            }
+        try {
+          const checkout = await resolveOnlineCheckout({
+            token,
+            payment: placed.payment,
+            paymentGateway,
+            retry: () => retryLaundryPayment(token, placed.id, paymentGateway),
+          });
+          const paid = await openGatewayCheckout(checkout, { contact: session?.phone ?? contactPhone ?? undefined });
+          await confirmOnlinePaymentResilient(token, paid);
+        } catch (err) {
+          if (!(err instanceof CheckoutDismissedError)) {
+            payError = err instanceof ApiError || err instanceof Error ? err.message : 'Payment failed';
           }
         }
       }
@@ -380,7 +384,7 @@ function LaundryBooking() {
               const on = item.vendorId === shopId;
               return (
                 <button key={item.vendorId} type="button" style={on ? styles.shopOn : styles.shop} onClick={() => setShopId(item.vendorId)}>
-                  <strong>{item.businessName}</strong>
+                  <strong>{vendorNameWithServiceFor(item.businessName, item.serviceFor)}</strong>
                   <span style={styles.shopMeta}>{from ? `From ${money(from)}` : 'Rates soon'}</span>
                 </button>
               );
@@ -533,7 +537,7 @@ function LaundryBooking() {
                       style={styles.dateInput}
                       value={pickupDate}
                       min={istDate(now)}
-                      onChange={(next) => {
+                      onChange={(next: string) => {
                         if (next && next < istDate(new Date())) return;
                         setNow(new Date());
                         setPickupDate(next);
@@ -636,7 +640,12 @@ function LaundryBooking() {
                   ) : null}
                 </div>
                 {paymentMethod === 'UPI' ? (
-                  <PaymentGatewayChoices value={paymentGateway} options={paymentGateways} onChange={setPaymentGateway} />
+                  <PaymentGatewayChoices
+                    value={paymentGateway}
+                    options={paymentGateways}
+                    onChange={setPaymentGateway}
+                    disabled={busy}
+                  />
                 ) : null}
               </>
             ) : (

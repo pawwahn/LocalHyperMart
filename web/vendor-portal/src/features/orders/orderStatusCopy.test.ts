@@ -21,7 +21,7 @@ const screenshotBag = {
 describe('siblingStatusLine', () => {
   it('names the shop that rejected (screenshot 3 Oct bag)', () => {
     expect(siblingStatusLine(screenshotBag)).toBe(
-      'R K Fancacy rejected their items — only yours remains.',
+      'Other shop: R K Fancacy rejected their items — only yours remains.',
     );
   });
 
@@ -32,7 +32,7 @@ describe('siblingStatusLine', () => {
         subOrderNumber: 'ORD-1-1/2',
         siblingShops: [{ shopName: 'Kirana', status: 'BUYER_CANCELLED' }],
       }),
-    ).toBe('Kirana: buyer cancelled — only yours remains.');
+    ).toBe('Other shop: Kirana: buyer cancelled — only yours remains.');
   });
 
   it('shows an active sibling still packing without claiming only-yours', () => {
@@ -43,7 +43,7 @@ describe('siblingStatusLine', () => {
         wholeOrderForShop: false,
         siblingShops: [{ shopName: 'Kirana', status: 'PLACED' }],
       }),
-    ).toBe('Kirana still packing.');
+    ).toBe('Other shop on this order: Kirana still packing.');
   });
 
   it('joins two sibling shops', () => {
@@ -56,7 +56,7 @@ describe('siblingStatusLine', () => {
           { shopName: 'B Mart', status: 'READY_FOR_PICKUP' },
         ],
       }),
-    ).toBe('A Mart rejected their items · B Mart is also ready.');
+    ).toBe('Other shop on this order: A Mart rejected their items · B Mart is also ready.');
   });
 
   it('falls back to the generic bag hint when siblings are unknown', () => {
@@ -101,8 +101,21 @@ describe('nextStepLine', () => {
       nextStepLine({
         status: 'PLACED',
         subOrderNumber: 'ORD-1-1/1',
+        townHubEnabled: true,
       }),
     ).toBe('Next: pack, then Mark ready or Reject.');
+  });
+
+  it('tells a New bag to use shop agent when hub is off', () => {
+    expect(
+      nextStepLine({
+        status: 'PLACED',
+        subOrderNumber: 'ORD-1-1/2',
+        townHubEnabled: false,
+        vendorAgentDeliveryEnabled: true,
+        wholeOrderForShop: false,
+      }),
+    ).toBe('Next: pack, then My agent delivers or Reject.');
   });
 
   it('tells vendor-agent bags to assign when needed', () => {
@@ -119,7 +132,7 @@ describe('nextStepLine', () => {
 describe('vendorOrderSituation', () => {
   it('bundles sibling, pay, and next step for the screenshot bag', () => {
     expect(vendorOrderSituation(screenshotBag)).toEqual({
-      siblingLine: 'R K Fancacy rejected their items — only yours remains.',
+      siblingLine: 'Other shop: R K Fancacy rejected their items — only yours remains.',
       siblingAlert: true,
       nextStep: 'Next: wait for hub pickup, or send your agent.',
       paymentLine: 'COD due on delivery',

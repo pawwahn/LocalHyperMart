@@ -78,6 +78,7 @@ export function LaundryAdminPage() {
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [shopPricesExpanded, setShopPricesExpanded] = useState(false);
   const townIdRef = useRef(townId);
   townIdRef.current = townId;
 
@@ -160,6 +161,10 @@ export function LaundryAdminPage() {
     }
     setRates(next);
   }, [vendorId, shops]);
+
+  useEffect(() => {
+    setShopPricesExpanded(false);
+  }, [vendorId]);
 
   function shopPayload(shopEnabled: boolean, shopPriceEdit: boolean) {
     const payload: LaundryRate[] = Object.entries(rates)
@@ -365,15 +370,27 @@ export function LaundryAdminPage() {
 
       {vendorId && selectedShop ? (
         <section style={styles.card}>
-          <div style={styles.cardHead}>
-            <span style={styles.stepNum}>3</span>
-            <div style={{ flex: 1 }}>
-              <h3 style={styles.cardTitle}>{selectedShop.businessName} — prices &amp; ops</h3>
-              <p style={styles.cardSub}>₹ per piece. Leave a cell empty when the shop does not offer that service.</p>
-            </div>
+          <div style={styles.cardHeadCompact}>
+            <span style={styles.stepNumSm}>3</span>
+            <h3 style={styles.cardTitleInline}>
+              {selectedShop.businessName} — prices &amp; ops
+              <span style={styles.cardSubInline}> · ₹/pc; empty = not offered</span>
+            </h3>
+            <button
+              type="button"
+              style={styles.expandBtn}
+              aria-expanded={shopPricesExpanded}
+              aria-label={shopPricesExpanded ? 'Collapse price grid' : 'Expand price grid'}
+              title={shopPricesExpanded ? 'Minimize' : 'Maximize'}
+              onClick={() => setShopPricesExpanded((open) => !open)}
+            >
+              <span style={styles.expandIcon} aria-hidden>
+                {shopPricesExpanded ? '▲' : '▼'}
+              </span>
+            </button>
           </div>
 
-          <div style={styles.row}>
+          <div style={styles.rowTight}>
             <span style={styles.dayLabel}>Open</span>
             {WEEKDAYS.map((day) => (
               <button
@@ -410,7 +427,7 @@ export function LaundryAdminPage() {
             </div>
           </div>
 
-          <div style={styles.row}>
+          <div style={styles.rowTight}>
             <label style={styles.field}>
               Pickup ₹
               <input
@@ -442,45 +459,50 @@ export function LaundryAdminPage() {
               />
             </label>
           </div>
-          <p style={styles.muted}>
-            ₹ added once for the trip the customer chooses. {adminFeeText(selectedShop)}{' '}
+          <p style={styles.mutedTight} title={adminFeeText(selectedShop)}>
+            Trip fee once per order · {adminFeeText(selectedShop).slice(0, 72)}
+            {adminFeeText(selectedShop).length > 72 ? '…' : ''}{' '}
             <Link to="/vendor-billing" style={styles.link}>
-              Edit on Billing
+              Billing
             </Link>
           </p>
 
-          <div style={styles.table}>
-            <span />
-            {LAUNDRY_SERVICES.map((service) => (
-              <span key={service.id} style={styles.colHead}>
-                {service.label}
-              </span>
-            ))}
-            {LAUNDRY_ITEMS.map((item) => (
-              <Fragment key={item.id}>
-                <span style={styles.item}>
-                  {item.image ? <img src={item.image} alt="" style={styles.itemThumb} /> : null}
-                  {item.label}
-                </span>
-                {LAUNDRY_SERVICES.map((service) => {
-                  const key = `${service.id}|${item.id}`;
-                  return (
-                    <input
-                      key={key}
-                      style={styles.price}
-                      inputMode="decimal"
-                      aria-label={`${item.label} ${service.label}`}
-                      placeholder="—"
-                      value={rates[key] ?? ''}
-                      onChange={(e) => setRates((prev) => ({ ...prev, [key]: e.target.value.replace(/[^\d.]/g, '') }))}
-                    />
-                  );
-                })}
-              </Fragment>
-            ))}
-          </div>
+          {shopPricesExpanded ? (
+            <>
+              <div style={styles.tableScroll}>
+                <div style={styles.table}>
+                  <span style={styles.colHeadSticky} />
+                  {LAUNDRY_SERVICES.map((service) => (
+                    <span key={service.id} style={styles.colHeadSticky}>
+                      {service.label}
+                    </span>
+                  ))}
+                  {LAUNDRY_ITEMS.map((item) => (
+                    <Fragment key={item.id}>
+                      <span style={styles.item}>{item.label}</span>
+                      {LAUNDRY_SERVICES.map((service) => {
+                        const key = `${service.id}|${item.id}`;
+                        return (
+                          <input
+                            key={key}
+                            style={styles.price}
+                            inputMode="decimal"
+                            aria-label={`${item.label} ${service.label}`}
+                            placeholder="—"
+                            value={rates[key] ?? ''}
+                            onChange={(e) => setRates((prev) => ({ ...prev, [key]: e.target.value.replace(/[^\d.]/g, '') }))}
+                          />
+                        );
+                      })}
+                    </Fragment>
+                  ))}
+                </div>
+              </div>
 
-          <div style={styles.actions}>
+            </>
+          ) : null}
+
+          <div style={styles.actionsTight}>
             <button type="button" style={styles.primary} disabled={saving} onClick={() => void saveShop()}>
               {saving ? 'Saving…' : 'Save shop'}
             </button>
@@ -525,15 +547,44 @@ const styles: Record<string, CSSProperties> = {
   steps: { margin: 0, paddingLeft: '1.15rem', fontSize: '0.78rem', lineHeight: 1.5, color: 'var(--text-muted)' },
   link: { color: '#166534', fontWeight: 800, textDecoration: 'none' },
   card: {
-    padding: '0.75rem 0.85rem',
-    borderRadius: 14,
+    padding: '0.55rem 0.65rem',
+    borderRadius: 12,
     border: '1px solid var(--border, #e5e7eb)',
     background: 'var(--bg-elevated, #fff)',
-    marginBottom: '0.55rem',
+    marginBottom: '0.45rem',
     display: 'grid',
-    gap: '0.55rem',
+    gap: '0.4rem',
   },
-  cardHead: { display: 'flex', gap: '0.55rem', alignItems: 'flex-start' },
+  cardHead: { display: 'flex', gap: '0.45rem', alignItems: 'flex-start' },
+  cardHeadCompact: { display: 'flex', gap: '0.4rem', alignItems: 'center', flexWrap: 'wrap', width: '100%' },
+  expandBtn: {
+    marginLeft: 'auto',
+    minWidth: 36,
+    minHeight: 36,
+    border: '1px solid var(--border, #ddd)',
+    borderRadius: 8,
+    background: '#f9fafb',
+    cursor: 'pointer',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  expandIcon: { fontSize: '0.75rem', lineHeight: 1, color: '#166534', fontWeight: 900 },
+  cardTitleInline: { margin: 0, fontSize: '0.86rem', fontWeight: 900, lineHeight: 1.25 },
+  cardSubInline: { fontSize: '0.68rem', fontWeight: 600, color: 'var(--text-muted)' },
+  stepNumSm: {
+    width: 22,
+    height: 22,
+    borderRadius: '50%',
+    background: '#166534',
+    color: '#fff',
+    fontWeight: 900,
+    fontSize: '0.72rem',
+    display: 'grid',
+    placeItems: 'center',
+    flexShrink: 0,
+  },
   stepNum: {
     width: 28,
     height: 28,
@@ -549,6 +600,7 @@ const styles: Record<string, CSSProperties> = {
   cardTitle: { margin: 0, fontSize: '0.92rem', fontWeight: 900 },
   cardSub: { margin: '0.15rem 0 0', fontSize: '0.72rem', lineHeight: 1.4, color: 'var(--text-muted)', fontWeight: 600 },
   row: { display: 'flex', flexWrap: 'wrap', gap: '0.5rem', alignItems: 'flex-end' },
+  rowTight: { display: 'flex', flexWrap: 'wrap', gap: '0.35rem', alignItems: 'center' },
   field: { display: 'grid', gap: '0.12rem', fontSize: '0.72rem', fontWeight: 700 },
   fieldGrow: { display: 'grid', gap: '0.12rem', fontSize: '0.72rem', fontWeight: 700, flex: '1 1 14rem', minWidth: 180 },
   vendorPickRow: { display: 'flex', flexWrap: 'wrap', gap: '0.4rem' },
@@ -626,67 +678,91 @@ const styles: Record<string, CSSProperties> = {
   switchBlock: { display: 'grid', gap: '0.2rem' },
   switchLabel: { fontSize: '0.68rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.03em', color: 'var(--text-muted)' },
   switchOn: {
-    minHeight: 40,
-    minWidth: 88,
+    minHeight: 32,
+    minWidth: 80,
     borderRadius: 999,
     border: '1px solid #166534',
     background: 'linear-gradient(135deg, #dcfce7, #bbf7d0)',
     fontWeight: 900,
-    fontSize: '0.78rem',
+    fontSize: '0.72rem',
     color: '#14532d',
     cursor: 'pointer',
     display: 'inline-flex',
     alignItems: 'center',
-    gap: '0.35rem',
-    padding: '0 0.55rem',
+    gap: '0.3rem',
+    padding: '0 0.45rem',
   },
   switchOff: {
-    minHeight: 40,
-    minWidth: 88,
+    minHeight: 32,
+    minWidth: 80,
     borderRadius: 999,
     border: '1px solid #d1d5db',
     background: '#f3f4f6',
     fontWeight: 800,
-    fontSize: '0.78rem',
+    fontSize: '0.72rem',
     color: '#6b7280',
     cursor: 'pointer',
     display: 'inline-flex',
     alignItems: 'center',
-    gap: '0.35rem',
-    padding: '0 0.55rem',
+    gap: '0.3rem',
+    padding: '0 0.45rem',
   },
   knob: {
-    width: 14,
-    height: 14,
+    width: 11,
+    height: 11,
     borderRadius: '50%',
     background: 'currentColor',
     opacity: 0.35,
   },
   input: { minHeight: 40, border: '1px solid var(--border, #ddd)', borderRadius: 10, padding: '0 0.5rem', background: '#fff', minWidth: '9rem' },
-  narrow: { minHeight: 40, width: '4.6rem', border: '1px solid var(--border, #ddd)', borderRadius: 10, padding: '0 0.45rem', background: '#fff' },
-  dayLabel: { fontSize: '0.72rem', fontWeight: 800, alignSelf: 'center' },
-  dayOn: { minHeight: 36, minWidth: 42, borderRadius: 999, border: '1px solid #166534', background: '#dcfce7', fontWeight: 800, fontSize: '0.72rem' },
-  dayOff: { minHeight: 36, minWidth: 42, borderRadius: 999, border: '1px solid var(--border)', background: '#fff', color: '#888', fontSize: '0.72rem' },
+  narrow: { minHeight: 30, width: '3.75rem', border: '1px solid var(--border, #ddd)', borderRadius: 8, padding: '0 0.35rem', background: '#fff', fontSize: '0.78rem' },
+  dayLabel: { fontSize: '0.68rem', fontWeight: 800, alignSelf: 'center' },
+  dayOn: { minHeight: 28, minWidth: 34, borderRadius: 999, border: '1px solid #166534', background: '#dcfce7', fontWeight: 800, fontSize: '0.65rem', padding: '0 0.2rem' },
+  dayOff: { minHeight: 28, minWidth: 34, borderRadius: 999, border: '1px solid var(--border)', background: '#fff', color: '#888', fontSize: '0.65rem', padding: '0 0.2rem' },
+  tableScroll: {
+    maxHeight: 'min(38vh, 280px)',
+    overflowY: 'auto',
+    overflowX: 'auto',
+    border: '1px solid var(--border, #e5e7eb)',
+    borderRadius: 8,
+    padding: '0.35rem 0.4rem',
+    background: '#fafafa',
+  },
   table: {
     display: 'grid',
-    gridTemplateColumns: 'minmax(9.4rem, 12rem) repeat(3, minmax(5.4rem, 7.2rem))',
-    gap: '0.28rem 0.45rem',
+    gridTemplateColumns: 'minmax(6.5rem, 9rem) repeat(3, minmax(3.5rem, 4.5rem))',
+    gap: '0.15rem 0.35rem',
     alignItems: 'center',
-    maxWidth: 640,
+    width: 'max-content',
+    minWidth: '100%',
   },
   colHead: { fontSize: '0.68rem', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase' },
-  item: { display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.82rem', fontWeight: 700, minHeight: 40 },
-  itemThumb: { width: 32, height: 32, objectFit: 'contain', flex: '0 0 auto' },
+  colHeadSticky: {
+    position: 'sticky',
+    top: 0,
+    zIndex: 1,
+    fontSize: '0.62rem',
+    fontWeight: 800,
+    color: 'var(--text-muted)',
+    textTransform: 'uppercase',
+    background: '#fafafa',
+    padding: '0.15rem 0',
+    lineHeight: 1.2,
+  },
+  item: { fontSize: '0.72rem', fontWeight: 700, lineHeight: 1.2, whiteSpace: 'nowrap' },
   price: {
-    minHeight: 36,
+    minHeight: 28,
     width: '100%',
     border: '1px solid var(--border, #ddd)',
-    borderRadius: 8,
-    padding: '0 0.4rem',
+    borderRadius: 6,
+    padding: '0 0.3rem',
     background: '#fff',
+    fontSize: '0.78rem',
   },
   actions: { display: 'flex', flexWrap: 'wrap', gap: '0.4rem', alignItems: 'center' },
-  primary: { minHeight: 38, border: 0, borderRadius: 10, background: '#166534', color: '#fff', fontWeight: 800, padding: '0 0.9rem' },
+  actionsTight: { display: 'flex', flexWrap: 'wrap', gap: '0.35rem', alignItems: 'center', marginTop: '0.05rem' },
+  primary: { minHeight: 34, border: 0, borderRadius: 8, background: '#166534', color: '#fff', fontWeight: 800, fontSize: '0.78rem', padding: '0 0.75rem' },
+  mutedTight: { margin: 0, fontSize: '0.68rem', lineHeight: 1.35, color: 'var(--text-muted)', fontWeight: 600 },
   order: { display: 'flex', flexWrap: 'wrap', gap: '0.5rem', fontSize: '0.8rem', padding: '0.3rem 0', borderBottom: '1px solid var(--border)' },
   muted: { margin: 0, fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 600 },
   warn: { margin: 0, fontSize: '0.72rem', color: '#b45309', fontWeight: 700 },

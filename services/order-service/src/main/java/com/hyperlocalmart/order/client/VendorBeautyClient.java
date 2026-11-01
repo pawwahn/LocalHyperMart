@@ -52,10 +52,20 @@ public class VendorBeautyClient {
             }
             return response.getData();
         } catch (RestClientResponseException ex) {
-            if (ex.getStatusCode().value() == 404) {
-                throw new BusinessException(ErrorCode.NOT_FOUND, "Artist not found");
-            }
-            throw new BusinessException(ErrorCode.INTERNAL_ERROR, "Could not load artist");
+            throw mapClientError(ex, "Artist not found", "Could not load artist");
+        }
+    }
+
+    public void applyRatingAggregate(java.util.UUID vendorId, java.math.BigDecimal ratingScore, int ratingCount) {
+        RestClient client = restClientBuilder.baseUrl(vendorServiceProperties.getBaseUrl()).build();
+        try {
+            client.post()
+                    .uri("/api/v1/internal/vendors/beauty/artists/{vendorId}/rating-aggregate", vendorId)
+                    .body(java.util.Map.of("ratingScore", ratingScore, "ratingCount", ratingCount))
+                    .retrieve()
+                    .toBodilessEntity();
+        } catch (RestClientResponseException ex) {
+            throw new BusinessException(ErrorCode.INTERNAL_ERROR, "Could not update artist rating");
         }
     }
 
@@ -83,6 +93,7 @@ public class VendorBeautyClient {
             UUID vendorId,
             UUID townId,
             String businessName,
+            String serviceFor,
             String phone,
             String vendorStatus,
             boolean enabled,
@@ -141,5 +152,36 @@ public class VendorBeautyClient {
         public int staffCapacityFor(java.time.LocalDate day) {
             return BeautyStaffOverrides.effective(staffCapacity(), staffOverrides, day);
         }
+    }
+
+    private static BusinessException mapClientError(
+            RestClientResponseException ex, String notFoundFallback, String defaultFallback) {
+        String message = extractMessage(ex.getResponseBodyAsString());
+        if (message == null || message.isBlank()) {
+            message = defaultFallback;
+        }
+        return switch (ex.getStatusCode().value()) {
+            case 400, 422 -> new BusinessException(ErrorCode.VALIDATION_ERROR, message);
+            case 404 -> new BusinessException(ErrorCode.NOT_FOUND, notFoundFallback);
+            case 409 -> new BusinessException(ErrorCode.CONFLICT, message);
+            default -> new BusinessException(ErrorCode.INTERNAL_ERROR, defaultFallback);
+        };
+    }
+
+    private static String extractMessage(String body) {
+        if (body == null || body.isBlank()) {
+            return null;
+        }
+        int key = body.indexOf("\"message\"");
+        if (key < 0) {
+            return null;
+        }
+        int colon = body.indexOf(':', key);
+        int firstQuote = body.indexOf('"', colon + 1);
+        int secondQuote = firstQuote >= 0 ? body.indexOf('"', firstQuote + 1) : -1;
+        if (firstQuote < 0 || secondQuote < 0) {
+            return null;
+        }
+        return body.substring(firstQuote + 1, secondQuote);
     }
 }

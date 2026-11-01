@@ -35,6 +35,7 @@ export type SubOrderDto = {
   orderNumber: string;
   vendorId: string;
   shopId: string;
+  shopName?: string | null;
   status: SubOrderStatus;
   subtotal: number;
   placedAt?: string | null;
@@ -117,6 +118,7 @@ export type SubOrderView = {
   vendorAgentAlertStatus?: string | null;
   vendorAgentAlertAcknowledgedAt?: string | null;
   shopId: string;
+  shopName?: string | null;
   paymentMethod?: string | null;
   paymentStatus?: string | null;
   siblingShops: SiblingShop[];
@@ -234,6 +236,7 @@ export function toSubOrderView(dto: SubOrderDto): SubOrderView {
     vendorAgentAlertStatus: dto.vendorAgentAlertStatus ?? null,
     vendorAgentAlertAcknowledgedAt: dto.vendorAgentAlertAcknowledgedAt ?? null,
     shopId: dto.shopId,
+    shopName: dto.shopName?.trim() || null,
     paymentMethod: dto.paymentMethod ?? null,
     paymentStatus: dto.paymentStatus ?? null,
     siblingShops: dto.siblingShops ?? [],

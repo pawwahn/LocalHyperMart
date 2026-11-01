@@ -87,6 +87,12 @@ public class VendorSubOrderService {
         if (!hasActive) {
             throw new BusinessException(ErrorCode.CONFLICT, "No active items left to mark ready");
         }
+        Order order = subOrder.getOrder();
+        if (!deliveryClient.isTownHubEnabled(order.getTownId())) {
+            throw new BusinessException(
+                    ErrorCode.CONFLICT,
+                    "Hub pickup is not available in this town — use delivery by your agent");
+        }
         subOrder.setStatus(VendorSubOrderStatus.READY_FOR_PICKUP);
         subOrder.setReadyForPickupAt(Instant.now());
         vendorSubOrderRepository.save(subOrder);
@@ -99,7 +105,6 @@ public class VendorSubOrderService {
                 .changedBy(actorUserId)
                 .changedByRole("VENDOR")
                 .build());
-        Order order = subOrder.getOrder();
         String shopName = subOrder.getItems().isEmpty() ? "shop" : subOrder.getItems().getFirst().getShopNameSnapshot();
         notificationClient.notifySubOrderReady(
                 order.getTownId(), order.getId(), order.getBuyerId(), order.getBuyerPhoneSnapshot(),
@@ -736,6 +741,7 @@ public class VendorSubOrderService {
                 .orderNumber(order.getOrderNumber())
                 .vendorId(subOrder.getVendorId())
                 .shopId(subOrder.getShopId())
+                .shopName(shopNameOf(subOrder))
                 .status(subOrder.getStatus())
                 .paymentMethod(order.getPaymentMethod())
                 .paymentStatus(order.getPaymentStatus())

@@ -22,6 +22,8 @@ public class CatalogItemResponse {
     private String name;
     private String unit;
     private String shopName;
+    /** MALE | FEMALE | UNISEX — who the vendor serves. */
+    private String serviceFor;
     private UUID vendorId;
     private BigDecimal mrp;
     private BigDecimal price;

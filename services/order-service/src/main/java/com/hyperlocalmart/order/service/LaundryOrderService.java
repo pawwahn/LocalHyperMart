@@ -1,5 +1,6 @@
 package com.hyperlocalmart.order.service;
 
+import com.hyperlocalmart.common.util.IndianMobilePhones;
 import com.hyperlocalmart.common.exception.BusinessException;
 import com.hyperlocalmart.common.exception.ErrorCode;
 import com.hyperlocalmart.order.client.AddressClient;
@@ -81,6 +82,7 @@ public class LaundryOrderService {
                 .map(shop -> LaundryShopCard.builder()
                         .vendorId(shop.vendorId())
                         .businessName(shop.businessName())
+                        .serviceFor(shop.serviceFor())
                         .phone(shop.phone())
                         .pickupCharge(moneyOrZero(shop.pickupCharge()))
                         .dropCharge(moneyOrZero(shop.dropCharge()))
@@ -103,7 +105,7 @@ public class LaundryOrderService {
     }
 
     @Transactional
-    public LaundryOrderResponse place(UUID buyerId, PlaceLaundryOrderRequest request) {
+    public LaundryOrderResponse place(UUID buyerId, String buyerPhone, PlaceLaundryOrderRequest request) {
         if (!request.isSlaAcknowledged()) {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, SLA_MESSAGE + " Confirm that before placing the request.");
         }
@@ -144,6 +146,13 @@ public class LaundryOrderService {
         }
 
         Map<String, Object> address = addressClient.getAddressSnapshot(request.getAddressId(), buyerId, request.getTownId());
+        String contactPhone = IndianMobilePhones.firstTenDigit(
+                text(address.get("recipientPhone")), request.getContactPhone(), buyerPhone);
+        if (paymentMethod == LaundryPaymentMethod.UPI && contactPhone == null) {
+            throw new BusinessException(
+                    ErrorCode.VALIDATION_ERROR,
+                    "A 10-digit mobile number is required for UPI. Add contact on your address or update your profile phone.");
+        }
         List<LaundryOrderLine> lines = buildLines(buyerId, shop, request.getLines());
         int pieces = lines.stream().mapToInt(LaundryOrderLine::getQuantity).sum();
         assertCapacity(shop, pieces);
@@ -182,7 +191,7 @@ public class LaundryOrderService {
                 .addressId(request.getAddressId())
                 .addressText(addressText(address))
                 .contactName(text(address.get("recipientName")))
-                .contactPhone(text(address.get("recipientPhone")))
+                .contactPhone(contactPhone)
                 .requestedPickupStart(pickup ? request.getRequestedPickupStart() : null)
                 .requestedPickupEnd(pickup ? request.getRequestedPickupEnd() : null)
                 .pickupSlotStart(pickup ? request.getRequestedPickupStart() : null)
@@ -290,13 +299,25 @@ public class LaundryOrderService {
     }
 
     @Transactional
-    public PaymentInfoResponse retryOnlinePayment(UUID buyerId, UUID orderId, String idempotencyKey, String gateway) {
+    public PaymentInfoResponse retryOnlinePayment(
+            UUID buyerId, String buyerPhone, UUID orderId, String idempotencyKey, String gateway) {
         LaundryOrder order = requireOrder(orderId);
         if (!order.getBuyerId().equals(buyerId)) {
             throw new BusinessException(ErrorCode.FORBIDDEN, "This order is not yours");
         }
         if (order.getPaymentMethod() != LaundryPaymentMethod.UPI || order.getStatus() != LaundryOrderStatus.AWAITING_PAYMENT) {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, "This order is not waiting for online payment");
+        }
+        String payPhone = IndianMobilePhones.firstTenDigit(order.getContactPhone(), buyerPhone);
+        if (payPhone == null) {
+            throw new BusinessException(
+                    ErrorCode.VALIDATION_ERROR,
+                    "A 10-digit mobile number is required for UPI. Update your profile phone and try again.");
+        }
+        if (order.getContactPhone() == null || order.getContactPhone().isBlank()) {
+            order.setContactPhone(payPhone);
+            order.setUpdatedBy(buyerId);
+            orderRepository.save(order);
         }
         String key = idempotencyKey == null || idempotencyKey.isBlank() ? order.getId() + "-pay" : idempotencyKey;
         return paymentClient.initiatePayment(
@@ -305,7 +326,7 @@ public class LaundryOrderService {
                 order.getTownId(),
                 gateway == null || gateway.isBlank() ? "RAZORPAY" : gateway,
                 key,
-                order.getContactPhone(),
+                payPhone,
                 buyerPayable(order),
                 order.getOrderNumber(),
                 "PAYMENT_PENDING",

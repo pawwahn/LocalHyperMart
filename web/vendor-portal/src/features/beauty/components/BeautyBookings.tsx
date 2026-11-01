@@ -118,7 +118,7 @@ export function BeautyBookings({ active = true, reloadToken = 0 }: { active?: bo
       setConfirm({
         title: 'End session?',
         description: `Confirm the visit is complete for ${order.orderNumber}.`,
-        warnBanner: `Collect ${rupee(pay.dueAtVisit)} from the customer before ending. This is recorded for accounts and audit.`,
+        warnBanner: `Collect ${rupee(pay.dueAtVisit)} from the customer before ending. This is recorded for accounts and audit. Also, get rating for your work in the app so they win a scratch card.`,
         action,
         orderId: order.id,
         visitCashCollected: true,
@@ -187,13 +187,18 @@ export function BeautyBookings({ active = true, reloadToken = 0 }: { active?: bo
           </div>
           <div style={styles.actions}>
             {primary ? (
-              <Button
-                variant="primary"
-                disabled={actingId === order.id}
-                onClick={() => askAction(order, primary, pay)}
-              >
-                {beautyActionLabel(primary)}
-              </Button>
+              <div style={styles.primaryActionCol}>
+                <Button
+                  variant="primary"
+                  disabled={actingId === order.id}
+                  onClick={() => askAction(order, primary, pay)}
+                >
+                  {beautyActionLabel(primary)}
+                </Button>
+                {primary === 'COMPLETE' ? (
+                  <p style={styles.ratingHint}>get rating for your work</p>
+                ) : null}
+              </div>
             ) : null}
             {canCancel ? (
               <Button
@@ -266,7 +271,17 @@ const styles: Record<string, CSSProperties> = {
     borderRadius: 999,
   },
   payBreakdown: { fontSize: '0.62rem', color: 'var(--text-muted)', fontWeight: 700, maxWidth: '11rem', lineHeight: 1.35 },
-  actions: { display: 'flex', flexWrap: 'wrap', gap: '0.35rem' },
+  actions: { display: 'flex', flexWrap: 'wrap', gap: '0.35rem', alignItems: 'flex-start' },
+  primaryActionCol: { display: 'grid', gap: '0.2rem', justifyItems: 'start' },
+  ratingHint: {
+    margin: 0,
+    fontSize: '0.65rem',
+    fontWeight: 700,
+    color: '#64748b',
+    fontStyle: 'italic',
+    lineHeight: 1.35,
+    maxWidth: '14rem',
+  },
   muted: { color: 'var(--text-muted)', fontSize: '0.78rem', fontWeight: 600 },
   error: { color: '#b91c1c', fontWeight: 700, fontSize: '0.78rem', margin: 0 },
 };

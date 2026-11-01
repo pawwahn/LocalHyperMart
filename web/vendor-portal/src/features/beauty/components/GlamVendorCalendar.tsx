@@ -512,7 +512,7 @@ export function GlamVendorCalendar({
           <PickerDateField
             value={anchorDate}
             style={styles.dateInput}
-            onChange={(next) => onAnchorDateChange(next || today)}
+            onChange={(next: string) => onAnchorDateChange(next || today)}
             aria-label="Pick date"
           />
         ) : null}

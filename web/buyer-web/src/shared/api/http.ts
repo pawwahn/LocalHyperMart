@@ -1,4 +1,4 @@
-import { Capacitor } from '@capacitor/core';
+import { isNativeApp, resolveApiBaseUrl } from '@hlm-native';
 
 export type ApiEnvelope<T> = {
   success: boolean;
@@ -37,17 +37,7 @@ type RequestOptions = {
   timeoutMs?: number;
 };
 
-function resolveApiBase(): string {
-  const fromEnv = String(import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '');
-  if (fromEnv) return fromEnv;
-  if (Capacitor.isNativePlatform()) {
-    // Emulator → host machine gateway. Physical phone: set VITE_API_BASE_URL to your LAN IP.
-    return 'http://10.0.2.2:8080';
-  }
-  return '';
-}
-
-const API_BASE = resolveApiBase();
+const API_BASE = resolveApiBaseUrl(import.meta.env.VITE_API_BASE_URL);
 const DEFAULT_TIMEOUT_MS = 15_000;
 
 /** Fired when the API rejects a request as unauthorized (expired/invalid JWT). */
@@ -90,7 +80,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
     const msg = err instanceof Error ? err.message : String(err ?? '');
     if (/failed to fetch|networkerror|load failed/i.test(msg)) {
       throw new ApiError(
-        Capacitor.isNativePlatform()
+        isNativeApp()
           ? 'Cannot reach the shop server. Keep this PC running and retry.'
           : 'Cannot reach the shop server. Check your connection and retry.',
         0,

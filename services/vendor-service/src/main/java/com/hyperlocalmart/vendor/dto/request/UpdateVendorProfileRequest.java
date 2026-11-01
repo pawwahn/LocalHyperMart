@@ -3,6 +3,8 @@ package com.hyperlocalmart.vendor.dto.request;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
+import com.fasterxml.jackson.annotation.JsonAlias;
+import com.hyperlocalmart.vendor.entity.VendorServiceFor;
 import lombok.Data;
 
 import java.util.UUID;
@@ -12,6 +14,10 @@ public class UpdateVendorProfileRequest {
 
     @NotNull
     private UUID serviceId;
+
+    @NotNull
+    @JsonAlias("service_for")
+    private VendorServiceFor serviceFor;
 
     @NotBlank
     @Size(max = 255)

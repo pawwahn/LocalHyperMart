@@ -24,7 +24,7 @@ public class TownOperationalConfigResponse {
 
     /** Buyer deals chrome (See all rail, price tiles). Default HLM green. */
     @Builder.Default
-    private String themeColor = "#0C831F";
+    private String themeColor = "#009111";
 
     /** When false, hide Best deals on the buyer cart. */
     @Builder.Default

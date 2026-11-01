@@ -5,9 +5,10 @@ import { PortalShell } from '@/shared/layout/PortalShell';
 import { useAuth } from '@/shared/auth/AuthContext';
 import { useTown } from '@/shared/town/TownContext';
 import { Banner, Button, Card, EmptyState, TextField } from '@/shared/ui';
-import { confirmOnlinePayment } from '../api/shopApi';
+import { confirmOnlinePaymentResilient } from '../api/shopApi';
 import { CheckoutDismissedError, checkoutCanOpen, openGatewayCheckout } from '../lib/gatewayCheckout';
-import { PaymentGatewayChoices, usePaymentGateways } from '../components/PaymentGatewayChoices';
+import { PaymentGatewayOptionList, usePaymentGateways } from '../components/PaymentGatewayChoices';
+import { OnlinePaymentSheet } from '../components/OnlinePaymentSheet';
 import { AddressPickerSheet } from '../components/AddressPickerSheet';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { OrderCelebration } from '../components/OrderCelebration';
@@ -25,6 +26,7 @@ import { cheapestPurchasable, fetchMembershipCatalog, type MembershipCatalog } f
 import { MembershipPlansSheet } from '../components/MembershipPlansSheet';
 import { applyReferralCode, getReferralMe, type ReferralMeVm } from '../api/referralApi';
 import { ApiError } from '@/shared/api/http';
+import { APP_NAME } from '@/shared/brand';
 
 function formatDeliverAddress(a: {
   label?: string;
@@ -40,6 +42,19 @@ function formatDeliverAddress(a: {
   const tail = [street, a.recipientPhone?.trim()].filter(Boolean).join(' · ');
   if (head && tail) return `${head} — ${tail}`;
   return head || tail || '';
+}
+
+const CHECKOUT_LOCAL_SHOP_NOTE =
+  'Thanks for supporting your local shops — you help them survive.';
+
+function checkoutNoteLead(townLabel: string | undefined): string {
+  const town = townLabel?.trim() || 'your town';
+  return `${APP_NAME} - ${town}`;
+}
+
+function checkoutConfirmPlaceLabel(label: string | undefined): string {
+  const raw = label?.trim() || 'your selected address';
+  return raw.replace(/[,\s]+$/, '');
 }
 
 const STICKY_CSS = `
@@ -107,6 +122,7 @@ export function CartPage() {
   const [useStoreCredit, setUseStoreCredit] = useState(false);
   const creditChoice = useRef(false);
   const [confirmCheckout, setConfirmCheckout] = useState(false);
+  const [gatewaySheetOpen, setGatewaySheetOpen] = useState(false);
   const [checkoutBusy, setCheckoutBusy] = useState(false);
   const [showCelebration, setShowCelebration] = useState(false);
   const [dealsOpen, setDealsOpen] = useState(false);
@@ -122,7 +138,12 @@ export function CartPage() {
   const [membershipCatalog, setMembershipCatalog] = useState<MembershipCatalog | null>(null);
   const [plansOpen, setPlansOpen] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<'COD' | 'ONLINE'>('COD');
-  const { options: paymentGateways, gateway: paymentGateway, setGateway: setPaymentGateway } = usePaymentGateways(session?.accessToken);
+  const {
+    options: paymentGateways,
+    gateway: paymentGateway,
+    setGateway: setPaymentGateway,
+    refreshGateways,
+  } = usePaymentGateways(session?.accessToken);
   const [referralInfo, setReferralInfo] = useState<ReferralMeVm | null>(null);
   const [promoBusy, setPromoBusy] = useState(false);
   const couponSectionRef = useRef<HTMLDivElement | null>(null);
@@ -404,6 +425,19 @@ export function CartPage() {
         setError(ready.error);
         return;
       }
+      if (online) {
+        const gateways = await refreshGateways();
+        if (gateways.length >= 2) {
+          setGatewaySheetOpen(true);
+          return;
+        }
+        if (gateways.length === 0) {
+          setError(
+            'Online payment is not configured yet. Use cash on delivery, or ask your town admin to enable Razorpay / Cashfree.',
+          );
+          return;
+        }
+      }
       setConfirmCheckout(true);
     } finally {
       setCheckoutPreparing(false);
@@ -414,6 +448,9 @@ export function CartPage() {
     setCheckoutBusy(true);
     let result: Awaited<ReturnType<typeof doCheckout>>;
     try {
+      if (online) {
+        sessionStorage.setItem('hlm:lastPaymentGateway', paymentGateway);
+      }
       const checkoutWaitMs = online ? 75_000 : 25_000;
       result = await Promise.race([
         doCheckout({ useStoreCredit, paymentMethod: online ? 'ONLINE' : 'COD', paymentGateway }),
@@ -432,18 +469,21 @@ export function CartPage() {
     } catch (err) {
       setCheckoutBusy(false);
       setConfirmCheckout(false);
+      setGatewaySheetOpen(false);
       setError(err instanceof Error ? err.message : 'Could not place the order. Try again.');
       return;
     }
     setCheckoutBusy(false);
     if (!result.ok) {
       setConfirmCheckout(false);
+      setGatewaySheetOpen(false);
       requestAnimationFrame(() => {
         checkoutErrorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
       });
       return;
     }
     setConfirmCheckout(false);
+    setGatewaySheetOpen(false);
     if (result.kind === 'pay') {
       if (!checkoutCanOpen(result.checkout)) {
         setError('Online payment is not configured yet. Use cash on delivery, or add the gateway keys and restart payment-service.');
@@ -454,7 +494,7 @@ export function CartPage() {
         const paid = await openGatewayCheckout(result.checkout, {
           contact: session?.phone,
         });
-        await confirmOnlinePayment(session?.accessToken ?? '', paid);
+        await confirmOnlinePaymentResilient(session?.accessToken ?? '', paid);
         setShowCelebration(true);
         await reload();
       } catch (err) {
@@ -511,7 +551,13 @@ export function CartPage() {
                 disabled={busy || blockedLine || checkoutPreparing || checkoutBusy}
                 onClick={() => void handleCheckout()}
               >
-                {checkoutPreparing ? 'Syncing basket…' : checkoutBusy ? 'Placing order…' : 'Place order'}
+                {checkoutPreparing
+                  ? 'Syncing basket…'
+                  : checkoutBusy
+                    ? 'Placing order…'
+                    : online
+                      ? 'Pay now'
+                      : 'Place order'}
               </button>
             </div>
           </div>
@@ -531,18 +577,43 @@ export function CartPage() {
         onNeedTown={openTownPicker}
         onCreate={async (values) => Boolean(await doCreateAddress(values))}
       />
+      <OnlinePaymentSheet
+        open={gatewaySheetOpen}
+        amountLabel={payLabel}
+        options={paymentGateways}
+        value={paymentGateway}
+        onChange={setPaymentGateway}
+        busy={checkoutBusy}
+        onClose={() => !checkoutBusy && setGatewaySheetOpen(false)}
+        onContinue={() => {
+          setGatewaySheetOpen(false);
+          setConfirmCheckout(true);
+        }}
+      />
       <ConfirmDialog
         open={confirmCheckout}
         title="Confirm your order"
         description={
           online
-            ? `Pay ${payLabel} online for delivery to ${selectedAddress?.label || 'your selected address'}?`
-            : `Place this cash-on-delivery order for ${payLabel} to ${
-                selectedAddress?.label || 'your selected address'
-              }?`
+            ? `Pay ${payLabel} online for delivery to ${checkoutConfirmPlaceLabel(selectedAddress?.label)}?`
+            : `Place this cash-on-delivery order for ${payLabel} to ${checkoutConfirmPlaceLabel(
+                selectedAddress?.label,
+              )}?`
+        }
+        noteLead={checkoutNoteLead(townLabel)}
+        note={CHECKOUT_LOCAL_SHOP_NOTE}
+        beforeActions={
+          online && paymentGateways.length >= 1 ? (
+            <PaymentGatewayOptionList
+              value={paymentGateway}
+              options={paymentGateways}
+              onChange={setPaymentGateway}
+              disabled={checkoutBusy}
+            />
+          ) : null
         }
         confirmLabel={
-          checkoutBusy ? 'Placing order…' : online ? 'Pay now' : 'Yes, place order'
+          checkoutBusy ? 'Placing order…' : online ? 'Continue to payment' : 'Yes, place order'
         }
         cancelLabel="Review order"
         busy={checkoutBusy}
@@ -623,7 +694,7 @@ export function CartPage() {
           </button>
 
           {showDeliveryNudge && deliveryNudge ? (
-            <div style={{ ...styles.unlockBar, background: themeColor || '#0C831F' }}>
+            <div style={{ ...styles.unlockBar, background: themeColor || '#009111' }}>
               <DeliveryUnlockChip
                 layout="inline"
                 addMore={deliveryNudge.addMore}
@@ -898,16 +969,32 @@ export function CartPage() {
             ) : null}
             {showPayMethods ? (
               <>
-                <div style={styles.payMethods} role="radiogroup" aria-label="Payment method">
+                <div
+                  style={{
+                    ...styles.payMethodGrid,
+                    gridTemplateColumns:
+                      showCodOption && showUpiOption ? '1fr 1fr' : '1fr',
+                  }}
+                  role="radiogroup"
+                  aria-label="Payment method"
+                >
                   {showCodOption ? (
                     <button
                       type="button"
                       role="radio"
                       aria-checked={!online}
-                      style={{ ...styles.payMethod, ...(!online ? styles.payMethodOn : null) }}
+                      style={{ ...styles.payMethodCard, ...(!online ? styles.payMethodCardOn : null) }}
                       onClick={() => setPaymentMethod('COD')}
                     >
-                      Cash on delivery
+                      <span style={styles.payMethodTitle}>Pay on delivery</span>
+                      <span
+                        style={{
+                          ...styles.payMethodMeta,
+                          ...(!online ? styles.payMethodMetaOn : null),
+                        }}
+                      >
+                        Cash at your door
+                      </span>
                     </button>
                   ) : null}
                   {showUpiOption ? (
@@ -915,15 +1002,23 @@ export function CartPage() {
                       type="button"
                       role="radio"
                       aria-checked={online}
-                      style={{ ...styles.payMethod, ...(online ? styles.payMethodOn : null) }}
+                      style={{ ...styles.payMethodCard, ...(online ? styles.payMethodCardOn : null) }}
                       onClick={() => setPaymentMethod('ONLINE')}
                     >
-                      UPI / Online
+                      <span style={styles.payMethodTitle}>Pay online</span>
+                      <span
+                        style={{
+                          ...styles.payMethodMeta,
+                          ...(online ? styles.payMethodMetaOn : null),
+                        }}
+                      >
+                        UPI · Cards · Netbanking
+                      </span>
                     </button>
                   ) : null}
                 </div>
                 {online ? (
-                  <PaymentGatewayChoices value={paymentGateway} options={paymentGateways} onChange={setPaymentGateway} />
+                  <p style={styles.payHint}>Checkout opens on the next step after you tap Pay now.</p>
                 ) : null}
               </>
             ) : null}
@@ -1080,7 +1175,7 @@ const styles: Record<string, CSSProperties> = {
   memberOfferCtaBtn: {
     border: 'none',
     background: 'none',
-    color: '#0C831F',
+    color: '#009111',
     fontSize: '0.74rem',
     fontWeight: 800,
     cursor: 'pointer',
@@ -1107,7 +1202,7 @@ const styles: Record<string, CSSProperties> = {
     overflow: 'hidden',
     textOverflow: 'ellipsis',
   },
-  memberOfferCta: { color: '#0C831F', fontSize: '0.74rem', flexShrink: 0 },
+  memberOfferCta: { color: '#009111', fontSize: '0.74rem', flexShrink: 0 },
   billLineWithAction: {
     display: 'grid',
     gridTemplateColumns: '1fr auto',
@@ -1165,7 +1260,7 @@ const styles: Record<string, CSSProperties> = {
   billCredit: {
     fontVariantNumeric: 'tabular-nums',
     fontWeight: 800,
-    color: '#0C831F',
+    color: '#009111',
     fontSize: '0.82rem',
   },
   billMuted: {
@@ -1187,7 +1282,7 @@ const styles: Record<string, CSSProperties> = {
     cursor: 'pointer',
   },
   walletLabel: { display: 'inline-flex', alignItems: 'center', gap: '0.4rem' },
-  walletCheck: { width: 16, height: 16, margin: 0, accentColor: '#0C831F', cursor: 'pointer' },
+  walletCheck: { width: 16, height: 16, margin: 0, accentColor: '#009111', cursor: 'pointer' },
   billTotal: {
     display: 'grid',
     gridTemplateColumns: '1fr auto',
@@ -1200,26 +1295,52 @@ const styles: Record<string, CSSProperties> = {
     fontSize: '0.92rem',
     color: 'var(--text)',
   },
-  payMethods: {
+  payMethodGrid: {
     display: 'grid',
-    gridTemplateColumns: '1fr 1fr',
-    gap: '0.35rem',
-    marginTop: '0.35rem',
+    gap: '0.55rem',
+    marginTop: '0.55rem',
   },
-  payMethod: {
-    minHeight: 40,
-    borderRadius: 10,
-    border: '1.5px solid var(--border)',
-    background: '#fff',
-    color: 'var(--text)',
-    fontWeight: 800,
-    fontSize: '0.78rem',
+  payMethodCard: {
+    display: 'grid',
+    gap: '0.2rem',
+    alignContent: 'center',
+    minHeight: 56,
+    padding: '0.55rem 0.65rem',
+    borderRadius: 12,
+    border: '2px solid #D0D5DD',
+    background: '#FFFFFF',
+    color: '#344054',
+    textAlign: 'left',
     cursor: 'pointer',
+    boxShadow: '0 1px 2px rgba(16, 24, 40, 0.06)',
   },
-  payMethodOn: {
-    border: '1.5px solid #0C831F',
-    background: '#F3FBF5',
-    color: '#0C831F',
+  payMethodCardOn: {
+    border: '2px solid #009111',
+    background: '#E5F5E7',
+    color: '#14532D',
+    boxShadow: '0 0 0 1px rgba(0, 145, 17, 0.2)',
+  },
+  payMethodTitle: {
+    fontSize: '0.84rem',
+    fontWeight: 700,
+    lineHeight: 1.25,
+    color: 'inherit',
+  },
+  payMethodMeta: {
+    fontSize: '0.7rem',
+    fontWeight: 500,
+    lineHeight: 1.3,
+    color: '#667085',
+  },
+  payMethodMetaOn: {
+    color: '#2F6B3A',
+  },
+  payHint: {
+    margin: '0.4rem 0 0',
+    fontSize: '0.72rem',
+    fontWeight: 500,
+    color: '#667085',
+    lineHeight: 1.35,
   },
   total: {
     fontFamily: 'var(--font-display)',
@@ -1244,7 +1365,7 @@ const styles: Record<string, CSSProperties> = {
     display: 'flex',
     alignItems: 'center',
     gap: '0.4rem',
-    background: '#0C831F',
+    background: '#009111',
     color: '#fff',
     borderRadius: 12,
     padding: '0.35rem 0.35rem 0.35rem 0.65rem',

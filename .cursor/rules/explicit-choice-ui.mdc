@@ -1,0 +1,40 @@
+---
+description: Payment/choice UI — explicit colors, strong borders, sticky sheet CTAs
+alwaysApply: true
+---
+
+# Explicit choice UI (payment, toggles, bottom sheets)
+
+Learned from checkout: **muted tokens alone** can look like plain text on white; **primary CTAs** can scroll off-screen in sheets. Apply this whenever building **mutually exclusive options** (Pay COD vs online, payment gateway, plan picker) or **bottom sheets with a confirm/pay button**.
+
+## Text & color
+
+- On **choice `<button>` rows/cards**, set **explicit** text colors on title, subtitle, and meta (e.g. ink `#101828`, soft `#344054`, muted `#667085`). Do not rely only on `color: inherit` or `var(--text-muted)` on white/`--bg-elevated` without checking contrast.
+- **Selected** state: dark title on **light tinted** background (`#F3FBF5` + `#14532D`), never light-on-light or white label on pale green.
+- Theme tokens (`ui-theme.mdc`) stay the default for shells and shared components; **add explicit hex (or token pairs verified on white)** for dense choice UIs where we saw wash-out.
+
+## Borders & separation
+
+- Side-by-side payment methods = **two distinct cards**, not grey-on-grey segment pills.
+- Default: **2px** border `#D0D5DD`, white fill, light shadow.
+- Selected: **2px** brand border (`#009111`), tinted fill (`#E5F5E7`), optional outer ring.
+- Every option in a list gets the **same** card treatment (selected and unselected), plus a visible **radio/check** affordance.
+
+## Bottom sheets with Pay / Continue
+
+- Layout: `display: flex; flex-direction: column; max-height: ~90dvh`.
+- Body: `flex: 1 1 auto; min-height: 0; overflow-y: auto`.
+- Footer + primary CTA: **`flex-shrink: 0`**, top border + surface background so **Pay / Place order** is always visible without scrolling.
+- Backdrop dimming ≥ ~55% so sheet content reads clearly.
+
+## Copy & hierarchy
+
+- Consumer-facing **title + one-line meta** per option (e.g. “Pay online” / “UPI · Cards · Netbanking”); processor names (Razorpay, Cashfree) as **small meta**, not primary chips under the method toggle.
+- Gateway/partner pick **after** “Pay now” when multiple backends exist — see `OnlinePaymentSheet` + cart `payMethodCard` in buyer-web.
+
+## Reference implementations
+
+- `web/buyer-web/src/features/shop/pages/CartPage.tsx` — `payMethodCard` / `payMethodCardOn`
+- `web/buyer-web/src/features/shop/components/OnlinePaymentSheet.tsx` — `rowOff` / `rowOn`, sticky footer CTA
+
+Before shipping: check ~390px width, unselected options still look **tappable**, selected state readable in sunlight, footer button visible on first paint.

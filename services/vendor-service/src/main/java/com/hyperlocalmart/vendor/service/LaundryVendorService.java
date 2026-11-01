@@ -56,6 +56,7 @@ public class LaundryVendorService {
     private final LaundryRateRepository rateRepository;
     private final LaundryRateHistoryRepository historyRepository;
     private final VendorCommercialTermsRepository termsRepository;
+    private final ShopService shopService;
 
     @Transactional(readOnly = true)
     public List<LaundryShopResponse> listForTown(UUID townId, boolean bookableOnly) {
@@ -70,6 +71,7 @@ public class LaundryVendorService {
                 .collect(Collectors.groupingBy(LaundryRate::getVendorId));
         Map<UUID, ServiceOffering> offerings = offeringRepository.findAll().stream()
                 .collect(Collectors.toMap(ServiceOffering::getId, Function.identity()));
+        Map<UUID, Boolean> shopAcceptingOrders = shopService.vendorShopOpenForCustomers(ids);
         List<LaundryShopResponse> out = new ArrayList<>();
         for (Vendor vendor : vendors) {
             if (!isLaundryVendor(vendor, offerings)) {
@@ -78,6 +80,9 @@ public class LaundryVendorService {
             LaundryProfile profile = profiles.get(vendor.getId());
             if (bookableOnly) {
                 if (profile == null || !profile.isEnabled() || vendor.getStatus() != VendorStatus.ACTIVE) {
+                    continue;
+                }
+                if (!shopAcceptingOrders.getOrDefault(vendor.getId(), true)) {
                     continue;
                 }
             }
@@ -101,6 +106,10 @@ public class LaundryVendorService {
 
     @Transactional(readOnly = true)
     public LaundryShopResponse getBookable(UUID vendorId) {
+        if (!shopService.isVendorShopOpenForCustomers(vendorId)) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR,
+                    "This shop is paused — bookings are not available right now");
+        }
         return toBookable(get(vendorId, false, true));
     }
 
@@ -278,6 +287,7 @@ public class LaundryVendorService {
                 .vendorId(vendor.getId())
                 .townId(vendor.getTownId())
                 .businessName(vendor.getBusinessName())
+                .serviceFor(vendor.getServiceFor() == null ? null : vendor.getServiceFor().name())
                 .phone(vendor.getPhone())
                 .vendorStatus(vendor.getStatus().name())
                 .enabled(profile != null && profile.isEnabled())

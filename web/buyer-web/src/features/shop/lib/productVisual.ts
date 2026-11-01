@@ -13,6 +13,14 @@ const RULES: Array<{ match: RegExp; emoji: string; tint: string }> = [
   { match: /bread|bun|pav|bakery/i, emoji: '🍞', tint: '#FFF3E0' },
 ];
 
+export function productInitial(name: string): string {
+  const trimmed = name.trim();
+  if (!trimmed) return '?';
+  const word = trimmed.split(/\s+/).find((w) => /[A-Za-z0-9]/.test(w));
+  const ch = (word ?? trimmed).replace(/[^A-Za-z0-9]/g, '').charAt(0);
+  return ch ? ch.toUpperCase() : '?';
+}
+
 export function productVisual(name: string): { emoji: string; tint: string } {
   for (const rule of RULES) {
     if (rule.match.test(name)) return { emoji: rule.emoji, tint: rule.tint };

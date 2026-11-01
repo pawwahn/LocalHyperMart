@@ -31,7 +31,7 @@ export function applyTheme(preference: ThemePreference): void {
       --highlight: #F7CE46;
       --highlight-soft: ${preference.mode === 'dark' ? 'rgba(247, 206, 70, 0.22)' : '#FFF6CC'};
       /* KoyaKart brand green — independent of accent picker */
-      --brand: ${preference.mode === 'dark' ? '#22A34A' : '#0C831F'};
+      --brand: ${preference.mode === 'dark' ? '#22A34A' : '#009111'};
       --brand-hover: ${preference.mode === 'dark' ? '#2BB854' : '#085516'};
       /* Keep semantic greens independent of accent picker (hub "Bag reached hub" CTA, etc.) */
       --success: ${preference.mode === 'dark' ? '#34D399' : '#10B981'};

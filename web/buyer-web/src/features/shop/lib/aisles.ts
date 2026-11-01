@@ -184,7 +184,7 @@ type AisleTheme = { accent: string; glow: string; icon: string; tagline: string 
 
 const AISLE_THEMES: Record<string, AisleTheme> = {
   'Fresh items': {
-    accent: '#0C831F',
+    accent: '#009111',
     glow: '#D4F5DC',
     icon: '🥬',
     tagline: 'Farm to your door',
@@ -208,7 +208,7 @@ const AISLE_THEMES: Record<string, AisleTheme> = {
     tagline: 'Care & wellness',
   },
   'Household & Lifestyle': {
-    accent: '#0C831F',
+    accent: '#009111',
     glow: '#E8E4FF',
     icon: '🏠',
     tagline: 'Home & more',
@@ -222,7 +222,7 @@ const AISLE_THEMES: Record<string, AisleTheme> = {
 };
 
 const DEFAULT_AISLE_THEME: AisleTheme = {
-  accent: '#0C831F',
+  accent: '#009111',
   glow: '#EDE8FF',
   icon: '🛒',
   tagline: 'Shop local',

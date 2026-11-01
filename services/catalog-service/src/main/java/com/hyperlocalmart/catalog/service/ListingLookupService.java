@@ -1,5 +1,6 @@
 package com.hyperlocalmart.catalog.service;
 
+import com.hyperlocalmart.catalog.client.VendorShopClient;
 import com.hyperlocalmart.catalog.dto.response.ListingSnapshotResponse;
 import com.hyperlocalmart.catalog.entity.CatalogItemStatus;
 import com.hyperlocalmart.catalog.entity.VendorListing;
@@ -11,6 +12,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Comparator;
+import java.util.List;
 import java.util.UUID;
 
 @Service
@@ -19,6 +21,7 @@ public class ListingLookupService {
 
     private final VendorListingRepository vendorListingRepository;
     private final CategoryVisibilityService categoryVisibilityService;
+    private final VendorShopClient vendorShopClient;
 
     @Transactional(readOnly = true)
     public ListingSnapshotResponse getActiveListing(UUID listingId, UUID townId) {
@@ -89,6 +92,7 @@ public class ListingLookupService {
                 throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Listing is not available");
             }
             ProductTaxCompliance.validateForSale(listing.getMasterItem());
+            requireShopOpenForCustomers(listing.getShopId());
         }
 
         var master = listing.getMasterItem();
@@ -110,5 +114,12 @@ public class ListingLookupService {
                 .effectivePrice(ListingPricing.resolveEffectivePrice(listing))
                 .active(listing.isActive())
                 .build();
+    }
+
+    private void requireShopOpenForCustomers(UUID shopId) {
+        if (shopId == null || !vendorShopClient.getShopsByIds(List.of(shopId)).containsKey(shopId)) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR,
+                    "This shop is paused — items are not available right now");
+        }
     }
 }

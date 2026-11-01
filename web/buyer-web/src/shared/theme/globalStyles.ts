@@ -95,13 +95,10 @@ export function injectGlobalStyles(): void {
     body {
       margin: 0;
       font-family: var(--font-body);
-      background:
-        radial-gradient(ellipse 55% 42% at 8% -8%, rgba(12, 131, 31, 0.11), transparent 52%),
-        radial-gradient(ellipse 45% 38% at 94% 4%, rgba(12, 131, 31, 0.07), transparent 48%),
-        var(--bg);
+      background: var(--bg);
       color: var(--text);
       line-height: 1.45;
-      letter-spacing: -0.015em;
+      letter-spacing: -0.012em;
       -webkit-font-smoothing: antialiased;
       padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) 0 env(safe-area-inset-left, 0px);
     }
@@ -178,35 +175,6 @@ export function injectGlobalStyles(): void {
     button, input, select, textarea { font: inherit; }
     button:disabled { opacity: 0.55; cursor: not-allowed; }
     button, a, [role="button"] { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
-    html.hlm-native {
-      height: 100%;
-      height: 100dvh;
-      overscroll-behavior: none;
-    }
-    html.hlm-native body {
-      height: 100%;
-      overflow: hidden;
-      overscroll-behavior: none;
-      user-select: none;
-      -webkit-user-select: none;
-    }
-    html.hlm-native #root {
-      height: 100%;
-      overflow-x: hidden;
-      overflow-y: auto;
-      overscroll-behavior: none;
-      -webkit-overflow-scrolling: touch;
-    }
-    html.hlm-native input,
-    html.hlm-native textarea,
-    html.hlm-native [contenteditable="true"] {
-      user-select: text;
-      -webkit-user-select: text;
-    }
-    html.hlm-native .hlm-product-card:hover {
-      transform: none;
-      box-shadow: var(--shadow-card);
-    }
     a { color: var(--accent); }
     @media (max-width: 767px) {
       :root {
@@ -236,6 +204,22 @@ export function injectGlobalStyles(): void {
     @keyframes hlm-pop {
       from { opacity: 0; transform: scale(0.96); }
       to { opacity: 1; transform: scale(1); }
+    }
+    @keyframes hlm-spin {
+      to { transform: rotate(360deg); }
+    }
+    .hlm-buyer-tab {
+      position: relative;
+    }
+    .hlm-buyer-tab--active::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 22%;
+      right: 22%;
+      height: 2px;
+      border-radius: 0 0 2px 2px;
+      background: var(--accent);
     }
     @keyframes hlm-wiggle {
       0%, 100% { transform: rotate(0deg); }

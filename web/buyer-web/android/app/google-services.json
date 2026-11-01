@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "497189180232",
+    "project_id": "koyakart-qa",
+    "storage_bucket": "koyakart-qa.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:497189180232:android:adf937eb7698022f05997d",
+        "android_client_info": {
+          "package_name": "com.koyakart.buyer"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCD7kbYD-RuH7uhV15Eo3LyHoayar4ZaDo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

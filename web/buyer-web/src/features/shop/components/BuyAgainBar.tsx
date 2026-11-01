@@ -11,6 +11,18 @@ type Props = {
   onError: (message: string) => void;
 };
 
+function orderSubtitle(order: OrderSummaryDto): string {
+  const n = order.itemCount;
+  const items = `${n} item${n === 1 ? '' : 's'}`;
+  const raw = order.placedAt ?? order.createdAt;
+  if (!raw) return `Your last order · ${items}`;
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) return `Your last order · ${items}`;
+  const when = new Intl.DateTimeFormat('en-IN', { day: 'numeric', month: 'short' }).format(d);
+  const status = order.displayStatus?.trim() || (order.status === 'DELIVERED' ? 'Delivered' : 'Ordered');
+  return `${status} ${when} · ${items}`;
+}
+
 export function BuyAgainBar({ townId, token, busy = false, onMessage, onError }: Props) {
   const navigate = useNavigate();
   const [order, setOrder] = useState<OrderSummaryDto | null>(null);
@@ -43,7 +55,7 @@ export function BuyAgainBar({ townId, token, busy = false, onMessage, onError }:
       const result = await reorderOrder(token, order.orderId);
       const skipped = result.skippedItemNames ?? [];
       const parts = [
-        `Added ${result.itemCount} item${result.itemCount === 1 ? '' : 's'} from ${order.orderNumber}.`,
+        `Added ${result.itemCount} item${result.itemCount === 1 ? '' : 's'} from your last order.`,
       ];
       if (result.priceChanged) parts.push('Prices were updated.');
       if (skipped.length > 0) {
@@ -59,46 +71,58 @@ export function BuyAgainBar({ townId, token, busy = false, onMessage, onError }:
   }
 
   return (
-    <button
-      type="button"
-      onClick={() => void buyAgain()}
-      disabled={working || busy}
+    <div
       style={{
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
-        gap: '0.45rem',
+        gap: '0.55rem',
         width: '100%',
-        minHeight: 44,
-        margin: 0,
-        padding: '0.4rem 0.65rem',
-        border: '1px solid var(--border)',
+        minHeight: 48,
+        padding: '0.45rem 0.55rem',
+        border: '1px solid color-mix(in srgb, var(--accent) 18%, var(--border))',
         borderRadius: 12,
-        background: 'var(--bg-elevated)',
-        color: 'var(--text)',
-        textAlign: 'left',
-        cursor: 'pointer',
+        background: 'color-mix(in srgb, var(--accent-soft) 55%, var(--bg-elevated))',
       }}
     >
       <span style={{ minWidth: 0 }}>
-        <span style={{ display: 'block', fontSize: '0.78rem', fontWeight: 800 }}>Buy again</span>
+        <span style={{ display: 'block', fontSize: '0.78rem', fontWeight: 700, letterSpacing: '-0.02em' }}>
+          Repeat last order
+        </span>
         <span
           style={{
             display: 'block',
             fontSize: '0.68rem',
-            fontWeight: 600,
+            fontWeight: 500,
             color: 'var(--text-muted)',
             overflow: 'hidden',
             textOverflow: 'ellipsis',
             whiteSpace: 'nowrap',
           }}
         >
-          {order.orderNumber} · {order.itemCount} item{order.itemCount === 1 ? '' : 's'}
+          {orderSubtitle(order)}
         </span>
       </span>
-      <span style={{ fontSize: '0.75rem', fontWeight: 800, color: '#0C831F', flexShrink: 0 }}>
-        {working ? 'Adding…' : 'Add'}
-      </span>
-    </button>
+      <button
+        type="button"
+        onClick={() => void buyAgain()}
+        disabled={working || busy}
+        style={{
+          flexShrink: 0,
+          minHeight: 36,
+          padding: '0 0.85rem',
+          border: 'none',
+          borderRadius: 999,
+          background: 'var(--accent)',
+          color: 'var(--text-inverse)',
+          fontSize: '0.72rem',
+          fontWeight: 600,
+          cursor: working || busy ? 'not-allowed' : 'pointer',
+          opacity: working || busy ? 0.65 : 1,
+        }}
+      >
+        {working ? 'Adding…' : 'Add all'}
+      </button>
+    </div>
   );
 }

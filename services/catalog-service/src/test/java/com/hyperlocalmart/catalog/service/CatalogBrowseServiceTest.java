@@ -48,7 +48,7 @@ class CatalogBrowseServiceTest {
         when(vendorListingRepository.browseActive(eq(townId), isNull(), any(PageRequest.class)))
                 .thenReturn(new PageImpl<>(List.of(listing)));
         when(vendorShopClient.getShopsByIds(anyList())).thenReturn(Map.of(
-                shopId, new VendorShopClient.ShopInfo(shopId, listing.getVendorId(), "Ravi Kirana")
+                shopId, new VendorShopClient.ShopInfo(shopId, listing.getVendorId(), "Ravi Kirana", "UNISEX")
         ));
         when(vendorListingImageRepository.findByListingIdInOrderByListingIdAscSortOrderAsc(any()))
                 .thenReturn(List.of());
@@ -64,7 +64,7 @@ class CatalogBrowseServiceTest {
     }
 
     @Test
-    void browse_keepsItemsWhenShopLookupFails() {
+    void browse_hidesItemsWhenShopIsPausedOrMissingFromOpenShopBatch() {
         UUID townId = UUID.fromString("a1111111-1111-4111-8111-111111111111");
         UUID shopId = UUID.fromString("c1111111-1111-4111-8111-111111111111");
         VendorListing listing = sampleListing(shopId);
@@ -78,8 +78,7 @@ class CatalogBrowseServiceTest {
 
         PageResponse<CatalogItemResponse> response = catalogBrowseService.browse(townId, null, null, 0, 24, "name", "asc");
 
-        assertThat(response.getItems()).hasSize(1);
-        assertThat(response.getItems().getFirst().getShopName()).isEqualTo("Local shop");
+        assertThat(response.getItems()).isEmpty();
     }
 
     @Test
@@ -90,7 +89,7 @@ class CatalogBrowseServiceTest {
         when(vendorListingRepository.browseActive(eq(townId), isNull(), any(PageRequest.class)))
                 .thenReturn(new PageImpl<>(List.of(listing)));
         when(vendorShopClient.getShopsByIds(anyList())).thenReturn(Map.of(
-                shopId, new VendorShopClient.ShopInfo(shopId, listing.getVendorId(), "Ravi Kirana")
+                shopId, new VendorShopClient.ShopInfo(shopId, listing.getVendorId(), "Ravi Kirana", "UNISEX")
         ));
         when(vendorListingImageRepository.findByListingIdInOrderByListingIdAscSortOrderAsc(any()))
                 .thenReturn(List.of());

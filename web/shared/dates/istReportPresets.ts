@@ -158,7 +158,7 @@ export function applyReportDatePreset(
 
 /** `null` range means no date filter (all time). */
 export function rangeForTransferHistoryPreset(preset: TransferHistoryPreset): { from: string; to: string } | null {
-  if (preset === 'all') return null;
+  if (preset === 'all' || preset === 'custom') return null;
   return rangeForReportPreset(preset);
 }
 

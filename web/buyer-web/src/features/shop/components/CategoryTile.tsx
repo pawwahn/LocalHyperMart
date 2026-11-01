@@ -45,7 +45,7 @@ export function CategoryTile({ label, emoji, imageUrl, onClick }: Props) {
         ) : (
           <span className="hlm-cat-tile-collage" aria-hidden>
             {icons.map((icon, i) => {
-              const fontSize = solo ? '1.75rem' : i === 0 ? '1.35rem' : '1rem';
+              const fontSize = solo ? '2.1rem' : i === 0 ? '1.65rem' : '1.2rem';
               const offset = solo
                 ? 'translate(-50%, -50%)'
                 : i === 0

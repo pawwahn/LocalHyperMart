@@ -58,6 +58,7 @@ public class BeautyOrderResponse {
     private PaymentInfoResponse payment;
     private String prepayMode;
     private Integer myRatingStars;
+    private String myRatingComment;
     private boolean canRateBooking;
 
     @Builder.Default

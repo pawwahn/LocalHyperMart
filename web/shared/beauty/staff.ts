@@ -13,7 +13,8 @@ export function parseStaffOverrides(raw?: string | null | Record<string, unknown
     }
     return map;
   }
-  if (!raw || raw === '{}') return map;
+  if (raw == null || raw === '{}') return map;
+  if (typeof raw !== 'string') return map;
   const trimmed = raw.trim();
   if (trimmed.startsWith('{')) {
     try {

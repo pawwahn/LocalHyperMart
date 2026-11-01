@@ -13,22 +13,20 @@ export function LocalWelcomePage() {
       <section style={styles.card}>
         <div style={styles.art} aria-hidden>
           <span style={styles.sun} />
-          <span style={{ ...styles.shop, ...styles.shopBack }}>LOCAL</span>
-          <span style={styles.shop}>♥</span>
-          <span style={styles.people}>● ● ●</span>
+          <span style={styles.shop}>KK</span>
         </div>
 
-        <p style={styles.eyebrow}>WELCOME TO KOYAKART</p>
+        <p style={styles.eyebrow}>Welcome to KoyaKart</p>
         <h1 style={styles.title}>Shop local. Keep {localTown} thriving.</h1>
         <p style={styles.copy}>
           Every order supports neighbourhood shopkeepers, local jobs, and families in your community.
         </p>
 
-        <div style={styles.impact}>
-          <span style={styles.impactItem}>🏪 Local shops</span>
-          <span style={styles.impactItem}>🛵 Local delivery</span>
-          <span style={styles.impactItem}>💚 Local growth</span>
-        </div>
+        <ul style={styles.impact}>
+          <li style={styles.impactItem}>Local shops</li>
+          <li style={styles.impactItem}>Town delivery</li>
+          <li style={styles.impactItem}>Community growth</li>
+        </ul>
 
         <Button size="lg" fullWidth onClick={() => navigate('/shop', { replace: true })}>
           Support local & shop now
@@ -57,7 +55,6 @@ const styles: Record<string, CSSProperties> = {
     borderRadius: 'var(--radius-xl)',
     background: 'var(--bg-elevated)',
     boxShadow: 'var(--shadow-soft)',
-    animation: 'hlm-fade-up 300ms ease both',
   },
   art: {
     position: 'relative',
@@ -75,47 +72,33 @@ const styles: Record<string, CSSProperties> = {
     borderRadius: '50%',
     background: 'var(--highlight)',
   },
-  shopBack: {
-    left: '16%',
-    bottom: 44,
-    width: 104,
-    height: 65,
-    fontSize: '0.76rem',
-    background: 'var(--hero-deep)',
-    transform: 'rotate(-3deg)',
-  },
   shop: {
     position: 'absolute',
-    left: '45%',
-    bottom: 34,
-    width: 132,
-    height: 86,
+    left: '50%',
+    bottom: 36,
+    transform: 'translateX(-50%)',
+    width: 120,
+    height: 78,
     display: 'grid',
     placeItems: 'center',
-    border: '8px solid var(--text-inverse)',
-    borderTop: '24px solid var(--accent)',
-    borderRadius: '8px 8px 4px 4px',
+    border: '6px solid var(--text-inverse)',
+    borderTop: '20px solid var(--accent)',
+    borderRadius: '10px 10px 6px 6px',
     background: 'var(--bg-elevated)',
     color: 'var(--accent)',
-    fontSize: '1.65rem',
-    fontWeight: 800,
-    boxShadow: '0 10px 22px rgba(12, 131, 31, 0.18)',
-  },
-  people: {
-    position: 'absolute',
-    bottom: 10,
-    left: 0,
-    right: 0,
-    color: 'var(--hero-deep)',
-    fontSize: '1.15rem',
-    letterSpacing: '0.7rem',
+    fontFamily: 'var(--font-display)',
+    fontSize: '1.35rem',
+    fontWeight: 700,
+    letterSpacing: '-0.04em',
+    boxShadow: 'var(--shadow-soft)',
   },
   eyebrow: {
     margin: 0,
-    color: 'var(--accent)',
+    color: 'var(--text-muted)',
     fontSize: '0.72rem',
-    fontWeight: 800,
-    letterSpacing: '0.09em',
+    fontWeight: 600,
+    letterSpacing: '0.04em',
+    textTransform: 'uppercase',
   },
   title: {
     margin: 0,
@@ -135,14 +118,16 @@ const styles: Record<string, CSSProperties> = {
     justifyContent: 'center',
     flexWrap: 'wrap',
     gap: '0.35rem',
-    marginBottom: '0.15rem',
+    margin: '0 0 0.15rem',
+    padding: 0,
+    listStyle: 'none',
   },
   impactItem: {
     padding: '0.35rem 0.55rem',
     borderRadius: 'var(--radius-full)',
-    background: 'var(--accent-soft)',
-    color: 'var(--hero-deep)',
+    background: 'var(--bg-muted)',
+    color: 'var(--text)',
     fontSize: '0.72rem',
-    fontWeight: 700,
+    fontWeight: 600,
   },
 };

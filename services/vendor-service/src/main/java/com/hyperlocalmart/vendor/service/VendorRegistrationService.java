@@ -18,6 +18,7 @@ import com.hyperlocalmart.vendor.entity.ShopStatus;
 import com.hyperlocalmart.vendor.entity.Vendor;
 import com.hyperlocalmart.vendor.entity.ServiceOffering;
 import com.hyperlocalmart.vendor.entity.VendorRegistrationRequest;
+import com.hyperlocalmart.vendor.entity.VendorServiceFor;
 import com.hyperlocalmart.vendor.entity.VendorStatus;
 import com.hyperlocalmart.vendor.repository.LaundryProfileRepository;
 import com.hyperlocalmart.vendor.repository.ServiceOfferingRepository;
@@ -68,6 +69,7 @@ public class VendorRegistrationService {
         String bankAccount = blankToNull(request.getBankAccount());
         String ifsc = blankToNull(request.getIfsc());
         ServiceOffering service = requireOffering(request.getServiceId());
+        VendorServiceFor serviceFor = requireServiceFor(request.getServiceFor());
 
         if (gstNumber != null) {
             if (bankAccount == null || ifsc == null) {
@@ -93,6 +95,7 @@ public class VendorRegistrationService {
                 .bankAccountEnc(bankAccount)
                 .ifscEnc(ifsc == null ? null : ifsc.toUpperCase(Locale.ROOT))
                 .serviceId(service.getId())
+                .serviceFor(serviceFor)
                 .status(RegistrationRequestStatus.PENDING)
                 .termsAcknowledgedAt(Instant.now())
                 .termsLegalVersion(request.getAcknowledgedLegalVersion() == null
@@ -151,6 +154,7 @@ public class VendorRegistrationService {
                 .bankAccountEnc(request.getBankAccountEnc())
                 .ifscEnc(request.getIfscEnc())
                 .serviceId(request.getServiceId())
+                .serviceFor(request.getServiceFor())
                 .status(VendorStatus.ACTIVE)
                 .build();
         vendor.setCreatedBy(reviewerId);
@@ -259,6 +263,7 @@ public class VendorRegistrationService {
         String bankAccount = blankToNull(request.getBankAccount());
         String ifsc = blankToNull(request.getIfsc());
         ServiceOffering service = requireOffering(request.getServiceId());
+        VendorServiceFor serviceFor = requireServiceFor(request.getServiceFor());
         if (gstNumber != null && (bankAccount == null || ifsc == null)) {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR,
                     "Bank account and IFSC are required when GST number is provided");
@@ -273,6 +278,7 @@ public class VendorRegistrationService {
         vendor.setBusinessName(businessName);
         vendor.setOwnerName(blankToNull(request.getOwnerName()));
         vendor.setServiceId(service.getId());
+        vendor.setServiceFor(serviceFor);
         vendor.setGstNumberEnc(gstNumber);
         vendor.setFssaiNumber(fssaiNumber);
         vendor.setBankAccountEnc(bankAccount);
@@ -452,6 +458,7 @@ public class VendorRegistrationService {
                 .address(request.getAddress())
                 .serviceId(service != null ? service.getId() : null)
                 .serviceName(service != null ? service.getName() : null)
+                .serviceFor(serviceForName(request.getServiceFor()))
                 .gstNumber(request.getGstNumberEnc())
                 .fssaiNumber(request.getFssaiNumber())
                 .status(request.getStatus().name())
@@ -482,6 +489,7 @@ public class VendorRegistrationService {
                 .disabledReason(vendor.getDisabledReason())
                 .serviceId(service != null ? service.getId() : null)
                 .serviceName(service != null ? service.getName() : null)
+                .serviceFor(serviceForName(vendor.getServiceFor()))
                 .hidesListings(listingHidden(service, vendor.getId()))
                 .build();
     }
@@ -491,6 +499,17 @@ public class VendorRegistrationService {
                 service,
                 laundryProfileRepository.existsById(vendorId),
                 beautyProfileRepository.existsById(vendorId));
+    }
+
+    private static VendorServiceFor requireServiceFor(VendorServiceFor value) {
+        if (value == null) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Service for is required (Male, Female, or Unisex)");
+        }
+        return value;
+    }
+
+    private static String serviceForName(VendorServiceFor value) {
+        return value == null ? null : value.name();
     }
 
     private ServiceOffering requireOffering(UUID serviceId) {

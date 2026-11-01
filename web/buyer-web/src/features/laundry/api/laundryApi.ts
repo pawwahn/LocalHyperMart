@@ -11,6 +11,7 @@ export type LaundryRate = {
 export type LaundryShop = {
   vendorId: string;
   businessName: string;
+  serviceFor?: 'MALE' | 'FEMALE' | 'UNISEX' | string | null;
   phone?: string;
   pickupCharge?: number | null;
   dropCharge?: number | null;
@@ -145,6 +146,7 @@ export async function placeLaundryOrder(
     logistics: string;
     paymentMethod: string;
     paymentGateway?: string;
+    contactPhone?: string;
     specialInstructions?: string;
     slaAcknowledged: boolean;
     requestedPickupStart?: string;

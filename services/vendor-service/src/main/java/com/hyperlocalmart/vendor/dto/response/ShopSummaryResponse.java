@@ -12,6 +12,7 @@ public class ShopSummaryResponse {
     private UUID id;
     private UUID vendorId;
     private String shopName;
+    private String serviceFor;
     private String address;
     private String pincode;
     private String phone;

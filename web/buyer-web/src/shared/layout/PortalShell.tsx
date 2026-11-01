@@ -11,6 +11,7 @@ import { useShop } from '@/features/shop/hooks/useShop';
 import { AdSlot } from '@/features/ads/components/AdSlot';
 import { TownPickerSheet } from '@/features/towns/components/TownPickerSheet';
 import { APP_NAME } from '@/shared/brand';
+import { IconBell, IconChevronDown, IconPin, IconRefresh } from '@/shared/ui/ChromeIcons';
 import {
   IconBasket,
   IconGrid,
@@ -108,7 +109,7 @@ export function PortalShell({
                   onClick={() => navigate('/alerts')}
                   style={styles.headerIcon}
                 >
-                  🔔
+                  <IconBell />
                 </HeaderIconButton>
               ) : null}
               {onRefresh ? (
@@ -121,7 +122,7 @@ export function PortalShell({
                     ...(refreshing ? { opacity: 0.65 } : null),
                   }}
                 >
-                  {refreshing ? '…' : '↻'}
+                  <IconRefresh spinning={refreshing} />
                 </HeaderIconButton>
               ) : null}
               {session ? (
@@ -148,7 +149,9 @@ export function PortalShell({
                   title="Tap to change town"
                   onClick={openPicker}
                 >
-                  <span style={styles.shopLocPin} aria-hidden>📍</span>
+                  <span style={styles.shopLocPin} aria-hidden>
+                    <IconPin style={{ width: 18, height: 18, color: 'var(--accent)' }} />
+                  </span>
                   <span style={styles.shopLocCopy}>
                     <span style={styles.shopLocMeta}>
                       <span style={styles.shopEtaPill}>{deliveryWindowLabel || 'Today'}</span>
@@ -160,7 +163,7 @@ export function PortalShell({
                     </span>
                     <span style={styles.shopLocTitle}>
                       {townLabel}
-                      <span style={styles.shopLocChevron} aria-hidden>▾</span>
+                      <IconChevronDown style={{ color: 'var(--text-muted)' }} />
                     </span>
                   </span>
                 </button>
@@ -172,7 +175,7 @@ export function PortalShell({
                         onClick={() => navigate('/alerts')}
                         style={styles.shopIconBtn}
                       >
-                        🔔
+                        <IconBell />
                       </HeaderIconButton>
                       <button
                         type="button"
@@ -190,10 +193,7 @@ export function PortalShell({
                   )}
                 </div>
               </div>
-              <p style={styles.shopSupporterRibbon}>
-                <span style={styles.shopSupporterEm} aria-hidden>♥</span>
-                Proud supporter of local business
-              </p>
+              <p style={styles.shopLocalLine}>Orders stay in {townLabel} — local shops, local delivery.</p>
             </div>
           ) : (
             <div>
@@ -204,12 +204,14 @@ export function PortalShell({
                 title="Tap to change town"
                 onClick={openPicker}
               >
-                <span style={styles.pin} aria-hidden>📍</span>
+                <span style={styles.pin} aria-hidden>
+                  <IconPin style={{ width: 16, height: 16, color: 'var(--accent)' }} />
+                </span>
                 <span style={styles.locationCopy}>
                   <span style={styles.locationEyebrow}>Deliver to </span>
                   <span style={styles.locationValue}>
                     {townLabel}
-                    <span style={styles.chevron} aria-hidden>▾</span>
+                    <IconChevronDown style={{ color: 'var(--text-muted)' }} />
                   </span>
                 </span>
               </button>
@@ -303,7 +305,11 @@ function Tab({
       ? current === '/shop' || current === '/'
       : current === to || current.startsWith(`${to}/`);
   return (
-    <Link to={to} style={active ? styles.tabActive : styles.tab}>
+    <Link
+      to={to}
+      className={active ? 'hlm-buyer-tab hlm-buyer-tab--active' : 'hlm-buyer-tab'}
+      style={active ? styles.tabActive : styles.tab}
+    >
       <span style={styles.tabIcon} aria-hidden>
         {icon(active)}
         {badge > 0 ? <span style={styles.tabBadge}>{badge}</span> : null}
@@ -345,19 +351,22 @@ const styles: Record<string, CSSProperties> = {
     top: 0,
     zIndex: 40,
     margin: '0 calc(-1 * var(--shell-pad))',
-    padding: '0 var(--shell-pad) 0.5rem',
-    background: '#FFFFFF',
+    padding: '0 var(--shell-pad) 0.45rem',
+    background: 'color-mix(in srgb, var(--bg-elevated) 94%, transparent)',
+    backdropFilter: 'blur(14px)',
+    WebkitBackdropFilter: 'blur(14px)',
     minWidth: 0,
   },
   shopHeaderCard: {
     display: 'grid',
-    gap: '0.45rem',
-    padding: '0.55rem 0.65rem 0.5rem',
-    borderRadius: '0 0 16px 16px',
-    background: '#FFFFFF',
-    boxShadow: '0 4px 18px rgba(16, 24, 40, 0.07)',
+    gap: '0.35rem',
+    padding: '0.5rem 0.55rem 0.45rem',
+    borderRadius: '0 0 14px 14px',
+    background: 'var(--bg-elevated)',
+    boxShadow: 'var(--shadow-card)',
     color: 'var(--text)',
-    borderBottom: '2px solid var(--accent)',
+    border: '1px solid color-mix(in srgb, var(--border) 85%, transparent)',
+    borderTop: 'none',
   },
   shopHeaderRow: {
     display: 'flex',
@@ -380,10 +389,13 @@ const styles: Record<string, CSSProperties> = {
     color: 'inherit',
   },
   shopLocPin: {
-    fontSize: '1.15rem',
-    lineHeight: 1,
+    display: 'grid',
+    placeItems: 'center',
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    background: 'var(--accent-soft)',
     flexShrink: 0,
-    filter: 'drop-shadow(0 1px 2px rgba(0,0,0,0.15))',
   },
   shopLocCopy: {
     display: 'grid',
@@ -400,13 +412,13 @@ const styles: Record<string, CSSProperties> = {
   },
   shopEtaPill: {
     flexShrink: 0,
-    background: 'var(--highlight)',
-    color: '#1A1C1A',
-    fontSize: '0.58rem',
-    fontWeight: 800,
-    letterSpacing: '0.01em',
+    background: 'color-mix(in srgb, var(--accent) 12%, var(--bg-muted))',
+    color: 'var(--accent)',
+    fontSize: '0.62rem',
+    fontWeight: 700,
+    letterSpacing: '0.02em',
     borderRadius: 6,
-    padding: '0.18rem 0.38rem',
+    padding: '0.2rem 0.42rem',
     lineHeight: 1.1,
   },
   shopHiName: {
@@ -421,8 +433,8 @@ const styles: Record<string, CSSProperties> = {
   },
   shopLocTitle: {
     fontFamily: 'var(--font-display)',
-    fontWeight: 800,
-    fontSize: '1.12rem',
+    fontWeight: 700,
+    fontSize: '1.05rem',
     letterSpacing: '-0.03em',
     lineHeight: 1.15,
     display: 'flex',
@@ -431,12 +443,6 @@ const styles: Record<string, CSSProperties> = {
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
-  },
-  shopLocChevron: {
-    fontSize: '0.9rem',
-    fontWeight: 800,
-    opacity: 0.95,
-    flexShrink: 0,
   },
   shopHeaderActions: {
     display: 'flex',
@@ -459,7 +465,7 @@ const styles: Record<string, CSSProperties> = {
     borderRadius: 'var(--radius-full)',
     border: '2px solid color-mix(in srgb, var(--accent) 35%, var(--border))',
     background: 'var(--accent-soft)',
-    color: '#0C831F',
+    color: '#009111',
     fontFamily: 'var(--font-display)',
     fontWeight: 800,
     fontSize: '0.88rem',
@@ -481,25 +487,14 @@ const styles: Record<string, CSSProperties> = {
     whiteSpace: 'nowrap',
     boxShadow: '0 4px 12px rgba(12, 131, 31, 0.22)',
   },
-  shopSupporterRibbon: {
+  shopLocalLine: {
     margin: 0,
-    padding: '0.38rem 0.55rem',
-    borderRadius: 10,
-    background: 'linear-gradient(90deg, var(--accent-soft) 0%, var(--highlight-soft) 55%, var(--accent-soft) 100%)',
-    border: '1px solid color-mix(in srgb, var(--accent) 12%, var(--border))',
-    fontFamily: 'Georgia, "Times New Roman", serif',
-    fontStyle: 'italic',
-    fontWeight: 700,
-    fontSize: '0.72rem',
-    letterSpacing: '0.02em',
-    color: '#064d14',
-    textAlign: 'center',
+    fontSize: '0.68rem',
+    fontWeight: 600,
+    letterSpacing: '-0.01em',
+    color: 'var(--text-muted)',
     lineHeight: 1.35,
-  },
-  shopSupporterEm: {
-    marginRight: '0.28rem',
-    color: '#E23744',
-    fontStyle: 'normal',
+    paddingLeft: '0.1rem',
   },
   locationCopy: {
     display: 'grid',
@@ -626,12 +621,6 @@ const styles: Record<string, CSSProperties> = {
     alignItems: 'center',
     gap: '0.2rem',
   },
-  chevron: {
-    color: 'var(--text)',
-    fontWeight: 800,
-    fontSize: '0.85rem',
-    flexShrink: 0,
-  },
   signIn: {
     display: 'inline-flex',
     alignItems: 'center',
@@ -665,9 +654,11 @@ const styles: Record<string, CSSProperties> = {
     paddingBottom: 'env(safe-area-inset-bottom, 0px)',
     display: 'grid',
     gridTemplateColumns: 'repeat(5, 1fr)',
-    background: '#fff',
-    borderTop: '1px solid var(--border)',
-    boxShadow: '0 -6px 20px rgba(16, 24, 40, 0.06)',
+    background: 'color-mix(in srgb, var(--bg-elevated) 90%, transparent)',
+    backdropFilter: 'blur(16px)',
+    WebkitBackdropFilter: 'blur(16px)',
+    borderTop: '1px solid color-mix(in srgb, var(--border) 75%, transparent)',
+    boxShadow: '0 -4px 16px rgba(16, 24, 40, 0.04)',
     zIndex: 50,
     boxSizing: 'border-box',
   },

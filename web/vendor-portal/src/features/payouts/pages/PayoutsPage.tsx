@@ -501,7 +501,6 @@ function splitAwaiting(
     shopFee: 0,
   };
   for (const row of rows) {
-    const goods = shopGoodsSubtotal(row);
     const commission = fees[row.subOrderId] ?? 0;
     const passThrough = shopPassThroughFees(row);
     const buyer = shopBuyerFeeParts(row);

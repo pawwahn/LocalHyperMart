@@ -29,10 +29,12 @@
       "@hlm-laundry/*": ["../shared/laundry/*"],
       "@hlm-beauty": ["../shared/beauty/index.ts"],
       "@hlm-beauty/*": ["../shared/beauty/*"],
+      "@hlm-vendor": ["../shared/vendor/index.ts"],
+      "@hlm-vendor/*": ["../shared/vendor/*"],
       "react": ["./node_modules/@types/react/index.d.ts"],
       "react/jsx-runtime": ["./node_modules/@types/react/jsx-runtime.d.ts"],
       "react/jsx-dev-runtime": ["./node_modules/@types/react/jsx-dev-runtime.d.ts"]
     }
   },
-  "include": ["src", "../shared/theme/**/*.ts", "../shared/theme/**/*.tsx", "../shared/legal/**/*.ts", "../shared/legal/**/*.tsx", "../shared/brand/**/*.ts", "../shared/brand/**/*.tsx", "../shared/laundry/**/*.ts", "../shared/beauty/**/*.ts"]
+  "include": ["src", "../shared/theme/**/*.ts", "../shared/theme/**/*.tsx", "../shared/legal/**/*.ts", "../shared/legal/**/*.tsx", "../shared/brand/**/*.ts", "../shared/brand/**/*.tsx", "../shared/laundry/**/*.ts", "../shared/beauty/**/*.ts", "../shared/vendor/**/*.ts"]
 }

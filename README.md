@@ -37,7 +37,24 @@ cd LocalHyperMart
 
 After Java code changes: `.\scripts\start-dev.ps1 -Rebuild`. Stop apps: `.\scripts\stop-dev.ps1`.
 
-**Razorpay (online UPI):** copy `.env.example` → `.env.local`, paste Test Key Id / Key Secret, then restart `payment-service` (`.\scripts\start-dev.ps1 -Rebuild` if you just pulled this). Buyer web checkout → **UPI / Online**. Register webhook `https://<public-host>/api/v1/payments/webhooks/razorpay` with events `order.paid`, `payment.captured`, `payment.failed`, `refund.processed` and put the webhook secret in `.env.local`. Localhost cannot receive Razorpay webhooks; checkout confirm still works without them.
+**Online payments (Razorpay + Cashfree):** configure both gateways in `.env.local` so checkout is not tied to one provider. You do **not** need Cashfree FlowWise — buyer-web lists every configured gateway and sends `paymentGateway` on order create.
+
+| Env (payment-service) | Purpose |
+|---|---|
+| `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET` | Razorpay Standard Checkout |
+| `CASHFREE_CLIENT_ID`, `CASHFREE_CLIENT_SECRET` | Cashfree PG (sandbox default: `CASHFREE_API_BASE_URL=https://sandbox.cashfree.com/pg`) |
+| `RAZORPAY_CHECKOUT_NAME` | Razorpay modal title + Cashfree `order_note` (default `KoyaKart`) |
+
+**Cashfree checkout branding:** hosted checkout name/logo/colour come from the **Cashfree dashboard**, not our API — use **Settings → General → Branding** (name **KoyaKart**, primary **`#009111`**). API keys/webhooks stay under **Developers → Payment Gateway**. Optional **Settings → MCP Server** (AI read/write tools) — see `docs/CASHFREE_MERCHANT_SETUP.md`. Razorpay title uses `RAZORPAY_CHECKOUT_NAME` from env.
+
+Restart after changes (`.\scripts\start-dev.ps1 -Rebuild` if you pulled Java changes). Buyer web → **UPI / Online** → pick **Razorpay** or **Cashfree** when both keys are set (`GET /api/v1/payments/gateways`).
+
+Webhooks (public host only; confirm API still works on localhost without them):
+
+- Razorpay: `https://<host>/api/v1/payments/webhooks/razorpay` — events `order.paid`, `payment.captured`, `payment.failed`, `refund.processed`
+- Cashfree: `https://<host>/api/v1/payments/webhooks/cashfree` — payment success/failure events for your PG app
+
+Super-admin **Payment gateways** can turn a provider off without deleting env keys. Retry a failed online order with `POST /api/v1/orders/{id}/payments/retry?gateway=CASHFREE` to switch provider for that order.
 
 **Prerequisites:** Docker Desktop, Java 21, Maven 3.9+ (first build / `-Rebuild` only), Node for web apps.
 
@@ -156,7 +173,7 @@ Track overall MVP completion. Status: **Done** | **Partial** | **Not started**
 | | Catalog browse + cart + checkout | Done |
 | | Order history, detail, reorder | Done |
 | | Invoice PDF | Done |
-| | FCM device registration | Not started |
+| | FCM device registration | Backend + buyer native (FCM send off by default) |
 | | Flutter buyer app | Not started |
 | **Vendor** | Sub-orders (ready/reject) | Done |
 | | Listing CRUD | Done |
@@ -253,14 +270,19 @@ Authorization: Bearer <token>
 Idempotency-Key: checkout-attempt-001
 { "townId": "...", "cartId": "...", "addressId": "...", "paymentMethod": "COD" }
 
-# 8. Online checkout (Razorpay)
+# 8. Online checkout (Razorpay or Cashfree)
 POST http://localhost:8080/api/v1/orders
 Idempotency-Key: checkout-online-001
 { "townId": "...", "cartId": "...", "addressId": "...", "paymentMethod": "ONLINE", "paymentGateway": "RAZORPAY" }
-# → returns payment.checkout { keyId, gatewayOrderId, amountPaise }
-# Buyer web opens Razorpay Checkout, then:
+# or "paymentGateway": "CASHFREE"
+# → Razorpay: payment.checkout { gateway, keyId, gatewayOrderId, amountPaise }
+# → Cashfree: payment.checkout { gateway, gatewayOrderId, paymentSessionId, mode }
+# Buyer web opens the matching SDK, then:
 POST http://localhost:8080/api/v1/payments/confirm
-{ "razorpayOrderId": "order_xxx", "razorpayPaymentId": "pay_xxx", "razorpaySignature": "..." }
+# Razorpay:
+{ "gateway": "RAZORPAY", "razorpayOrderId": "order_xxx", "razorpayPaymentId": "pay_xxx", "razorpaySignature": "..." }
+# Cashfree:
+{ "gateway": "CASHFREE", "gatewayOrderId": "<cashfree order id>" }
 
 # Webhook (Dashboard URL: https://<host>/api/v1/payments/webhooks/razorpay)
 # Without keys, local stub still works:
@@ -412,7 +434,7 @@ Install the above, then run `.\scripts\start-dev.ps1` — Flyway migrations run 
 
 | Feature | API / area | Status |
 |---|---|---|
-| FCM device registration | `POST /users/me/devices` | Not started |
+| FCM device registration | `POST /users/me/devices` | Wired (see `docs/PUSH_NOTIFICATIONS.md`) |
 | Guest browse via gateway | Public catalog through `:8080` | Partial (direct `:8084` works) |
 
 ### Vendor / catalog — remaining gaps

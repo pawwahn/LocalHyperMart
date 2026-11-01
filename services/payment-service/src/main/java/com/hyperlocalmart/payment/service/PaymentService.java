@@ -2,6 +2,7 @@ package com.hyperlocalmart.payment.service;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.hyperlocalmart.common.util.IndianMobilePhones;
 import com.hyperlocalmart.common.exception.BusinessException;
 import com.hyperlocalmart.common.exception.ErrorCode;
 import com.hyperlocalmart.payment.client.OrderClient;
@@ -72,7 +73,7 @@ public class PaymentService {
             var existing = paymentRepository.findByIdempotencyKey(idempotencyKey);
             if (existing.isPresent()) {
                 Payment payment = existing.get();
-                if (payment.getGatewayOrderId() == null && payment.getStatus() == PaymentStatus.PENDING) {
+                if (needsGatewaySync(payment)) {
                     ensureOrderGatewayCreated(payment.getId());
                     payment = paymentRepository.findById(payment.getId()).orElse(payment);
                 }
@@ -86,7 +87,7 @@ public class PaymentService {
     public PaymentResponse getPaymentCheckout(UUID buyerId, UUID paymentId) {
         Payment payment = paymentRepository.findByIdAndBuyerId(paymentId, buyerId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Payment not found"));
-        if (payment.getGatewayOrderId() == null && payment.getStatus() == PaymentStatus.PENDING) {
+        if (needsGatewaySync(payment)) {
             ensureOrderGatewayCreated(payment.getId());
             payment = paymentRepository.findById(payment.getId()).orElse(payment);
         }
@@ -94,6 +95,17 @@ public class PaymentService {
         stub.setOrderId(payment.getOrderId());
         stub.setTownId(payment.getTownId());
         return buildInitiateResponse(buyerId, payment, stub);
+    }
+
+    private static boolean needsGatewaySync(Payment payment) {
+        if (payment.getStatus() != PaymentStatus.PENDING) {
+            return false;
+        }
+        if (payment.getGatewayOrderId() == null || payment.getGatewayOrderId().isBlank()) {
+            return true;
+        }
+        return payment.getGateway() == PaymentGateway.CASHFREE
+                && (payment.getGatewaySession() == null || payment.getGatewaySession().isBlank());
     }
 
     @Transactional(readOnly = true)
@@ -530,6 +542,7 @@ public class PaymentService {
 
     private PaymentResponse createPayment(UUID buyerId, InitiatePaymentRequest request, String idempotencyKey) {
         OrderClient.OrderSnapshot order = resolveOrder(buyerId, request);
+        String buyerPhone = IndianMobilePhones.firstTenDigit(request.getBuyerPhone(), order.buyerPhone());
 
         UUID paymentId = transactionTemplate.execute(status -> {
             validateOrderForPayment(order, request.getTownId(), buyerId);
@@ -544,11 +557,14 @@ public class PaymentService {
                     existingPending.setGatewayOrderId(null);
                     existingPending.setGatewaySession(null);
                 }
-                if ((existingPending.getGatewayOrderId() == null || existingPending.getGatewayOrderId().isBlank())
-                        && existingPending.getGateway() != request.getGateway()) {
+                if (existingPending.getGateway() != request.getGateway()) {
                     requireConfigured(request.getGateway());
                     existingPending.setGateway(request.getGateway());
-                    existingPending.setBuyerPhone(request.getBuyerPhone());
+                    existingPending.setGatewayOrderId(null);
+                    existingPending.setGatewaySession(null);
+                }
+                if (buyerPhone != null) {
+                    existingPending.setBuyerPhone(buyerPhone);
                 }
                 paymentRepository.save(existingPending);
                 return existingPending.getId();
@@ -560,7 +576,7 @@ public class PaymentService {
                     .buyerId(buyerId)
                     .amount(chargeAmount)
                     .gateway(request.getGateway())
-                    .buyerPhone(request.getBuyerPhone())
+                    .buyerPhone(buyerPhone)
                     .status(PaymentStatus.PENDING)
                     .idempotencyKey(idempotencyKey)
                     .build();
@@ -569,7 +585,7 @@ public class PaymentService {
 
         Payment payment = paymentRepository.findById(paymentId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.INTERNAL_ERROR, "Payment row missing"));
-        if (payment.getGatewayOrderId() == null) {
+        if (needsGatewaySync(payment)) {
             ensureOrderGatewayCreated(payment.getId());
             payment = paymentRepository.findById(paymentId).orElse(payment);
         }
@@ -580,7 +596,15 @@ public class PaymentService {
         Payment payment = paymentRepository.findById(paymentId).orElse(null);
         PaymentGateway gateway = payment == null || payment.getGateway() == null
                 ? PaymentGateway.RAZORPAY : payment.getGateway();
-        if (razorpayGatewayQueue.isEnabled() && isConfigured(gateway)) {
+        if (!isConfigured(gateway)) {
+            return;
+        }
+        // Session / redirect URLs must exist before checkout opens — never queue Cashfree or PhonePe.
+        if (gateway == PaymentGateway.CASHFREE || gateway == PaymentGateway.PHONEPE) {
+            razorpayGatewaySync.ensureOrderPaymentGateway(paymentId);
+            return;
+        }
+        if (razorpayGatewayQueue.isEnabled()) {
             razorpayGatewayQueue.enqueueOrderPayment(
                     paymentId, () -> razorpayGatewaySync.ensureOrderPaymentGateway(paymentId));
         } else {

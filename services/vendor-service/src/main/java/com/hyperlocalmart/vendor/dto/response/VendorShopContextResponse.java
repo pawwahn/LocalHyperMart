@@ -13,4 +13,5 @@ public class VendorShopContextResponse {
     UUID townId;
     UUID shopId;
     String shopName;
+    String serviceFor;
 }

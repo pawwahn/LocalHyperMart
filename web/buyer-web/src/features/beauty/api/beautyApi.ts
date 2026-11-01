@@ -1,10 +1,17 @@
 import { Capacitor } from '@capacitor/core';
 import { apiRequest } from '@/shared/api/http';
 import { scheduleFromArtist } from '@hlm-beauty';
+import { normalizeServiceFor, type VendorServiceFor } from '@hlm-vendor';
 
 export type BeautyWorkPhoto = {
   mediaId: string;
   url: string;
+};
+
+export type BeautyCustomerReview = {
+  stars: number;
+  comment: string;
+  createdAt?: string | null;
 };
 
 export type BeautyRate = {
@@ -20,6 +27,7 @@ export type BeautyRate = {
 export type BeautyArtist = {
   vendorId: string;
   businessName: string;
+  serviceFor?: 'MALE' | 'FEMALE' | 'UNISEX' | string | null;
   phone?: string | null;
   tagline?: string | null;
   yearsExperience?: number | null;
@@ -37,6 +45,7 @@ export type BeautyArtist = {
   slotIntervalMinutes?: number | null;
   bookingMinPrepayAmount?: number | null;
   workPhotos?: BeautyWorkPhoto[];
+  customerReviews?: BeautyCustomerReview[];
   rates: BeautyRate[];
 };
 
@@ -95,6 +104,7 @@ export type BeautyOrder = {
   completedAt?: string | null;
   prepayMode?: string | null;
   myRatingStars?: number | null;
+  myRatingComment?: string | null;
   canRateBooking?: boolean;
   allowedActions?: string[];
   payment?: {
@@ -132,19 +142,27 @@ export {
 } from '@hlm-beauty';
 
 export function normalizeBeautyArtist(row: BeautyArtist): BeautyArtist {
-  const ext = row as BeautyArtist & { blocked_slots_by_date?: string | null };
+  const ext = row as BeautyArtist & {
+    blocked_slots_by_date?: string | null;
+    service_for?: string | null;
+  };
   const sch = scheduleFromArtist(row);
+  const serviceFor =
+    normalizeServiceFor(row.serviceFor ?? ext.service_for) ?? ('UNISEX' as VendorServiceFor);
   const workPhotos = (row.workPhotos ?? []).map((photo) => ({
     mediaId: String(photo.mediaId),
     url: photo.url,
   }));
+  const extReviews = (row as BeautyArtist & { customer_reviews?: BeautyCustomerReview[] }).customer_reviews;
   return {
     ...row,
+    serviceFor,
     blockedSlotsByDate: row.blockedSlotsByDate ?? ext.blocked_slots_by_date ?? '{}',
     slotDayOpen: sch.dayOpen,
     slotDayClose: sch.dayClose,
     slotIntervalMinutes: sch.intervalMinutes,
     workPhotos,
+    customerReviews: row.customerReviews ?? extReviews ?? [],
   };
 }
 
@@ -152,6 +170,38 @@ export function fetchBeautyArtists(token: string, townId: string): Promise<Beaut
   return apiRequest<BeautyArtist[]>(`/api/v1/orders/beauty/artists?townId=${townId}`, { token }).then((rows) =>
     (rows ?? []).map((row) => normalizeBeautyArtist(row)),
   );
+}
+
+export type BeautyVendorReviewsSummary = {
+  avgStars: number;
+  totalRatings: number;
+  reviewsWithComments: number;
+  stars5: number;
+  stars4: number;
+  stars3: number;
+  stars2: number;
+  stars1: number;
+};
+
+export type BeautyVendorReviewsPage = {
+  summary: BeautyVendorReviewsSummary;
+  reviews: {
+    items: BeautyCustomerReview[];
+    page: number;
+    size: number;
+    totalElements: number;
+    totalPages: number;
+  };
+};
+
+export function fetchVendorBeautyReviews(
+  token: string,
+  vendorId: string,
+  page = 0,
+  size = 12,
+): Promise<BeautyVendorReviewsPage> {
+  const q = new URLSearchParams({ page: String(page), size: String(size) });
+  return apiRequest<BeautyVendorReviewsPage>(`/api/v1/orders/beauty/vendors/${vendorId}/reviews?${q}`, { token });
 }
 
 export function normalizeBeautyAvailability(payload: BeautyAvailability): BeautyAvailability {
@@ -206,6 +256,8 @@ export function placeBeautyOrder(
     paymentMethod: string;
     prepayMode?: 'FULL' | 'PARTIAL';
     paymentGateway?: string;
+    /** 10-digit mobile for Cashfree (studio bookings). */
+    contactPhone?: string;
     specialInstructions?: string;
     referencePhotoMediaId?: string;
     addressId?: string;

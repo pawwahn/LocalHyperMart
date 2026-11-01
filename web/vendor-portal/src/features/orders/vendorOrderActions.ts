@@ -14,3 +14,9 @@ export function canOfferVendorAgentDelivery(order: VendorAgentOfferInput): boole
   if (order.vendorAgentDelivery) return false;
   return Boolean(order.wholeOrderForShop || !order.townHubEnabled);
 }
+
+/** Hub pickup — not available when the town hub is off. */
+export function canMarkReadyForHubPickup(order: VendorAgentOfferInput): boolean {
+  if ((order.status || '').toUpperCase() !== 'PLACED') return false;
+  return order.townHubEnabled !== false;
+}

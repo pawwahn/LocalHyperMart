@@ -1,3 +1,5 @@
+import { isNativeApp, resolveApiBaseUrl } from '@hlm-native';
+
 export type ApiEnvelope<T> = {
   success: boolean;
   message?: string;
@@ -35,7 +37,7 @@ type RequestOptions = {
   timeoutMs?: number;
 };
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
+const API_BASE = resolveApiBaseUrl(import.meta.env.VITE_API_BASE_URL);
 const DEFAULT_TIMEOUT_MS = 45_000;
 
 export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
@@ -75,6 +77,15 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
     clearTimeout(timer);
     if (err instanceof Error && err.name === 'AbortError') {
       throw new ApiError('Request timed out. Check services are running, then refresh.', 408);
+    }
+    const msg = err instanceof Error ? err.message : String(err ?? '');
+    if (/failed to fetch|networkerror|load failed/i.test(msg)) {
+      throw new ApiError(
+        isNativeApp()
+          ? 'Cannot reach KoyaKart server. Keep gateway running and retry.'
+          : 'Cannot reach KoyaKart server. Check your connection and retry.',
+        0,
+      );
     }
     throw err;
   }

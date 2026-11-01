@@ -1,7 +1,7 @@
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
-import { formatMoney, type SalesReport } from './reportsApi';
+import type { SalesReport } from './reportsApi';
 import { modeTxnFields, salesRowShopHeld } from '../reportModeTxn';
 import { isPayoutDueStatus } from '../hooks/useVendorReports';
 

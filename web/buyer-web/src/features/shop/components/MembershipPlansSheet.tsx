@@ -120,7 +120,7 @@ const styles: Record<string, CSSProperties> = {
     fontWeight: 800,
     letterSpacing: '0.06em',
     textTransform: 'uppercase',
-    color: '#0C831F',
+    color: '#009111',
   },
   title: {
     margin: 0,

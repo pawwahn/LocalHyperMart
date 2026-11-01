@@ -1186,7 +1186,7 @@ const styles: Record<string, CSSProperties> = {
     gridColumn: 12,
     justifySelf: 'center',
     border: 'none',
-    background: '#0C831F',
+    background: '#009111',
     color: '#fff',
     borderRadius: 999,
     padding: '0.22rem 0.7rem',

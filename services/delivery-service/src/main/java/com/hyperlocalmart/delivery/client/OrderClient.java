@@ -141,9 +141,17 @@ public class OrderClient {
     }
 
     public DeliveryManifest getDeliveryManifest(UUID orderId) {
+        return fetchDeliveryManifest("/api/v1/internal/orders/{orderId}/delivery-manifest", orderId);
+    }
+
+    public DeliveryManifest getSubOrderDeliveryManifest(UUID subOrderId) {
+        return fetchDeliveryManifest("/api/v1/internal/orders/sub-orders/{subOrderId}/delivery-manifest", subOrderId);
+    }
+
+    private DeliveryManifest fetchDeliveryManifest(String uriTemplate, UUID id) {
         RestClient client = restClientBuilder.baseUrl(orderServiceProperties.getBaseUrl()).build();
         ApiResponse<OrderDeliveryManifestDto> response = client.get()
-                .uri("/api/v1/internal/orders/{orderId}/delivery-manifest", orderId)
+                .uri(uriTemplate, id)
                 .retrieve()
                 .body(new ParameterizedTypeReference<ApiResponse<OrderDeliveryManifestDto>>() {});
         if (response == null || response.getData() == null) {

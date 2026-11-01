@@ -25,10 +25,10 @@ export const SHOP_HOME_AISLES_CSS = `
 
   .hlm-aisle-heading-full {
     grid-column: 1 / -1;
-    margin: 0 0 0.7rem;
+    margin: 0 0 0.75rem;
     padding: 0;
     font-family: var(--font-body, var(--font-display));
-    font-size: 0.9375rem;
+    font-size: 1rem;
     font-weight: 700;
     letter-spacing: -0.02em;
     line-height: 1.2;
@@ -38,9 +38,9 @@ export const SHOP_HOME_AISLES_CSS = `
   .hlm-shop-home-directory,
   .hlm-shop-home-directory--full {
     display: grid;
-    grid-template-columns: repeat(8, minmax(0, 1fr));
-    column-gap: 0.38rem;
-    row-gap: 0.75rem;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    column-gap: 0.55rem;
+    row-gap: 0.95rem;
     align-content: start;
     width: 100%;
     min-width: 0;
@@ -74,13 +74,15 @@ export const SHOP_HOME_AISLES_CSS = `
     position: relative;
     width: 100%;
     aspect-ratio: 1 / 1;
-    border-radius: 12px;
+    border-radius: 14px;
     overflow: hidden;
-    background: #e8f4fc;
+    background: linear-gradient(145deg, #eef6fc 0%, #e3f0f9 100%);
+    border: 1px solid rgba(15, 23, 42, 0.05);
+    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06);
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: transform 140ms ease;
+    transition: transform 160ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 160ms ease;
   }
 
   .hlm-cat-tile-visual--emoji {
@@ -88,8 +90,8 @@ export const SHOP_HOME_AISLES_CSS = `
   }
 
   .hlm-cat-tile-photo {
-    width: 90%;
-    height: 90%;
+    width: 94%;
+    height: 94%;
     max-width: 100%;
     max-height: 100%;
     object-fit: contain;
@@ -115,10 +117,10 @@ export const SHOP_HOME_AISLES_CSS = `
 
   .hlm-cat-tile-label {
     margin: 0;
-    padding: 0 0.05rem;
-    font-size: 0.625rem;
+    padding: 0 0.12rem;
+    font-size: 0.72rem;
     font-weight: 700;
-    line-height: 1.2;
+    line-height: 1.25;
     letter-spacing: -0.015em;
     text-align: center;
     color: #1c1a22;
@@ -126,10 +128,19 @@ export const SHOP_HOME_AISLES_CSS = `
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
     overflow: hidden;
+    word-break: break-word;
   }
 
   .hlm-cat-tile:active .hlm-cat-tile-visual {
     transform: scale(0.96);
+    box-shadow: 0 1px 4px rgba(15, 23, 42, 0.08);
+  }
+
+  @media (hover: hover) and (pointer: fine) {
+    .hlm-cat-tile:hover .hlm-cat-tile-visual {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 20px rgba(15, 23, 42, 0.1);
+    }
   }
 
   @media (min-width: 520px) {
@@ -140,7 +151,34 @@ export const SHOP_HOME_AISLES_CSS = `
     }
 
     .hlm-aisle-heading-full {
-      font-size: 1rem;
+      font-size: 1.05rem;
+      margin-bottom: 0.85rem;
+    }
+
+    .hlm-cat-tile-label {
+      font-size: 0.75rem;
+    }
+  }
+
+  @media (min-width: 640px) {
+    .hlm-shop-home-directory,
+    .hlm-shop-home-directory--full {
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      column-gap: 0.48rem;
+      row-gap: 0.85rem;
+    }
+  }
+
+  @media (min-width: 960px) {
+    .hlm-shop-home-directory,
+    .hlm-shop-home-directory--full {
+      grid-template-columns: repeat(8, minmax(0, 1fr));
+      column-gap: 0.42rem;
+      row-gap: 0.8rem;
+    }
+
+    .hlm-cat-tile-visual {
+      border-radius: 12px;
     }
 
     .hlm-cat-tile-label {

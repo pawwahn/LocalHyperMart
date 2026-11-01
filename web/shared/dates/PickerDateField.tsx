@@ -78,7 +78,7 @@ const PICKER_DATE_CSS = `
   color: var(--text-muted, #64748b);
 }
 .hlm-picker-date-wrap:focus-within .hlm-picker-date-icon {
-  color: var(--accent, #0c831f);
+  color: var(--accent, #009111);
 }
 `;
 

@@ -28,11 +28,11 @@ export const ACCENT_PRESETS: AccentPreset[] = [
   {
     id: 'forest',
     label: 'KoyaKart',
-    accent: '#0C831F',
-    accentHover: '#086318',
-    accentSoftLight: '#E7F6EC',
+    accent: '#009111',
+    accentHover: '#007A0E',
+    accentSoftLight: '#E5F5E7',
     accentSoftDark: '#163527',
-    rgb: '12, 131, 31',
+    rgb: '0, 145, 17',
   },
   {
     id: 'ocean',

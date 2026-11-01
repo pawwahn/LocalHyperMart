@@ -37,6 +37,10 @@ public class PlaceBeautyOrderRequest {
 
     private String paymentGateway;
 
+    /** Buyer mobile for UPI (studio bookings). Falls back to account phone when omitted. */
+    @Size(max = 20)
+    private String contactPhone;
+
     @Size(max = 400)
     private String specialInstructions;
 

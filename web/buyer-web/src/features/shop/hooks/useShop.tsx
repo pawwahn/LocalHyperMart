@@ -28,8 +28,8 @@ import {
   isPlaceholderListingId,
   listAddresses,
   listMyOrders,
-  fetchPaymentCheckout,
   placeOrder,
+  retryOnlinePayment,
   removeCartItem,
   removeCartMembership,
   removePromo,
@@ -43,7 +43,7 @@ import {
   type CreateOrderDto,
   type OrderSummaryDto,
 } from '../api/shopApi';
-import { pollUntilCheckoutReady } from '../lib/paymentCheckoutPoll';
+import { resolveOnlineCheckout } from '../lib/loadOnlineCheckout';
 import type { GatewayCheckout } from '../lib/razorpayCheckout';
 
 export type CheckoutOutcome =
@@ -1172,24 +1172,26 @@ function useShopState() {
         paymentGateway: opts?.paymentGateway,
       });
       if (order.status === 'PAYMENT_PENDING') {
-        let checkout = order.payment?.checkout;
         const paymentId = order.payment?.paymentId;
-        if (!checkout?.gatewayOrderId && paymentId) {
-          checkout = await pollUntilCheckoutReady(
-            () => fetchPaymentCheckout(session.accessToken, paymentId),
-            { timeoutMs: 18_000, intervalMs: 200 },
-          );
-        }
-        if (checkout?.gatewayOrderId) {
-          forgetOrderedBasket();
-          void reload();
-          return {
-            ok: true,
-            kind: 'pay',
-            orderId: order.orderId,
-            orderNumber: order.orderNumber,
-            checkout,
-          };
+        if (paymentId) {
+          const checkout = await resolveOnlineCheckout({
+            token: session.accessToken,
+            payment: order.payment,
+            paymentGateway: opts?.paymentGateway,
+            retry: () => retryOnlinePayment(session.accessToken, order.orderId, opts?.paymentGateway),
+            poll: { timeoutMs: 18_000, intervalMs: 200 },
+          });
+          if (checkout.gatewayOrderId) {
+            forgetOrderedBasket();
+            void reload();
+            return {
+              ok: true,
+              kind: 'pay',
+              orderId: order.orderId,
+              orderNumber: order.orderNumber,
+              checkout,
+            };
+          }
         }
       }
       forgetOrderedBasket();

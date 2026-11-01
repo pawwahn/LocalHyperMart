@@ -1,4 +1,5 @@
 import { apiRequest, type PageData } from '@/shared/api/http';
+import { normalizeServiceFor, type VendorServiceFor } from '@hlm-vendor';
 
 export type VendorRegistrationVm = {
   id: string;
@@ -16,6 +17,7 @@ export type VendorRegistrationVm = {
   createdAt?: string | null;
   serviceId?: string | null;
   serviceName?: string | null;
+  serviceFor?: string | null;
   /** Present only on approve — share with vendor once. */
   temporaryPassword?: string | null;
 };
@@ -36,6 +38,7 @@ export type VendorVm = {
   disabledReason?: string | null;
   serviceId?: string | null;
   serviceName?: string | null;
+  serviceFor?: string | null;
   hidesListings?: boolean;
 };
 
@@ -45,18 +48,40 @@ export type UpdateVendorProfileInput = {
   shopName: string;
   address?: string;
   serviceId: string;
+  serviceFor: 'MALE' | 'FEMALE' | 'UNISEX';
   gstNumber?: string;
   fssaiNumber?: string;
   bankAccount?: string;
   ifsc?: string;
 };
 
-type RegistrationDto = VendorRegistrationVm;
-type VendorDto = VendorVm;
+type RegistrationDto = VendorRegistrationVm & { service_for?: string | null };
+type VendorDto = VendorVm & { service_for?: string | null };
+
+function mapServiceFor(raw: VendorDto | RegistrationDto): VendorServiceFor | null {
+  return normalizeServiceFor(raw.serviceFor ?? raw.service_for);
+}
+
+function mapVendor(dto: VendorDto): VendorVm {
+  const serviceFor = mapServiceFor(dto);
+  return {
+    ...dto,
+    serviceFor: serviceFor ?? null,
+  };
+}
+
+function mapRegistration(dto: RegistrationDto): VendorRegistrationVm {
+  const serviceFor = mapServiceFor(dto);
+  return {
+    ...dto,
+    serviceFor: serviceFor ?? null,
+  };
+}
 
 export type CreateRegistrationInput = {
   townId: string;
   serviceId: string;
+  serviceFor: 'MALE' | 'FEMALE' | 'UNISEX';
   businessName: string;
   ownerName?: string;
   phone: string;
@@ -79,26 +104,31 @@ export async function listRegistrationRequests(
     `/api/v1/vendors/registration-requests${q}`,
     { token },
   );
-  return data.items ?? [];
+  return (data.items ?? []).map(mapRegistration);
 }
 
 export async function createRegistrationRequest(
   token: string,
   input: CreateRegistrationInput,
 ): Promise<VendorRegistrationVm> {
-  return apiRequest<VendorRegistrationVm>('/api/v1/vendors/registration-requests', {
+  const created = await apiRequest<RegistrationDto>('/api/v1/vendors/registration-requests', {
     method: 'POST',
     token,
     body: input,
   });
+  return mapRegistration(created);
 }
 
 export async function approveRegistration(token: string, id: string): Promise<VendorRegistrationVm> {
-  return apiRequest<VendorRegistrationVm>(`/api/v1/vendors/registration-requests/${id}/approve`, {
-    method: 'POST',
-    token,
-    body: {},
-  });
+  const approved = await apiRequest<RegistrationDto>(
+    `/api/v1/vendors/registration-requests/${id}/approve`,
+    {
+      method: 'POST',
+      token,
+      body: {},
+    },
+  );
+  return mapRegistration(approved);
 }
 
 export async function rejectRegistration(
@@ -106,11 +136,15 @@ export async function rejectRegistration(
   id: string,
   reason: string,
 ): Promise<VendorRegistrationVm> {
-  return apiRequest<VendorRegistrationVm>(`/api/v1/vendors/registration-requests/${id}/reject`, {
-    method: 'POST',
-    token,
-    body: { reason },
-  });
+  const rejected = await apiRequest<RegistrationDto>(
+    `/api/v1/vendors/registration-requests/${id}/reject`,
+    {
+      method: 'POST',
+      token,
+      body: { reason },
+    },
+  );
+  return mapRegistration(rejected);
 }
 
 export async function listVendors(token: string, townId: string): Promise<VendorVm[]> {
@@ -118,7 +152,7 @@ export async function listVendors(token: string, townId: string): Promise<Vendor
     `/api/v1/vendors?townId=${encodeURIComponent(townId)}`,
     { token },
   );
-  if ('items' in data) return data.items ?? [];
+  if ('items' in data) return (data.items ?? []).map(mapVendor);
   return [];
 }
 
@@ -128,11 +162,12 @@ export async function updateVendorStatus(
   status: 'ACTIVE' | 'DISABLED',
   reason?: string,
 ): Promise<VendorVm> {
-  return apiRequest<VendorVm>(`/api/v1/vendors/${vendorId}/status`, {
+  const updated = await apiRequest<VendorDto>(`/api/v1/vendors/${vendorId}/status`, {
     method: 'PATCH',
     token,
     body: reason ? { status, reason } : { status },
   });
+  return mapVendor(updated);
 }
 
 export async function updateVendorProfile(
@@ -140,9 +175,10 @@ export async function updateVendorProfile(
   vendorId: string,
   input: UpdateVendorProfileInput,
 ): Promise<VendorVm> {
-  return apiRequest<VendorVm>(`/api/v1/vendors/${vendorId}`, {
+  const updated = await apiRequest<VendorDto>(`/api/v1/vendors/${vendorId}`, {
     method: 'PUT',
     token,
     body: input,
   });
+  return mapVendor(updated);
 }

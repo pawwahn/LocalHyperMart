@@ -11,9 +11,9 @@ type Props = ButtonHTMLAttributes<HTMLButtonElement> & {
 };
 
 const sizeStyles: Record<Size, CSSProperties> = {
-  sm: { padding: '0.45rem 0.75rem', fontSize: '0.85rem' },
-  md: { padding: '0.65rem 1rem', fontSize: '0.95rem' },
-  lg: { padding: '0.85rem 1.25rem', fontSize: '1rem' },
+  sm: { padding: '0.45rem 0.75rem', fontSize: '0.85rem', minHeight: 'var(--touch-min, 44px)' },
+  md: { padding: '0.65rem 1rem', fontSize: '0.95rem', minHeight: 'var(--touch-min, 44px)' },
+  lg: { padding: '0.85rem 1.25rem', fontSize: '1rem', minHeight: 'var(--touch-min, 44px)' },
 };
 
 const variantStyles: Record<Variant, CSSProperties> = {
@@ -72,7 +72,7 @@ const base: CSSProperties = {
   justifyContent: 'center',
   gap: '0.4rem',
   borderRadius: 'var(--radius-md)',
-  fontWeight: 700,
+  fontWeight: 600,
   cursor: 'pointer',
   transition: 'transform var(--motion-fast), background var(--motion-fast), box-shadow var(--motion-fast)',
 };

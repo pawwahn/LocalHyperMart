@@ -158,7 +158,7 @@ const styles: Record<string, CSSProperties> = {
     width: 'min(28rem, 100%)',
     background: 'var(--bg-elevated)',
     border: '1px solid var(--border)',
-    borderTop: '4px solid var(--brand, #0C831F)',
+    borderTop: '4px solid var(--brand, #009111)',
     borderRadius: 'var(--radius-lg)',
     boxShadow: 'var(--shadow-elevated)',
     padding: '0.9rem 1rem',

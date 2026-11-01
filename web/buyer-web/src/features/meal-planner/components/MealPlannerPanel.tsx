@@ -2,7 +2,13 @@ import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'r
 import { Banner, Button } from '@/shared/ui';
 import { QuantityStepper } from '@/features/shop/components/QuantityStepper';
 import type { CatalogItemView } from '@/features/shop/api/shopApi';
-import { fetchRecipePlan, recipeLineToCatalogItem, searchRecipes, type RecipeSummary } from '../api/mealPlannerApi';
+import {
+  fetchRecipePlan,
+  recipeLineToCatalogItem,
+  searchRecipes,
+  type RecipeShopLine,
+  type RecipeSummary,
+} from '../api/mealPlannerApi';
 
 type Props = {
   townId: string;

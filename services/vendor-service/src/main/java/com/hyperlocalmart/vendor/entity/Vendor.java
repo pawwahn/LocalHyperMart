@@ -64,4 +64,8 @@ public class Vendor extends BaseAuditEntity {
 
     @Column(name = "service_id")
     private UUID serviceId;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "service_for", nullable = false, length = 10)
+    private VendorServiceFor serviceFor;
 }

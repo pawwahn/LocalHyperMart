@@ -90,6 +90,9 @@ public class PaymentGatewayConfigService {
     private void apply(PaymentGatewayConfig row) {
         String gateway = row.getGateway();
         if (RAZORPAY.equals(gateway)) {
+            if (!hasAdminCredentials(row)) {
+                return;
+            }
             properties.setRazorpayAdminDisabled(!row.isEnabled());
             properties.setRazorpayKeyId(empty(row.getClientId()));
             properties.setRazorpayKeySecret(empty(row.getClientSecret()));
@@ -97,6 +100,9 @@ public class PaymentGatewayConfigService {
             return;
         }
         if (CASHFREE.equals(gateway)) {
+            if (!hasAdminCredentials(row)) {
+                return;
+            }
             properties.setCashfreeAdminDisabled(!row.isEnabled());
             properties.setCashfreeClientId(empty(row.getClientId()));
             properties.setCashfreeClientSecret(empty(row.getClientSecret()));
@@ -104,6 +110,9 @@ public class PaymentGatewayConfigService {
             return;
         }
         if (PHONEPE.equals(gateway)) {
+            if (!hasAdminCredentials(row)) {
+                return;
+            }
             properties.setPhonepeAdminDisabled(!row.isEnabled());
             properties.setPhonepeClientId(empty(row.getClientId()));
             properties.setPhonepeClientSecret(empty(row.getClientSecret()));
@@ -117,7 +126,9 @@ public class PaymentGatewayConfigService {
     }
 
     private GatewayAdminResponse view(String gateway, String label, PaymentGatewayConfig saved) {
-        boolean enabled = saved != null ? saved.isEnabled() : configured(gateway);
+        boolean enabled = saved != null && hasAdminCredentials(saved)
+                ? saved.isEnabled()
+                : configured(gateway);
         String environment = environmentOf(gateway, saved);
         return GatewayAdminResponse.builder()
                 .gateway(gateway)
@@ -203,5 +214,14 @@ public class PaymentGatewayConfigService {
 
     private static String empty(String value) {
         return value == null ? "" : value.trim();
+    }
+
+    /** Placeholder admin rows (disabled, no keys) must not wipe env-based credentials on startup. */
+    private static boolean hasAdminCredentials(PaymentGatewayConfig row) {
+        return notBlank(row.getClientId()) || notBlank(row.getClientSecret());
+    }
+
+    private static boolean notBlank(String value) {
+        return value != null && !value.isBlank();
     }
 }

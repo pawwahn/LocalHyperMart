@@ -1,5 +1,7 @@
 package com.hyperlocalmart.order.service;
 
+import com.hyperlocalmart.common.util.IndianMobilePhones;
+import com.hyperlocalmart.common.api.PageResponse;
 import com.hyperlocalmart.common.beauty.BeautySlotBlocks;
 import com.hyperlocalmart.common.beauty.BeautySlotSchedule;
 import com.hyperlocalmart.common.beauty.BeautySlots;
@@ -19,6 +21,9 @@ import com.hyperlocalmart.order.client.TownClient;
 import com.hyperlocalmart.order.client.VendorBeautyClient;
 import com.hyperlocalmart.order.dto.beauty.BeautyActionRequest;
 import com.hyperlocalmart.order.dto.beauty.BeautyArtistCard;
+import com.hyperlocalmart.order.dto.beauty.BeautyCustomerReview;
+import com.hyperlocalmart.order.dto.beauty.BeautyVendorReviewsPageResponse;
+import com.hyperlocalmart.order.dto.beauty.BeautyVendorReviewsSummary;
 import com.hyperlocalmart.order.dto.beauty.BeautyAvailabilityResponse;
 import com.hyperlocalmart.order.dto.beauty.BeautyOrderResponse;
 import com.hyperlocalmart.order.dto.beauty.PlaceBeautyOrderRequest;
@@ -38,6 +43,8 @@ import com.hyperlocalmart.order.repository.BeautyOrderEventRepository;
 import com.hyperlocalmart.order.repository.BeautyOrderRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -51,6 +58,7 @@ import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -80,10 +88,14 @@ public class BeautyOrderService {
     @Transactional(readOnly = true)
     public List<BeautyArtistCard> artists(UUID townId) {
         requireTownBeauty(townId);
-        return vendorBeautyClient.bookableArtists(townId).stream()
+        List<VendorBeautyClient.BeautyArtistView> shops = vendorBeautyClient.bookableArtists(townId);
+        List<UUID> vendorIds = shops.stream().map(VendorBeautyClient.BeautyArtistView::vendorId).toList();
+        Map<UUID, List<BeautyCustomerReview>> reviewsByVendor = publicReviewsByVendor(vendorIds, 2);
+        return shops.stream()
                 .map(shop -> BeautyArtistCard.builder()
                         .vendorId(shop.vendorId())
                         .businessName(shop.businessName())
+                        .serviceFor(shop.serviceFor())
                         .phone(shop.phone())
                         .tagline(shop.tagline())
                         .yearsExperience(shop.yearsExperience())
@@ -118,6 +130,7 @@ public class BeautyOrderService {
                                         .paused(Boolean.TRUE.equals(rate.paused()))
                                         .build())
                                 .toList())
+                        .customerReviews(reviewsByVendor.getOrDefault(shop.vendorId(), List.of()))
                         .build())
                 .filter(card -> card.getRates() != null && !card.getRates().isEmpty())
                 .toList();
@@ -172,7 +185,7 @@ public class BeautyOrderService {
     }
 
     @Transactional
-    public BeautyOrderResponse place(UUID buyerId, PlaceBeautyOrderRequest request) {
+    public BeautyOrderResponse place(UUID buyerId, String buyerPhone, PlaceBeautyOrderRequest request) {
         requireTownBeauty(request.getTownId());
         VendorBeautyClient.BeautyArtistView artist = vendorBeautyClient.artist(request.getVendorId());
         if (!artist.enabled() || !"ACTIVE".equals(artist.vendorStatus())) {
@@ -271,6 +284,17 @@ public class BeautyOrderService {
             contactPhone = text(address.get("recipientPhone"));
         } else if (artist.studioAddress() == null || artist.studioAddress().isBlank()) {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Studio address is not set for this artist");
+        } else {
+            contactPhone = IndianMobilePhones.firstTenDigit(request.getContactPhone(), buyerPhone);
+        }
+        String paymentPhone = IndianMobilePhones.firstTenDigit(contactPhone, request.getContactPhone(), buyerPhone);
+        if (paymentPhone == null) {
+            throw new BusinessException(
+                    ErrorCode.VALIDATION_ERROR,
+                    "A 10-digit mobile number is required for UPI. Update your profile phone or use a home-visit address with contact number.");
+        }
+        if (contactPhone == null || contactPhone.isBlank()) {
+            contactPhone = paymentPhone;
         }
 
         UUID referencePhotoMediaId = request.getReferencePhotoMediaId();
@@ -399,7 +423,15 @@ public class BeautyOrderService {
             throw new BusinessException(ErrorCode.FORBIDDEN, "This booking is not yours");
         }
         BeautyActionRequest cancel = new BeautyActionRequest();
-        cancel.setNote("Cancelled by customer");
+        BigDecimal retained = resolvedAmountCollected(order);
+        if (retained.signum() > 0) {
+            cancel.setNote(
+                    "Cancelled by customer · slot prepay ₹"
+                            + retained.toPlainString()
+                            + " not refunded (ledger)");
+        } else {
+            cancel.setNote("Cancelled by customer");
+        }
         return move(order, buyerId, BeautyMove.CANCEL, cancel);
     }
 
@@ -476,7 +508,8 @@ public class BeautyOrderService {
     }
 
     @Transactional
-    public PaymentInfoResponse retryOnlinePayment(UUID buyerId, UUID orderId, String idempotencyKey, String gateway) {
+    public PaymentInfoResponse retryOnlinePayment(
+            UUID buyerId, String buyerPhone, UUID orderId, String idempotencyKey, String gateway) {
         BeautyOrder order = requireOrder(orderId);
         if (!order.getBuyerId().equals(buyerId)) {
             throw new BusinessException(ErrorCode.FORBIDDEN, "This order is not yours");
@@ -495,6 +528,15 @@ public class BeautyOrderService {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, "This booking is not waiting for online payment");
         }
         order.setPrepayAmount(remaining);
+        String payPhone = IndianMobilePhones.firstTenDigit(order.getContactPhone(), buyerPhone);
+        if (payPhone == null) {
+            throw new BusinessException(
+                    ErrorCode.VALIDATION_ERROR,
+                    "A 10-digit mobile number is required for UPI. Update your profile phone and try again.");
+        }
+        if (order.getContactPhone() == null || order.getContactPhone().isBlank()) {
+            order.setContactPhone(payPhone);
+        }
         order.setUpdatedBy(buyerId);
         orderRepository.save(order);
         String key = idempotencyKey == null || idempotencyKey.isBlank() ? order.getId() + "-pay-" + System.currentTimeMillis() : idempotencyKey;
@@ -504,7 +546,7 @@ public class BeautyOrderService {
                 order.getTownId(),
                 gateway == null || gateway.isBlank() ? "RAZORPAY" : gateway,
                 key,
-                order.getContactPhone(),
+                payPhone,
                 remaining,
                 order.getOrderNumber(),
                 "PAYMENT_PENDING",
@@ -573,12 +615,107 @@ public class BeautyOrderService {
                 .stars((short) stars)
                 .comment(comment == null || comment.isBlank() ? null : comment)
                 .build());
+        syncVendorRatingAggregate(order.getVendorId());
         try {
             scratchCardService.issueIfEligibleAfterBeautyRating(order);
         } catch (Exception ignored) {
             // Rating saved; scratch is best-effort.
         }
         return toResponse(order);
+    }
+
+    private void syncVendorRatingAggregate(UUID vendorId) {
+        List<BeautyOrderRating> rows = ratingRepository.findByVendorIdOrderByCreatedAtDesc(vendorId);
+        if (rows.isEmpty()) {
+            return;
+        }
+        int count = rows.size();
+        int starSum = rows.stream().mapToInt(BeautyOrderRating::getStars).sum();
+        BigDecimal avg = BigDecimal.valueOf(starSum)
+                .divide(BigDecimal.valueOf(count), 2, RoundingMode.HALF_UP);
+        try {
+            vendorBeautyClient.applyRatingAggregate(vendorId, avg, count);
+        } catch (Exception ignored) {
+            // Public reviews still work from order DB; vendor card score may lag.
+        }
+    }
+
+    @Transactional(readOnly = true)
+    public BeautyVendorReviewsPageResponse vendorReviews(UUID vendorId, int page, int size) {
+        vendorBeautyClient.artist(vendorId);
+        int safeSize = Math.min(Math.max(size, 5), 30);
+        int safePage = Math.max(page, 0);
+        Page<BeautyOrderRating> ratings = ratingRepository.findByVendorIdAndCommentIsNotNullOrderByCreatedAtDesc(
+                vendorId, PageRequest.of(safePage, safeSize));
+        List<BeautyCustomerReview> items = ratings.getContent().stream()
+                .map(this::toPublicReview)
+                .toList();
+        return BeautyVendorReviewsPageResponse.builder()
+                .summary(buildReviewsSummary(vendorId))
+                .reviews(PageResponse.<BeautyCustomerReview>builder()
+                        .items(items)
+                        .page(ratings.getNumber())
+                        .size(ratings.getSize())
+                        .totalElements(ratings.getTotalElements())
+                        .totalPages(ratings.getTotalPages())
+                        .build())
+                .build();
+    }
+
+    private BeautyVendorReviewsSummary buildReviewsSummary(UUID vendorId) {
+        int[] starCounts = new int[6];
+        int starSum = 0;
+        int total = 0;
+        for (Object[] row : ratingRepository.countByStarsForVendor(vendorId)) {
+            if (row == null || row.length < 2 || row[0] == null || row[1] == null) {
+                continue;
+            }
+            int stars = Math.min(5, Math.max(1, ((Number) row[0]).intValue()));
+            int count = ((Number) row[1]).intValue();
+            starCounts[stars] = count;
+            total += count;
+            starSum += stars * count;
+        }
+        BigDecimal avg = total == 0
+                ? BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP)
+                : BigDecimal.valueOf(starSum).divide(BigDecimal.valueOf(total), 2, RoundingMode.HALF_UP);
+        long withComments = ratingRepository.countByVendorIdAndCommentIsNotNull(vendorId);
+        return BeautyVendorReviewsSummary.builder()
+                .avgStars(avg)
+                .totalRatings(total)
+                .reviewsWithComments((int) withComments)
+                .stars5(starCounts[5])
+                .stars4(starCounts[4])
+                .stars3(starCounts[3])
+                .stars2(starCounts[2])
+                .stars1(starCounts[1])
+                .build();
+    }
+
+    private BeautyCustomerReview toPublicReview(BeautyOrderRating row) {
+        return BeautyCustomerReview.builder()
+                .stars(row.getStars())
+                .comment(row.getComment() == null ? "" : row.getComment().trim())
+                .createdAt(row.getCreatedAt())
+                .build();
+    }
+
+    private Map<UUID, List<BeautyCustomerReview>> publicReviewsByVendor(Collection<UUID> vendorIds, int perVendor) {
+        if (vendorIds == null || vendorIds.isEmpty() || perVendor <= 0) {
+            return Map.of();
+        }
+        Map<UUID, List<BeautyCustomerReview>> out = new HashMap<>();
+        for (BeautyOrderRating row : ratingRepository.findByVendorIdInAndCommentIsNotNullOrderByCreatedAtDesc(vendorIds)) {
+            if (row.getComment() == null || row.getComment().isBlank()) {
+                continue;
+            }
+            List<BeautyCustomerReview> bucket = out.computeIfAbsent(row.getVendorId(), ignored -> new ArrayList<>());
+            if (bucket.size() >= perVendor) {
+                continue;
+            }
+            bucket.add(toPublicReview(row));
+        }
+        return out;
     }
 
     private BeautyOrderResponse move(BeautyOrder order, UUID actorId, BeautyMove move, BeautyActionRequest request) {
@@ -590,15 +727,21 @@ public class BeautyOrderService {
             BigDecimal collected = moneyOrZero(order.getAmountCollected());
             BigDecimal balance = total.subtract(collected).max(BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP);
             if (balance.signum() > 0) {
-                if (request == null || !Boolean.TRUE.equals(request.getVisitCashCollected())) {
+                if (request != null && Boolean.TRUE.equals(request.getAutoEndedAfterSlot())) {
+                    String autoNote = "Auto-ended after slot · visit balance ₹"
+                            + balance.toPlainString()
+                            + " not confirmed collected";
+                    note = note == null || note.isBlank() ? autoNote : note + " · " + autoNote;
+                } else if (request == null || !Boolean.TRUE.equals(request.getVisitCashCollected())) {
                     throw new BusinessException(ErrorCode.VALIDATION_ERROR,
                             "Confirm that you collected ₹" + balance.toPlainString() + " at the visit before ending the session");
+                } else {
+                    collected = collected.add(balance).setScale(2, RoundingMode.HALF_UP);
+                    order.setAmountCollected(collected);
+                    order.setPaymentStatus(BeautyPaymentStatus.COLLECTED);
+                    String cashNote = "Visit balance ₹" + balance.toPlainString() + " collected";
+                    note = note == null || note.isBlank() ? cashNote : note + " · " + cashNote;
                 }
-                collected = collected.add(balance).setScale(2, RoundingMode.HALF_UP);
-                order.setAmountCollected(collected);
-                order.setPaymentStatus(BeautyPaymentStatus.COLLECTED);
-                String cashNote = "Visit balance ₹" + balance.toPlainString() + " collected";
-                note = note == null || note.isBlank() ? cashNote : note + " · " + cashNote;
             } else if (order.getPaymentMethod() == BeautyPaymentMethod.CASH
                     && collected.signum() <= 0) {
                 order.setAmountCollected(buyerPayable(order));
@@ -612,7 +755,33 @@ public class BeautyOrderService {
         order.setUpdatedBy(actorId);
         orderRepository.save(order);
         event(order, actorId, move.name(), from.name(), to.name(), note);
+        if (to == BeautyOrderStatus.COMPLETED) {
+            try {
+                scratchCardService.issueIfEligibleAfterBeautyComplete(order);
+            } catch (Exception ignored) {
+                // Scratch is best-effort for the buyer.
+            }
+        }
         return toResponse(order);
+    }
+
+    @Transactional
+    public int autoCompleteSessionsPastSlotEnd() {
+        Instant now = Instant.now();
+        List<BeautyOrder> due = orderRepository.findInServicePastSlotEnd(now);
+        int done = 0;
+        for (BeautyOrder order : due) {
+            try {
+                BeautyActionRequest request = new BeautyActionRequest();
+                request.setAutoEndedAfterSlot(true);
+                request.setNote("Session auto-ended after scheduled slot time");
+                move(order, order.getBuyerId(), BeautyMove.COMPLETE, request);
+                done++;
+            } catch (Exception ex) {
+                // Retry on next scheduler tick.
+            }
+        }
+        return done;
     }
 
     private BeautyOrderResponse toResponse(BeautyOrder order) {
@@ -665,6 +834,7 @@ public class BeautyOrderService {
                 .completedAt(order.getCompletedAt())
                 .prepayMode(order.getPrepayMode())
                 .myRatingStars(existingRating.map(r -> (int) r.getStars()).orElse(null))
+                .myRatingComment(existingRating.map(BeautyOrderRating::getComment).orElse(null))
                 .canRateBooking(canRate)
                 .allowedActions(allowedActions(order))
                 .build();

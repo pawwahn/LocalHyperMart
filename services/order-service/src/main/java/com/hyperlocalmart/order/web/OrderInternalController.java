@@ -119,6 +119,13 @@ public class OrderInternalController {
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, orderService.getDeliveryManifest(orderId)));
     }
 
+    @GetMapping("/api/v1/internal/orders/sub-orders/{subOrderId}/delivery-manifest")
+    public ResponseEntity<ApiResponse<OrderDeliveryManifestResponse>> getSubOrderDeliveryManifest(
+            @PathVariable UUID subOrderId,
+            HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest, orderService.getSubOrderDeliveryManifest(subOrderId)));
+    }
+
     @PostMapping("/api/v1/internal/orders/{orderId}/delivered")
     public ResponseEntity<Void> markDelivered(
             @PathVariable UUID orderId,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { canOfferVendorAgentDelivery } from './vendorOrderActions';
+import { canMarkReadyForHubPickup, canOfferVendorAgentDelivery } from './vendorOrderActions';
 import { vendorBagDisplayNumber, vendorBagLabelHint } from './orderBagLabel';
 
 describe('My agent delivers — when the button must show', () => {
@@ -62,6 +62,16 @@ describe('My agent delivers — when the button must show', () => {
     ]) {
       expect(canOfferVendorAgentDelivery({ ...base, status })).toBe(false);
     }
+  });
+});
+
+describe('Mark ready for hub pickup', () => {
+  it('shows only when hub is on and bag is New', () => {
+    expect(canMarkReadyForHubPickup({ status: 'PLACED', townHubEnabled: true })).toBe(true);
+    expect(canMarkReadyForHubPickup({ status: 'PLACED', townHubEnabled: false })).toBe(false);
+    expect(canMarkReadyForHubPickup({ status: 'READY_FOR_PICKUP', townHubEnabled: true })).toBe(
+      false,
+    );
   });
 });
 

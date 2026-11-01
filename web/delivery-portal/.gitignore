@@ -1,6 +1,12 @@
 node_modules/
 dist/
-.DS_Store
-*.local
-.env
-.env.*
+android-hub/app/build/
+android-hub/.gradle/
+android-hub/local.properties
+android-hub/captures/
+android-hub/app/release/
+android-agent/app/build/
+android-agent/.gradle/
+android-agent/local.properties
+android-agent/captures/
+android-agent/app/release/

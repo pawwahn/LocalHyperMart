@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react';
 import { Link } from 'react-router-dom';
-import { LegalLinks, TermsAcceptBlock } from '@hlm-legal';
+import { TermsAcceptBlock } from '@hlm-legal';
 import { Banner, Button, TextField } from '@/shared/ui';
 import { useAuthForms } from '../hooks/useAuthForms';
 import { useTown } from '@/shared/town/TownContext';
@@ -257,7 +257,7 @@ const styles: Record<string, CSSProperties> = {
   hero: {
     position: 'relative',
     overflow: 'hidden',
-    background: 'linear-gradient(160deg, #064E16 0%, #0C831F 48%, #149A2C 78%, #C9A227 130%)',
+    background: 'linear-gradient(160deg, #064E16 0%, #009111 48%, #149A2C 78%, #C9A227 130%)',
     color: '#fff',
     display: 'grid',
     alignContent: 'end',
@@ -395,7 +395,7 @@ const styles: Record<string, CSSProperties> = {
     borderRadius: 9,
     display: 'grid',
     placeItems: 'center',
-    background: '#0C831F',
+    background: '#009111',
     color: '#F7CE46',
     fontWeight: 800,
     fontSize: '0.95rem',
@@ -412,7 +412,7 @@ const styles: Record<string, CSSProperties> = {
   },
   townSelectHint: {
     fontSize: '0.72rem',
-    color: '#0C831F',
+    color: '#009111',
     fontWeight: 800,
     background: '#E7F6EC',
     borderRadius: 999,

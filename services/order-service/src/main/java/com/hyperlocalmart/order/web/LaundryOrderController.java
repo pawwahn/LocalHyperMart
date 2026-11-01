@@ -52,7 +52,8 @@ public class LaundryOrderController {
             HttpServletRequest httpRequest) {
         requireUser(principal);
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResponses.ok(httpRequest, laundryOrderService.place(principal.getUserId(), request)));
+                .body(ApiResponses.ok(httpRequest, laundryOrderService.place(
+                        principal.getUserId(), principal.getPhone(), request)));
     }
 
     @GetMapping
@@ -104,7 +105,8 @@ public class LaundryOrderController {
             HttpServletRequest httpRequest) {
         requireUser(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
-                laundryOrderService.retryOnlinePayment(principal.getUserId(), orderId, idempotencyKey, gateway)));
+                laundryOrderService.retryOnlinePayment(
+                        principal.getUserId(), principal.getPhone(), orderId, idempotencyKey, gateway)));
     }
 
     @PostMapping("/{orderId}/comment")

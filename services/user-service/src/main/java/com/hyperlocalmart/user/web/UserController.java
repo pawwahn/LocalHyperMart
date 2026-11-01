@@ -3,16 +3,20 @@ package com.hyperlocalmart.user.web;
 import com.hyperlocalmart.common.api.ApiResponse;
 import com.hyperlocalmart.user.dto.request.AcceptLegalRequest;
 import com.hyperlocalmart.user.dto.request.DeleteAccountRequest;
+import com.hyperlocalmart.user.dto.request.RegisterDeviceRequest;
 import com.hyperlocalmart.user.dto.request.UpdatePrivacyPreferencesRequest;
 import com.hyperlocalmart.user.dto.request.UpdateProfileRequest;
+import com.hyperlocalmart.user.dto.response.DeviceRegistrationResponse;
 import com.hyperlocalmart.user.dto.response.UserProfileResponse;
 import com.hyperlocalmart.user.security.AuthUserPrincipal;
 import com.hyperlocalmart.user.service.AccountPrivacyService;
 import com.hyperlocalmart.user.service.CodPinOtpService;
+import com.hyperlocalmart.user.service.DeviceTokenService;
 import com.hyperlocalmart.user.service.UserService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
@@ -25,6 +29,7 @@ public class UserController {
     private final UserService userService;
     private final AccountPrivacyService accountPrivacyService;
     private final CodPinOtpService codPinOtpService;
+    private final DeviceTokenService deviceTokenService;
 
     @GetMapping("/me")
     public ResponseEntity<ApiResponse<UserProfileResponse>> getProfile(
@@ -74,5 +79,15 @@ public class UserController {
             HttpServletRequest httpRequest) {
         codPinOtpService.requestOtp(principal.getUserId());
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, null));
+    }
+
+    @PostMapping("/me/devices")
+    public ResponseEntity<ApiResponse<DeviceRegistrationResponse>> registerDevice(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @Valid @RequestBody RegisterDeviceRequest request,
+            HttpServletRequest httpRequest) {
+        DeviceRegistrationResponse response = deviceTokenService.register(principal.getUserId(), request);
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(ApiResponses.ok(httpRequest, "Device registered", response));
     }
 }

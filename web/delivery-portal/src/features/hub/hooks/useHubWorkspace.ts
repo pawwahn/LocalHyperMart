@@ -120,6 +120,10 @@ export function useHubWorkspace() {
       const me = await fetchMyHub(session.accessToken);
       const resolvedHubId = me.hubId || hubId;
       const resolvedTownId = me.townId || townId;
+      if (!resolvedHubId || !resolvedTownId) {
+        setError('Hub session is missing town or hub. Sign in again.');
+        return;
+      }
 
       const dashPromise = fetchHubDashboard(session.accessToken, resolvedHubId);
       const listPromise = fetchAdminOrders(session.accessToken, resolvedTownId, {
@@ -272,7 +276,7 @@ export function useHubWorkspace() {
   }
 
   async function openOrder(orderId: string) {
-    if (!session) return;
+    if (!session || !townId) return;
     if (selectedOrderId !== orderId) setNotice(null);
     setSelectedOrderId(orderId);
     setShowHistory(true);

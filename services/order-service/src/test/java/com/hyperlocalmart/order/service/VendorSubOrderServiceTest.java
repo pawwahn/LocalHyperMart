@@ -69,6 +69,7 @@ class VendorSubOrderServiceTest {
 
         when(vendorSubOrderRepository.findDetailedByIdAndVendorId(subOrderId, vendorId))
                 .thenReturn(Optional.of(subOrder));
+        when(deliveryClient.isTownHubEnabled(subOrder.getOrder().getTownId())).thenReturn(true);
         when(vendorSubOrderRepository.save(subOrder)).thenReturn(subOrder);
 
         VendorSubOrderResponse response = vendorSubOrderService.markReady(vendorId, subOrderId, actorId);
@@ -79,6 +80,21 @@ class VendorSubOrderServiceTest {
         assertThat(response.getPaymentStatus()).isEqualTo(PaymentStatus.PENDING);
         assertThat(response.getSiblingShops()).isEmpty();
         verify(orderStatusHistoryRepository).save(any());
+    }
+
+    @Test
+    void markReady_whenTownHubDisabled_rejects() {
+        UUID vendorId = UUID.randomUUID();
+        UUID subOrderId = UUID.randomUUID();
+        VendorSubOrder subOrder = placedSubOrder(vendorId, subOrderId);
+
+        when(vendorSubOrderRepository.findDetailedByIdAndVendorId(subOrderId, vendorId))
+                .thenReturn(Optional.of(subOrder));
+        when(deliveryClient.isTownHubEnabled(subOrder.getOrder().getTownId())).thenReturn(false);
+
+        assertThatThrownBy(() -> vendorSubOrderService.markReady(vendorId, subOrderId, UUID.randomUUID()))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("Hub pickup is not available");
     }
 
     @Test

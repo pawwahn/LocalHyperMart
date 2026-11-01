@@ -15,6 +15,7 @@ public class BeautyArtistResponse {
     private UUID vendorId;
     private UUID townId;
     private String businessName;
+    private String serviceFor;
     private String phone;
     private String vendorStatus;
     private String serviceName;

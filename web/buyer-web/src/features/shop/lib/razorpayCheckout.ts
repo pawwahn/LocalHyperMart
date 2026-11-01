@@ -93,7 +93,7 @@ export async function openRazorpayCheckout(
         contact: prefill?.contact || checkout.prefillContact || '',
         name: prefill?.name || '',
       },
-      theme: { color: '#0C831F' },
+      theme: { color: '#009111' },
       handler(response: {
         razorpay_payment_id: string;
         razorpay_order_id: string;

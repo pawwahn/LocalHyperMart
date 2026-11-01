@@ -8,4 +8,6 @@ public class BeautyActionRequest {
     private String note;
     /** Required when completing a booking that still has balance due at the visit (partial prepay / cash). */
     private Boolean visitCashCollected;
+    /** System auto-complete after slot end (visit cash may remain unconfirmed). */
+    private Boolean autoEndedAfterSlot;
 }

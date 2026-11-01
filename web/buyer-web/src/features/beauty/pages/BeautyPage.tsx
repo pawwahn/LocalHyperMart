@@ -8,9 +8,10 @@ import { ApiError } from '@/shared/api/http';
 import { listAddresses, type AddressDto } from '@/features/shop/api/shopApi';
 import { CheckoutDismissedError, openGatewayCheckout } from '@/features/shop/lib/gatewayCheckout';
 import { PaymentGatewayChoices, usePaymentGateways } from '@/features/shop/components/PaymentGatewayChoices';
-import { confirmOnlinePayment } from '@/features/shop/api/shopApi';
-import { resolveCheckoutForPayment } from '@/features/shop/lib/paymentCheckoutPoll';
+import { confirmOnlinePaymentResilient } from '@/features/shop/api/shopApi';
+import { resolveOnlineCheckout, tenDigitIndianPhone } from '@/features/shop/lib/loadOnlineCheckout';
 import { GlamWorkGallerySheet } from '../components/GlamWorkGallerySheet';
+import { GlamCustomerReviewsPanel } from '../components/GlamCustomerReviewsPanel';
 import {
   BEAUTY_OCCASIONS,
   BEAUTY_SERVICES,
@@ -23,12 +24,27 @@ import {
   fetchBeautyAvailability,
   blockedSlotIdsForDate,
   placeBeautyOrder,
+  retryBeautyPayment,
   uploadBeautyReferencePhoto,
   type BeautyArtist,
   type BeautySlotAvailability,
   type BeautySlotId,
   type BeautySlotRow,
 } from '../api/beautyApi';
+import { normalizeServiceFor, serviceForLabel, vendorNameWithServiceFor } from '@hlm-vendor';
+import type { VendorServiceFor } from '@hlm-vendor';
+
+function artistServiceFor(artist: Pick<BeautyArtist, 'serviceFor'>): VendorServiceFor {
+  return normalizeServiceFor(artist.serviceFor) ?? 'UNISEX';
+}
+
+function artistDisplayName(artist: Pick<BeautyArtist, 'businessName' | 'serviceFor'>): string {
+  return vendorNameWithServiceFor(artist.businessName, artistServiceFor(artist));
+}
+
+function artistCardName(artist: Pick<BeautyArtist, 'businessName'>): string {
+  return artist.businessName?.trim() || 'Artist';
+}
 
 function slotInstant(date: string, time: string): string {
   return new Date(`${date}T${time}:00+05:30`).toISOString();
@@ -192,6 +208,10 @@ const SKIN = `
   display: grid;
   gap: 0.55rem;
 }
+.hlm-glam-panel[aria-label='Artists'] {
+  overflow: visible;
+  padding-bottom: 1rem;
+}
 .hlm-glam-panel-priority {
   border-color: rgba(244, 114, 182, 0.35);
   background: linear-gradient(145deg, rgba(255,255,255,0.94) 0%, rgba(253, 242, 248, 0.78) 100%);
@@ -348,32 +368,49 @@ const SKIN = `
 }
 .hlm-glam-occasion-emoji { font-size: 1.15rem; line-height: 1; }
 .hlm-glam-occasion-label { font-size: 0.65rem; font-weight: 800; color: #374151; }
+.hlm-glam-artists-scroll {
+  margin: 0 -0.35rem;
+  padding: 0.1rem 0.35rem 0.05rem;
+  overflow: visible;
+}
 .hlm-glam-artists {
   display: flex;
-  gap: 0.55rem;
+  align-items: stretch;
+  gap: 0.45rem;
   overflow-x: auto;
-  padding: 0.15rem 0.1rem 0.35rem;
-  margin: 0 -0.15rem;
-  scroll-snap-type: x mandatory;
+  overflow-y: visible;
+  padding: 0.15rem 0.35rem 1.1rem;
+  scroll-snap-type: x proximity;
+  scroll-padding-inline: 0.35rem;
+  overscroll-behavior-x: contain;
+  touch-action: pan-x pan-y;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
 }
 .hlm-glam-artists::-webkit-scrollbar { display: none; }
+.hlm-glam-artists-tail {
+  flex: 0 0 0.5rem;
+  scroll-snap-align: end;
+}
 .hlm-glam-artist {
-  flex: 0 0 min(76vw, 10.5rem);
+  flex: 0 0 clamp(6.85rem, 42vw, 8.35rem);
+  width: clamp(6.85rem, 42vw, 8.35rem);
+  align-self: stretch;
   scroll-snap-align: start;
-  border-radius: 18px;
+  scroll-snap-stop: normal;
+  border-radius: 16px;
   border: 1.5px solid #e2e8f0;
-  padding: 0.6rem 0.6rem 0.65rem;
+  padding: 0.48rem 0.5rem 0.52rem;
   background: #fff;
   cursor: pointer;
-  display: grid;
-  gap: 0.35rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.28rem;
   text-align: left;
   color: #0f172a;
-  min-height: 100px;
+  box-sizing: border-box;
   transition: border-color 0.18s, box-shadow 0.18s, transform 0.12s;
-  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.04);
+  box-shadow: 0 3px 12px rgba(15, 23, 42, 0.05);
 }
 .hlm-glam-artist:active { transform: scale(0.98); }
 .hlm-glam-artist-on {
@@ -385,44 +422,69 @@ const SKIN = `
 }
 .hlm-glam-artist-top {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 0.45rem;
 }
 .hlm-glam-artist-avatar {
-  width: 42px;
-  height: 42px;
-  border-radius: 14px;
+  width: 34px;
+  height: 34px;
+  border-radius: 11px;
   background: linear-gradient(135deg, #831843 0%, #db2777 50%, #f472b6 100%);
   color: #fff;
-  font-size: 0.74rem;
+  font-size: 0.62rem;
   font-weight: 900;
   display: grid;
   place-items: center;
   flex-shrink: 0;
-  box-shadow: 0 4px 12px rgba(190, 24, 93, 0.35);
+  box-shadow: 0 3px 10px rgba(190, 24, 93, 0.3);
 }
 .hlm-glam-artist-name {
-  font-size: 0.82rem;
+  flex: 1;
+  min-width: 0;
+  font-size: 0.72rem;
   font-weight: 900;
   margin: 0;
   color: #111827;
-  line-height: 1.25;
+  line-height: 1.22;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 .hlm-glam-artist-meta {
-  font-size: 0.68rem;
+  font-size: 0.62rem;
   color: #6b7280;
   font-weight: 700;
   margin: 0;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 0.25rem;
 }
 .hlm-glam-artist-tag {
-  font-size: 0.65rem;
+  font-size: 0.58rem;
   color: #9d174d;
   font-weight: 700;
   margin: 0;
-  line-height: 1.35;
+  line-height: 1.3;
+  min-height: 0.75rem;
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.hlm-glam-artist-tag--empty {
+  visibility: hidden;
+  min-height: 0.75rem;
+}
+.hlm-glam-artist-work-slot {
+  flex: 0 0 auto;
+  min-height: 0.95rem;
+  margin-top: auto;
+  display: flex;
+  align-items: flex-end;
 }
 .hlm-glam-artist-work {
   margin: 0;
@@ -430,7 +492,7 @@ const SKIN = `
   border: none;
   background: none;
   font: inherit;
-  font-size: 0.65rem;
+  font-size: 0.58rem;
   font-weight: 800;
   color: #db2777;
   text-decoration: underline;
@@ -444,6 +506,11 @@ const SKIN = `
   cursor: default;
   text-decoration: none;
 }
+.hlm-glam-artist-work--placeholder {
+  visibility: hidden;
+  pointer-events: none;
+  text-decoration: none;
+}
 .hlm-glam-rating {
   display: inline-flex;
   align-items: center;
@@ -453,6 +520,260 @@ const SKIN = `
   background: #fff7ed;
   color: #c2410c;
   font-weight: 900;
+}
+.hlm-glam-artist-audience {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.12rem 0.38rem;
+  border-radius: 999px;
+  font-size: 0.56rem;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  line-height: 1.2;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  color: #475569;
+  white-space: nowrap;
+}
+.hlm-glam-artist-audience--male {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+  color: #1d4ed8;
+}
+.hlm-glam-artist-audience--female {
+  background: #fdf2f8;
+  border-color: #fbcfe8;
+  color: #be185d;
+}
+.hlm-glam-artist-audience--unisex {
+  background: #f5f3ff;
+  border-color: #ddd6fe;
+  color: #6d28d9;
+}
+.hlm-glam-reviews-panel {
+  margin-top: 0.55rem;
+  padding: 0.65rem 0.75rem;
+  border-radius: 14px;
+  border: 1px solid #f9a8d4;
+  background: linear-gradient(180deg, #fff 0%, #fff7fb 100%);
+  box-shadow: 0 8px 24px rgba(190, 24, 93, 0.06);
+}
+.hlm-glam-reviews-panel-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.25rem 0.75rem;
+  margin-bottom: 0.5rem;
+}
+.hlm-glam-reviews-title {
+  margin: 0;
+  font-size: 0.82rem;
+  font-weight: 900;
+  color: #831843;
+  letter-spacing: -0.01em;
+}
+.hlm-glam-reviews-sub {
+  margin: 0;
+  font-size: 0.62rem;
+  font-weight: 600;
+  color: #9d174d;
+  opacity: 0.85;
+}
+.hlm-glam-reviews-summary {
+  display: grid;
+  grid-template-columns: minmax(5.5rem, auto) 1fr;
+  gap: 0.65rem 0.85rem;
+  align-items: start;
+  margin-bottom: 0.55rem;
+  padding-bottom: 0.55rem;
+  border-bottom: 1px solid #fce7f3;
+}
+@media (max-width: 420px) {
+  .hlm-glam-reviews-summary {
+    grid-template-columns: 1fr;
+  }
+}
+.hlm-glam-reviews-score-block {
+  display: grid;
+  gap: 0.1rem;
+}
+.hlm-glam-reviews-score {
+  font-size: 1.65rem;
+  font-weight: 900;
+  line-height: 1;
+  color: #9a3412;
+}
+.hlm-glam-reviews-score-label {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: #4b5563;
+}
+.hlm-glam-reviews-comment-count {
+  font-size: 0.62rem;
+  font-weight: 600;
+  color: #be185d;
+}
+.hlm-glam-reviews-bars {
+  display: grid;
+  gap: 0.22rem;
+  min-width: 0;
+}
+.hlm-glam-reviews-bar-row {
+  display: grid;
+  grid-template-columns: 1.65rem 1fr 2rem;
+  align-items: center;
+  gap: 0.35rem;
+}
+.hlm-glam-reviews-bar-label {
+  font-size: 0.62rem;
+  font-weight: 800;
+  color: #c2410c;
+  text-align: right;
+}
+.hlm-glam-reviews-bar-track {
+  height: 0.35rem;
+  border-radius: 999px;
+  background: #fce7f3;
+  overflow: hidden;
+}
+.hlm-glam-reviews-bar-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #fb923c, #ea580c);
+}
+.hlm-glam-reviews-bar-pct {
+  font-size: 0.58rem;
+  font-weight: 700;
+  color: #6b7280;
+  text-align: right;
+}
+.hlm-glam-reviews-list {
+  display: grid;
+  gap: 0.45rem;
+  max-height: none;
+}
+.hlm-glam-reviews-list--sheet {
+  max-height: min(52vh, 420px);
+  overflow-y: auto;
+  padding-right: 0.15rem;
+  -webkit-overflow-scrolling: touch;
+}
+.hlm-glam-review-card {
+  margin: 0;
+  padding: 0.5rem 0.55rem;
+  border-radius: 10px;
+  border: 1px solid #f3f4f6;
+  background: #fff;
+}
+.hlm-glam-review-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.25rem;
+}
+.hlm-glam-review-card-stars {
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  color: #ea580c;
+  font-weight: 900;
+}
+.hlm-glam-review-card-stars-dim {
+  color: #e5e7eb;
+  font-weight: 700;
+}
+.hlm-glam-review-card-date {
+  font-size: 0.6rem;
+  font-weight: 600;
+  color: #9ca3af;
+  white-space: nowrap;
+}
+.hlm-glam-review-card-text {
+  margin: 0;
+  font-size: 0.74rem;
+  font-weight: 600;
+  line-height: 1.45;
+  color: #111827;
+}
+.hlm-glam-reviews-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.65rem;
+  margin-top: 0.5rem;
+}
+.hlm-glam-reviews-link-btn,
+.hlm-glam-reviews-load {
+  border: none;
+  border-radius: 999px;
+  padding: 0.4rem 0.85rem;
+  font-size: 0.72rem;
+  font-weight: 800;
+  cursor: pointer;
+  font-family: inherit;
+}
+.hlm-glam-reviews-link-btn {
+  background: #fdf2f8;
+  color: #be185d;
+  border: 1px solid #f9a8d4;
+}
+.hlm-glam-reviews-load {
+  background: linear-gradient(135deg, #be185d, #db2777);
+  color: #fff;
+}
+.hlm-glam-reviews-load:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.hlm-glam-reviews-end,
+.hlm-glam-reviews-muted,
+.hlm-glam-reviews-error {
+  margin: 0;
+  font-size: 0.65rem;
+  font-weight: 600;
+}
+.hlm-glam-reviews-muted { color: #6b7280; }
+.hlm-glam-reviews-error { color: #b91c1c; }
+.hlm-glam-reviews-end { color: #6b7280; }
+.hlm-glam-reviews-sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 0.75rem;
+}
+.hlm-glam-reviews-sheet {
+  width: min(100%, 32rem);
+  max-height: min(92vh, 640px);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  border-radius: 18px 18px 14px 14px;
+  background: #fff;
+  box-shadow: 0 24px 48px rgba(15, 23, 42, 0.18);
+  padding: 0.75rem 0.85rem 0.85rem;
+}
+.hlm-glam-reviews-sheet-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.35rem;
+  flex-shrink: 0;
+}
+.hlm-glam-reviews-sheet-close {
+  border: none;
+  background: #f3f4f6;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  flex-shrink: 0;
 }
 .hlm-glam-service-table-wrap {
   overflow-x: auto;
@@ -767,6 +1088,27 @@ const SKIN = `
 @media (max-width: 360px) {
   .hlm-glam-occasions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+@media (max-width: 520px) {
+  .hlm-glam-artist {
+    flex-basis: clamp(6.5rem, 40vw, 7.75rem);
+    width: clamp(6.5rem, 40vw, 7.75rem);
+  }
+  .hlm-glam-artists {
+    padding-bottom: 1.25rem;
+    scroll-snap-type: x mandatory;
+  }
+  .hlm-glam-artist-on {
+    box-shadow:
+      0 0 0 2px rgba(236, 72, 153, 0.2),
+      0 6px 18px rgba(219, 39, 119, 0.18);
+  }
+}
+@media (min-width: 521px) {
+  .hlm-glam-artist {
+    flex-basis: clamp(7.25rem, 28vw, 9rem);
+    width: clamp(7.25rem, 28vw, 9rem);
+  }
+}
 .hlm-glam-dock-wrap {
   position: fixed;
   left: 0;
@@ -1017,6 +1359,7 @@ export function BeautyPage() {
   const [photoBusy, setPhotoBusy] = useState(false);
   const [prepayMode, setPrepayMode] = useState<'FULL' | 'PARTIAL'>('FULL');
   const [confirming, setConfirming] = useState(false);
+  const [checkoutStep, setCheckoutStep] = useState<'idle' | 'booking' | 'checkout' | 'paying'>('idle');
   const [workGalleryArtistId, setWorkGalleryArtistId] = useState<string | null>(null);
   const now = useMemo(() => new Date(), [slotDate, slotId]);
   const artist = artists.find((row) => row.vendorId === artistId) ?? null;
@@ -1218,6 +1561,22 @@ export function BeautyPage() {
     if (!partialAllowed && prepayMode === 'PARTIAL') setPrepayMode('FULL');
   }, [partialAllowed, prepayMode]);
 
+  useEffect(() => {
+    if (!confirming) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !busy) setConfirming(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [confirming, busy]);
+
+  function closeConfirmSheet() {
+    if (busy) return;
+    setConfirming(false);
+    setCheckoutStep('idle');
+    setError(null);
+  }
+
   function toggleService(serviceId: string) {
     setSelectedServices((prev) =>
       prev.includes(serviceId) ? prev.filter((id) => id !== serviceId) : [...prev, serviceId],
@@ -1263,8 +1622,11 @@ export function BeautyPage() {
     const slot = visibleSlots.find((row) => row.id === slotId);
     if (!slot) return;
     setBusy(true);
+    setCheckoutStep('booking');
     setError(null);
+    const contactPhone = tenDigitIndianPhone(session?.phone);
     try {
+      sessionStorage.setItem('hlm:lastPaymentGateway', paymentGateway);
       const placed = await placeBeautyOrder(token, {
         townId,
         vendorId: artist.vendorId,
@@ -1274,25 +1636,32 @@ export function BeautyPage() {
         paymentMethod: 'UPI',
         prepayMode: partialAllowed && prepayMode === 'PARTIAL' ? 'PARTIAL' : 'FULL',
         paymentGateway,
+        contactPhone: contactPhone ?? undefined,
         specialInstructions: note.trim() || undefined,
         referencePhotoMediaId,
         addressId: needsAddress ? addressId : undefined,
         slotStart: slotInstant(slotDate, slot.start),
         slotEnd: slotEndFromDuration(slotDate, slotId, totalMinutes, visibleSlots),
       });
-      setConfirming(false);
-      await new Promise<void>((resolve) => {
-        requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
-      });
       let payError: string | null = null;
       try {
-        const checkout = await resolveCheckoutForPayment(token, placed.payment, {
-          timeoutMs: 24_000,
-          intervalMs: 250,
+        setCheckoutStep('checkout');
+        const checkout = await resolveOnlineCheckout({
+          token,
+          payment: placed.payment,
+          paymentGateway,
+          retry: () => retryBeautyPayment(token, placed.id, paymentGateway),
         });
-        const paid = await openGatewayCheckout(checkout, { contact: session?.phone });
-        await confirmOnlinePayment(token, paid);
+        setConfirming(false);
+        setCheckoutStep('paying');
+        await new Promise<void>((resolve) => {
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+        });
+        const paid = await openGatewayCheckout(checkout, { contact: session?.phone ?? contactPhone ?? undefined });
+        await confirmOnlinePaymentResilient(token, paid);
       } catch (err) {
+        setConfirming(false);
+        setCheckoutStep('idle');
         if (err instanceof CheckoutDismissedError) {
           navigate(`/beauty/orders/${placed.id}`, {
             state: { payNotice: 'Booking saved — complete UPI payment on the next screen.' },
@@ -1303,11 +1672,24 @@ export function BeautyPage() {
       }
       navigate(`/beauty/orders/${placed.id}`, payError ? { state: { payError } } : undefined);
     } catch (err) {
+      setCheckoutStep('idle');
       setError(err instanceof ApiError || err instanceof Error ? err.message : 'Could not book');
     } finally {
       setBusy(false);
+      setCheckoutStep('idle');
     }
   }
+
+  const payButtonLabel =
+    checkoutStep === 'booking'
+      ? 'Saving booking…'
+      : checkoutStep === 'checkout'
+        ? paymentGateway === 'CASHFREE'
+          ? 'Opening Cashfree…'
+          : 'Preparing checkout…'
+        : checkoutStep === 'paying'
+          ? 'Complete payment in the window…'
+          : `Pay ${money(payNow)} & book`;
 
   return (
     <PortalShell
@@ -1389,52 +1771,78 @@ export function BeautyPage() {
             {artists.length === 0 ? (
               <p style={styles.muted}>No artists are listed yet. Check back soon.</p>
             ) : (
-              <div className="hlm-glam-artists">
-                {artists.map((row) => (
-                  <div
-                    key={row.vendorId}
-                    role="button"
-                    tabIndex={0}
-                    className={`hlm-glam-artist${artistId === row.vendorId ? ' hlm-glam-artist-on' : ''}`}
-                    onClick={() => selectArtist(row.vendorId)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault();
-                        selectArtist(row.vendorId);
-                      }
-                    }}
-                  >
-                    <div className="hlm-glam-artist-top">
-                      <span className="hlm-glam-artist-avatar" aria-hidden>
-                        {artistInitials(row.businessName)}
-                      </span>
-                      <p className="hlm-glam-artist-name">{row.businessName}</p>
+              <div className="hlm-glam-artists-scroll">
+                <div
+                  className="hlm-glam-artists"
+                  role="group"
+                  aria-label="Artists — swipe left or right to compare"
+                >
+                  {artists.map((row) => (
+                    <div
+                      key={row.vendorId}
+                      role="button"
+                      tabIndex={0}
+                      className={`hlm-glam-artist${artistId === row.vendorId ? ' hlm-glam-artist-on' : ''}`}
+                      onClick={() => selectArtist(row.vendorId)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          selectArtist(row.vendorId);
+                        }
+                      }}
+                    >
+                      <div className="hlm-glam-artist-top">
+                        <span className="hlm-glam-artist-avatar" aria-hidden>
+                          {artistInitials(row.businessName)}
+                        </span>
+                        <p className="hlm-glam-artist-name">{artistCardName(row)}</p>
+                      </div>
+                      <p className="hlm-glam-artist-meta">
+                        <span
+                          className={`hlm-glam-artist-audience hlm-glam-artist-audience--${artistServiceFor(row).toLowerCase()}`}
+                        >
+                          For {serviceForLabel(artistServiceFor(row))}
+                        </span>
+                        <span className="hlm-glam-rating">★ {Number(row.ratingScore ?? 4.8).toFixed(1)}</span>
+                        {row.yearsExperience ? <span>{row.yearsExperience}+ yrs exp.</span> : null}
+                      </p>
+                      <p className={`hlm-glam-artist-tag${row.tagline ? '' : ' hlm-glam-artist-tag--empty'}`}>
+                        {row.tagline || 'Tagline'}
+                      </p>
+                      <div className="hlm-glam-artist-work-slot">
+                        {(row.workPhotos?.length ?? 0) > 0 ? (
+                          <button
+                            type="button"
+                            className="hlm-glam-artist-work"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setWorkGalleryArtistId(row.vendorId);
+                            }}
+                          >
+                            Our work ({row.workPhotos!.length})
+                          </button>
+                        ) : (
+                          <span className="hlm-glam-artist-work hlm-glam-artist-work--placeholder">Our work</span>
+                        )}
+                      </div>
                     </div>
-                    <p className="hlm-glam-artist-meta">
-                      <span className="hlm-glam-rating">★ {Number(row.ratingScore ?? 4.8).toFixed(1)}</span>
-                      {row.yearsExperience ? <span>{row.yearsExperience}+ yrs exp.</span> : null}
-                    </p>
-                    {row.tagline ? <p className="hlm-glam-artist-tag">{row.tagline}</p> : null}
-                    {(row.workPhotos?.length ?? 0) > 0 ? (
-                      <button
-                        type="button"
-                        className="hlm-glam-artist-work"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setWorkGalleryArtistId(row.vendorId);
-                        }}
-                      >
-                        Our work ({row.workPhotos!.length})
-                      </button>
-                    ) : null}
-                  </div>
-                ))}
+                  ))}
+                  <div className="hlm-glam-artists-tail" aria-hidden />
+                </div>
               </div>
             )}
           </div>
 
           {artist ? (
             <>
+              {token ? (
+                <GlamCustomerReviewsPanel
+                  token={token}
+                  vendorId={artist.vendorId}
+                  artistName={artistDisplayName(artist)}
+                  preview={artist.customerReviews}
+                />
+              ) : null}
               <div className="hlm-glam-when-where-row">
                 <div className="hlm-glam-panel hlm-glam-panel-priority" aria-label="When">
                   <div className="hlm-glam-panel-head">
@@ -1579,7 +1987,7 @@ export function BeautyPage() {
                   </span>
                   <div className="hlm-glam-panel-head-text">
                     <p className="hlm-glam-section-title">Choose a service</p>
-                    <p className="hlm-glam-section-sub">Tap rows to select · {artist.businessName}</p>
+                    <p className="hlm-glam-section-sub">Tap rows to select · {artistDisplayName(artist)}</p>
                   </div>
                 </div>
                 {offeredRates.length === 0 ? (
@@ -1708,65 +2116,85 @@ export function BeautyPage() {
 
       <GlamWorkGallerySheet
         open={workGalleryArtistId != null}
-        artistName={workGalleryArtist?.businessName ?? 'Artist'}
+        artistName={workGalleryArtist ? artistDisplayName(workGalleryArtist) : 'Artist'}
         photos={workGalleryArtist?.workPhotos ?? []}
         onClose={() => setWorkGalleryArtistId(null)}
       />
 
       {confirming ? (
-        <div style={styles.sheetBackdrop} role="presentation" onClick={() => !busy && setConfirming(false)}>
-          <div style={styles.sheet} role="dialog" aria-label="Confirm booking" onClick={(e) => e.stopPropagation()}>
-            <h3 style={styles.sheetTitle}>Pay to confirm booking</h3>
-            <p style={styles.sheetLine}>
-              {artist?.businessName} · {chosenRates.map((row) => rateLabel(row)).join(' + ')}
-            </p>
-            <p style={styles.sheetLine}>{venue === 'AT_HOME' ? 'At your home' : 'At studio'}</p>
-            <PriceBreakdown sheet />
-            <p style={styles.sheetMuted}>Choose how much to pay online now — both options use UPI.</p>
-            <div style={styles.payRow}>
-              <button
-                type="button"
-                className={`hlm-glam-pay-tile${prepayMode === 'FULL' ? ' hlm-glam-pay-tile-on' : ' hlm-glam-pay-tile-off'}`}
-                onClick={() => setPrepayMode('FULL')}
-              >
-                <span className="hlm-glam-pay-title">Pay full · {money(baseTotal)}</span>
-                <span className="hlm-glam-pay-hint">Slot adjustments if available</span>
-                {scratchFullPromo ? (
-                  <span className="hlm-glam-pay-hint hlm-glam-pay-scratch">
-                    Win a scratch card up to ₹{scratchFullUpto}
-                  </span>
-                ) : null}
+        <div style={styles.sheetBackdrop} role="presentation" onClick={() => closeConfirmSheet()}>
+          <div style={styles.sheet} role="dialog" aria-modal="true" aria-label="Confirm booking" onClick={(e) => e.stopPropagation()}>
+            <div style={styles.sheetTopBar}>
+              <div style={styles.sheetHandle} aria-hidden />
+              <button type="button" style={styles.sheetCloseBtn} onClick={() => closeConfirmSheet()} disabled={busy} aria-label="Close and edit services">
+                ×
               </button>
-              {partialAllowed ? (
+            </div>
+            <h3 style={styles.sheetTitle}>Pay to confirm booking</h3>
+            <div style={styles.sheetScroll} className="hlm-hide-scrollbar">
+              <p style={styles.sheetLine}>
+                {artist ? artistDisplayName(artist) : 'Artist'} · {chosenRates.map((row) => rateLabel(row)).join(' + ')}
+              </p>
+              <p style={styles.sheetLine}>{venue === 'AT_HOME' ? 'At your home' : 'At studio'}</p>
+              <PriceBreakdown sheet />
+              <p style={styles.sheetMuted}>Choose how much to pay online now — both options use UPI.</p>
+              <div style={styles.payRow}>
                 <button
                   type="button"
-                  className={`hlm-glam-pay-tile${prepayMode === 'PARTIAL' ? ' hlm-glam-pay-tile-on' : ' hlm-glam-pay-tile-off'}`}
-                  onClick={() => setPrepayMode('PARTIAL')}
+                  className={`hlm-glam-pay-tile${prepayMode === 'FULL' ? ' hlm-glam-pay-tile-on' : ' hlm-glam-pay-tile-off'}`}
+                  onClick={() => setPrepayMode('FULL')}
                 >
-                  <span className="hlm-glam-pay-title">Pay {money(minPrepay)} and book</span>
-                  <span className="hlm-glam-pay-hint">Not refunded · balance at parlour</span>
-                  {scratchPartialPromo ? (
+                  <span className="hlm-glam-pay-title">Pay full · {money(baseTotal)}</span>
+                  <span className="hlm-glam-pay-hint">Slot adjustments if available</span>
+                  {scratchFullPromo ? (
                     <span className="hlm-glam-pay-hint hlm-glam-pay-scratch">
-                      Scratch card up to ₹{scratchPartialUpto}
+                      Win a scratch card up to ₹{scratchFullUpto}
                     </span>
                   ) : null}
                 </button>
+                {partialAllowed ? (
+                  <button
+                    type="button"
+                    className={`hlm-glam-pay-tile${prepayMode === 'PARTIAL' ? ' hlm-glam-pay-tile-on' : ' hlm-glam-pay-tile-off'}`}
+                    onClick={() => setPrepayMode('PARTIAL')}
+                  >
+                    <span className="hlm-glam-pay-title">Pay {money(minPrepay)} and book</span>
+                    <span className="hlm-glam-pay-hint">Not refunded · balance at parlour</span>
+                    {scratchPartialPromo ? (
+                      <span className="hlm-glam-pay-hint hlm-glam-pay-scratch">
+                        Scratch card up to ₹{scratchPartialUpto}
+                      </span>
+                    ) : null}
+                  </button>
+                ) : null}
+              </div>
+              {prepayMode === 'PARTIAL' && partialAllowed ? (
+                <p style={styles.sheetMuted}>
+                  Pay {money(minPrepay)} now · {money(balanceAfterPrepay)} due at the parlour before your slot
+                </p>
               ) : null}
+              {!upiEnabled ? (
+                <p style={{ ...styles.sheetMuted, color: '#b91c1c', fontWeight: 700 }}>UPI is not enabled in this town.</p>
+              ) : (
+                <PaymentGatewayChoices
+                  options={paymentGateways}
+                  value={paymentGateway}
+                  onChange={setPaymentGateway}
+                  disabled={busy}
+                />
+              )}
+              {error ? <p style={styles.sheetError}>{error}</p> : null}
             </div>
-            {prepayMode === 'PARTIAL' && partialAllowed ? (
-              <p style={styles.sheetMuted}>
-                Pay {money(minPrepay)} now · {money(balanceAfterPrepay)} due at the parlour before your slot
-              </p>
-            ) : null}
-            {!upiEnabled ? (
-              <p style={{ ...styles.sheetMuted, color: '#b91c1c', fontWeight: 700 }}>UPI is not enabled in this town.</p>
-            ) : (
-              <PaymentGatewayChoices options={paymentGateways} value={paymentGateway} onChange={setPaymentGateway} />
-            )}
-            {error ? <p style={styles.sheetError}>{error}</p> : null}
-            <button type="button" style={styles.confirmBtn} disabled={busy || !upiEnabled} onClick={() => void submit()}>
-              {busy ? 'Starting payment…' : `Pay ${money(payNow)} & book`}
-            </button>
+            <div style={styles.sheetFooter}>
+              <div style={styles.sheetFooterActions}>
+                <button type="button" style={styles.sheetBackBtn} disabled={busy} onClick={() => closeConfirmSheet()}>
+                  Edit services
+                </button>
+                <button type="button" style={styles.confirmBtn} disabled={busy || !upiEnabled} onClick={() => void submit()}>
+                  {busy ? payButtonLabel : `Pay ${money(payNow)} & book`}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       ) : null}
@@ -1812,18 +2240,95 @@ const styles: Record<string, CSSProperties> = {
     inset: 0,
     background: 'rgba(15, 23, 42, 0.45)',
     zIndex: 60,
-    display: 'grid',
-    alignItems: 'end',
+    display: 'flex',
+    flexDirection: 'column',
+    justifyContent: 'flex-end',
+    overflow: 'hidden',
   },
   sheet: {
     background: 'linear-gradient(180deg, #fff 0%, #fdf2f8 100%)',
     borderRadius: '22px 22px 0 0',
-    padding: '1.1rem 0.9rem calc(1rem + env(safe-area-inset-bottom))',
+    padding: '0.85rem 0.9rem 0',
+    display: 'flex',
+    flexDirection: 'column',
+    maxHeight: 'min(92dvh, 100%)',
+    minHeight: 0,
+    width: '100%',
+    maxWidth: 'var(--shell-max)',
+    margin: '0 auto',
+    borderTop: '1px solid rgba(244, 114, 182, 0.35)',
+    boxSizing: 'border-box',
+  },
+  sheetTopBar: {
+    position: 'relative',
+    flexShrink: 0,
+    display: 'grid',
+    placeItems: 'center',
+    padding: '0.35rem 0.75rem 0.15rem',
+  },
+  sheetHandle: {
+    width: 44,
+    height: 5,
+    borderRadius: 999,
+    background: 'rgba(190, 24, 93, 0.28)',
+  },
+  sheetCloseBtn: {
+    position: 'absolute',
+    right: '0.65rem',
+    top: '0.15rem',
+    width: 36,
+    height: 36,
+    border: '1px solid rgba(244, 114, 182, 0.45)',
+    borderRadius: 999,
+    background: '#fff',
+    color: '#831843',
+    fontSize: '1.35rem',
+    lineHeight: 1,
+    fontWeight: 500,
+    cursor: 'pointer',
+    display: 'grid',
+    placeItems: 'center',
+  },
+  sheetScroll: {
+    flex: '1 1 auto',
+    minHeight: 0,
+    overflowY: 'auto',
+    WebkitOverflowScrolling: 'touch',
+    overscrollBehavior: 'contain',
     display: 'grid',
     gap: '0.5rem',
-    borderTop: '1px solid rgba(244, 114, 182, 0.35)',
+    padding: '0 0.9rem 0.35rem',
   },
-  sheetTitle: { margin: 0, fontSize: '1rem', fontWeight: 900 },
+  sheetFooter: {
+    flexShrink: 0,
+    padding: '0.45rem 0.9rem calc(0.85rem + env(safe-area-inset-bottom, 0px))',
+    borderTop: '1px solid rgba(244, 114, 182, 0.22)',
+    background: 'linear-gradient(180deg, rgba(255,255,255,0.92) 0%, #fdf2f8 100%)',
+  },
+  sheetFooterActions: {
+    display: 'grid',
+    gridTemplateColumns: '1fr 1.25fr',
+    gap: '0.45rem',
+    alignItems: 'stretch',
+  },
+  sheetBackBtn: {
+    minHeight: 46,
+    borderRadius: 12,
+    border: '1.5px solid rgba(244, 114, 182, 0.55)',
+    background: '#fff',
+    color: '#831843',
+    fontWeight: 800,
+    fontSize: '0.78rem',
+    cursor: 'pointer',
+  },
+  sheetTitle: {
+    margin: 0,
+    padding: '0 0.9rem 0.35rem',
+    fontSize: '1rem',
+    fontWeight: 900,
+    minWidth: 0,
+    paddingRight: '3rem',
+  },
   sheetLine: { margin: 0, fontSize: '0.78rem', fontWeight: 700 },
   sheetMuted: { margin: 0, fontSize: '0.68rem', color: 'var(--text-muted)', fontWeight: 600 },
   sheetError: { margin: '0.35rem 0 0', fontSize: '0.72rem', color: '#b91c1c', fontWeight: 700, lineHeight: 1.4 },

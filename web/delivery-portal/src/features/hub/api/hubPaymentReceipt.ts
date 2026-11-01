@@ -123,8 +123,8 @@ export function hubPaymentReceiptHtml(receipt: HubPaymentReceipt): string {
     * { box-sizing: border-box; }
     html, body { background: #fff; color: #0f172a; color-scheme: light; }
     body { font-family: Segoe UI, system-ui, sans-serif; margin: 0; padding: 28px; font-size: 13px; }
-    .sheet { max-width: 640px; border-top: 4px solid #0C831F; }
-    .brand { margin: 0; font-size: 12px; font-weight: 800; letter-spacing: 0.04em; color: #0C831F; text-transform: uppercase; }
+    .sheet { max-width: 640px; border-top: 4px solid #009111; }
+    .brand { margin: 0; font-size: 12px; font-weight: 800; letter-spacing: 0.04em; color: #009111; text-transform: uppercase; }
     h1 { margin: 2px 0 0; font-size: 20px; }
     .status { margin: 4px 0 16px; color: #64748b; font-size: 12px; }
     .facts { display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; margin: 0 0 16px; }

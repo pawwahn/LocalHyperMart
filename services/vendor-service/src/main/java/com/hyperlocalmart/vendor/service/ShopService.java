@@ -9,6 +9,7 @@ import com.hyperlocalmart.vendor.dto.response.VendorShopContextResponse;
 import com.hyperlocalmart.vendor.dto.response.VendorShopStatusResponse;
 import com.hyperlocalmart.vendor.entity.Shop;
 import com.hyperlocalmart.vendor.entity.ShopStatus;
+import com.hyperlocalmart.vendor.entity.Vendor;
 import com.hyperlocalmart.vendor.entity.VendorStatus;
 import com.hyperlocalmart.vendor.repository.ShopRepository;
 import lombok.RequiredArgsConstructor;
@@ -16,7 +17,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @Service
@@ -42,14 +45,37 @@ public class ShopService {
                 .toList();
     }
 
+    /** Primary shop is ACTIVE and not paused — same rule as {@link #getShopsByIds}. */
+    @Transactional(readOnly = true)
+    public boolean isVendorShopOpenForCustomers(UUID vendorId) {
+        return vendorShopOpenForCustomers(List.of(vendorId)).getOrDefault(vendorId, true);
+    }
+
+    @Transactional(readOnly = true)
+    public Map<UUID, Boolean> vendorShopOpenForCustomers(Collection<UUID> vendorIds) {
+        if (vendorIds == null || vendorIds.isEmpty()) {
+            return Map.of();
+        }
+        Map<UUID, Boolean> out = new LinkedHashMap<>();
+        for (Shop shop : shopRepository.findByVendor_IdIn(vendorIds)) {
+            if (shop.getVendor() == null) {
+                continue;
+            }
+            out.putIfAbsent(shop.getVendor().getId(), isShopOpenForCustomers(shop));
+        }
+        return out;
+    }
+
     @Transactional(readOnly = true)
     public VendorShopContextResponse getShopContextForVendor(UUID vendorId) {
         Shop shop = requireShopForVendor(vendorId);
+        Vendor vendor = shop.getVendor();
         return VendorShopContextResponse.builder()
                 .vendorId(vendorId)
-                .townId(shop.getVendor().getTownId())
+                .townId(vendor.getTownId())
                 .shopId(shop.getId())
                 .shopName(shop.getShopName())
+                .serviceFor(vendor.getServiceFor() == null ? null : vendor.getServiceFor().name())
                 .build();
     }
 
@@ -87,6 +113,10 @@ public class ShopService {
             shop.setPincode(pincode.isEmpty() ? null : pincode);
         }
         return toStatus(shopRepository.save(shop));
+    }
+
+    private static boolean isShopOpenForCustomers(Shop shop) {
+        return shop.getStatus() == ShopStatus.ACTIVE && shop.isAcceptingOrders();
     }
 
     private Shop requireShopForVendor(UUID vendorId) {
@@ -138,13 +168,15 @@ public class ShopService {
     }
 
     private ShopSummaryResponse toSummary(Shop shop) {
+        Vendor vendor = shop.getVendor();
         return ShopSummaryResponse.builder()
                 .id(shop.getId())
-                .vendorId(shop.getVendor().getId())
+                .vendorId(vendor.getId())
                 .shopName(shop.getShopName())
+                .serviceFor(vendor.getServiceFor() == null ? null : vendor.getServiceFor().name())
                 .address(shop.getAddress())
                 .pincode(shop.getPincode())
-                .phone(shop.getVendor() != null ? shop.getVendor().getPhone() : null)
+                .phone(vendor.getPhone())
                 .build();
     }
 }

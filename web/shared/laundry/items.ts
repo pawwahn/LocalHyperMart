@@ -1,5 +1,3 @@
-/// <reference types="vite/client" />
-
 const files = import.meta.glob('./images/*.png', { eager: true, import: 'default' }) as Record<string, string>;
 
 function photo(id: string): string {

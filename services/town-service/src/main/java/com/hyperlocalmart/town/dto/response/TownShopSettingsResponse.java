@@ -12,7 +12,7 @@ import java.util.List;
 public class TownShopSettingsResponse {
 
     @Builder.Default
-    private String themeColor = "#0C831F";
+    private String themeColor = "#009111";
 
     @Builder.Default
     private boolean bestDealsEnabled = true;

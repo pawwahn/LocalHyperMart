@@ -1,5 +1,6 @@
 package com.hyperlocalmart.payment.service;
 
+import com.hyperlocalmart.common.util.IndianMobilePhones;
 import com.hyperlocalmart.common.exception.BusinessException;
 import com.hyperlocalmart.common.exception.ErrorCode;
 import com.hyperlocalmart.payment.entity.BuyerMembershipPurchase;
@@ -8,6 +9,7 @@ import com.hyperlocalmart.payment.cashfree.CashfreeClient;
 import com.hyperlocalmart.payment.entity.Payment;
 import com.hyperlocalmart.payment.entity.PaymentGateway;
 import com.hyperlocalmart.payment.entity.PaymentStatus;
+import com.hyperlocalmart.payment.client.OrderClient;
 import com.hyperlocalmart.payment.phonepe.PhonePeClient;
 import com.hyperlocalmart.payment.razorpay.RazorpayClient;
 import com.hyperlocalmart.payment.razorpay.RazorpayMoney;
@@ -33,6 +35,7 @@ public class RazorpayGatewaySyncService {
     private final RazorpayClient razorpayClient;
     private final CashfreeClient cashfreeClient;
     private final PhonePeClient phonePeClient;
+    private final OrderClient orderClient;
     private final TransactionTemplate transactionTemplate;
 
     public void ensureOrderPaymentGateway(UUID paymentId) {
@@ -41,12 +44,19 @@ public class RazorpayGatewaySyncService {
             return;
         }
         if (payment.getGatewayOrderId() != null && !payment.getGatewayOrderId().isBlank()) {
-            return;
+            if (payment.getGateway() != PaymentGateway.CASHFREE
+                    || payment.getGatewaySession() != null && !payment.getGatewaySession().isBlank()) {
+                return;
+            }
+            payment.setGatewayOrderId(null);
+            paymentRepository.save(payment);
+            payment = paymentRepository.findById(paymentId).orElse(payment);
         }
+        String buyerPhone = resolveBuyerPhone(payment);
         if (payment.getGateway() == PaymentGateway.CASHFREE) {
             String orderId = payment.getId().toString().replace("-", "");
             CashfreeClient.CreatedOrder created = cashfreeClient.createOrder(
-                    orderId, payment.getAmount(), payment.getBuyerPhone(), payment.getBuyerId().toString());
+                    orderId, payment.getAmount(), buyerPhone, payment.getBuyerId().toString());
             saveGateway(paymentId, created.orderId(), created.paymentSessionId());
             return;
         }
@@ -99,6 +109,25 @@ public class RazorpayGatewaySyncService {
             row.setGatewayOrderId(rzp.id());
             purchaseRepository.save(row);
         });
+    }
+
+    private String resolveBuyerPhone(Payment payment) {
+        String phone = IndianMobilePhones.tenDigit(payment.getBuyerPhone());
+        if (phone != null) {
+            return phone;
+        }
+        try {
+            OrderClient.OrderSnapshot order = orderClient.getOrder(payment.getOrderId(), payment.getBuyerId());
+            phone = IndianMobilePhones.tenDigit(order.buyerPhone());
+            if (phone != null) {
+                payment.setBuyerPhone(phone);
+                paymentRepository.save(payment);
+                return phone;
+            }
+        } catch (Exception ex) {
+            log.warn("Could not load buyer phone for payment {}", payment.getId(), ex);
+        }
+        return payment.getBuyerPhone();
     }
 
     private RazorpayOrder createRazorpayOrder(Payment payment, java.math.BigDecimal amount) {

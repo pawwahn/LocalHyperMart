@@ -7,6 +7,7 @@ import com.hyperlocalmart.order.dto.beauty.BeautyArtistCard;
 import com.hyperlocalmart.order.dto.beauty.BeautyAvailabilityResponse;
 import com.hyperlocalmart.order.dto.beauty.BeautyOrderResponse;
 import com.hyperlocalmart.order.dto.beauty.PlaceBeautyOrderRequest;
+import com.hyperlocalmart.order.dto.beauty.BeautyVendorReviewsPageResponse;
 import com.hyperlocalmart.order.dto.beauty.RateBeautyOrderRequest;
 import com.hyperlocalmart.order.dto.response.PaymentInfoResponse;
 import com.hyperlocalmart.order.security.AuthUserPrincipal;
@@ -48,6 +49,17 @@ public class BeautyOrderController {
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, beautyOrderService.availability(vendorId, day)));
     }
 
+    @GetMapping("/vendors/{vendorId}/reviews")
+    public ResponseEntity<ApiResponse<BeautyVendorReviewsPageResponse>> vendorReviews(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @PathVariable UUID vendorId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "12") int size,
+            HttpServletRequest httpRequest) {
+        requireUser(principal);
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest, beautyOrderService.vendorReviews(vendorId, page, size)));
+    }
+
     @GetMapping("/artists")
     public ResponseEntity<ApiResponse<List<BeautyArtistCard>>> artists(
             @AuthenticationPrincipal AuthUserPrincipal principal,
@@ -64,7 +76,8 @@ public class BeautyOrderController {
             HttpServletRequest httpRequest) {
         requireUser(principal);
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(ApiResponses.ok(httpRequest, beautyOrderService.place(principal.getUserId(), request)));
+                .body(ApiResponses.ok(httpRequest, beautyOrderService.place(
+                        principal.getUserId(), principal.getPhone(), request)));
     }
 
     @GetMapping
@@ -114,7 +127,8 @@ public class BeautyOrderController {
             HttpServletRequest httpRequest) {
         requireUser(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
-                beautyOrderService.retryOnlinePayment(principal.getUserId(), orderId, idempotencyKey, gateway)));
+                beautyOrderService.retryOnlinePayment(
+                        principal.getUserId(), principal.getPhone(), orderId, idempotencyKey, gateway)));
     }
 
     private static void requireUser(AuthUserPrincipal principal) {

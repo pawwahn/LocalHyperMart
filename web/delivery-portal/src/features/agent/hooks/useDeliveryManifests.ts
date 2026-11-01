@@ -63,6 +63,10 @@ export function useDeliveryManifests(tasks: AssignmentView[]) {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional stable key
   }, [session, taskKey, reloadKey]);
 
+  function reloadManifests() {
+    setReloadKey((k) => k + 1);
+  }
+
   function retryManifest(assignmentId: string) {
     if (!session) return;
     void (async () => {
@@ -84,6 +88,7 @@ export function useDeliveryManifests(tasks: AssignmentView[]) {
     manifests,
     failedIds,
     loadingManifests: loading,
+    reloadManifests,
     retryManifest,
   };
 }

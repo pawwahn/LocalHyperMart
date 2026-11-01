@@ -220,6 +220,56 @@ public class OrderService {
     }
 
     @Transactional(readOnly = true)
+    public OrderDeliveryManifestResponse getSubOrderDeliveryManifest(UUID subOrderId) {
+        VendorSubOrder subOrder = vendorSubOrderRepository.findDetailedByIdWithItems(subOrderId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Sub-order not found"));
+        if (subOrder.getStatus().isClosed()) {
+            throw new BusinessException(ErrorCode.CONFLICT, "Sub-order is closed");
+        }
+        Order order = orderRepository.findWithSubOrdersById(subOrder.getOrder().getId())
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Order not found"));
+
+        String shopName = subOrder.getItems().isEmpty()
+                ? "Shop"
+                : java.util.Optional.ofNullable(subOrder.getItems().getFirst().getShopNameSnapshot()).orElse("Shop");
+        List<DeliveryManifestLineResponse> lines = new ArrayList<>();
+        BigDecimal subtotal = BigDecimal.ZERO;
+        for (OrderItem item : subOrder.getItems()) {
+            if (item.getStatus() == OrderItemStatus.CANCELLED) {
+                continue;
+            }
+            lines.add(DeliveryManifestLineResponse.builder()
+                    .shopName(shopName)
+                    .name(item.getItemNameSnapshot())
+                    .quantity(item.getQuantity())
+                    .unitCode(item.getUnitCodeSnapshot())
+                    .lineTotal(item.getLineTotal())
+                    .build());
+            if (item.getLineTotal() != null) {
+                subtotal = subtotal.add(item.getLineTotal());
+            }
+        }
+        int totalItemCount = lines.stream().mapToInt(DeliveryManifestLineResponse::getQuantity).sum();
+        BigDecimal collectCash = null;
+        if (order.getPaymentMethod() == PaymentMethod.COD) {
+            collectCash = CodCashAllocation.split(order, order.getVendorSubOrders()).vendorSlices().stream()
+                    .filter(slice -> subOrderId.equals(slice.subOrderId()))
+                    .map(CodCashAllocation.VendorSlice::allocatedCash)
+                    .findFirst()
+                    .orElse(BigDecimal.ZERO);
+        }
+        return OrderDeliveryManifestResponse.builder()
+                .orderId(order.getId())
+                .orderNumber(order.getOrderNumber())
+                .paymentMethod(order.getPaymentMethod())
+                .collectCashAmount(collectCash)
+                .subtotal(subtotal)
+                .totalItemCount(totalItemCount)
+                .items(lines)
+                .build();
+    }
+
+    @Transactional(readOnly = true)
     public OrderDeliveryManifestResponse getDeliveryManifest(UUID orderId) {
         Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Order not found"));

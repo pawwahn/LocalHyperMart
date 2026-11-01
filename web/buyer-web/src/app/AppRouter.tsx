@@ -25,7 +25,9 @@ import { BeautyOrderPage } from '@/features/beauty/pages/BeautyOrderPage';
 import { WalletProvider } from '@/features/shop/hooks/useWallet';
 import { ShopProvider } from '@/features/shop/hooks/useShop';
 import { ScratchCardHost } from '@/features/shop/components/ScratchCardHost';
-import { NativeAppBridge } from '@/shared/native/NativeAppBridge';
+import { NativeAppBridge } from '@hlm-native';
+
+const BUYER_TAB_ROOTS = ['/shop', '/categories', '/cart', '/wallet', '/more'] as const;
 import { CookieNotice, LegalDocumentPage, OpenSourceNoticesPage } from '@hlm-legal';
 import { PrivacyDataPage } from '@/features/shop/pages/PrivacyDataPage';
 import type { ReactNode } from 'react';
@@ -54,7 +56,7 @@ export function AppRouter() {
           <WalletProvider>
             <ShopProvider>
               <BrowserRouter basename={routerBasename()}>
-                <NativeAppBridge />
+                <NativeAppBridge tabRoots={BUYER_TAB_ROOTS} />
                 <Routes>
                   <Route path="/login" element={<LoginPage />} />
                   <Route path="/legal/oss" element={<OpenSourceNoticesPage homeTo="/shop" />} />

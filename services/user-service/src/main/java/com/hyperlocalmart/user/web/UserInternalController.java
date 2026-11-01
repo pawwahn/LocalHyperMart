@@ -5,9 +5,11 @@ import com.hyperlocalmart.user.dto.request.BindStaffContextRequest;
 import com.hyperlocalmart.user.dto.request.ConsumeCodPinOtpRequest;
 import com.hyperlocalmart.user.dto.request.CreateStaffUserRequest;
 import com.hyperlocalmart.user.dto.request.UpdateUserStatusRequest;
+import com.hyperlocalmart.user.dto.response.DeviceTokenInternalResponse;
 import com.hyperlocalmart.user.dto.response.StaffUserResponse;
 import com.hyperlocalmart.user.dto.response.UserProfileResponse;
 import com.hyperlocalmart.user.service.CodPinOtpService;
+import com.hyperlocalmart.user.service.DeviceTokenService;
 import com.hyperlocalmart.user.service.UserService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -16,6 +18,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -25,6 +28,7 @@ public class UserInternalController {
 
     private final UserService userService;
     private final CodPinOtpService codPinOtpService;
+    private final DeviceTokenService deviceTokenService;
 
     @GetMapping("/by-phone")
     public ResponseEntity<ApiResponse<UserProfileResponse>> findByPhone(
@@ -64,5 +68,13 @@ public class UserInternalController {
             HttpServletRequest httpRequest) {
         codPinOtpService.consumeOtp(userId, request.getOtp());
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, null));
+    }
+
+    @GetMapping("/{userId}/device-tokens")
+    public ResponseEntity<ApiResponse<List<DeviceTokenInternalResponse>>> listDeviceTokens(
+            @PathVariable UUID userId,
+            @RequestParam String appType,
+            HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest, deviceTokenService.listForUser(userId, appType)));
     }
 }

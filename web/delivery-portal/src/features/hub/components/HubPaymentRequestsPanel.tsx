@@ -640,7 +640,7 @@ const styles: Record<string, CSSProperties> = {
     padding: '0.45rem 0.85rem',
     borderRadius: 8,
     border: 'none',
-    background: 'var(--brand, #0C831F)',
+    background: 'var(--brand, #009111)',
     color: '#fff',
     fontWeight: 700,
     cursor: 'pointer',

@@ -1,0 +1,27 @@
+---
+description: KoyaKart brand green — primary app theme color #009111
+alwaysApply: true
+---
+
+# KoyaKart brand color
+
+**Primary theme / accent:** `#009111`
+
+Use for buttons, links, selected states, success accents, and checkout highlights unless a screen intentionally uses town-level `themeColor` override.
+
+## Implementation
+
+- Portal tokens: `web/*/src/shared/theme/tokens.ts` → `color.accent`, `hero`, `info`, `success` (and derived hover/soft).
+- Shared accent preset **forest / KoyaKart**: `web/shared/theme/presets.ts`.
+- Town default seed: `#009111` in town-service when no custom town color.
+- Prefer **`var(--accent)`** and theme tokens in UI (`ui-theme.mdc`); use raw `#009111` only where third-party embeds require hex (e.g. Razorpay) or tokens are unavailable.
+
+## Derived palette (reference)
+
+| Role | Hex |
+|------|-----|
+| Accent | `#009111` |
+| Accent hover / deep | `#007A0E` |
+| Accent soft background | `#E5F5E7` |
+
+Do not reintroduce legacy green `#0C831F` for new work.

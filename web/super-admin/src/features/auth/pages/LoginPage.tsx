@@ -63,7 +63,7 @@ const styles: Record<string, CSSProperties> = {
     gap: '1rem',
   },
   hero: {
-    background: 'linear-gradient(155deg, #064E16 0%, #0C831F 55%, #149A2C 100%)',
+    background: 'linear-gradient(155deg, #064E16 0%, #009111 55%, #149A2C 100%)',
     color: 'var(--text-inverse)',
     borderRadius: 'var(--radius-xl)',
     padding: '2rem 1.75rem',

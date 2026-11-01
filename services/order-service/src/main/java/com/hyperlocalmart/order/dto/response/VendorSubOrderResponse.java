@@ -23,6 +23,8 @@ public class VendorSubOrderResponse {
     private String orderNumber;
     private UUID vendorId;
     private UUID shopId;
+    /** Display name for this bag's shop (from line-item snapshot). */
+    private String shopName;
     private VendorSubOrderStatus status;
     private PaymentMethod paymentMethod;
     private PaymentStatus paymentStatus;

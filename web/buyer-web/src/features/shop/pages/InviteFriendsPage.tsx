@@ -216,9 +216,9 @@ const styles: Record<string, CSSProperties> = {
     overflow: 'hidden',
     borderRadius: 16,
     padding: '1rem 1rem 0.9rem',
-    background: 'linear-gradient(135deg, #0C831F 0%, #149A2C 52%, #1B5E20 100%)',
+    background: 'linear-gradient(135deg, #009111 0%, #149A2C 52%, #1B5E20 100%)',
     color: '#fff',
-    boxShadow: '0 10px 28px color-mix(in srgb, #0C831F 35%, transparent)',
+    boxShadow: '0 10px 28px color-mix(in srgb, #009111 35%, transparent)',
   },
   heroGlow: {
     position: 'absolute',

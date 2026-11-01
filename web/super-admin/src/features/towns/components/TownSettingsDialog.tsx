@@ -120,7 +120,7 @@ const NAV_GROUPS: { title: string; items: { id: SettingsSection; label: string }
   },
 ];
 
-const THEME_PRESETS = ['#0C831F', '#0D9488', '#2563EB', '#D97706', '#E11D48', '#7C3AED'];
+const THEME_PRESETS = ['#009111', '#0D9488', '#2563EB', '#D97706', '#E11D48', '#7C3AED'];
 
 const emptySlab = (): DeliverySlabVm => ({
   minOrderValue: 0,
@@ -152,7 +152,7 @@ export function TownSettingsDialog({
   const [minOrderValue, setMinOrderValue] = useState(199);
   const [deliveryMode, setDeliveryMode] = useState<'DEFAULT' | 'SLAB'>('DEFAULT');
   const [slabs, setSlabs] = useState<DeliverySlabVm[]>([emptySlab()]);
-  const [themeColor, setThemeColor] = useState('#0C831F');
+  const [themeColor, setThemeColor] = useState('#009111');
   const [bestDealsEnabled, setBestDealsEnabled] = useState(true);
   const [dealPrices, setDealPrices] = useState(['19', '29', '49', '99']);
   const [platformFee, setPlatformFee] = useState('0');

@@ -53,9 +53,9 @@ public class VendorShopClient {
         return response.getData();
     }
 
-    public record ShopInfo(UUID id, UUID vendorId, String shopName) {
+    public record ShopInfo(UUID id, UUID vendorId, String shopName, String serviceFor) {
     }
 
-    public record VendorShopContext(UUID vendorId, UUID townId, UUID shopId, String shopName) {
+    public record VendorShopContext(UUID vendorId, UUID townId, UUID shopId, String shopName, String serviceFor) {
     }
 }

@@ -220,7 +220,6 @@ const styles: Record<string, CSSProperties> = {
     justifyContent: 'center',
     padding: '0 0.75rem 0.35rem',
     pointerEvents: 'none',
-    animation: 'hlm-slide-up 220ms ease both',
   },
   bar: {
     pointerEvents: 'auto',
@@ -229,11 +228,11 @@ const styles: Record<string, CSSProperties> = {
     display: 'flex',
     alignItems: 'center',
     gap: '0.4rem',
-    background: '#0C831F',
-    color: '#fff',
+    background: 'var(--accent)',
+    color: 'var(--text-inverse)',
     borderRadius: 12,
     padding: '0.35rem 0.35rem 0.35rem 0.65rem',
-    boxShadow: '0 8px 20px rgba(12, 131, 31, 0.32)',
+    boxShadow: 'var(--shadow-elevated)',
     minHeight: 48,
   },
   leftLink: {

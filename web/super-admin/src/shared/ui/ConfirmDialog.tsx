@@ -63,7 +63,7 @@ export function ConfirmDialog({
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        style={{ ...styles.dialog, borderTop: `4px solid ${danger && !alertOnly ? 'var(--danger, #dc2626)' : 'var(--brand, #0C831F)'}` }}
+        style={{ ...styles.dialog, borderTop: `4px solid ${danger && !alertOnly ? 'var(--danger, #dc2626)' : 'var(--brand, #009111)'}` }}
         onMouseDown={(e) => e.stopPropagation()}
       >
         <h2 id={titleId} style={styles.title}>

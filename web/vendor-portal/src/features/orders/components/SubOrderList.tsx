@@ -4,7 +4,7 @@ import { PAGE_SIZES, TablePager, pageWindow } from '@/shared/table';
 import type { SubOrderView } from '../api/ordersApi';
 import { vendorBagDisplayNumber } from '../orderBagLabel';
 import { vendorOrderSituation } from '../orderStatusCopy';
-import { canOfferVendorAgentDelivery } from '../vendorOrderActions';
+import { canMarkReadyForHubPickup, canOfferVendorAgentDelivery } from '../vendorOrderActions';
 import { useIsNarrow } from '@/shared/hooks/useIsNarrow';
 
 type Props = {
@@ -139,8 +139,10 @@ export function SubOrderList({
           <div style={styles.list}>
             {pageItems.map((order) => {
               const busy = actionId === order.id || actionId?.startsWith(`${order.id}:`);
-              const canAct = order.status === 'PLACED';
+              const canReject = order.status === 'PLACED';
+              const canMarkReady = canMarkReadyForHubPickup(order);
               const canVendorAgent = canOfferVendorAgentDelivery(order);
+              const canAct = canReject;
               const isCollapsed = !expanded.has(order.id);
               const itemCount = order.items.length;
               const itemLine =
@@ -205,6 +207,13 @@ export function SubOrderList({
                             {situation.siblingLine}
                           </span>
                         ) : null}
+                        {(order.siblingShops?.length ?? 0) > 0 ? (
+                          <span style={styles.bagHint}>
+                            {order.shopName ? `${order.shopName} · ` : ''}
+                            {itemCount} item{itemCount === 1 ? '' : 's'} in this bag ({bagNo}) — not the other shop&apos;s
+                            lines.
+                          </span>
+                        ) : null}
                         {situation.nextStep ? <span style={styles.nextStep}>{situation.nextStep}</span> : null}
                       </span>
                       <span style={styles.togglePill}>{toggleLabel}</span>
@@ -262,7 +271,7 @@ export function SubOrderList({
                   </div>
                   {canAct || canVendorAgent || order.status === 'DELIVERY_BY_VENDOR_AGENT' ? (
                     <div className="vendor-order-actions">
-                      {canAct ? (
+                      {canMarkReady ? (
                         <Button
                           className="vendor-order-actions-primary"
                           size="sm"
@@ -274,7 +283,8 @@ export function SubOrderList({
                       ) : null}
                       {canVendorAgent ? (
                         <Button
-                          variant="secondary"
+                          className={canMarkReady ? undefined : 'vendor-order-actions-primary'}
+                          variant={canMarkReady ? 'secondary' : undefined}
                           size="sm"
                           disabled={busy}
                           onClick={() => onDeliveryByVendorAgent(order.id, bagNo)}
@@ -282,7 +292,7 @@ export function SubOrderList({
                           My agent delivers
                         </Button>
                       ) : null}
-                      {canAct ? (
+                      {canReject ? (
                         <Button variant="ghost" size="sm" disabled={busy} onClick={() => onReject(order.id)}>
                           Reject
                         </Button>

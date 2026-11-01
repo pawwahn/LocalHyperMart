@@ -2,6 +2,7 @@ package com.hyperlocalmart.payment.cashfree;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.hyperlocalmart.common.util.IndianMobilePhones;
 import com.hyperlocalmart.common.exception.BusinessException;
 import com.hyperlocalmart.common.exception.ErrorCode;
 import com.hyperlocalmart.payment.config.PaymentProperties;
@@ -32,12 +33,22 @@ public class CashfreeClient {
     public CreatedOrder createOrder(String orderId, BigDecimal amount, String phone, String customerId) {
         Map<String, Object> customer = new LinkedHashMap<>();
         customer.put("customer_id", trimId(customerId));
-        customer.put("customer_phone", digits(phone));
+        customer.put("customer_phone", requireTenDigit(phone));
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("order_id", orderId);
         body.put("order_amount", amount.setScale(2, RoundingMode.HALF_UP));
         body.put("order_currency", "INR");
         body.put("customer_details", customer);
+        String brand = paymentProperties.getCheckoutName();
+        if (brand != null && !brand.isBlank()) {
+            body.put("order_note", brand.trim());
+        }
+        String returnUrl = paymentProperties.getPaymentReturnUrl();
+        if (returnUrl != null && !returnUrl.isBlank()) {
+            Map<String, Object> meta = new LinkedHashMap<>();
+            meta.put("return_url", returnUrl.trim());
+            body.put("order_meta", meta);
+        }
         JsonNode node = post("/orders", body);
         String session = text(node, "payment_session_id");
         if (session == null || session.isBlank()) {
@@ -140,15 +151,12 @@ public class CashfreeClient {
         return value == null || value.isBlank() ? null : value;
     }
 
-    private static String digits(String phone) {
-        String raw = phone == null ? "" : phone.replaceAll("\\D", "");
-        if (raw.length() > 10) {
-            raw = raw.substring(raw.length() - 10);
-        }
-        if (raw.length() != 10) {
+    private static String requireTenDigit(String phone) {
+        String digits = IndianMobilePhones.tenDigit(phone);
+        if (digits == null) {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, "A 10-digit phone number is required for Cashfree");
         }
-        return raw;
+        return digits;
     }
 
     private static String trimId(String value) {

@@ -5,15 +5,16 @@ export const HOME_RAIL_SECTION_IDS = {
   farm: 'hlm-home-rail-farm',
 } as const;
 
+export type ShopHomeJumpIcon = 'deals' | 'beauty' | 'fresh' | 'farm';
+
 export type ShopHomeJumpCard = {
   id: string;
   title: string;
   subtitle: string;
   ctaLabel: string;
-  background: string;
-  textTone: 'light' | 'dark';
+  accent: string;
   brandTag?: string;
-  emojis: string[];
+  icon: ShopHomeJumpIcon;
   sectionId: string;
 };
 
@@ -23,49 +24,41 @@ export function buildShopHomeJumpCards(townLabel: string): ShopHomeJumpCard[] {
     {
       id: 'jump-offers',
       title: 'Offers in your town',
-      subtitle: `Top discounts live in ${town} today`,
-      ctaLabel: 'Shop now',
-      background:
-        'radial-gradient(120% 140% at 100% 0%, rgba(247,206,70,0.28) 0%, transparent 55%), linear-gradient(135deg, #0A6E1C 0%, #0C831F 48%, #16A34A 100%)',
-      textTone: 'light',
+      subtitle: `Top discounts in ${town}`,
+      ctaLabel: 'View deals',
+      accent: '#009111',
       brandTag: 'Deals',
-      emojis: ['🏷️', '🎁', '✨'],
+      icon: 'deals',
       sectionId: HOME_RAIL_SECTION_IDS.offers,
     },
     {
       id: 'jump-skincare',
       title: 'Best in skincare',
-      subtitle: 'Serums, creams & daily care picks',
-      ctaLabel: 'Try now',
-      background:
-        'radial-gradient(90% 120% at 95% 85%, rgba(255,255,255,0.35) 0%, transparent 50%), linear-gradient(145deg, #F472B6 0%, #EC4899 38%, #DB2777 100%)',
-      textTone: 'light',
+      subtitle: 'Serums, creams and daily care',
+      ctaLabel: 'Browse',
+      accent: '#BE185D',
       brandTag: 'Beauty',
-      emojis: ['🧴', '💄', '🪞'],
+      icon: 'beauty',
       sectionId: HOME_RAIL_SECTION_IDS.skincare,
     },
     {
       id: 'jump-fresh',
       title: 'Fresh Store',
-      subtitle: 'Dairy, bread, eggs & morning staples',
-      ctaLabel: 'Shop now',
-      background:
-        'radial-gradient(110% 100% at 0% 100%, rgba(255,255,255,0.25) 0%, transparent 45%), linear-gradient(135deg, #0C831F 0%, #16A34A 50%, #4ADE80 100%)',
-      textTone: 'light',
+      subtitle: 'Dairy, bread, eggs and staples',
+      ctaLabel: 'Shop fresh',
+      accent: '#0F766E',
       brandTag: 'Fresh',
-      emojis: ['🥛', '🍞', '🥚'],
+      icon: 'fresh',
       sectionId: HOME_RAIL_SECTION_IDS.fresh,
     },
     {
       id: 'jump-farm',
-      title: 'Farm to Door',
-      subtitle: 'Vegetables & fruits from local shops',
+      title: 'Farm to door',
+      subtitle: 'Vegetables and fruits from local shops',
       ctaLabel: 'Explore',
-      background:
-        'radial-gradient(100% 90% at 85% 15%, rgba(255,255,255,0.2) 0%, transparent 50%), linear-gradient(135deg, #CA8A04 0%, #EAB308 38%, #FDE047 100%)',
-      textTone: 'dark',
-      brandTag: 'Local',
-      emojis: ['🥬', '🍎', '🥕'],
+      accent: '#CA8A04',
+      brandTag: 'Produce',
+      icon: 'farm',
       sectionId: HOME_RAIL_SECTION_IDS.farm,
     },
   ];

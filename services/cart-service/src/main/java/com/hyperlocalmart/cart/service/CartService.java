@@ -355,7 +355,8 @@ public class CartService {
                         listing = catalogListingClient.getListing(item.getListingId(), cart.getTownId());
                     } catch (BusinessException ex) {
                         String msg = ex.getMessage() == null ? "" : ex.getMessage().toLowerCase();
-                        if (msg.contains("not available") || msg.contains("not found") || msg.contains("does not belong")) {
+                        if (msg.contains("not available") || msg.contains("not found") || msg.contains("does not belong")
+                                || msg.contains("paused")) {
                             throw new BusinessException(ErrorCode.VALIDATION_ERROR,
                                     item.getItemName() + " is no longer sold by that shop. Switch shop or remove it.");
                         }

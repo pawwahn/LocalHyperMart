@@ -1,10 +1,5 @@
 import { apiRequest } from '@/shared/api/http';
-import {
-  normalizeBeautySlotSchedule,
-  parseStaffOverrides,
-  scheduleFromArtist,
-  serializeStaffOverrides,
-} from '@hlm-beauty';
+import { parseStaffOverrides, scheduleFromArtist, serializeStaffOverrides } from '@hlm-beauty';
 
 export type BeautyOrder = {
   id: string;
@@ -125,6 +120,7 @@ export type BeautyProfile = {
   homeVisitCharge?: number | null;
   rates?: BeautyRateRow[];
   workPhotos?: BeautyWorkPhoto[];
+  studioAddress?: string | null;
 };
 
 /** Normalize glam profile from API (schedule + staffOverrides field shapes). */
@@ -140,8 +136,8 @@ export function normalizeBeautyProfile(row: BeautyProfile): BeautyProfile {
     staffOverrides = undefined;
   } else if (typeof raw === 'string') {
     staffOverrides = raw;
-  } else if (typeof raw === 'object') {
-    staffOverrides = serializeStaffOverrides(parseStaffOverrides(raw));
+  } else if (typeof raw === 'object' && raw !== null && !Array.isArray(raw)) {
+    staffOverrides = serializeStaffOverrides(parseStaffOverrides(raw as Record<string, unknown>));
   }
   const schedule = scheduleFromArtist(row);
   const homeVisitRaw = row.homeVisitCharge ?? ext.home_visit_charge;

@@ -364,7 +364,7 @@ export async function getTownConfig(token: string, townId: string): Promise<Town
         deliveryFee: asNum(row.deliveryFee, 0),
       };
     }),
-    themeColor: asHex(data?.themeColor, '#0C831F'),
+    themeColor: asHex(data?.themeColor, '#009111'),
     bestDealsEnabled: data?.bestDealsEnabled !== false,
     dealPrices: asDealPrices(data?.dealPrices),
     platformFee: Math.max(0, asNum(data?.platformFee, 0)),

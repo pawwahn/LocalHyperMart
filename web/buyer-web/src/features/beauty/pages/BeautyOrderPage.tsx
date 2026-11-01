@@ -4,8 +4,9 @@ import { PortalShell } from '@/shared/layout/PortalShell';
 import { useAuth } from '@/shared/auth/AuthContext';
 import { ApiError } from '@/shared/api/http';
 import { CheckoutDismissedError, openGatewayCheckout } from '@/features/shop/lib/gatewayCheckout';
-import { confirmOnlinePayment } from '@/features/shop/api/shopApi';
-import { resolveCheckoutForPayment } from '@/features/shop/lib/paymentCheckoutPoll';
+import { confirmOnlinePaymentResilient } from '@/features/shop/api/shopApi';
+import { resolveOnlineCheckout } from '@/features/shop/lib/loadOnlineCheckout';
+import { ConfirmDialog } from '@/features/shop/components/ConfirmDialog';
 import { OrderStatusTimeline, type TimelineStep } from '@/features/shop/components/OrderStatusTimeline';
 import { buildBeautyBuyerTimeline } from '../lib/beautyOrderProgress';
 import { StarRating } from '@/features/shop/components/StarRating';
@@ -85,10 +86,11 @@ export function BeautyOrderPage() {
 
   const [order, setOrder] = useState<BeautyOrder | null>(null);
   const [error, setError] = useState<string | null>(payError ?? null);
-  const [notice, setNotice] = useState<string | null>(payNotice ?? null);
+  const [notice] = useState<string | null>(payNotice ?? null);
   const [busy, setBusy] = useState(false);
   const [ratingStars, setRatingStars] = useState(0);
   const [ratingComment, setRatingComment] = useState('');
+  const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
 
   useEffect(() => {
     if (!token || !orderId) return;
@@ -113,10 +115,20 @@ export function BeautyOrderPage() {
     setBusy(true);
     setError(null);
     try {
-      const info = (await retryBeautyPayment(token, order.id)) as BeautyOrder['payment'];
-      const checkout = await resolveCheckoutForPayment(token, info, { timeoutMs: 24_000, intervalMs: 250 });
+      const storedGateway = sessionStorage.getItem('hlm:lastPaymentGateway');
+      const gateway =
+        (storedGateway && /^(RAZORPAY|CASHFREE|PHONEPE)$/i.test(storedGateway) ? storedGateway : null) ??
+        order.payment?.checkout?.gateway ??
+        undefined;
+      const info = (await retryBeautyPayment(token, order.id, gateway)) as BeautyOrder['payment'];
+      const checkout = await resolveOnlineCheckout({
+        token,
+        payment: info,
+        paymentGateway: gateway,
+        retry: () => retryBeautyPayment(token, order.id, gateway),
+      });
       const paid = await openGatewayCheckout(checkout, { contact: session?.phone });
-      await confirmOnlinePayment(token, paid);
+      await confirmOnlinePaymentResilient(token, paid);
       const fresh = await fetchBeautyOrder(token, order.id);
       setOrder(fresh);
     } catch (err) {
@@ -350,7 +362,12 @@ export function BeautyOrderPage() {
               <section className="hlm-booking-card hlm-booking-rate hlm-booking-span-full">
                 <h2 className="hlm-booking-card-title">{order.myRatingStars ? 'Your rating' : 'Rate your artist'}</h2>
                 {order.myRatingStars ? (
-                  <StarRating value={order.myRatingStars} readOnly size="md" label={`You rated ${order.myRatingStars} stars`} />
+                  <>
+                    <StarRating value={order.myRatingStars} readOnly size="md" label={`You rated ${order.myRatingStars} stars`} />
+                    {order.myRatingComment ? (
+                      <p className="hlm-booking-rate-comment">&ldquo;{order.myRatingComment}&rdquo;</p>
+                    ) : null}
+                  </>
                 ) : (
                   <>
                     <StarRating value={ratingStars} onChange={setRatingStars} size="md" label="Rate the artist" />
@@ -373,7 +390,10 @@ export function BeautyOrderPage() {
                     >
                       {busy ? 'Saving…' : 'Submit rating'}
                     </button>
-                    <p className="hlm-booking-meta">Scratch card (if eligible) appears after you rate.</p>
+                    <p className="hlm-booking-meta">
+                      Scratch card (if eligible) appears after you rate. Comments with text may be shown to other
+                      customers on this artist&apos;s profile.
+                    </p>
                   </>
                 )}
               </section>
@@ -382,12 +402,17 @@ export function BeautyOrderPage() {
             <div className="hlm-booking-actions hlm-booking-span-full">
               {needsPay ? (
                 <button type="button" disabled={busy} className="hlm-booking-btn-primary" onClick={() => void payNow()}>
-                  {order.status === 'AWAITING_PAYMENT' ? 'Pay now' : `Pay balance ${money(balanceDue)}`}
+                  {order.status === 'AWAITING_PAYMENT' ? 'Pay now' : `Pay remaining · ${money(balanceDue)}`}
                 </button>
               ) : null}
 
               {order.status === 'CONFIRMED' || order.status === 'AWAITING_PAYMENT' ? (
-                <button type="button" disabled={busy} className="hlm-booking-btn-ghost" onClick={() => void cancel()}>
+                <button
+                  type="button"
+                  disabled={busy}
+                  className="hlm-booking-btn-ghost"
+                  onClick={() => setCancelConfirmOpen(true)}
+                >
                   Cancel booking
                 </button>
               ) : null}
@@ -405,6 +430,24 @@ export function BeautyOrderPage() {
           </button>
         ) : null}
       </div>
+
+      <ConfirmDialog
+        open={cancelConfirmOpen}
+        title="Cancel booking?"
+        description="Amount paid for booking slot is not refunded."
+        note="Click OK to confirm your cancellation."
+        confirmLabel="OK, cancel booking"
+        cancelLabel="Go back"
+        danger
+        busy={busy}
+        onClose={() => {
+          if (!busy) setCancelConfirmOpen(false);
+        }}
+        onConfirm={() => {
+          setCancelConfirmOpen(false);
+          void cancel();
+        }}
+      />
     </PortalShell>
   );
 }
@@ -802,11 +845,28 @@ const BOOKING_CSS = `
   font-weight: 700;
 }
 .hlm-booking-textarea {
+  width: 100%;
   border-radius: 10px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border, #e5e7eb);
   padding: 0.45rem 0.5rem;
   font-family: inherit;
-  font-size: 0.72rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  background: #fff;
+  color: #111827;
+  color-scheme: light;
+  resize: vertical;
+}
+.hlm-booking-textarea::placeholder {
+  color: #9ca3af;
+  font-weight: 500;
+}
+.hlm-booking-rate-comment {
+  margin: 0.35rem 0 0;
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: #374151;
+  line-height: 1.45;
 }
 .hlm-booking-btn-primary {
   min-height: 46px;

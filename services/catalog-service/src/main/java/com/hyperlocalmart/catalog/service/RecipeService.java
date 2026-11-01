@@ -90,13 +90,22 @@ public class RecipeService {
                 continue;
             }
             VendorShopClient.ShopInfo shop = shops.get(listing.getShopId());
+            if (shop == null) {
+                lines.add(RecipeShopLineResponse.builder()
+                        .masterItemId(masterId)
+                        .masterItemName(ri.getMasterItem().getName())
+                        .quantityLabel(ri.getQuantityLabel())
+                        .available(false)
+                        .build());
+                continue;
+            }
             BigDecimal effective = ListingPricing.resolveEffectivePrice(listing);
             lines.add(RecipeShopLineResponse.builder()
                     .masterItemId(masterId)
                     .masterItemName(ri.getMasterItem().getName())
                     .quantityLabel(ri.getQuantityLabel())
                     .listingId(listing.getId())
-                    .shopName(shop == null || !StringUtils.hasText(shop.shopName()) ? "Local shop" : shop.shopName())
+                    .shopName(shop.shopName())
                     .effectivePrice(effective)
                     .imageUrl(imageByMaster.get(masterId))
                     .available(true)

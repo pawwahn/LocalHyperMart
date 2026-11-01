@@ -3,6 +3,7 @@ package com.hyperlocalmart.order.service;
 import com.hyperlocalmart.common.exception.BusinessException;
 import com.hyperlocalmart.common.exception.ErrorCode;
 import com.hyperlocalmart.order.dto.response.PlatformFinanceAccrualResponse;
+import com.hyperlocalmart.order.repository.BeautyOrderRepository;
 import com.hyperlocalmart.order.repository.LaundryOrderRepository;
 import com.hyperlocalmart.order.repository.OrderItemRepository;
 import com.hyperlocalmart.order.repository.OrderRepository;
@@ -33,6 +34,7 @@ public class PlatformFinanceAccrualService {
     private final OrderRepository orderRepository;
     private final OrderItemRepository orderItemRepository;
     private final LaundryOrderRepository laundryOrderRepository;
+    private final BeautyOrderRepository beautyOrderRepository;
 
     @Transactional(readOnly = true)
     public PlatformFinanceAccrualResponse accrual(UUID townId, LocalDate from, LocalDate to) {
@@ -43,8 +45,12 @@ public class PlatformFinanceAccrualService {
         Object[] totals = normalizeAggregateRow(
                 orderRepository.sumDeliveredCommercialsByTownAndDeliveredAtBetween(townId, start, end));
         long deliveredCount = asLong(totals[0]);
+        BigDecimal glamCompletedFees = money(beautyOrderRepository.sumCompletedPlatformFee(townId, start, end));
+        BigDecimal glamForfeitedPrepay = money(beautyOrderRepository.sumNonRefundedPrepayOnCancelled(townId, start, end));
         BigDecimal platformFees = money(totals[1])
-                .add(money(laundryOrderRepository.sumDeliveredPlatformFee(townId, start, end)));
+                .add(money(laundryOrderRepository.sumDeliveredPlatformFee(townId, start, end)))
+                .add(glamCompletedFees)
+                .add(glamForfeitedPrepay);
         BigDecimal deliveryFees = money(totals[2]);
         BigDecimal codFees = money(totals[3])
                 .add(money(laundryOrderRepository.sumDeliveredCodFee(townId, start, end)));

@@ -6,7 +6,6 @@ import { fetchMyShop } from '@/features/shop/api/shopApi';
 import { fetchSupplierBillProfile } from '@/features/orders/api/platformSettingsApi';
 import {
   gstStateCodeFromGstin,
-  gstStateCodeFromTown,
   stateNameFor,
   type BillParty,
 } from '@/features/payouts/vendorBill';
@@ -64,26 +63,27 @@ export function useVendorGstFiling(active: boolean) {
       ]);
       setGstReport(gst);
       setSettlements(stl ?? []);
-      const name = shop?.name ?? me?.businessName ?? 'Shop';
+      const name = shop?.shopName ?? me?.businessName ?? 'Shop';
       setShopName(name);
       const vendorGst = (me?.gstNumber ?? '').trim().toUpperCase();
       setGstin(vendorGst);
-      const townCode = gstStateCodeFromTown(shop?.stateCode);
-      const vendorCode = gstStateCodeFromGstin(vendorGst) || townCode;
+      const vendorCode = gstStateCodeFromGstin(vendorGst);
       setRecipient({
         legalName: me?.businessName ?? name,
         gstin: vendorGst,
-        address: shop?.addressLine ?? '',
+        address: shop?.address ?? '',
         gstStateCode: vendorCode,
-        stateName: stateNameFor(vendorCode, shop?.stateCode ?? undefined),
+        stateName: stateNameFor(vendorCode),
+        phone: shop?.phone ?? '',
       });
       if (billProfile) {
         setSupplier({
-          legalName: billProfile.supplierLegalName ?? 'KoyaKart',
-          gstin: (billProfile.supplierGstin ?? '').trim().toUpperCase(),
-          address: billProfile.supplierAddress ?? '',
-          gstStateCode: billProfile.supplierGstStateCode ?? '',
-          stateName: stateNameFor(billProfile.supplierGstStateCode ?? '', billProfile.supplierAddress),
+          legalName: billProfile.legalName ?? 'KoyaKart',
+          gstin: (billProfile.gstin ?? '').trim().toUpperCase(),
+          address: billProfile.address ?? '',
+          gstStateCode: billProfile.gstStateCode ?? '',
+          stateName: billProfile.stateName,
+          phone: billProfile.phone ?? '',
         });
       }
     } catch (e) {
@@ -150,6 +150,7 @@ export function useVendorGstFiling(active: boolean) {
     setTo,
     includeLines,
     setIncludeLines,
+    gstin,
     gstReport,
     inputTaxRows,
     meta,

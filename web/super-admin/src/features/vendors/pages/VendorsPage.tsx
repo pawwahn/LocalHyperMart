@@ -10,6 +10,12 @@ import { listServices, type ServiceOffering } from '@/features/services/api/serv
 import { Link } from 'react-router-dom';
 import { TermsAcceptBlock } from '@hlm-legal';
 import {
+  VENDOR_SERVICE_FOR_OPTIONS,
+  normalizeServiceFor,
+  vendorNameWithServiceFor,
+} from '@hlm-vendor';
+import type { VendorServiceFor } from '@hlm-vendor';
+import {
   approveRegistration,
   createRegistrationRequest,
   listRegistrationRequests,
@@ -55,6 +61,7 @@ export function VendorsPage() {
   const [vendors, setVendors] = useState<VendorVm[]>([]);
   const [services, setServices] = useState<ServiceOffering[]>([]);
   const [serviceId, setServiceId] = useState('');
+  const [serviceFor, setServiceFor] = useState<VendorServiceFor | ''>('');
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -84,6 +91,7 @@ export function VendorsPage() {
   const [editBankAccount, setEditBankAccount] = useState('');
   const [editIfsc, setEditIfsc] = useState('');
   const [editServiceId, setEditServiceId] = useState('');
+  const [editServiceFor, setEditServiceFor] = useState<VendorServiceFor | ''>('');
   const [vendorTermsAcknowledged, setVendorTermsAcknowledged] = useState(false);
   const [acknowledgedLegalVersion, setAcknowledgedLegalVersion] = useState(1);
 
@@ -185,6 +193,10 @@ export function VendorsPage() {
       setError('Select a service');
       return;
     }
+    if (!serviceFor) {
+      setError('Select who this service is for (Male, Female, or Unisex)');
+      return;
+    }
     if (!vendorTermsAcknowledged) {
       setError('Confirm vendor was shown and agrees to platform policies');
       return;
@@ -201,6 +213,7 @@ export function VendorsPage() {
       await createRegistrationRequest(token, {
         townId,
         serviceId,
+        serviceFor,
         businessName: businessName.trim(),
         ownerName: ownerName.trim() || undefined,
         phone: normalizedPhone,
@@ -224,6 +237,7 @@ export function VendorsPage() {
       setBankAccount('');
       setIfsc('');
       setServiceId('');
+      setServiceFor('');
       setVendorTermsAcknowledged(false);
       setShowAdd(false);
       setTab('pending');
@@ -309,6 +323,7 @@ export function VendorsPage() {
     setEditBankAccount(vendor.bankAccount ?? '');
     setEditIfsc(vendor.ifsc ?? '');
     setEditServiceId(vendor.serviceId ?? '');
+    setEditServiceFor(normalizeServiceFor(vendor.serviceFor) ?? 'UNISEX');
     setDisableId(null);
     setDisableReason('');
     setRejectId(null);
@@ -333,6 +348,10 @@ export function VendorsPage() {
       setError('Select a service');
       return;
     }
+    if (!editServiceFor) {
+      setError('Select who this service is for (Male, Female, or Unisex)');
+      return;
+    }
     setBusy(true);
     setError(null);
     setNotice(null);
@@ -342,12 +361,21 @@ export function VendorsPage() {
         ownerName: editOwnerName.trim() || undefined,
         shopName: editShopName.trim(),
         serviceId: editServiceId,
+        serviceFor: editServiceFor,
         address: editAddress.trim() || undefined,
         gstNumber: gst || undefined,
         fssaiNumber: editFssaiNumber.trim() || undefined,
         bankAccount: editBankAccount.trim() || undefined,
         ifsc: editIfsc.trim() || undefined,
       });
+      const savedFor = normalizeServiceFor(updated.serviceFor);
+      if (savedFor && savedFor !== editServiceFor) {
+        setError(
+          `Service for did not stick (saved as ${savedFor}). Restart vendor-service after migration V25.`,
+        );
+        return;
+      }
+      setVendors((prev) => prev.map((v) => (v.id === updated.id ? updated : v)));
       setNotice(`Updated ${updated.shopName ?? updated.businessName}`);
       setEditId(null);
       await reload();
@@ -454,6 +482,14 @@ export function VendorsPage() {
               placeholder={services.length === 0 ? 'Add a service first' : 'Select service'}
               emptyMessage="No services yet"
             />
+            <SearchSelect
+              label="Service for"
+              value={serviceFor}
+              options={VENDOR_SERVICE_FOR_OPTIONS}
+              onChange={(v) => setServiceFor(v as VendorServiceFor)}
+              placeholder="Male / Female / Unisex"
+              emptyMessage="No options"
+            />
             <TextField label="Business" value={businessName} onChange={(e) => setBusinessName(e.target.value)} />
             <TextField label="Shop" value={shopName} onChange={(e) => setShopName(e.target.value)} />
             <TextField label="Owner" value={ownerName} onChange={(e) => setOwnerName(e.target.value)} />
@@ -514,6 +550,7 @@ export function VendorsPage() {
                 busy ||
                 !townId ||
                 !serviceId ||
+                !serviceFor ||
                 !businessName.trim() ||
                 !shopName.trim() ||
                 !phone.trim() ||
@@ -596,7 +633,9 @@ export function VendorsPage() {
                   <div style={styles.avatar}>{initials(req.shopName || req.businessName)}</div>
                   <div style={styles.itemBody}>
                     <div style={styles.itemTitleRow}>
-                      <strong style={styles.itemName}>{req.shopName}</strong>
+                      <strong style={styles.itemName}>
+                        {vendorNameWithServiceFor(req.shopName, req.serviceFor)}
+                      </strong>
                       <span style={styles.pillWarn}>Pending</span>
                     </div>
                     <p style={styles.meta}>
@@ -679,7 +718,9 @@ export function VendorsPage() {
                     </div>
                     <div style={styles.itemBody}>
                       <div style={styles.itemTitleRow}>
-                        <strong style={styles.itemName}>{v.shopName ?? v.businessName}</strong>
+                        <strong style={styles.itemName}>
+                          {vendorNameWithServiceFor(v.shopName ?? v.businessName, v.serviceFor)}
+                        </strong>
                         <span style={disabled ? styles.pillDanger : styles.pillOk}>
                           {disabled ? 'Disabled' : 'Active'}
                         </span>
@@ -704,6 +745,14 @@ export function VendorsPage() {
                               onChange={setEditServiceId}
                               placeholder={services.length === 0 ? 'Add a service first' : 'Select service'}
                               emptyMessage="No services yet"
+                            />
+                            <SearchSelect
+                              label="Service for"
+                              value={editServiceFor}
+                              options={VENDOR_SERVICE_FOR_OPTIONS}
+                              onChange={(v) => setEditServiceFor(v as VendorServiceFor)}
+                              placeholder="Male / Female / Unisex"
+                              emptyMessage="No options"
                             />
                             <TextField
                               label="Business"

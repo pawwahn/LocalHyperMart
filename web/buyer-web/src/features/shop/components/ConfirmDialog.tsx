@@ -1,4 +1,4 @@
-import { useEffect, useId, type CSSProperties } from 'react';
+import { useEffect, useId, type CSSProperties, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { Button } from '@/shared/ui';
 
@@ -6,12 +6,18 @@ export type ConfirmDialogProps = {
   open: boolean;
   title: string;
   description: string;
+  /** Optional block below description — e.g. local-shop thank-you on checkout. */
+  note?: string;
+  /** Short kicker above `note` (e.g. brand · town). */
+  noteLead?: string;
   confirmLabel?: string;
   cancelLabel?: string;
   danger?: boolean;
   busy?: boolean;
   /** Single OK button for post-action alerts (not yes/no). */
   alertOnly?: boolean;
+  /** Extra block above action buttons (e.g. payment gateway picker). */
+  beforeActions?: ReactNode;
   onConfirm: () => void;
   onClose: () => void;
 };
@@ -21,11 +27,14 @@ export function ConfirmDialog({
   open,
   title,
   description,
+  note,
+  noteLead,
   confirmLabel = 'Confirm',
   cancelLabel = 'Go back',
   danger,
   busy,
   alertOnly,
+  beforeActions,
   onConfirm,
   onClose,
 }: ConfirmDialogProps) {
@@ -61,6 +70,13 @@ export function ConfirmDialog({
           {title}
         </h2>
         <p style={styles.description}>{description}</p>
+        {noteLead || note ? (
+          <div style={styles.noteWrap} role="note">
+            {noteLead ? <p style={styles.noteLead}>{noteLead}</p> : null}
+            {note ? <p style={styles.note}>{note}</p> : null}
+          </div>
+        ) : null}
+        {beforeActions ? <div style={styles.beforeActions}>{beforeActions}</div> : null}
         <div style={alertOnly ? styles.actionsSingle : styles.actions}>
           {alertOnly ? null : (
             <Button type="button" variant="ghost" disabled={busy} onClick={onClose} style={styles.actionBtn}>
@@ -96,6 +112,8 @@ const styles: Record<string, CSSProperties> = {
   },
   dialog: {
     width: 'min(28rem, 100%)',
+    maxHeight: 'min(90dvh, 100%)',
+    overflowY: 'auto',
     background: 'var(--bg-elevated)',
     border: '1px solid var(--border)',
     borderRadius: 'var(--radius-lg)',
@@ -104,6 +122,9 @@ const styles: Record<string, CSSProperties> = {
     display: 'grid',
     gap: '0.85rem',
     animation: 'hlm-fade-up 180ms ease both',
+  },
+  beforeActions: {
+    minWidth: 0,
   },
   title: {
     margin: 0,
@@ -117,6 +138,35 @@ const styles: Record<string, CSSProperties> = {
     color: 'var(--text-muted)',
     fontSize: '0.92rem',
     lineHeight: 1.45,
+  },
+  noteWrap: {
+    margin: 0,
+    padding: '0.55rem 0.65rem',
+    borderRadius: 10,
+    background: 'color-mix(in srgb, var(--accent-soft) 88%, var(--highlight-soft))',
+    borderLeft: '3px solid var(--accent)',
+    display: 'grid',
+    gap: '0.28rem',
+  },
+  noteLead: {
+    margin: 0,
+    fontFamily: 'var(--font-display)',
+    fontWeight: 800,
+    fontSize: '0.78rem',
+    lineHeight: 1.25,
+    letterSpacing: '-0.02em',
+    color: 'var(--accent)',
+    textTransform: 'none',
+  },
+  note: {
+    margin: 0,
+    fontFamily: 'Georgia, "Iowan Old Style", "Palatino Linotype", serif',
+    fontStyle: 'italic',
+    fontWeight: 600,
+    fontSize: '0.86rem',
+    lineHeight: 1.42,
+    color: 'color-mix(in srgb, var(--accent) 78%, #3d2914)',
+    letterSpacing: '0.01em',
   },
   actions: {
     display: 'grid',

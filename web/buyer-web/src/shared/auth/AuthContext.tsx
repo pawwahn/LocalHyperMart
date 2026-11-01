@@ -7,6 +7,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
+import { registerNativePush, resetNativePushRegistration } from '@hlm-native';
 import { AUTH_UNAUTHORIZED_EVENT } from '@/shared/api/http';
 import { clearSession, loadSession, saveSession, type AuthSession } from './session';
 
@@ -28,6 +29,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const logout = useCallback(() => {
+    resetNativePushRegistration();
     clearSession();
     setSessionState(null);
   }, []);
@@ -37,6 +39,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     window.addEventListener(AUTH_UNAUTHORIZED_EVENT, onUnauthorized);
     return () => window.removeEventListener(AUTH_UNAUTHORIZED_EVENT, onUnauthorized);
   }, [logout]);
+
+  useEffect(() => {
+    const token = session?.accessToken;
+    if (!token) return;
+    void registerNativePush({ accessToken: token, appType: 'BUYER' });
+  }, [session?.accessToken]);
 
   const value = useMemo(
     () => ({

@@ -60,7 +60,7 @@ export function BrandMark({
 }
 
 const styles = {
-  wrap: (variant: Variant, column: boolean): CSSProperties => ({
+  wrap: (_variant: Variant, column: boolean): CSSProperties => ({
     display: 'flex',
     flexDirection: column ? 'column' : 'row',
     alignItems: column ? 'flex-start' : 'center',
@@ -96,7 +96,7 @@ const styles = {
     fontSize: variant === 'login' ? '1.35rem' : variant === 'sidebar' ? '1.05rem' : '1.02rem',
     letterSpacing: '-0.03em',
     /* Wordmark stays brand green on app chrome. Login heroes are green — inherit inverse white. */
-    color: variant === 'login' ? 'inherit' : 'var(--brand, var(--accent, #0C831F))',
+    color: variant === 'login' ? 'inherit' : 'var(--brand, var(--accent, #009111))',
     lineHeight: 1.15,
   }),
   subtitle: (variant: Variant): CSSProperties => ({

@@ -35,6 +35,7 @@ public class AccountPrivacyService {
     private final RefreshTokenRepository refreshTokenRepository;
     private final PasswordEncoder passwordEncoder;
     private final UserService userService;
+    private final DeviceTokenService deviceTokenService;
 
     @Transactional
     public UserProfileResponse updatePrivacyPreferences(UUID userId, UpdatePrivacyPreferencesRequest request) {
@@ -75,6 +76,7 @@ public class AccountPrivacyService {
         user.setLockedUntil(null);
         userRepository.save(user);
         revokeRefreshTokens(userId, now);
+        deviceTokenService.deleteAllForUser(userId);
     }
 
     private User loadActiveUser(UUID userId) {

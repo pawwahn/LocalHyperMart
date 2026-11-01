@@ -1,5 +1,6 @@
 package com.hyperlocalmart.vendor.dto.response;
 
+import com.fasterxml.jackson.annotation.JsonAlias;
 import lombok.Builder;
 import lombok.Data;
 
@@ -24,5 +25,7 @@ public class VendorResponse {
     private String disabledReason;
     private UUID serviceId;
     private String serviceName;
+    @JsonAlias("service_for")
+    private String serviceFor;
     private boolean hidesListings;
 }

@@ -531,7 +531,10 @@ public class AssignmentService {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Delivery manifest is only for home delivery trips");
         }
 
-        OrderClient.DeliveryManifest manifest = orderClient.getDeliveryManifest(assignment.getOrderId());
+        OrderClient.DeliveryManifest manifest =
+                assignment.getLegType() == AssignmentLegType.VENDOR_DIRECT
+                        ? loadVendorDirectDeliveryManifest(assignment)
+                        : orderClient.getDeliveryManifest(assignment.getOrderId());
         return DeliveryManifestResponse.builder()
                 .assignmentId(assignment.getId())
                 .orderId(manifest.orderId())
@@ -550,6 +553,13 @@ public class AssignmentService {
                                 .build())
                         .toList())
                 .build();
+    }
+
+    private OrderClient.DeliveryManifest loadVendorDirectDeliveryManifest(DeliveryAssignment assignment) {
+        if (assignment.getVendorSubOrderId() == null) {
+            throw new BusinessException(ErrorCode.NOT_FOUND, "Sub-order not linked to assignment");
+        }
+        return orderClient.getSubOrderDeliveryManifest(assignment.getVendorSubOrderId());
     }
 
     @Transactional

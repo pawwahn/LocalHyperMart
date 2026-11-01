@@ -116,7 +116,7 @@ const styles: Record<string, CSSProperties> = {
     width: 'min(28rem, 100%)',
     background: 'var(--bg-elevated)',
     border: '1px solid var(--border)',
-    borderTop: '4px solid var(--brand, #0C831F)',
+    borderTop: '4px solid var(--brand, #009111)',
     borderRadius: 'var(--radius-lg)',
     boxShadow: 'var(--shadow-elevated)',
     padding: '1.1rem',
@@ -129,10 +129,10 @@ const styles: Record<string, CSSProperties> = {
   item: {
     padding: '0.55rem 0.65rem',
     borderRadius: 10,
-    background: 'color-mix(in srgb, var(--brand, #0C831F) 8%, transparent)',
-    border: '1px solid color-mix(in srgb, var(--brand, #0C831F) 25%, transparent)',
+    background: 'color-mix(in srgb, var(--brand, #009111) 8%, transparent)',
+    border: '1px solid color-mix(in srgb, var(--brand, #009111) 25%, transparent)',
   },
-  amount: { fontSize: '1.3rem', fontWeight: 800, color: 'var(--brand, #0C831F)' },
+  amount: { fontSize: '1.3rem', fontWeight: 800, color: 'var(--brand, #009111)' },
   meta: { fontSize: '0.8rem', color: 'var(--text-muted)' },
   actions: { display: 'flex', justifyContent: 'flex-end', gap: '0.45rem' },
 };

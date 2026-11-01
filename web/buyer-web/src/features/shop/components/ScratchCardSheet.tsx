@@ -195,7 +195,7 @@ const styles: Record<string, CSSProperties> = {
     margin: '0.35rem 0 0.15rem',
     minHeight: 120,
     borderRadius: 12,
-    background: 'linear-gradient(135deg, #0C831F, #085516)',
+    background: 'linear-gradient(135deg, #009111, #085516)',
     display: 'grid',
     placeItems: 'center',
     overflow: 'hidden',

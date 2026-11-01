@@ -32,6 +32,10 @@ public class PlaceLaundryOrderRequest {
     /** RAZORPAY, CASHFREE, or PHONEPE. Used when paymentMethod is UPI. */
     private String paymentGateway;
 
+    /** Fallback UPI phone when address contact is missing (10-digit mobile). */
+    @Size(max = 20)
+    private String contactPhone;
+
     @Size(max = 400)
     private String specialInstructions;
 

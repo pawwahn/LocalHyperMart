@@ -34,7 +34,7 @@ public class TownConfigService {
 
     private static final String OPERATIONAL_KEY = "operational";
     private static final BigDecimal DEFAULT_MIN_ORDER = new BigDecimal("199");
-    private static final String DEFAULT_THEME_COLOR = "#0C831F";
+    private static final String DEFAULT_THEME_COLOR = "#009111";
     private static final String MODE_DEFAULT = "DEFAULT";
     private static final String MODE_SLAB = "SLAB";
     private static final String DEFAULT_WINDOW_START = "17:00";
@@ -972,7 +972,7 @@ public class TownConfigService {
         }
         hex = hex.toUpperCase();
         if (!hex.matches("^#[0-9A-F]{6}$")) {
-            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "themeColor must be a hex color like #0C831F");
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "themeColor must be a hex color like #009111");
         }
         return hex;
     }

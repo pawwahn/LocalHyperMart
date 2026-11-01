@@ -14,6 +14,7 @@ public class BeautyArtistCard {
 
     private UUID vendorId;
     private String businessName;
+    private String serviceFor;
     private String phone;
     private String tagline;
     private Integer yearsExperience;
@@ -36,6 +37,10 @@ public class BeautyArtistCard {
 
     @Builder.Default
     private List<WorkPhoto> workPhotos = new ArrayList<>();
+
+    /** Recent buyer comments (public, no personal details). */
+    @Builder.Default
+    private List<BeautyCustomerReview> customerReviews = new ArrayList<>();
 
     @Data
     @Builder

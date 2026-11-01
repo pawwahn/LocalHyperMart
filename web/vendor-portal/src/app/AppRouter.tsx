@@ -15,6 +15,18 @@ import { DeliveryAgentsPage } from '@/features/delivery/pages/DeliveryAgentsPage
 import { VendorCodHandoverPage } from '@/features/cod/pages/VendorCodHandoverPage';
 import { LaundryDeskPage } from '@/features/laundry/pages/LaundryDeskPage';
 import { GlamDeskPage } from '@/features/beauty/pages/GlamDeskPage';
+import { NativeAppBridge } from '@hlm-native';
+
+const VENDOR_TAB_ROOTS = [
+  '/dashboard',
+  '/listings',
+  '/delivery-agents',
+  '/cod-handover',
+  '/reports',
+  '/payouts',
+  '/sellers',
+  '/settings',
+] as const;
 
 function AuthBoundTheme({ children }: { children: ReactNode }) {
   const { isAuthenticated } = useAuth();
@@ -60,6 +72,7 @@ export function AppRouter() {
             </Route>
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>
+          <NativeAppBridge tabRoots={VENDOR_TAB_ROOTS} />
           <CookieNotice privacyTo="/legal/privacy" />
         </BrowserRouter>
       </AuthBoundTheme>

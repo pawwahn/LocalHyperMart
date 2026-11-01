@@ -12,12 +12,7 @@ import {
 } from '../api/reportsApi';
 import { lookupOrderPayouts, listMyClaimAdjustments, listMySettlements, summarizeSettlements, type OrderPayout, type SettlementMoneySummary, type VendorClaimAdjustment } from '../api/payoutsApi';
 
-import {
-  DEFAULT_REPORT_DATE_PRESET,
-  applyReportDatePreset,
-  rangeForReportPreset,
-  type ReportDatePreset,
-} from '@hlm-dates/istReportPresets';
+import { applyReportDatePreset, rangeForReportPreset, type ReportDatePreset } from '@hlm-dates/istReportPresets';
 
 import {
   computeAdminPayoutDue,

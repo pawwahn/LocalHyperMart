@@ -29,10 +29,19 @@
       "@hlm-laundry/*": ["../shared/laundry/*"],
       "@hlm-beauty": ["../shared/beauty/index.ts"],
       "@hlm-beauty/*": ["../shared/beauty/*"],
+      "@hlm-native": ["../shared/native"],
+      "@hlm-native/*": ["../shared/native/*"],
+      "@hlm-dates": ["../shared/dates"],
+      "@hlm-dates/*": ["../shared/dates/*"],
+      "@hlm-vendor": ["../shared/vendor/index.ts"],
+      "@hlm-vendor/*": ["../shared/vendor/*"],
+      "react-router-dom": ["./node_modules/react-router-dom/dist/index.d.ts"],
+      "react-dom": ["./node_modules/@types/react-dom/index.d.ts"],
+      "react-dom/client": ["./node_modules/@types/react-dom/client.d.ts"],
       "react": ["./node_modules/@types/react/index.d.ts"],
       "react/jsx-runtime": ["./node_modules/@types/react/jsx-runtime.d.ts"],
       "react/jsx-dev-runtime": ["./node_modules/@types/react/jsx-dev-runtime.d.ts"]
     }
   },
-  "include": ["src", "../shared/theme/**/*.ts", "../shared/theme/**/*.tsx", "../shared/legal/**/*.ts", "../shared/legal/**/*.tsx", "../shared/brand/**/*.ts", "../shared/brand/**/*.tsx", "../shared/laundry/**/*.ts", "../shared/beauty/**/*.ts"]
+  "include": ["src", "../shared/import-meta.d.ts", "../shared/theme/**/*.ts", "../shared/theme/**/*.tsx", "../shared/legal/**/*.ts", "../shared/legal/**/*.tsx", "../shared/brand/**/*.ts", "../shared/brand/**/*.tsx", "../shared/laundry/**/*.ts", "../shared/beauty/**/*.ts", "../shared/dates/**/*.ts", "../shared/dates/**/*.tsx", "../shared/native/**/*.ts", "../shared/native/**/*.tsx", "../shared/vendor/**/*.ts"]
 }

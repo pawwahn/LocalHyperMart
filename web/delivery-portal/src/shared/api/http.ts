@@ -1,3 +1,5 @@
+import { resolveApiBaseUrl } from '@hlm-native';
+
 export type ApiEnvelope<T> = {
   success: boolean;
   message?: string;
@@ -31,7 +33,7 @@ type RequestOptions = {
   timeoutMs?: number;
 };
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
+const API_BASE = resolveApiBaseUrl(import.meta.env.VITE_API_BASE_URL);
 const REQUEST_TIMEOUT_MS = 45_000;
 
 export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {

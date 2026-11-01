@@ -1,4 +1,4 @@
-export const DEFAULT_TOWN_THEME = '#0C831F';
+export const DEFAULT_TOWN_THEME = '#009111';
 export const DEFAULT_DEAL_PRICES = [19, 29, 49, 99];
 
 export function parseDealPrices(raw: unknown): number[] {

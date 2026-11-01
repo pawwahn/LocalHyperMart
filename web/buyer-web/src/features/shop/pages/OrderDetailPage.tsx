@@ -6,10 +6,9 @@ import { useAuth } from '@/shared/auth/AuthContext';
 import { useShop } from '../hooks/useShop';
 import { useOrderDetail } from '../hooks/useOrderDetail';
 import { formatBuyerPaymentLabel } from '../lib/formatBuyerPaymentLabel';
-import { CheckoutDismissedError, checkoutCanOpen, openGatewayCheckout } from '../lib/gatewayCheckout';
-import { pollUntilCheckoutReady } from '../lib/paymentCheckoutPoll';
-import { fetchPaymentCheckout } from '../api/shopApi';
-import { confirmOnlinePayment, retryOnlinePayment } from '../api/shopApi';
+import { CheckoutDismissedError, openGatewayCheckout } from '../lib/gatewayCheckout';
+import { resolveOnlineCheckout } from '../lib/loadOnlineCheckout';
+import { confirmOnlinePaymentResilient, retryOnlinePayment } from '../api/shopApi';
 import { OrderStatusTimeline } from '../components/OrderStatusTimeline';
 import { ReasonDialog } from '../components/ReasonDialog';
 import { ClaimDialog } from '../components/ClaimDialog';
@@ -116,7 +115,6 @@ export function OrderDetailPage() {
     invoiceError,
     cancelBusy,
     claimBusy,
-    ratingBusyId,
     agentRatingBusy,
     reload,
     downloadInvoice,
@@ -211,18 +209,18 @@ export function OrderDetailPage() {
     if (!session?.accessToken || !order) return;
     setPayBusy(true);
     try {
-      const retry = await retryOnlinePayment(session.accessToken, order.orderId);
-      let checkout = retry.checkout;
-      if (!checkout?.gatewayOrderId && retry.paymentId) {
-        checkout = await pollUntilCheckoutReady(() =>
-          fetchPaymentCheckout(session.accessToken, retry.paymentId!),
-        );
-      }
-      if (!checkoutCanOpen(checkout)) {
-        throw new Error('Could not start online payment');
-      }
+      const storedGateway = sessionStorage.getItem('hlm:lastPaymentGateway');
+      const gateway =
+        storedGateway && /^(RAZORPAY|CASHFREE|PHONEPE)$/i.test(storedGateway) ? storedGateway : undefined;
+      const retry = await retryOnlinePayment(session.accessToken, order.orderId, gateway);
+      const checkout = await resolveOnlineCheckout({
+        token: session.accessToken,
+        payment: retry,
+        paymentGateway: gateway,
+        retry: () => retryOnlinePayment(session.accessToken, order.orderId, gateway),
+      });
       const paid = await openGatewayCheckout(checkout, { contact: session.phone });
-      await confirmOnlinePayment(session.accessToken, paid);
+      await confirmOnlinePaymentResilient(session.accessToken, paid);
       await reload();
     } catch (err) {
       if (!(err instanceof CheckoutDismissedError)) {

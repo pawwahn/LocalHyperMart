@@ -6,9 +6,9 @@ import { PortalShell } from '@/shared/layout/PortalShell';
 import { useAuth } from '@/shared/auth/AuthContext';
 import { ApiError } from '@/shared/api/http';
 import { LaundryCustomerNote } from '@hlm-laundry';
-import { CheckoutDismissedError, checkoutCanOpen, openGatewayCheckout } from '@/features/shop/lib/gatewayCheckout';
-import { confirmOnlinePayment, fetchPaymentCheckout } from '@/features/shop/api/shopApi';
-import { pollUntilCheckoutReady } from '@/features/shop/lib/paymentCheckoutPoll';
+import { CheckoutDismissedError, openGatewayCheckout } from '@/features/shop/lib/gatewayCheckout';
+import { confirmOnlinePaymentResilient } from '@/features/shop/api/shopApi';
+import { resolveOnlineCheckout } from '@/features/shop/lib/loadOnlineCheckout';
 import { ConfirmDialog } from '@/features/shop/components/ConfirmDialog';
 import {
   fetchLaundryOrder,
@@ -73,17 +73,18 @@ export function LaundryOrderPage() {
     setBusy(true);
     setError(null);
     try {
-      const started = await retryLaundryPayment(token, order.id);
-      let checkout = started?.checkout ?? null;
-      if (!checkout?.gatewayOrderId && started?.paymentId) {
-        checkout = await pollUntilCheckoutReady(() => fetchPaymentCheckout(token, started.paymentId!));
-      }
-      if (!checkoutCanOpen(checkout)) {
-        setError('Online payment is not configured yet.');
-        return;
-      }
+      const storedGateway = sessionStorage.getItem('hlm:lastPaymentGateway');
+      const gateway =
+        storedGateway && /^(RAZORPAY|CASHFREE|PHONEPE)$/i.test(storedGateway) ? storedGateway : undefined;
+      const started = await retryLaundryPayment(token, order.id, gateway);
+      const checkout = await resolveOnlineCheckout({
+        token,
+        payment: started,
+        paymentGateway: gateway,
+        retry: () => retryLaundryPayment(token, order.id, gateway),
+      });
       const paid = await openGatewayCheckout(checkout, { contact: session?.phone });
-      await confirmOnlinePayment(token, paid);
+      await confirmOnlinePaymentResilient(token, paid);
       setOrder(await fetchLaundryOrder(token, order.id));
     } catch (err) {
       if (!(err instanceof CheckoutDismissedError)) {

@@ -7,6 +7,7 @@ import com.hyperlocalmart.common.exception.BusinessException;
 import com.hyperlocalmart.common.exception.ErrorCode;
 import com.hyperlocalmart.vendor.beauty.BeautyServiceCatalog;
 import com.hyperlocalmart.vendor.entity.BeautyVendorTreatment;
+import com.hyperlocalmart.vendor.dto.request.ApplyBeautyRatingAggregateRequest;
 import com.hyperlocalmart.vendor.dto.request.UpsertBeautyOpsRequest;
 import com.hyperlocalmart.vendor.beauty.BeautyWorkPhotos;
 import com.hyperlocalmart.vendor.dto.request.UpsertBeautyProfileRequest;
@@ -62,6 +63,7 @@ public class BeautyVendorService {
     private final BeautyVendorTreatmentRepository treatmentRepository;
     private final ServiceOfferingRepository offeringRepository;
     private final ShopRepository shopRepository;
+    private final ShopService shopService;
 
     @Transactional(readOnly = true)
     public List<BeautyArtistResponse> listForTown(UUID townId, boolean bookableOnly) {
@@ -81,6 +83,7 @@ public class BeautyVendorService {
         Map<UUID, ServiceOffering> offerings = offeringRepository.findAll().stream()
                 .collect(Collectors.toMap(ServiceOffering::getId, Function.identity()));
         Map<UUID, String> shopAddresses = shopAddressesByVendor(ids);
+        Map<UUID, Boolean> shopAcceptingOrders = shopService.vendorShopOpenForCustomers(ids);
         List<BeautyArtistResponse> out = new ArrayList<>();
         for (Vendor vendor : vendors) {
             if (!isBeautyVendor(vendor, offerings)) {
@@ -89,6 +92,9 @@ public class BeautyVendorService {
             BeautyProfile profile = profiles.get(vendor.getId());
             if (bookableOnly) {
                 if (profile == null || !profile.isEnabled() || vendor.getStatus() != VendorStatus.ACTIVE) {
+                    continue;
+                }
+                if (!shopAcceptingOrders.getOrDefault(vendor.getId(), true)) {
                     continue;
                 }
             }
@@ -126,7 +132,32 @@ public class BeautyVendorService {
 
     @Transactional(readOnly = true)
     public BeautyArtistResponse getBookable(UUID vendorId) {
+        if (!shopService.isVendorShopOpenForCustomers(vendorId)) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR,
+                    "This shop is paused — bookings are not available right now");
+        }
         return toBookable(get(vendorId));
+    }
+
+    @Transactional
+    public void applyRatingAggregate(UUID vendorId, ApplyBeautyRatingAggregateRequest request) {
+        if (request == null || request.getRatingScore() == null || request.getRatingCount() == null) {
+            return;
+        }
+        BeautyProfile profile = profileRepository.findById(vendorId).orElse(null);
+        if (profile == null) {
+            return;
+        }
+        BigDecimal score = request.getRatingScore().setScale(2, RoundingMode.HALF_UP);
+        if (score.compareTo(BigDecimal.ONE) < 0) {
+            score = BigDecimal.ONE.setScale(2, RoundingMode.HALF_UP);
+        }
+        if (score.compareTo(BigDecimal.valueOf(5)) > 0) {
+            score = BigDecimal.valueOf(5).setScale(2, RoundingMode.HALF_UP);
+        }
+        profile.setRatingScore(score);
+        profile.setRatingCount(Math.max(0, request.getRatingCount()));
+        profileRepository.save(profile);
     }
 
     @Transactional(readOnly = true)
@@ -392,6 +423,7 @@ public class BeautyVendorService {
                 .vendorId(vendor.getId())
                 .townId(vendor.getTownId())
                 .businessName(vendor.getBusinessName())
+                .serviceFor(vendor.getServiceFor() == null ? null : vendor.getServiceFor().name())
                 .phone(vendor.getPhone())
                 .vendorStatus(vendor.getStatus().name())
                 .serviceName(offering == null ? null : offering.getName())

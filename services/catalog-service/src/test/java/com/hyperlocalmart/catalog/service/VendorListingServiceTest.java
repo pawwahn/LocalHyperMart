@@ -62,7 +62,8 @@ class VendorListingServiceTest {
                         vendorId,
                         UUID.fromString("a1111111-1111-4111-8111-111111111111"),
                         UUID.fromString("c1111111-1111-4111-8111-111111111111"),
-                        "Ravi Kirana"));
+                        "Ravi Kirana",
+                        "UNISEX"));
         when(masterItemRepository.findByIdAndStatus(masterItemId, CatalogItemStatus.ACTIVE))
                 .thenReturn(Optional.of(MasterItem.builder()
                         .id(masterItemId)

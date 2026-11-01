@@ -17,6 +17,7 @@ final class VendorAuditFormat {
             "shopName",
             "businessName",
             "serviceName",
+            "serviceFor",
             "ownerName",
             "phone",
             "address",
@@ -32,6 +33,7 @@ final class VendorAuditFormat {
             Map.entry("shopName", "Shop"),
             Map.entry("businessName", "Business"),
             Map.entry("serviceName", "Service"),
+            Map.entry("serviceFor", "Service for"),
             Map.entry("ownerName", "Owner"),
             Map.entry("phone", "Phone"),
             Map.entry("address", "Address"),
@@ -49,6 +51,7 @@ final class VendorAuditFormat {
         snap.put("status", vendor.getStatus() == null ? null : vendor.getStatus().name());
         snap.put("shopName", shop == null ? null : shop.getShopName());
         snap.put("businessName", vendor.getBusinessName());
+        snap.put("serviceFor", vendor.getServiceFor() == null ? null : vendor.getServiceFor().displayLabel());
         snap.put("ownerName", vendor.getOwnerName());
         snap.put("phone", vendor.getPhone());
         snap.put("address", shop == null ? null : shop.getAddress());

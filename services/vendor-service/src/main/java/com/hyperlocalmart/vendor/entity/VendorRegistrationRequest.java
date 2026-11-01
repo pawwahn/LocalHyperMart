@@ -77,6 +77,10 @@ public class VendorRegistrationRequest extends BaseAuditEntity {
     @Column(name = "service_id")
     private UUID serviceId;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "service_for", nullable = false, length = 10)
+    private VendorServiceFor serviceFor;
+
     @Column(name = "terms_acknowledged_at")
     private Instant termsAcknowledgedAt;
 

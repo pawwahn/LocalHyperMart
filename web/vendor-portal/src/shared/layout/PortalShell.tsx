@@ -51,7 +51,8 @@ export function PortalShell({ title, children, onRefresh, shopPause }: Props) {
   const hidesListings = useHidesListings();
   const glamVendor = isGlamVendor(session?.serviceName);
   const laundryVendor = isLaundryVendor(session?.serviceName);
-  let nav = hidesListings
+  type NavItem = (typeof NAV)[number];
+  let nav: NavItem[] = hidesListings
     ? NAV.filter((item) => item.to !== '/listings' && item.to !== '/sellers')
     : NAV.filter((item) => item.to !== '/laundry' && item.to !== '/glam');
   if (hidesListings && glamVendor && !laundryVendor) {
@@ -380,7 +381,7 @@ const styles: Record<string, CSSProperties> = {
     alignItems: 'center',
     gap: '0.75rem',
     flexWrap: 'wrap',
-    background: 'var(--brand, #0C831F)',
+    background: 'var(--brand, #009111)',
     color: '#FFFFFF',
   },
   alertText: { fontWeight: 700, flex: '1 1 12rem' },

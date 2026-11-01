@@ -70,6 +70,19 @@ public class ScratchCardService {
                 laundryGoodsTotal(order));
     }
 
+    /** Issues glam scratch when the town has glam scratch enabled (session ended). Idempotent per order. */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void issueIfEligibleAfterBeautyComplete(BeautyOrder order) {
+        if (order == null) {
+            return;
+        }
+        TownClient.ScratchSettings settings = townClient.getScratchSettings(order.getTownId(), ScratchServiceKind.BEAUTY.name());
+        if (!settings.enabled()) {
+            return;
+        }
+        issueBeautyScratch(order, settings);
+    }
+
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void issueIfEligibleAfterBeautyRating(BeautyOrder order) {
         if (order == null) {
@@ -79,6 +92,10 @@ public class ScratchCardService {
         if (!settings.enabled() || !settings.issueAfterRating()) {
             return;
         }
+        issueBeautyScratch(order, settings);
+    }
+
+    private void issueBeautyScratch(BeautyOrder order, TownClient.ScratchSettings settings) {
         String prepayMode = order.getPrepayMode() == null || order.getPrepayMode().isBlank()
                 ? "FULL"
                 : order.getPrepayMode().trim().toUpperCase();

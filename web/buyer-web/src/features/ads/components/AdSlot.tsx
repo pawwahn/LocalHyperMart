@@ -7,6 +7,7 @@ import {
 } from 'react';
 import { useTown } from '@/shared/town/TownContext';
 import { resolveCreatives, fetchTownAds, type TownAdDto } from '../api/townAdsApi';
+import { resolveAdCta } from '../lib/adCta';
 import { ADS_ENABLED, type AdCreative, type AdSlotId } from '../adsInventory';
 
 type Props = {
@@ -19,8 +20,157 @@ type Props = {
 };
 
 const liveCache = new Map<string, TownAdDto[]>();
-const AD_PHOTO = 88;
-const AD_FRAME_H = 108;
+/** Blinkit-style full-bleed photo banner */
+const AD_BANNER_H = 168;
+
+const AD_BANNER_CSS = `
+  .hlm-ad-banner {
+    position: relative;
+    min-height: ${AD_BANNER_H}px;
+    border-radius: 12px;
+    overflow: hidden;
+    background: #2a2a2a;
+    box-shadow: 0 4px 16px rgba(16, 24, 40, 0.1);
+  }
+  .hlm-ad-banner-media {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+  }
+  .hlm-ad-banner-media > div {
+    height: 100% !important;
+    min-height: 100%;
+    border-radius: 0 !important;
+  }
+  .hlm-ad-banner-scrim {
+    pointer-events: none;
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    background: linear-gradient(
+      180deg,
+      rgba(0, 0, 0, 0.06) 0%,
+      rgba(0, 0, 0, 0.02) 35%,
+      rgba(0, 0, 0, 0.55) 72%,
+      rgba(0, 0, 0, 0.82) 100%
+    );
+  }
+  .hlm-ad-banner-adtag {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    z-index: 3;
+    font-size: 0.58rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #fff;
+    background: rgba(0, 0, 0, 0.45);
+    border-radius: 4px;
+    padding: 0.15rem 0.38rem;
+    line-height: 1.2;
+  }
+  .hlm-ad-banner-fallback {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    background: linear-gradient(135deg, #3d3d3d 0%, #525252 100%);
+    font-family: var(--font-display);
+    font-size: 2.25rem;
+    font-weight: 700;
+    color: rgba(255, 255, 255, 0.35);
+  }
+  .hlm-ad-banner-overlay {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 2;
+    display: flex;
+    align-items: flex-end;
+    gap: 0.55rem;
+    padding: 0.55rem 0.65rem 0.62rem;
+    pointer-events: none;
+  }
+  .hlm-ad-banner-overlay a,
+  .hlm-ad-banner-overlay button {
+    pointer-events: auto;
+  }
+  .hlm-ad-banner-copy {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: grid;
+    gap: 0.14rem;
+  }
+  .hlm-ad-banner-headline {
+    margin: 0;
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 0.9rem;
+    line-height: 1.22;
+    letter-spacing: -0.025em;
+    color: #fff;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+  }
+  .hlm-ad-banner-shop {
+    margin: 0;
+    font-size: 0.74rem;
+    font-weight: 600;
+    line-height: 1.25;
+    color: rgba(255, 255, 255, 0.92);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .hlm-ad-banner-meta {
+    margin: 0;
+    font-size: 0.66rem;
+    font-weight: 500;
+    color: rgba(255, 255, 255, 0.78);
+    line-height: 1.25;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .hlm-ad-banner-cta {
+    flex-shrink: 0;
+    align-self: flex-end;
+    min-height: 38px;
+    padding: 0 0.9rem;
+    border: none;
+    border-radius: 8px;
+    background: #fff;
+    color: var(--accent);
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 0.74rem;
+    letter-spacing: -0.01em;
+    cursor: pointer;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    white-space: nowrap;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+  }
+  .hlm-ad-banner-cta:active {
+    opacity: 0.94;
+    transform: scale(0.98);
+  }
+  @media (min-width: 420px) {
+    .hlm-ad-banner {
+      min-height: 176px;
+    }
+    .hlm-ad-banner-headline {
+      font-size: 0.95rem;
+    }
+  }
+`;
 
 /**
  * Monetization surface — clearly labelled Sponsored.
@@ -28,7 +178,7 @@ const AD_FRAME_H = 108;
  * Config ownership: **super admin only** (no hub / vendor edit).
  * Live ads from town-service; pilot inventory is fallback.
  */
-export function AdSlot({ slot, slotIndex, variant = 'strip', onCta }: Props) {
+export function AdSlot({ slot, slotIndex, variant: _variant = 'strip', onCta }: Props) {
   const { townId, hasTown } = useTown();
   const tid = hasTown ? townId : null;
   const [live, setLive] = useState<TownAdDto[] | null>(() =>
@@ -86,6 +236,7 @@ function ImageCarousel({
   dark = false,
   fill = false,
   showDots = true,
+  dotsBottom = 8,
 }: {
   images: string[];
   height: number;
@@ -94,6 +245,7 @@ function ImageCarousel({
   fill?: boolean;
   /** Strip ads: false — dots were painting over product rails below. */
   showDots?: boolean;
+  dotsBottom?: number;
 }) {
   const [index, setIndex] = useState(0);
   const startX = useRef<number | null>(null);
@@ -153,7 +305,7 @@ function ImageCarousel({
         ))}
       </div>
       {showDots && images.length > 1 ? (
-        <div style={dark ? styles.dots : styles.dotsOverlay}>
+        <div style={{ ...(dark ? styles.dots : styles.dotsOverlay), bottom: dotsBottom }}>
           {images.map((_, i) => (
             <button
               key={i}
@@ -350,6 +502,59 @@ function MidGridAdCarousel({
   );
 }
 
+function AdCtaControl({
+  ctaRaw,
+  href,
+  onCta,
+}: {
+  ctaRaw: string;
+  href?: string;
+  onCta?: () => void;
+}) {
+  const resolved = resolveAdCta(ctaRaw);
+  if (!resolved.label) return null;
+
+  const isCall = Boolean(resolved.href);
+  const label = isCall ? 'Call' : resolved.label;
+
+  if (resolved.href) {
+    return (
+      <a
+        href={resolved.href}
+        className="hlm-ad-banner-cta"
+        onClick={() => onCta?.()}
+        aria-label={`Call ${resolved.phoneDisplay ?? 'shop'}`}
+      >
+        {label}
+      </a>
+    );
+  }
+
+  if (adHref(href)) {
+    return (
+      <a
+        href={href}
+        className="hlm-ad-banner-cta"
+        onClick={() => onCta?.()}
+        rel="noopener noreferrer"
+        target="_blank"
+      >
+        {label}
+      </a>
+    );
+  }
+
+  return (
+    <button type="button" className="hlm-ad-banner-cta" onClick={onCta}>
+      {label}
+    </button>
+  );
+}
+
+function adHref(href: string | undefined): href is string {
+  return Boolean(href?.trim());
+}
+
 function SoftAd({
   ad,
   townId,
@@ -360,37 +565,41 @@ function SoftAd({
   onCta?: () => void;
 }) {
   const images = useAdImages(ad);
-  const cta = ad.ctaLabel?.trim() ?? '';
+  const ctaRaw = ad.ctaLabel?.trim() ?? '';
+  const ctaResolved = resolveAdCta(ctaRaw);
+  const headline = ad.title?.trim() || ad.sponsor?.trim() || '';
+  const shopLine = ad.title?.trim() && ad.sponsor?.trim() && ad.sponsor !== ad.title ? ad.sponsor : '';
+  const locationLine = ad.subtitle?.trim() ?? '';
+
+  const metaLine = [locationLine, ctaResolved.phoneDisplay].filter(Boolean).join(' · ');
+
   return (
-    <aside
-      key={`${ad.id}-${townId}`}
-      style={{
-        ...styles.strip,
-        background: images.length ? undefined : ad.tint,
-      }}
-      aria-label={`Sponsored: ${ad.sponsor}`}
-    >
-      <div style={styles.softMain}>
-        <div style={images.length ? styles.softVisualImage : styles.softVisual} aria-hidden={!images.length}>
-          {images.length ? (
-            <ImageCarousel images={images} height={AD_PHOTO} rounded={12} showDots={false} />
-          ) : (
-            <span style={styles.softEmoji}>{ad.emoji}</span>
-          )}
+    <aside key={`${ad.id}-${townId}`} className="hlm-ad-banner" aria-label={`Ad: ${headline}`}>
+      <style>{AD_BANNER_CSS}</style>
+      {images.length ? (
+        <div className="hlm-ad-banner-media">
+          <ImageCarousel
+            images={images}
+            height={AD_BANNER_H}
+            rounded={0}
+            fill
+            dark
+            showDots={images.length > 1}
+            dotsBottom={62}
+          />
         </div>
-        <div style={styles.softCopy}>
-          <span style={styles.sponsoredSoft}>Sponsored</span>
-          <p style={styles.shopName}>{ad.sponsor || '\u00a0'}</p>
-          <p style={styles.title}>{ad.title || '\u00a0'}</p>
-          <p style={styles.sub}>{ad.subtitle || '\u00a0'}</p>
+      ) : (
+        <span className="hlm-ad-banner-fallback">{(headline || 'K').charAt(0).toUpperCase()}</span>
+      )}
+      <div className="hlm-ad-banner-scrim" aria-hidden />
+      <span className="hlm-ad-banner-adtag">Ad</span>
+      <div className="hlm-ad-banner-overlay">
+        <div className="hlm-ad-banner-copy">
+          <h3 className="hlm-ad-banner-headline">{headline || '\u00a0'}</h3>
+          {shopLine ? <p className="hlm-ad-banner-shop">{shopLine}</p> : null}
+          {metaLine ? <p className="hlm-ad-banner-meta">{metaLine}</p> : null}
         </div>
-        {cta ? (
-          <button type="button" style={styles.cta} onClick={onCta}>
-            {cta}
-          </button>
-        ) : (
-          <span style={styles.ctaGhost} aria-hidden />
-        )}
+        {ctaRaw ? <AdCtaControl ctaRaw={ctaRaw} href={ad.href} onCta={onCta} /> : null}
       </div>
     </aside>
   );
@@ -453,123 +662,6 @@ const styles: Record<string, CSSProperties> = {
   dotDark: {
     background: 'rgba(255,255,255,0.45)',
   },
-  strip: {
-    boxSizing: 'border-box',
-    height: AD_FRAME_H,
-    borderRadius: 16,
-    padding: '0.5rem 0.6rem',
-    border: '1px solid color-mix(in srgb, var(--accent) 22%, var(--border))',
-    background:
-      'linear-gradient(180deg, #FFFFFF 0%, #F7FBF8 100%)',
-    boxShadow: '0 8px 22px rgba(12, 131, 31, 0.08)',
-    minWidth: 0,
-    maxWidth: '100%',
-    overflow: 'hidden',
-    color: 'var(--text)',
-  },
-  softMain: {
-    display: 'grid',
-    gridTemplateColumns: `${AD_PHOTO}px minmax(0, 1fr) 76px`,
-    gap: '0.5rem',
-    alignItems: 'center',
-    height: '100%',
-    minWidth: 0,
-  },
-  softVisual: {
-    width: AD_PHOTO,
-    height: AD_PHOTO,
-    borderRadius: 12,
-    background: 'linear-gradient(160deg, #E7F6EC 0%, #D8F0DE 100%)',
-    border: '1px solid color-mix(in srgb, var(--accent) 20%, var(--border))',
-    display: 'grid',
-    placeItems: 'center',
-    flexShrink: 0,
-  },
-  softVisualImage: {
-    width: AD_PHOTO,
-    height: AD_PHOTO,
-    borderRadius: 12,
-    overflow: 'hidden',
-    flexShrink: 0,
-    background: 'var(--bg-muted)',
-    boxShadow: 'inset 0 0 0 1px rgba(12,131,31,0.08)',
-  },
-  softEmoji: { fontSize: '1.35rem', lineHeight: 1 },
-  softCopy: {
-    display: 'grid',
-    gridTemplateRows: '16px 18px 17px 16px',
-    alignContent: 'center',
-    gap: 1,
-    minWidth: 0,
-  },
-  shopName: {
-    margin: 0,
-    fontFamily: 'var(--font-display)',
-    fontWeight: 800,
-    fontSize: '0.92rem',
-    color: 'var(--text)',
-    lineHeight: '18px',
-    letterSpacing: '-0.02em',
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    whiteSpace: 'nowrap',
-  },
-  sponsoredSoft: {
-    justifySelf: 'start',
-    height: 16,
-    fontSize: '0.56rem',
-    fontWeight: 800,
-    letterSpacing: '0.06em',
-    textTransform: 'uppercase',
-    color: '#0C831F',
-    background: '#E7F6EC',
-    borderRadius: 999,
-    padding: '0 0.4rem',
-    display: 'inline-flex',
-    alignItems: 'center',
-  },
-  title: {
-    margin: 0,
-    fontWeight: 700,
-    fontSize: '0.78rem',
-    color: 'var(--text)',
-    lineHeight: '17px',
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    whiteSpace: 'nowrap',
-  },
-  sub: {
-    margin: 0,
-    fontSize: '0.7rem',
-    fontWeight: 600,
-    color: 'var(--text-muted)',
-    lineHeight: '16px',
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    whiteSpace: 'nowrap',
-  },
-  cta: {
-    boxSizing: 'border-box',
-    width: 76,
-    minHeight: 44,
-    border: 'none',
-    borderRadius: 999,
-    padding: '0.35rem 0.4rem',
-    background: 'var(--accent)',
-    color: '#fff',
-    fontWeight: 800,
-    fontSize: '0.68rem',
-    cursor: 'pointer',
-    lineHeight: 1.15,
-    display: '-webkit-box',
-    WebkitLineClamp: 2,
-    WebkitBoxOrient: 'vertical',
-    overflow: 'hidden',
-  },
-  ctaGhost: {
-    width: 76,
-    minHeight: 44,
-  },
   midCarousel: {
     minWidth: 0,
     maxWidth: '100%',
@@ -578,11 +670,12 @@ const styles: Record<string, CSSProperties> = {
     position: 'relative',
     overflow: 'hidden',
     width: '100%',
-    height: AD_FRAME_H,
+    minHeight: AD_BANNER_H,
     touchAction: 'pan-y',
     cursor: 'grab',
     userSelect: 'none',
-    borderRadius: 16,
+    borderRadius: 12,
+    boxShadow: '0 4px 16px rgba(16, 24, 40, 0.1)',
   },
   midCarouselSlides: {
     display: 'flex',

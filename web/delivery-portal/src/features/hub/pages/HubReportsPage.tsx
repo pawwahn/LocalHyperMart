@@ -250,7 +250,7 @@ export function HubReportsPage() {
               >
                 <option value="all">All delivery agents</option>
                 {agents.map((a) => (
-                  <option key={a.id} value={a.id}>
+                  <option key={a.agentId} value={a.agentId}>
                     {a.phone} · {a.name}
                   </option>
                 ))}
@@ -269,7 +269,7 @@ export function HubReportsPage() {
           <p style={styles.rangeHint}>
             {def.title}: {rangeLabel}
             {def.usesAgentFilter && agentId !== 'all'
-              ? ` · ${agents.find((a) => a.id === agentId)?.phone ?? 'agent'}`
+              ? ` · ${agents.find((a) => a.agentId === agentId)?.phone ?? 'agent'}`
               : def.usesAgentFilter
                 ? ' · all agents'
                 : ''}

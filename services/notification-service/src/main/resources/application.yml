@@ -26,6 +26,12 @@ hyperlocalmart:
   security:
     jwt:
       secret: ${JWT_SECRET:hyperlocalmart-dev-secret-change-in-production-min-32-chars!!}
+  user-service:
+    base-url: ${HLM_USER_SERVICE_URI:http://localhost:8081}
+  fcm:
+    enabled: ${FCM_ENABLED:false}
+    project-id: ${FCM_PROJECT_ID:}
+    credentials-path: ${FCM_CREDENTIALS_PATH:}
 
 management:
   endpoints:

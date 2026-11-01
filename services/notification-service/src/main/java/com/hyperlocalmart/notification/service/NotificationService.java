@@ -28,6 +28,7 @@ public class NotificationService {
 
     private final NotificationTemplateRepository notificationTemplateRepository;
     private final NotificationLogRepository notificationLogRepository;
+    private final PushDeliveryService pushDeliveryService;
 
     @Transactional
     public NotificationResponse send(SendNotificationRequest request) {
@@ -59,7 +60,7 @@ public class NotificationService {
         NotificationLog log = buildLog(request, channel);
         log.setBody(body);
         log.setStatus(NotificationLogStatus.SENT);
-        log.setProviderRef("dev-stub-" + UUID.randomUUID());
+        log.setProviderRef(resolveProviderRef(request, channel, body));
         NotificationLog saved = notificationLogRepository.save(log);
         return toResponse(saved);
     }
@@ -70,6 +71,13 @@ public class NotificationService {
         log.setSkipReason(SKIP_REASON_NO_TEMPLATE);
         NotificationLog saved = notificationLogRepository.save(log);
         return toResponse(saved);
+    }
+
+    private String resolveProviderRef(SendNotificationRequest request, NotificationChannel channel, String body) {
+        if (channel == NotificationChannel.PUSH) {
+            return pushDeliveryService.deliver(request, body);
+        }
+        return "dev-stub-" + UUID.randomUUID();
     }
 
     private NotificationLog buildLog(SendNotificationRequest request, NotificationChannel channel) {

@@ -19,6 +19,7 @@ public class VendorRegistrationResponse {
     private String address;
     private UUID serviceId;
     private String serviceName;
+    private String serviceFor;
     private String gstNumber;
     private String fssaiNumber;
     private String status;

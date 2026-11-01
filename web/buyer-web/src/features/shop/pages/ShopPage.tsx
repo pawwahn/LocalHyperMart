@@ -16,7 +16,7 @@ import {
   type CategoryView,
 } from '../api/shopApi';
 import { CategoryTile } from '../components/CategoryTile';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/shared/auth/AuthContext';
 import { getPublicPlatformSettings } from '@/features/auth/api/platformSettingsApi';
 import { DeliveryHero } from '../components/DeliveryHero';
@@ -37,6 +37,7 @@ import { ShopHomeJumpCarousel } from '../components/ShopHomeJumpCarousel';
 import { ShopServiceBannerCarousel } from '../components/ShopServiceBannerCarousel';
 import { buildShopHomeJumpCards, HOME_RAIL_SECTION_IDS } from '../config/shopHomeJumpCards';
 import { buildShopServiceBanners } from '../config/shopServiceBanners';
+import { IconMic, IconMicActive, IconSearch } from '@/shared/ui/ChromeIcons';
 
 const SEARCH_HINTS = ['Egg', 'Bread', 'Milk', 'Rice', 'Maggi', 'Tomato'];
 const RECENT_SEARCHES_KEY = 'koyakart-recent-searches';
@@ -122,7 +123,6 @@ export function ShopPage({ browseOnly = false }: Props) {
     reload,
     rememberItems,
     quantityFor,
-    doAdd,
     doIncrease,
     doDecrease,
     setError,
@@ -593,7 +593,7 @@ export function ShopPage({ browseOnly = false }: Props) {
     >
       <div style={styles.searchShell}>
         <span style={styles.searchIcon} aria-hidden>
-          ⌕
+          <IconSearch />
         </span>
         <input
           className="hlm-search-input"
@@ -622,7 +622,7 @@ export function ShopPage({ browseOnly = false }: Props) {
             aria-label={listening ? 'Stop voice search' : 'Voice search'}
             title="Voice search"
           >
-            {listening ? '●' : '🎤'}
+            {listening ? <IconMicActive /> : <IconMic />}
           </button>
         ) : null}
       </div>
@@ -657,25 +657,6 @@ export function ShopPage({ browseOnly = false }: Props) {
           ))}
         </div>
       ) : null}
-      {!browseOnly && !inCategory && !searching ? (
-        <ShopHomeJumpCarousel cards={jumpCards} />
-      ) : null}
-      {!browseOnly && !inCategory && !searching && townServicesReady && serviceBanners.length > 0 ? (
-        <ShopServiceBannerCarousel banners={serviceBanners} />
-      ) : null}
-      {!browseOnly && !inCategory && !searching && isAuthenticated && session?.accessToken && townId ? (
-        <BuyAgainBar
-          townId={townId}
-          token={session.accessToken}
-          busy={busy}
-          onMessage={async (message) => {
-            setNotice(message);
-            await reload();
-          }}
-          onError={(message) => setError(message || null)}
-        />
-      ) : null}
-
       {voiceError ? <Banner tone="warning">{voiceError}</Banner> : null}
       {listening ? <Banner tone="info">Listening… say something like “milk” or “rice”</Banner> : null}
 
@@ -694,6 +675,30 @@ export function ShopPage({ browseOnly = false }: Props) {
               }}
             />
           )}
+          {!browseOnly && !inCategory && !searching ? (
+            <ShopHomeJumpCarousel cards={jumpCards} />
+          ) : null}
+          {!browseOnly && !inCategory && !searching && townServicesReady && serviceBanners.length > 0 ? (
+            <ShopServiceBannerCarousel banners={serviceBanners} />
+          ) : null}
+          {!browseOnly &&
+          !inCategory &&
+          !searching &&
+          buyAgainItems.length === 0 &&
+          isAuthenticated &&
+          session?.accessToken &&
+          townId ? (
+            <BuyAgainBar
+              townId={townId}
+              token={session.accessToken}
+              busy={busy}
+              onMessage={async (message) => {
+                setNotice(message);
+                await reload();
+              }}
+              onError={(message) => setError(message || null)}
+            />
+          ) : null}
           {browseOnly || searching ? null : (
             <ProductRail
               title="Buy again"
@@ -1026,15 +1031,15 @@ const styles: Record<string, CSSProperties> = {
     display: 'flex',
     alignItems: 'center',
     gap: '0.45rem',
-    marginTop: '-0.2rem',
-    background: '#fff',
-    border: '1px solid var(--border)',
-    borderRadius: 14,
-    padding: '0 0.85rem',
-    minHeight: 46,
-    boxShadow: '0 8px 22px rgba(16, 24, 40, 0.08)',
+    marginTop: '-0.15rem',
+    background: 'var(--bg-elevated)',
+    border: '1px solid color-mix(in srgb, var(--border) 90%, transparent)',
+    borderRadius: 12,
+    padding: '0 0.75rem',
+    minHeight: 48,
+    boxShadow: 'var(--shadow-card)',
   },
-  searchIcon: { color: 'var(--accent)', fontSize: '1.15rem', fontWeight: 700 },
+  searchIcon: { color: 'var(--text-muted)', display: 'grid', placeItems: 'center' },
   clearSearch: {
     border: 'none',
     background: 'var(--bg-muted)',
@@ -1126,13 +1131,13 @@ const styles: Record<string, CSSProperties> = {
   mic: {
     border: 'none',
     background: 'transparent',
-    width: 32,
-    height: 32,
+    width: 36,
+    height: 36,
     borderRadius: 'var(--radius-full)',
     cursor: 'pointer',
-    fontSize: '0.9rem',
-    lineHeight: 1,
-    color: 'var(--text)',
+    display: 'grid',
+    placeItems: 'center',
+    color: 'var(--text-muted)',
   },
   hints: {
     display: 'flex',
@@ -1200,27 +1205,26 @@ const styles: Record<string, CSSProperties> = {
     fontWeight: 800,
   },
   hint: {
-    border: '1px solid var(--border)',
-    background: 'var(--bg-elevated)',
+    border: 'none',
+    background: 'var(--bg-muted)',
     color: 'var(--text)',
     borderRadius: 999,
-    minHeight: 28,
-    padding: '0.15rem 0.55rem',
+    minHeight: 30,
+    padding: '0.2rem 0.62rem',
     fontSize: '0.72rem',
-    fontWeight: 700,
+    fontWeight: 600,
     cursor: 'pointer',
   },
   micActive: {
     border: 'none',
     background: 'var(--accent)',
     color: '#fff',
-    width: 32,
-    height: 32,
+    width: 36,
+    height: 36,
     borderRadius: 'var(--radius-full)',
     cursor: 'pointer',
-    fontSize: '0.75rem',
-    lineHeight: 1,
-    fontWeight: 800,
+    display: 'grid',
+    placeItems: 'center',
   },
   sectionHead: {
     display: 'flex',

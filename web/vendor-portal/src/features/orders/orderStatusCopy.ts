@@ -62,9 +62,9 @@ export function siblingStatusLine(order: VendorOrderSituationInput): string | nu
   const joined = shops.map(siblingPhrase).join(' · ');
   const allClosed = shops.every((s) => CLOSED_SIBLING.has((s.status || '').toUpperCase()));
   if (allClosed) {
-    return `${joined} — only yours remains.`;
+    return `Other shop: ${joined} — only yours remains.`;
   }
-  return `${joined}.`;
+  return `Other shop on this order: ${joined}.`;
 }
 
 export function paymentStatusLine(
@@ -96,6 +96,12 @@ export function paymentStatusLine(
 export function nextStepLine(order: VendorOrderSituationInput): string | null {
   switch ((order.status || '').toUpperCase()) {
     case 'PLACED':
+      if (order.townHubEnabled === false) {
+        if (canOfferVendorAgentDelivery(order)) {
+          return 'Next: pack, then My agent delivers or Reject.';
+        }
+        return 'Next: pack — hub pickup is off in this town.';
+      }
       return 'Next: pack, then Mark ready or Reject.';
     case 'READY_FOR_PICKUP':
       if (canOfferVendorAgentDelivery(order)) {

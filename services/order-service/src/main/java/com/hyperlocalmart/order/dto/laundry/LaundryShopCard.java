@@ -14,6 +14,7 @@ public class LaundryShopCard {
 
     private UUID vendorId;
     private String businessName;
+    private String serviceFor;
     private String phone;
     private BigDecimal pickupCharge;
     private BigDecimal dropCharge;

@@ -9,7 +9,7 @@ type Props = {
 };
 
 const tones: Record<Tone, CSSProperties> = {
-  brand: { background: 'var(--brand, #0C831F)', color: '#FFFFFF' },
+  brand: { background: 'var(--brand, #009111)', color: '#FFFFFF' },
   info: {
     background: 'var(--accent-soft)',
     color: 'var(--text)',

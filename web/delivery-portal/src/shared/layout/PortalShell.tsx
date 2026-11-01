@@ -202,7 +202,7 @@ const styles: Record<string, CSSProperties> = {
     fontFamily: 'var(--font-display)',
     fontSize: '0.65rem',
     fontWeight: 800,
-    color: 'var(--brand, var(--accent, #0C831F))',
+    color: 'var(--brand, var(--accent, #009111))',
     letterSpacing: '0.02em',
     lineHeight: 1.1,
   },
