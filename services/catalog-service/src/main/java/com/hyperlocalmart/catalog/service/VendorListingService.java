@@ -5,6 +5,8 @@ import com.hyperlocalmart.catalog.audit.CatalogAuditSnapshots;
 import com.hyperlocalmart.catalog.client.AdminAuditClient;
 import com.hyperlocalmart.catalog.client.VendorShopClient;
 import com.hyperlocalmart.catalog.dto.request.BulkCreateVendorListingsRequest;
+import com.hyperlocalmart.catalog.dto.request.BulkSyncVendorListingItemRequest;
+import com.hyperlocalmart.catalog.dto.request.BulkSyncVendorListingsRequest;
 import com.hyperlocalmart.catalog.dto.request.CreateCategoryRequest;
 import com.hyperlocalmart.catalog.dto.request.CreateMasterItemRequest;
 import com.hyperlocalmart.catalog.dto.request.CreateVendorListingRequest;
@@ -16,6 +18,7 @@ import com.hyperlocalmart.catalog.dto.response.AdminListingResponse;
 import com.hyperlocalmart.catalog.dto.response.CategoryResponse;
 import com.hyperlocalmart.catalog.dto.response.UnitResponse;
 import com.hyperlocalmart.catalog.dto.response.MasterItemSummaryResponse;
+import com.hyperlocalmart.catalog.dto.response.BulkSyncVendorListingsResponse;
 import com.hyperlocalmart.catalog.dto.response.VendorListingResponse;
 import com.hyperlocalmart.catalog.entity.CatalogItemStatus;
 import com.hyperlocalmart.catalog.entity.Category;
@@ -133,6 +136,112 @@ public class VendorListingService {
     }
 
     @Transactional
+    public BulkSyncVendorListingsResponse bulkSync(
+            UUID vendorId, UUID actorUserId, BulkSyncVendorListingsRequest request) {
+        VendorShopClient.VendorShopContext context = vendorShopClient.getShopContextForVendor(vendorId);
+        int created = 0;
+        int updated = 0;
+        int hidden = 0;
+        List<BulkSyncVendorListingsResponse.RowError> errors = new ArrayList<>();
+
+        for (BulkSyncVendorListingItemRequest row : request.getItems()) {
+            String productName = row.getMasterItemId() == null
+                    ? "Product"
+                    : masterItemRepository.findById(row.getMasterItemId())
+                            .map(MasterItem::getName)
+                            .orElse("Product");
+            try {
+                if (!row.isListed()) {
+                    VendorListing existing = vendorListingRepository
+                            .findByVendorIdAndMasterItemId(vendorId, row.getMasterItemId())
+                            .orElse(null);
+                    if (existing == null) {
+                        continue;
+                    }
+                    if (existing.isActive() || existing.isBuyerOutOfStock()) {
+                        existing.setActive(false);
+                        existing.setBuyerOutOfStock(false);
+                        existing.setUpdatedBy(actorUserId);
+                        vendorListingRepository.save(existing);
+                        hidden++;
+                    }
+                    continue;
+                }
+
+                if (row.getPrice() == null) {
+                    throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Selling price is required");
+                }
+
+                CreateVendorListingRequest create = new CreateVendorListingRequest();
+                create.setMasterItemId(row.getMasterItemId());
+                create.setVendorMrp(row.getVendorMrp());
+                create.setPrice(row.getPrice());
+                // Excel uses Sell vs MRP only — clear any legacy discount price.
+                create.setDiscountPrice(null);
+                create.setVendorNote(row.getVendorNote());
+                create.setSearchNames(row.getSearchNames());
+                applyBuyerVisibility(create, row.getBuyerVisibility());
+
+                VendorListing before = vendorListingRepository
+                        .findByVendorIdAndMasterItemId(vendorId, row.getMasterItemId())
+                        .orElse(null);
+                VendorListing saved = createOrUpdateListing(vendorId, actorUserId, context, create);
+                if (before == null) {
+                    created++;
+                } else {
+                    updated++;
+                }
+            } catch (BusinessException ex) {
+                errors.add(BulkSyncVendorListingsResponse.RowError.builder()
+                        .masterItemId(row.getMasterItemId())
+                        .productName(productName)
+                        .message(ex.getMessage())
+                        .build());
+            }
+        }
+
+        if (created + updated + hidden == 0 && !errors.isEmpty()) {
+            BulkSyncVendorListingsResponse.RowError first = errors.get(0);
+            throw new BusinessException(
+                    ErrorCode.VALIDATION_ERROR,
+                    first.getProductName() + ": " + first.getMessage());
+        }
+
+        catalogBrowseCache.evictAll();
+        return BulkSyncVendorListingsResponse.builder()
+                .created(created)
+                .updated(updated)
+                .hidden(hidden)
+                .failed(errors.size())
+                .errors(errors)
+                .build();
+    }
+
+    private void applyBuyerVisibility(CreateVendorListingRequest create, String rawVisibility) {
+        String normalized = rawVisibility == null ? "" : rawVisibility.trim().toLowerCase(Locale.ROOT);
+        if (normalized.isEmpty() || normalized.equals("live")) {
+            create.setActive(true);
+            create.setBuyerOutOfStock(false);
+            return;
+        }
+        if (normalized.equals("hide") || normalized.equals("hidden")) {
+            create.setActive(false);
+            create.setBuyerOutOfStock(false);
+            return;
+        }
+        if (normalized.contains("unhide")
+                || normalized.contains("out of stock")
+                || normalized.equals("out_of_stock")) {
+            create.setActive(true);
+            create.setBuyerOutOfStock(true);
+            return;
+        }
+        throw new BusinessException(
+                ErrorCode.VALIDATION_ERROR,
+                "Buyer display must be Live, Hide, or Unhide (out of stock)");
+    }
+
+    @Transactional
     public VendorListingResponse updateListing(UUID vendorId, UUID listingId, UUID actorUserId, UpdateVendorListingRequest request) {
         VendorListing listing = loadVendorListing(vendorId, listingId);
         VendorShopClient.VendorShopContext context = vendorShopClient.getShopContextForVendor(vendorId);
@@ -151,6 +260,12 @@ public class VendorListingService {
         }
         if (request.getActive() != null) {
             listing.setActive(request.getActive());
+        }
+        if (request.getBuyerOutOfStock() != null) {
+            listing.setBuyerOutOfStock(request.getBuyerOutOfStock());
+            if (request.getBuyerOutOfStock()) {
+                listing.setActive(true);
+            }
         }
 
         validateListingPricing(listing);
@@ -657,7 +772,19 @@ public class VendorListingService {
         listing.setSpecialDiscountValidTo(request.getSpecialDiscountValidTo());
         listing.setVendorNote(request.getVendorNote());
         listing.setSearchNames(SearchNames.normalize(request.getSearchNames()));
-        listing.setActive(request.getActive() == null || request.getActive());
+        if (request.getBuyerOutOfStock() != null && request.getBuyerOutOfStock()) {
+            listing.setBuyerOutOfStock(true);
+            listing.setActive(true);
+        } else {
+            if (request.getBuyerOutOfStock() != null) {
+                listing.setBuyerOutOfStock(false);
+            } else if (Boolean.TRUE.equals(request.getActive())) {
+                listing.setBuyerOutOfStock(false);
+            } else if (Boolean.FALSE.equals(request.getActive())) {
+                listing.setBuyerOutOfStock(false);
+            }
+            listing.setActive(request.getActive() == null || request.getActive());
+        }
         listing.setPriceUpdatedAt(Instant.now());
         listing.setUpdatedBy(actorUserId);
         return vendorListingRepository.save(listing);
@@ -820,6 +947,7 @@ public class VendorListingService {
                 .vendorNote(listing.getVendorNote())
                 .searchNames(listing.getSearchNames())
                 .active(listing.isActive())
+                .buyerOutOfStock(listing.isBuyerOutOfStock())
                 .imageUrls(List.of())
                 .listingImageUrls(List.of())
                 .masterImageUrls(List.of())

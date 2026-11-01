@@ -87,6 +87,7 @@ function RailCard({
       imageCount={item.imageUrls.length}
       quantity={quantityFor(item.listingId)}
       busy={busyKey === item.listingId}
+      outOfStock={item.outOfStock}
       onOpen={() => onOpen(item)}
       onIncrease={() => onIncrease(item.listingId)}
       onDecrease={() => onDecrease(item.listingId)}

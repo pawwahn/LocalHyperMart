@@ -62,6 +62,11 @@ public class VendorListing extends BaseAuditEntity {
     @Column(nullable = false)
     private boolean active;
 
+    /** Visible in buyer browse but not purchasable when true (requires active). */
+    @Column(name = "buyer_out_of_stock", nullable = false)
+    @Builder.Default
+    private boolean buyerOutOfStock = false;
+
     @Column(name = "avg_rating", nullable = false, precision = 3, scale = 2)
     @Builder.Default
     private BigDecimal avgRating = BigDecimal.ZERO;

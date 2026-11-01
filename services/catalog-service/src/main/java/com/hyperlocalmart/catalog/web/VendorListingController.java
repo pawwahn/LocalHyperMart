@@ -5,9 +5,11 @@ import com.hyperlocalmart.common.api.PageResponse;
 import com.hyperlocalmart.common.exception.BusinessException;
 import com.hyperlocalmart.common.exception.ErrorCode;
 import com.hyperlocalmart.catalog.dto.request.BulkCreateVendorListingsRequest;
+import com.hyperlocalmart.catalog.dto.request.BulkSyncVendorListingsRequest;
 import com.hyperlocalmart.catalog.dto.request.CreateVendorListingRequest;
 import com.hyperlocalmart.catalog.dto.request.SetVendorListingImagesRequest;
 import com.hyperlocalmart.catalog.dto.request.UpdateVendorListingRequest;
+import com.hyperlocalmart.catalog.dto.response.BulkSyncVendorListingsResponse;
 import com.hyperlocalmart.catalog.dto.response.VendorListingResponse;
 import com.hyperlocalmart.catalog.security.AuthUserPrincipal;
 import com.hyperlocalmart.catalog.service.VendorListingService;
@@ -63,6 +65,18 @@ public class VendorListingController {
         VendorListingResponse response = vendorListingService.createListing(
                 vendorId, principal.getUserId(), request);
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponses.ok(httpRequest, response));
+    }
+
+    @PostMapping("/bulk-sync")
+    public ResponseEntity<ApiResponse<BulkSyncVendorListingsResponse>> bulkSync(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @RequestHeader("X-Vendor-Id") UUID vendorId,
+            @Valid @RequestBody BulkSyncVendorListingsRequest request,
+            HttpServletRequest httpRequest) {
+        requireVendor(principal);
+        BulkSyncVendorListingsResponse response = vendorListingService.bulkSync(
+                vendorId, principal.getUserId(), request);
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest, response));
     }
 
     @PostMapping("/bulk")

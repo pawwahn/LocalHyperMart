@@ -65,6 +65,9 @@ public class ListingLookupService {
 
     private boolean canSell(VendorListing listing) {
         try {
+            if (listing.isBuyerOutOfStock()) {
+                return false;
+            }
             var category = listing.getMasterItem().getCategory();
             if (category == null || !categoryVisibilityService.isVisibleInTown(category, listing.getTownId())) {
                 return false;
@@ -84,6 +87,9 @@ public class ListingLookupService {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Listing does not belong to this town");
         }
         if (requireActive && (!listing.isActive() || listing.getMasterItem().getStatus() != CatalogItemStatus.ACTIVE)) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Listing is not available");
+        }
+        if (requireActive && listing.isBuyerOutOfStock()) {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Listing is not available");
         }
         if (requireActive) {

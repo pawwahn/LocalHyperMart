@@ -80,7 +80,7 @@ public class RecipeService {
         for (RecipeIngredient ri : ingredients) {
             UUID masterId = ri.getMasterItem().getId();
             VendorListing listing = bestByMaster.get(masterId);
-            if (listing == null) {
+            if (listing == null || listing.isBuyerOutOfStock()) {
                 lines.add(RecipeShopLineResponse.builder()
                         .masterItemId(masterId)
                         .masterItemName(ri.getMasterItem().getName())

@@ -37,4 +37,7 @@ public class CreateVendorListingRequest {
     private String searchNames;
 
     private Boolean active = false;
+
+    /** When true with active listing, buyers see the item as out of stock. */
+    private Boolean buyerOutOfStock;
 }

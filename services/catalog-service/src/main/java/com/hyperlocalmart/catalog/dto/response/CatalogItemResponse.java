@@ -42,6 +42,10 @@ public class CatalogItemResponse {
     @Builder.Default
     private boolean fromPreviousOrder = false;
 
+    /** True when vendor marked the listing visible but not purchasable. */
+    @Builder.Default
+    private boolean outOfStock = false;
+
     private String hsnCode;
     private BigDecimal gstPercent;
     private BigDecimal cessPercent;

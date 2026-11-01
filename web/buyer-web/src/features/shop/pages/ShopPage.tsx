@@ -947,6 +947,7 @@ export function ShopPage({ browseOnly = false }: Props) {
                     imageCount={item.imageUrls.length}
                     quantity={quantityFor(item.listingId)}
                     busy={busyKey === item.listingId}
+                    outOfStock={item.outOfStock}
                     onOpen={() => setQuickView(item)}
                     onIncrease={() => void doIncrease(item.listingId)}
                     onDecrease={() => void doDecrease(item.listingId)}

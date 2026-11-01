@@ -183,6 +183,7 @@ export function BestDealsSheet({
                     imageUrl={item.imageUrl}
                     quantity={quantityFor(item.listingId)}
                     busy={busyKey === item.listingId}
+                    outOfStock={item.outOfStock}
                     onOpen={() => {}}
                     onIncrease={() => onIncrease(item.listingId)}
                     onDecrease={() => onDecrease(item.listingId)}

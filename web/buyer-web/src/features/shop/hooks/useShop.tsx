@@ -791,6 +791,11 @@ function useShopState() {
       setError('This preview item cannot be added yet. Pick a live product from the shop.');
       return;
     }
+    const catalogHit = itemsRef.current.find((i) => i.listingId === listingId);
+    if (catalogHit?.outOfStock) {
+      setError('This item is out of stock at this shop.');
+      return;
+    }
     setError(null);
     patchLocalQuantity(listingId, quantityFor(listingId) + 1);
     enqueueListingSync(listingId);

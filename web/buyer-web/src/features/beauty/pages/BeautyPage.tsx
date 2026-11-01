@@ -127,57 +127,104 @@ function artistInitials(name: string): string {
 }
 
 const SKIN = `
+@keyframes hlm-glam-sparkle-float {
+  0%, 100% { transform: translateY(0) rotate(-4deg); opacity: 0.92; }
+  50% { transform: translateY(-4px) rotate(3deg); opacity: 1; }
+}
 .hlm-glam-root {
   display: grid;
-  gap: 0.75rem;
-  padding: 0.35rem 0.15rem 0.5rem;
+  gap: 0.65rem;
+  padding: 0.25rem 0.1rem 0.45rem;
   color: #0f172a;
   background:
+    radial-gradient(circle at 12% 8%, rgba(244, 114, 182, 0.12), transparent 42%),
+    radial-gradient(circle at 88% 18%, rgba(251, 207, 232, 0.35), transparent 38%),
     radial-gradient(ellipse 130% 55% at 50% -8%, rgba(244, 114, 182, 0.14), transparent 52%),
     linear-gradient(180deg, #fff5f9 0%, #fafafa 38%, #f4f4f5 100%);
   border-radius: 22px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85);
 }
 .hlm-glam-hero {
-  margin-bottom: 0.1rem;
+  margin-bottom: 0.05rem;
   position: relative;
   border-radius: 22px;
-  padding: 1.15rem 1rem 1rem;
+  padding: 1.05rem 1rem 1rem;
   overflow: hidden;
   color: #fff;
   background:
-    radial-gradient(100% 90% at 100% 0%, rgba(255,255,255,0.22) 0%, transparent 50%),
-    radial-gradient(80% 60% at 0% 100%, rgba(253, 186, 216, 0.35) 0%, transparent 55%),
-    linear-gradient(128deg, #4c0519 0%, #9d174d 38%, #ec4899 72%, #fda4af 100%);
+    radial-gradient(120% 80% at 100% 0%, rgba(255,255,255,0.26) 0%, transparent 48%),
+    radial-gradient(90% 70% at 0% 100%, rgba(253, 186, 216, 0.4) 0%, transparent 52%),
+    radial-gradient(50% 40% at 78% 62%, rgba(255,255,255,0.12) 0%, transparent 70%),
+    linear-gradient(128deg, #4c0519 0%, #9d174d 36%, #ec4899 70%, #fda4af 100%);
   box-shadow:
-    0 20px 50px rgba(157, 23, 77, 0.35),
-    0 1px 0 rgba(255,255,255,0.2) inset;
+    0 22px 56px rgba(157, 23, 77, 0.38),
+    0 1px 0 rgba(255,255,255,0.22) inset;
+  isolation: isolate;
+}
+.hlm-glam-hero-deco {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background:
+    radial-gradient(circle at 92% 18%, rgba(255,255,255,0.35) 0%, transparent 28%),
+    radial-gradient(circle at 8% 88%, rgba(255,255,255,0.08) 0%, transparent 35%);
+  opacity: 0.9;
+}
+.hlm-glam-hero-body {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  gap: 0.35rem;
+  padding-right: 3.25rem;
+}
+.hlm-glam-hero-kicker {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  max-width: 100%;
+  padding: 0.22rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.58rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.95);
+  background: rgba(255,255,255,0.14);
+  border: 1px solid rgba(255,255,255,0.28);
+  backdrop-filter: blur(10px);
 }
 .hlm-glam-hero h2 {
   margin: 0;
   font-family: var(--font-display);
-  font-size: 1.42rem;
+  font-size: clamp(1.35rem, 4.8vw, 1.55rem);
   font-weight: 900;
   letter-spacing: -0.035em;
-  line-height: 1.12;
-  max-width: 15.5rem;
+  line-height: 1.1;
+  max-width: 16rem;
   text-wrap: balance;
+  text-shadow: 0 2px 18px rgba(76, 5, 25, 0.35);
 }
 .hlm-glam-hero p {
-  margin: 0.45rem 0 0;
-  font-size: 0.78rem;
+  margin: 0;
+  font-size: 0.76rem;
   font-weight: 600;
-  opacity: 0.92;
-  line-height: 1.5;
-  max-width: 17.5rem;
+  opacity: 0.94;
+  line-height: 1.45;
+  max-width: 17rem;
 }
 .hlm-glam-sparkles {
   position: absolute;
-  right: 0.85rem;
-  top: 0.75rem;
-  font-size: 1.65rem;
-  opacity: 0.95;
+  right: 0.75rem;
+  top: 0.65rem;
+  z-index: 2;
+  font-size: clamp(1.45rem, 5vw, 1.85rem);
+  opacity: 0.96;
   pointer-events: none;
-  filter: drop-shadow(0 4px 12px rgba(0,0,0,0.15));
+  filter: drop-shadow(0 6px 16px rgba(0,0,0,0.2));
+}
+@media (prefers-reduced-motion: no-preference) {
+  .hlm-glam-sparkles { animation: hlm-glam-sparkle-float 4.5s ease-in-out infinite; }
 }
 .hlm-glam-trust {
   display: flex;
@@ -198,16 +245,27 @@ const SKIN = `
 .hlm-glam-panel {
   position: relative;
   border-radius: 20px;
-  border: 1px solid rgba(255, 255, 255, 0.85);
-  background: rgba(255, 255, 255, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.92);
+  background: linear-gradient(165deg, rgba(255, 255, 255, 0.94) 0%, rgba(255, 255, 255, 0.82) 100%);
   backdrop-filter: blur(14px);
-  padding: 0.8rem 0.78rem;
+  padding: 0.72rem 0.75rem;
   box-shadow:
-    0 1px 0 rgba(255,255,255,0.95) inset,
-    0 10px 36px rgba(15, 23, 42, 0.06);
+    0 1px 0 rgba(255,255,255,0.98) inset,
+    0 12px 40px rgba(15, 23, 42, 0.07),
+    0 0 0 1px rgba(15, 23, 42, 0.02);
   display: grid;
-  gap: 0.55rem;
+  gap: 0.5rem;
 }
+.hlm-glam-panel::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(255,255,255,0.55) 0%, transparent 38%);
+  opacity: 0.65;
+}
+.hlm-glam-panel > * { position: relative; z-index: 1; }
 .hlm-glam-panel[aria-label='Artists'] {
   overflow: visible;
   padding-bottom: 1rem;
@@ -229,6 +287,17 @@ const SKIN = `
   width: 3px;
   border-radius: 0 4px 4px 0;
   background: linear-gradient(180deg, #f9a8d4, #db2777, #9d174d);
+  z-index: 2;
+}
+.hlm-glam-panel-priority::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: 0;
+  background: linear-gradient(180deg, rgba(255,255,255,0.5) 0%, transparent 40%);
+  opacity: 0.55;
 }
 .hlm-glam-when-where-row {
   display: grid;
@@ -289,17 +358,20 @@ const SKIN = `
   flex: 1;
 }
 .hlm-glam-step {
-  width: 1.75rem;
-  height: 1.75rem;
-  border-radius: 11px;
-  background: linear-gradient(145deg, #fce7f3 0%, #fbcfe8 100%);
+  width: 1.85rem;
+  height: 1.85rem;
+  border-radius: 12px;
+  background:
+    linear-gradient(145deg, #fff 0%, #fce7f3 55%, #fbcfe8 100%) padding-box,
+    linear-gradient(145deg, #f9a8d4, #db2777, #9d174d) border-box;
+  border: 2px solid transparent;
   color: #831843;
   font-size: 0.74rem;
   font-weight: 900;
   display: grid;
   place-items: center;
   flex-shrink: 0;
-  box-shadow: 0 3px 10px rgba(190, 24, 93, 0.18);
+  box-shadow: 0 4px 14px rgba(190, 24, 93, 0.2);
   font-family: var(--font-display);
 }
 .hlm-glam-step-pin {
@@ -372,6 +444,8 @@ const SKIN = `
   margin: 0 -0.35rem;
   padding: 0.1rem 0.35rem 0.05rem;
   overflow: visible;
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 0.65rem, #000 calc(100% - 0.65rem), transparent 100%);
+  mask-image: linear-gradient(90deg, transparent 0, #000 0.65rem, #000 calc(100% - 0.65rem), transparent 100%);
 }
 .hlm-glam-artists {
   display: flex;
@@ -393,15 +467,16 @@ const SKIN = `
   scroll-snap-align: end;
 }
 .hlm-glam-artist {
+  position: relative;
   flex: 0 0 clamp(6.85rem, 42vw, 8.35rem);
   width: clamp(6.85rem, 42vw, 8.35rem);
   align-self: stretch;
   scroll-snap-align: start;
   scroll-snap-stop: normal;
-  border-radius: 16px;
+  border-radius: 18px;
   border: 1.5px solid #e2e8f0;
   padding: 0.48rem 0.5rem 0.52rem;
-  background: #fff;
+  background: linear-gradient(180deg, #fff 0%, #fafafa 100%);
   cursor: pointer;
   display: flex;
   flex-direction: column;
@@ -410,15 +485,31 @@ const SKIN = `
   color: #0f172a;
   box-sizing: border-box;
   transition: border-color 0.18s, box-shadow 0.18s, transform 0.12s;
-  box-shadow: 0 3px 12px rgba(15, 23, 42, 0.05);
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.06);
 }
 .hlm-glam-artist:active { transform: scale(0.98); }
 .hlm-glam-artist-on {
   border-color: #ec4899;
   background: linear-gradient(160deg, #fff 0%, #fdf2f8 55%, #fce7f3 100%);
   box-shadow:
-    0 0 0 2px rgba(236, 72, 153, 0.2),
-    0 10px 28px rgba(219, 39, 119, 0.22);
+    0 0 0 2px rgba(236, 72, 153, 0.22),
+    0 12px 32px rgba(219, 39, 119, 0.24);
+}
+.hlm-glam-artist-on::after {
+  content: '✓';
+  position: absolute;
+  top: 0.35rem;
+  right: 0.35rem;
+  width: 1.15rem;
+  height: 1.15rem;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  font-size: 0.58rem;
+  font-weight: 900;
+  color: #fff;
+  background: linear-gradient(145deg, #db2777, #9d174d);
+  box-shadow: 0 3px 10px rgba(157, 23, 77, 0.35);
 }
 .hlm-glam-artist-top {
   display: flex;
@@ -781,11 +872,12 @@ const SKIN = `
   max-height: min(42vh, 17.5rem);
   -webkit-overflow-scrolling: touch;
   margin: 0 -0.1rem;
-  border: 1px solid #e2e8f0;
-  border-radius: 14px;
+  padding: 0.35rem 0.4rem 0.4rem;
+  border: 1px solid #f1f5f9;
+  border-radius: 16px;
   color-scheme: light;
-  box-shadow: 0 4px 20px rgba(15, 23, 42, 0.04);
-  background: #fff;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.9), 0 6px 24px rgba(15, 23, 42, 0.05);
+  background: linear-gradient(180deg, #f8fafc 0%, #fff 28%);
 }
 @media (max-width: 420px) {
   .hlm-glam-service-table th:nth-child(3),
@@ -799,31 +891,54 @@ const SKIN = `
 }
 .hlm-glam-service-table {
   width: 100%;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0 0.32rem;
   font-size: 0.72rem;
 }
 .hlm-glam-service-table thead th {
-  padding: 0.45rem 0.5rem;
+  padding: 0.35rem 0.5rem 0.45rem;
   text-align: left;
-  font-size: 0.62rem;
+  font-size: 0.58rem;
   font-weight: 800;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: #64748b;
-  background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
-  border-bottom: 1px solid #e2e8f0;
+  letter-spacing: 0.06em;
+  color: #94a3b8;
+  background: transparent;
+  border-bottom: none;
 }
 .hlm-glam-service-table th.hlm-glam-th-check { width: 2rem; padding-left: 0.5rem; }
 .hlm-glam-service-table th.hlm-glam-th-price { text-align: right; white-space: nowrap; }
 .hlm-glam-service-table tbody tr {
   cursor: pointer;
-  border-bottom: 1px solid #f1f5f9;
+  background: #fff;
+  box-shadow: 0 2px 10px rgba(15, 23, 42, 0.04);
+  transition: box-shadow 0.15s ease, transform 0.12s ease;
 }
-.hlm-glam-service-table tbody tr:last-child { border-bottom: none; }
-.hlm-glam-service-table tbody tr:hover { background: #fafafa; }
-.hlm-glam-service-table tbody tr.hlm-glam-service-row-on { background: #fdf2f8; }
+.hlm-glam-service-table tbody tr:active { transform: scale(0.995); }
+.hlm-glam-service-table tbody tr:hover { box-shadow: 0 4px 16px rgba(15, 23, 42, 0.07); }
+.hlm-glam-service-table tbody tr.hlm-glam-service-row-on {
+  background: linear-gradient(90deg, #fdf2f8 0%, #fff 72%);
+  box-shadow:
+    0 0 0 1.5px rgba(236, 72, 153, 0.35),
+    0 6px 20px rgba(219, 39, 119, 0.14);
+}
+.hlm-glam-service-table tbody tr td {
+  border-top: 1px solid #eef2f7;
+  border-bottom: 1px solid #eef2f7;
+}
+.hlm-glam-service-table tbody tr td:first-child {
+  border-left: 1px solid #eef2f7;
+  border-radius: 12px 0 0 12px;
+}
+.hlm-glam-service-table tbody tr td:last-child {
+  border-right: 1px solid #eef2f7;
+  border-radius: 0 12px 12px 0;
+}
+.hlm-glam-service-table tbody tr.hlm-glam-service-row-on td {
+  border-color: rgba(249, 168, 212, 0.65);
+}
 .hlm-glam-service-table td {
-  padding: 0.4rem 0.45rem;
+  padding: 0.48rem 0.45rem;
   vertical-align: middle;
 }
 .hlm-glam-service-table td.hlm-glam-td-check {
@@ -833,21 +948,23 @@ const SKIN = `
 .hlm-glam-service-table input[type='checkbox'] {
   appearance: none;
   -webkit-appearance: none;
-  width: 1rem;
-  height: 1rem;
+  width: 1.05rem;
+  height: 1.05rem;
   margin: 0;
   cursor: pointer;
-  border: 1.5px solid #cbd5e1;
-  border-radius: 4px;
+  border: 2px solid #cbd5e1;
+  border-radius: 999px;
   background: #fff;
   display: inline-grid;
   place-content: center;
   vertical-align: middle;
   flex-shrink: 0;
+  transition: border-color 0.12s, background 0.12s, box-shadow 0.12s;
 }
 .hlm-glam-service-table input[type='checkbox']:checked {
-  background: #be185d;
+  background: linear-gradient(145deg, #db2777, #9d174d);
   border-color: #be185d;
+  box-shadow: 0 2px 8px rgba(190, 24, 93, 0.35);
 }
 .hlm-glam-service-table input[type='checkbox']:checked::after {
   content: '';
@@ -871,14 +988,16 @@ const SKIN = `
   line-height: 1.25;
 }
 .hlm-glam-service-emoji {
-  width: 1.35rem;
-  height: 1.35rem;
-  border-radius: 6px;
-  background: #fdf2f8;
+  width: 1.55rem;
+  height: 1.55rem;
+  border-radius: 10px;
+  background: linear-gradient(145deg, #fdf2f8, #fff);
+  border: 1px solid #fce7f3;
   display: grid;
   place-items: center;
-  font-size: 0.75rem;
+  font-size: 0.82rem;
   flex-shrink: 0;
+  box-shadow: 0 2px 6px rgba(190, 24, 93, 0.08);
 }
 .hlm-glam-service-detail {
   color: #6b7280;
@@ -947,6 +1066,15 @@ const SKIN = `
   color: #0f172a;
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04) inset;
 }
+select.hlm-glam-field {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 2.35rem;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23be185d' d='M3 4.5 6 7.5 9 4.5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.75rem center;
+  background-color: #fff;
+}
 .hlm-glam-field:focus {
   outline: none;
   border-color: #ec4899;
@@ -986,10 +1114,10 @@ const SKIN = `
 }
 .hlm-glam-slot {
   flex: 0 0 auto;
-  min-height: 36px;
-  padding: 0 0.65rem;
+  min-height: 38px;
+  padding: 0 0.75rem;
   border-radius: 999px;
-  border: 1.5px solid #cbd5e1;
+  border: 1.5px solid #e2e8f0;
   background-color: #ffffff;
   font-size: 0.72rem;
   font-weight: 800;
@@ -998,7 +1126,8 @@ const SKIN = `
   cursor: pointer;
   appearance: none;
   -webkit-appearance: none;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.06);
+  transition: border-color 0.12s, box-shadow 0.12s, transform 0.1s;
 }
 .hlm-glam-slot:not([disabled]):hover {
   border-color: #db2777;
@@ -1691,10 +1820,13 @@ export function BeautyPage() {
           ? 'Complete payment in the window…'
           : `Pay ${money(payNow)} & book`;
 
+  const glamBookingUi = Boolean(session && beautyReady && beautyEnabled && !loading);
+
   return (
     <PortalShell
       title="Koya Glam"
       subtitle={hasTown ? `${townLabel} · makeup & styling` : 'Choose your town'}
+      hideTitle={glamBookingUi}
       showDeliveryBanner={false}
       showStickyCart={false}
       footerSlot={
@@ -1739,18 +1871,24 @@ export function BeautyPage() {
       ) : null}
       {error ? <p style={styles.error}>{error}</p> : null}
 
-      {session && beautyReady && beautyEnabled && !loading ? (
+      {glamBookingUi ? (
         <div className="hlm-glam-root">
           <div className="hlm-glam-hero">
+            <div className="hlm-glam-hero-deco" aria-hidden />
             <span className="hlm-glam-sparkles" aria-hidden>
               ✨💄
             </span>
-            <h2>Look your best, close to home</h2>
-            <p>Book trusted local makeup artists — at home or at their studio — with the same app you use for groceries.</p>
-            <div className="hlm-glam-trust">
-              <span>Verified artists</span>
-              <span>Home or studio</span>
-              <span>UPI &amp; cash</span>
+            <div className="hlm-glam-hero-body">
+              <span className="hlm-glam-hero-kicker">
+                {hasTown ? `${townLabel} · Koya Glam` : 'Koya Glam'}
+              </span>
+              <h2>Look your best, close to home</h2>
+              <p>Book trusted local makeup artists — at home or at their studio — with the same app you use for groceries.</p>
+              <div className="hlm-glam-trust">
+                <span>Verified artists</span>
+                <span>Home or studio</span>
+                <span>UPI &amp; cash</span>
+              </div>
             </div>
           </div>
 

@@ -21,6 +21,7 @@ export type ListingDto = {
   vendorNote?: string | null;
   searchNames?: string | null;
   active: boolean;
+  buyerOutOfStock?: boolean;
   imageUrls?: string[] | null;
   listingImageUrls?: string[] | null;
   masterImageUrls?: string[] | null;
@@ -35,6 +36,7 @@ export type MasterItemDto = {
   unit: string;
   category?: string;
   mrp?: number | null;
+  barcode?: string | null;
   imageUrls?: string[] | null;
 };
 
@@ -58,6 +60,7 @@ export type ListingView = {
   note: string;
   searchNames: string;
   active: boolean;
+  buyerOutOfStock: boolean;
   vendorMrp: string;
   price: string;
   discountPrice: string;
@@ -76,6 +79,7 @@ export type MasterItemView = {
   unit: string;
   mrp: number | null;
   mrpLabel: string | null;
+  barcode: string;
   imageUrl: string | null;
 };
 
@@ -132,6 +136,7 @@ export function toListingView(dto: ListingDto): ListingView {
     note: dto.vendorNote?.trim() || '',
     searchNames: dto.searchNames?.trim() || '',
     active: dto.active,
+    buyerOutOfStock: Boolean(dto.buyerOutOfStock),
     vendorMrp: vendorMrp != null ? String(vendorMrp) : '',
     price: String(dto.price ?? ''),
     discountPrice: dto.discountPrice != null ? String(dto.discountPrice) : '',
@@ -166,8 +171,41 @@ export function toMasterItemView(dto: MasterItemDto): MasterItemView {
     unit: dto.unit,
     mrp: dto.mrp ?? null,
     mrpLabel: dto.mrp != null ? money(dto.mrp) : null,
+    barcode: dto.barcode?.trim() ?? '',
     imageUrl: dto.imageUrls?.[0] ?? null,
   };
+}
+
+export type BulkSyncRow = {
+  masterItemId: string;
+  listed: boolean;
+  buyerVisibility?: string;
+  vendorMrp?: number | null;
+  price?: number;
+  discountPrice?: number | null;
+  vendorNote?: string | null;
+  searchNames?: string | null;
+};
+
+export type BulkSyncResult = {
+  created: number;
+  updated: number;
+  hidden: number;
+  failed: number;
+  errors: Array<{ masterItemId: string; productName: string; message: string }>;
+};
+
+export async function bulkSyncListings(
+  token: string,
+  vendorId: string,
+  items: BulkSyncRow[],
+): Promise<BulkSyncResult> {
+  return apiRequest<BulkSyncResult>('/api/v1/catalog/vendors/me/listings/bulk-sync', {
+    method: 'POST',
+    token,
+    vendorId,
+    body: { items },
+  });
 }
 
 function parseOptionalPrice(raw: string): number | null {

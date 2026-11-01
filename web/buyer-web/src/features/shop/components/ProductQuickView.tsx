@@ -19,6 +19,7 @@ export type QuickViewProduct = {
   imageUrl?: string | null;
   imageUrls?: string[];
   categoryId?: string | null;
+  outOfStock?: boolean;
 };
 
 type Props = {
@@ -237,7 +238,7 @@ export function ProductQuickView({
           </div>
           <QuantityStepper
             quantity={quantity}
-            disabled={busy}
+            disabled={busy || product.outOfStock}
             onIncrease={onIncrease}
             onDecrease={onDecrease}
             size="md"

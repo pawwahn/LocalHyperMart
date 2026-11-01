@@ -1,5 +1,6 @@
 import { useState, type CSSProperties } from 'react';
 import { usePortalChrome } from '@/shared/layout/PortalChromeContext';
+import { useAuth } from '@/shared/auth/AuthContext';
 import { Banner } from '@/shared/ui';
 import { useVendorListings } from '../hooks/useVendorListings';
 import { CatalogPicker } from '../components/CatalogPicker';
@@ -8,8 +9,10 @@ import { PublishedListings } from '../components/PublishedListings';
 type ListingsTab = 'catalog' | 'mine';
 
 export function ListingsPage({ active = true }: { active?: boolean }) {
+  const { session } = useAuth();
   const {
     listings,
+    masterItems,
     categories,
     visibleItems,
     visibleListings,
@@ -35,6 +38,7 @@ export function ListingsPage({ active = true }: { active?: boolean }) {
     selectedCount,
     catalogStats,
     reload,
+    invalidateAndReload,
     toggleItem,
     updateDraft,
     publishSelected,
@@ -43,10 +47,13 @@ export function ListingsPage({ active = true }: { active?: boolean }) {
     hideSelectedListings,
     showSelectedListings,
     saveListingPricing,
+    saveBulkListingPricing,
     saveListingPhotos,
     uploadPhoto,
   } = useVendorListings();
   const [tab, setTab] = useState<ListingsTab>('catalog');
+  const [excelNotice, setExcelNotice] = useState<string | null>(null);
+  const [excelError, setExcelError] = useState<string | null>(null);
 
   usePortalChrome(
     {
@@ -59,7 +66,13 @@ export function ListingsPage({ active = true }: { active?: boolean }) {
   return (
     <>
       {error ? <Banner tone="danger">{error}</Banner> : null}
+      {excelError ? (
+        <Banner tone="danger">
+          <span style={styles.excelError}>{excelError}</span>
+        </Banner>
+      ) : null}
       {notice ? <Banner tone="success">{notice}</Banner> : null}
+      {excelNotice ? <Banner tone="success">{excelNotice}</Banner> : null}
 
       {loading && listings.length === 0 && visibleItems.length === 0 ? (
         <p style={styles.muted}>Loading catalog…</p>
@@ -115,6 +128,17 @@ export function ListingsPage({ active = true }: { active?: boolean }) {
               onDraftChange={updateDraft}
               onPublish={publishSelected}
               onRefresh={acknowledgePublish}
+              onExcelUploaded={invalidateAndReload}
+              masterItems={masterItems}
+              shopName={session?.shopName}
+              onExcelNotice={(msg) => {
+                setExcelNotice(msg);
+                setTimeout(() => setExcelNotice(null), 8000);
+              }}
+              onExcelError={(msg) => {
+                setExcelError(msg);
+              }}
+              onExcelUploadStart={() => setExcelError(null)}
             />
           ) : (
             <PublishedListings
@@ -128,8 +152,9 @@ export function ListingsPage({ active = true }: { active?: boolean }) {
               onToggle={(listing) => void toggleActive(listing)}
               onHideSelected={(ids) => hideSelectedListings(ids)}
               onShowSelected={(ids) => showSelectedListings(ids)}
-              bulkBusy={actionId === 'bulk'}
+              bulkBusy={actionId === 'bulk' || actionId === 'bulk-pricing'}
               onSavePricing={saveListingPricing}
+              onSaveBulkPricing={saveBulkListingPricing}
               onUploadPhoto={uploadPhoto}
               onSavePhotos={saveListingPhotos}
             />
@@ -141,6 +166,7 @@ export function ListingsPage({ active = true }: { active?: boolean }) {
 }
 
 const styles: Record<string, CSSProperties> = {
+  excelError: { whiteSpace: 'pre-wrap', display: 'block', fontSize: '0.88rem', lineHeight: 1.45 },
   muted: { color: 'var(--text-muted)' },
   tabs: {
     display: 'grid',

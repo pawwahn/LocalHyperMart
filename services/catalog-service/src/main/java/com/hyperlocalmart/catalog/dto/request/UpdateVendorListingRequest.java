@@ -32,6 +32,8 @@ public class UpdateVendorListingRequest {
 
     private Boolean active;
 
+    private Boolean buyerOutOfStock;
+
     /** When true, nullable pricing fields are cleared instead of ignored. */
     private Boolean replacePricing;
 }

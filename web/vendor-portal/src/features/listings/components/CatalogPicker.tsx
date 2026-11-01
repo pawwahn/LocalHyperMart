@@ -5,6 +5,7 @@ import type { PublishFailure, PublishResult } from '../hooks/useVendorListings';
 import { TableScrollShell } from './TableScrollShell';
 import { SortableTh } from './SortableTh';
 import { TablePager } from './TablePager';
+import { CatalogExcelToolbar } from './CatalogExcelToolbar';
 import {
   PAGE_SIZES,
   compareNumber,
@@ -39,6 +40,12 @@ type Props = {
   onDraftChange: (masterItemId: string, patch: Partial<DraftPricing>) => void;
   onPublish: () => Promise<PublishResult>;
   onRefresh: () => Promise<void>;
+  onExcelUploaded: () => Promise<void>;
+  masterItems: MasterItemView[];
+  shopName?: string;
+  onExcelNotice: (message: string) => void;
+  onExcelError: (message: string) => void;
+  onExcelUploadStart?: () => void;
 };
 
 const STATUS_FILTERS: Array<{ id: CatalogStatusFilter; label: string }> = [
@@ -74,6 +81,12 @@ export function CatalogPicker({
   onDraftChange,
   onPublish,
   onRefresh,
+  onExcelUploaded,
+  masterItems,
+  shopName,
+  onExcelNotice,
+  onExcelError,
+  onExcelUploadStart,
 }: Props) {
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(25);
@@ -209,9 +222,19 @@ export function CatalogPicker({
         <div>
           <h3 style={styles.title}>Admin catalog</h3>
           <p style={styles.hint}>
-            {inMyListing} of {adminTotal} listed · pick, price, publish
+            {inMyListing} of {adminTotal} listed · pick, price, publish — or use Excel below
           </p>
         </div>
+        <CatalogExcelToolbar
+          masterItems={masterItems}
+          listedByMaster={listedByMaster}
+          shopName={shopName}
+          disabled={saving}
+          onUploaded={onExcelUploaded}
+          onNotice={onExcelNotice}
+          onError={onExcelError}
+          onExcelUploadStart={onExcelUploadStart}
+        />
       </div>
 
       <div style={styles.toolbar}>

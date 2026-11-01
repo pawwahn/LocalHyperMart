@@ -23,6 +23,7 @@ export type CatalogItemDto = {
   avgRating?: number | null;
   ratingCount?: number | null;
   fromPreviousOrder?: boolean;
+  outOfStock?: boolean;
 };
 
 export type CartDto = {
@@ -253,6 +254,7 @@ export type CatalogItemView = {
   imageUrl?: string | null;
   imageUrls: string[];
   fromPreviousOrder?: boolean;
+  outOfStock?: boolean;
 };
 
 export type CartLineView = {
@@ -326,6 +328,7 @@ export function toCatalogItem(dto: CatalogItemDto): CatalogItemView {
     imageUrl,
     imageUrls: urls,
     fromPreviousOrder: Boolean(dto.fromPreviousOrder),
+    outOfStock: Boolean(dto.outOfStock),
   };
 }
 

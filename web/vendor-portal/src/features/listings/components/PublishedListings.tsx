@@ -30,6 +30,9 @@ type Props = {
   onHideSelected: (listingIds: string[]) => Promise<void>;
   onShowSelected: (listingIds: string[]) => Promise<void>;
   onSavePricing: (listing: ListingView, draft: DraftPricing) => Promise<boolean>;
+  onSaveBulkPricing: (
+    items: Array<{ listing: ListingView; draft: DraftPricing }>,
+  ) => Promise<boolean>;
   onUploadPhoto: (file: File) => Promise<UploadedMedia>;
   onSavePhotos: (listing: ListingView, images: UploadedMedia[]) => Promise<boolean>;
 };
@@ -66,6 +69,7 @@ export function PublishedListings({
   onHideSelected,
   onShowSelected,
   onSavePricing,
+  onSaveBulkPricing,
   onUploadPhoto,
   onSavePhotos,
 }: Props) {
@@ -79,26 +83,93 @@ export function PublishedListings({
   const [imageError, setImageError] = useState<string | null>(null);
   const [pendingSlot, setPendingSlot] = useState<number | null>(null);
   const [selected, setSelected] = useState<Record<string, boolean>>({});
+  const [bulkEditIds, setBulkEditIds] = useState<string[] | null>(null);
+  const [bulkDrafts, setBulkDrafts] = useState<Record<string, DraftPricing>>({});
+  const [bulkSaveBusy, setBulkSaveBusy] = useState(false);
   const liveCount = listings.filter((l) => l.active).length;
   const hiddenCount = listings.length - liveCount;
   const imageListing = imageListingId
     ? listings.find((l) => l.id === imageListingId) ?? null
     : null;
 
-  function startEdit(listing: ListingView) {
-    setEditingId(listing.id);
-    setEditDraft({
+  function draftFromListing(listing: ListingView): DraftPricing {
+    return {
       vendorMrp: listing.vendorMrp,
       price: listing.price,
       discountPrice: listing.discountPrice,
       vendorNote: listing.note,
       searchNames: listing.searchNames,
-    });
+    };
+  }
+
+  function startEdit(listing: ListingView) {
+    cancelBulkEdit();
+    setEditingId(listing.id);
+    setEditDraft(draftFromListing(listing));
   }
 
   function cancelEdit() {
     setEditingId(null);
     setEditDraft(null);
+  }
+
+  function cancelBulkEdit() {
+    setBulkEditIds(null);
+    setBulkDrafts({});
+    setBulkSaveBusy(false);
+  }
+
+  function startBulkEdit() {
+    if (selectedIds.length === 0) return;
+    cancelEdit();
+    const drafts: Record<string, DraftPricing> = {};
+    for (const id of selectedIds) {
+      const listing = listings.find((l) => l.id === id);
+      if (listing) drafts[id] = draftFromListing(listing);
+    }
+    setBulkDrafts(drafts);
+    setBulkEditIds([...selectedIds]);
+  }
+
+  async function saveBulkEdit() {
+    if (!bulkEditIds?.length) return;
+    const items = bulkEditIds.flatMap((id) => {
+      const listing = listings.find((l) => l.id === id);
+      const draft = bulkDrafts[id];
+      return listing && draft ? [{ listing, draft }] : [];
+    });
+    if (items.length === 0) return;
+    setBulkSaveBusy(true);
+    try {
+      const ok = await onSaveBulkPricing(items);
+      if (ok) {
+        cancelBulkEdit();
+        setSelected({});
+      }
+    } finally {
+      setBulkSaveBusy(false);
+    }
+  }
+
+  function rowDraft(listing: ListingView): DraftPricing | null {
+    if (bulkEditIds?.includes(listing.id)) {
+      return bulkDrafts[listing.id] ?? null;
+    }
+    if (editingId === listing.id && editDraft) return editDraft;
+    return null;
+  }
+
+  function patchRowDraft(listing: ListingView, patch: Partial<DraftPricing>) {
+    if (bulkEditIds?.includes(listing.id)) {
+      setBulkDrafts((prev) => ({
+        ...prev,
+        [listing.id]: { ...(prev[listing.id] ?? draftFromListing(listing)), ...patch },
+      }));
+      return;
+    }
+    if (editingId === listing.id && editDraft) {
+      setEditDraft({ ...editDraft, ...patch });
+    }
   }
 
   async function saveEdit(listing: ListingView) {
@@ -183,6 +254,8 @@ export function PublishedListings({
   useEffect(() => {
     setPage(0);
     setSelected({});
+    cancelBulkEdit();
+    cancelEdit();
   }, [query, statusFilter, pageSize, sort]);
 
   const activeView = LISTING_VIEW_TABS.find((t) => t.id === statusFilter) ?? LISTING_VIEW_TABS[0];
@@ -246,6 +319,7 @@ export function PublishedListings({
     [selected],
   );
   const selectedCount = selectedIds.length;
+  const inBulkEdit = Boolean(bulkEditIds?.length);
   const multiSelected = selectedCount > 1;
   const pageSelectedCount = pageItems.filter((l) => selected[l.id]).length;
   const allPageSelected = pageItems.length > 0 && pageSelectedCount === pageItems.length;
@@ -264,6 +338,7 @@ export function PublishedListings({
       return next;
     });
     if (checked && editingId) cancelEdit();
+    if (checked && inBulkEdit) cancelBulkEdit();
   }
 
   async function handleHideSelected() {
@@ -347,11 +422,39 @@ export function PublishedListings({
         <div style={styles.bulkBar}>
           <span style={styles.bulkText}>{selectedCount} selected on this tab</span>
           <div style={styles.bulkActions}>
+            {inBulkEdit ? (
+              <>
+                <Button
+                  size="sm"
+                  disabled={bulkBusy || bulkSaveBusy}
+                  onClick={() => void saveBulkEdit()}
+                >
+                  {bulkSaveBusy ? 'Saving…' : `Bulk save (${bulkEditIds?.length ?? 0})`}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={bulkSaveBusy}
+                  onClick={cancelBulkEdit}
+                >
+                  Cancel edit
+                </Button>
+              </>
+            ) : (
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={bulkBusy || Boolean(editingId) || selectedCount === 0}
+                onClick={startBulkEdit}
+              >
+                Bulk edit ({selectedCount})
+              </Button>
+            )}
             {onLiveTab ? (
               <Button
                 size="sm"
                 variant="secondary"
-                disabled={bulkBusy || selectedCount === 0}
+                disabled={bulkBusy || bulkSaveBusy || inBulkEdit || selectedCount === 0}
                 onClick={() => void handleHideSelected()}
               >
                 {bulkBusy ? 'Updating…' : `Hide selected (${selectedCount})`}
@@ -359,7 +462,7 @@ export function PublishedListings({
             ) : (
               <Button
                 size="sm"
-                disabled={bulkBusy || selectedCount === 0}
+                disabled={bulkBusy || bulkSaveBusy || inBulkEdit || selectedCount === 0}
                 onClick={() => void handleShowSelected()}
               >
                 {bulkBusy ? 'Updating…' : `Show selected (${selectedCount})`}
@@ -390,7 +493,7 @@ export function PublishedListings({
                   <input
                     type="checkbox"
                     checked={allPageSelected}
-                    disabled={bulkBusy || Boolean(editingId)}
+                    disabled={bulkBusy || bulkSaveBusy || Boolean(editingId) || inBulkEdit}
                     onChange={(e) => togglePage(e.target.checked)}
                     aria-label="Select all on this page"
                   />
@@ -405,16 +508,16 @@ export function PublishedListings({
                 />
                 <SortableTh label="Unit" column="unit" sort={sort} onSort={onSort} style={styles.th} />
                 <SortableTh
-                  label="Sell"
-                  column="sell"
+                  label="MRP"
+                  column="mrp"
                   sort={sort}
                   onSort={onSort}
                   align="right"
                   style={styles.thRight}
                 />
                 <SortableTh
-                  label="MRP"
-                  column="mrp"
+                  label="Sell"
+                  column="sell"
                   sort={sort}
                   onSort={onSort}
                   align="right"
@@ -427,9 +530,10 @@ export function PublishedListings({
             </thead>
             <tbody>
               {pageItems.map((listing) => {
-                const busy = actionId === listing.id || bulkBusy;
+                const busy = actionId === listing.id || bulkBusy || bulkSaveBusy;
                 const checked = Boolean(selected[listing.id]);
-                const editing = editingId === listing.id && editDraft;
+                const draft = rowDraft(listing);
+                const editing = draft != null;
                 const cellBg = {
                   background: editing
                     ? 'var(--accent-soft)'
@@ -438,14 +542,14 @@ export function PublishedListings({
                       : 'var(--bg-elevated)',
                   backgroundClip: 'padding-box' as const,
                 };
-                const editDisabled = busy || Boolean(editingId) || multiSelected;
+                const editDisabled = busy || inBulkEdit || Boolean(editingId) || multiSelected;
                 return (
                   <tr key={listing.id} style={styles.tr}>
                     <td style={{ ...styles.tdCheck, ...cellBg }}>
                       <input
                         type="checkbox"
                         checked={checked}
-                        disabled={busy || Boolean(editingId)}
+                        disabled={busy || Boolean(editingId) || inBulkEdit}
                         onChange={(e) => toggleRow(listing.id, e.target.checked)}
                         aria-label={`Select ${listing.name}`}
                       />
@@ -476,37 +580,37 @@ export function PublishedListings({
                     </td>
                     <td style={{ ...styles.tdMuted, ...cellBg }}>{listing.unit}</td>
                     <td style={{ ...styles.tdRight, ...cellBg }}>
-                      {editing ? (
+                      {editing && draft ? (
                         <input
                           style={styles.cellInput}
                           inputMode="decimal"
-                          value={editDraft.price}
-                          onChange={(e) => setEditDraft({ ...editDraft, price: e.target.value })}
-                          aria-label={`${listing.name} sell price`}
-                        />
-                      ) : (
-                        listing.priceLabel
-                      )}
-                    </td>
-                    <td style={{ ...styles.tdRight, ...cellBg }}>
-                      {editing ? (
-                        <input
-                          style={styles.cellInput}
-                          inputMode="decimal"
-                          value={editDraft.vendorMrp}
-                          onChange={(e) => setEditDraft({ ...editDraft, vendorMrp: e.target.value })}
+                          value={draft.vendorMrp}
+                          onChange={(e) => patchRowDraft(listing, { vendorMrp: e.target.value })}
                           aria-label={`${listing.name} MRP`}
                         />
                       ) : (
                         listing.mrpLabel ?? '—'
                       )}
                     </td>
+                    <td style={{ ...styles.tdRight, ...cellBg }}>
+                      {editing && draft ? (
+                        <input
+                          style={styles.cellInput}
+                          inputMode="decimal"
+                          value={draft.price}
+                          onChange={(e) => patchRowDraft(listing, { price: e.target.value })}
+                          aria-label={`${listing.name} sell price`}
+                        />
+                      ) : (
+                        listing.priceLabel
+                      )}
+                    </td>
                     <td style={{ ...styles.tdMuted, ...cellBg }} title={listing.note || undefined}>
-                      {editing ? (
+                      {editing && draft ? (
                         <input
                           style={styles.cellInputWide}
-                          value={editDraft.vendorNote}
-                          onChange={(e) => setEditDraft({ ...editDraft, vendorNote: e.target.value })}
+                          value={draft.vendorNote}
+                          onChange={(e) => patchRowDraft(listing, { vendorNote: e.target.value })}
                           placeholder="Note"
                           aria-label={`${listing.name} note`}
                         />
@@ -515,11 +619,11 @@ export function PublishedListings({
                       )}
                     </td>
                     <td style={{ ...styles.tdMuted, ...cellBg }} title={listing.searchNames || undefined}>
-                      {editing ? (
+                      {editing && draft ? (
                         <input
                           style={styles.cellInputWide}
-                          value={editDraft.searchNames}
-                          onChange={(e) => setEditDraft({ ...editDraft, searchNames: e.target.value })}
+                          value={draft.searchNames}
+                          onChange={(e) => patchRowDraft(listing, { searchNames: e.target.value })}
                           placeholder="bru coffee, green label"
                           aria-label={`${listing.name} other names`}
                         />
@@ -528,7 +632,7 @@ export function PublishedListings({
                       )}
                     </td>
                     <td style={{ ...styles.tdAction, ...cellBg }}>
-                      {editing ? (
+                      {editing && !inBulkEdit ? (
                         <div style={styles.actionRow}>
                           <Button size="sm" disabled={busy} onClick={() => void saveEdit(listing)}>
                             {busy ? '…' : 'Save'}
@@ -537,6 +641,8 @@ export function PublishedListings({
                             Cancel
                           </Button>
                         </div>
+                      ) : inBulkEdit && bulkEditIds?.includes(listing.id) ? (
+                        <span style={styles.bulkRowHint}>Bulk edit</span>
                       ) : (
                         <div style={styles.actionRow}>
                           <Button
@@ -550,7 +656,7 @@ export function PublishedListings({
                           <Button
                             variant="ghost"
                             size="sm"
-                            disabled={busy || Boolean(editingId)}
+                            disabled={busy || Boolean(editingId) || inBulkEdit}
                             onClick={() => onToggle(listing)}
                           >
                             {onLiveTab ? 'Hide' : 'Show'}
@@ -787,6 +893,7 @@ const styles: Record<string, CSSProperties> = {
   },
   bulkText: { fontSize: '0.85rem', fontWeight: 700, color: 'var(--text)' },
   bulkActions: { display: 'flex', flexWrap: 'wrap', gap: '0.4rem' },
+  bulkRowHint: { fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 },
   thCheck: {
     position: 'sticky',
     top: 0,

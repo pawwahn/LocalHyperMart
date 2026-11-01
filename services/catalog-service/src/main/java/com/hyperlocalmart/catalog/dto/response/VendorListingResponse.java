@@ -36,6 +36,7 @@ public class VendorListingResponse {
     /** Alternate names for search. Returned to the vendor only. */
     private String searchNames;
     private boolean active;
+    private boolean buyerOutOfStock;
     /** Effective images shown to buyers (listing override or master fallback). */
     private List<String> imageUrls;
     /** Vendor-uploaded overrides only; empty means using master catalog photos. */

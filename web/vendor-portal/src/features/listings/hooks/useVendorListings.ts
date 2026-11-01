@@ -160,6 +160,11 @@ export function useVendorListings() {
     }
   }, [session]);
 
+  const invalidateAndReload = useCallback(async () => {
+    listingsCache = null;
+    await reload();
+  }, [reload]);
+
   useEffect(() => {
     void reload();
   }, [reload]);
@@ -400,19 +405,42 @@ export function useVendorListings() {
     setError(null);
     setNotice(null);
     try {
-      for (const listing of targets) {
-        await updateListingActive(session.accessToken, session.vendorId, listing.id, active);
+      const settled = await Promise.allSettled(
+        targets.map((listing) =>
+          updateListingActive(session.accessToken, session.vendorId, listing.id, active),
+        ),
+      );
+      const updated: ListingView[] = [];
+      const failures: string[] = [];
+      for (let i = 0; i < settled.length; i += 1) {
+        const result = settled[i];
+        const name = targets[i]?.name ?? 'Product';
+        if (result.status === 'fulfilled') {
+          updated.push(result.value);
+        } else {
+          const msg =
+            result.reason instanceof Error ? result.reason.message : 'Could not update listing';
+          failures.push(`${name}: ${msg}`);
+        }
+      }
+      applyListingUpdates(updated);
+      if (failures.length > 0) {
+        setError(
+          updated.length > 0
+            ? `${active ? 'Showed' : 'Hidden'} ${updated.length}; ${failures.length} failed:\n${failures.join('\n')}`
+            : failures.join('\n'),
+        );
+        return;
       }
       setNotice(
         active
-          ? targets.length === 1
-            ? `“${targets[0].name}” is live in town again.`
-            : `Showed ${targets.length} listings in town.`
-          : targets.length === 1
-            ? `Hidden “${targets[0].name}” from town listing.`
-            : `Hidden ${targets.length} listings from town.`,
+          ? updated.length === 1
+            ? `“${updated[0].name}” is live in town again.`
+            : `Showed ${updated.length} listings in town.`
+          : updated.length === 1
+            ? `Hidden “${updated[0].name}” from town listing.`
+            : `Hidden ${updated.length} listings from town.`,
       );
-      await reload();
     } catch (err) {
       setError(
         err instanceof Error
@@ -440,14 +468,66 @@ export function useVendorListings() {
     setError(null);
     setNotice(null);
     try {
-      await updateListingActive(session.accessToken, session.vendorId, listing.id, !listing.active);
-      setNotice(listing.active ? 'Removed from town listing.' : 'Shown again in town listing.');
-      await reload();
+      const updated = await updateListingActive(
+        session.accessToken,
+        session.vendorId,
+        listing.id,
+        !listing.active,
+      );
+      applyListingUpdates([updated]);
+      setNotice(updated.active ? 'Shown again in town listing.' : 'Removed from town listing.');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not update listing');
     } finally {
       setActionId(null);
     }
+  }
+
+  function draftFromListingRow(listing: ListingView): DraftPricing {
+    return {
+      vendorMrp: listing.vendorMrp,
+      price: listing.price,
+      discountPrice: listing.discountPrice,
+      vendorNote: listing.note,
+      searchNames: listing.searchNames,
+    };
+  }
+
+  function applyListingUpdates(updates: ListingView[]) {
+    if (updates.length === 0) return;
+    const byId = new Map(updates.map((row) => [row.id, row]));
+    setListings((prev) => {
+      const next = prev.map((row) => byId.get(row.id) ?? row);
+      if (session && listingsCache?.vendorId === session.vendorId) {
+        const nextSelected = { ...listingsCache.selected };
+        const nextDrafts = { ...listingsCache.drafts };
+        for (const row of updates) {
+          nextSelected[row.masterItemId] = row.active;
+          nextDrafts[row.masterItemId] = draftFromListingRow(row);
+        }
+        listingsCache = {
+          ...listingsCache,
+          listings: next,
+          selected: nextSelected,
+          drafts: nextDrafts,
+        };
+      }
+      return next;
+    });
+    setSelected((prev) => {
+      const next = { ...prev };
+      for (const row of updates) {
+        next[row.masterItemId] = row.active;
+      }
+      return next;
+    });
+    setDrafts((prev) => {
+      const next = { ...prev };
+      for (const row of updates) {
+        next[row.masterItemId] = draftFromListingRow(row);
+      }
+      return next;
+    });
   }
 
   async function saveListingPricing(listing: ListingView, draft: DraftPricing): Promise<boolean> {
@@ -462,13 +542,76 @@ export function useVendorListings() {
         ...pricing,
         discountPrice: null,
       });
-      setListings((prev) => prev.map((row) => (row.id === updated.id ? updated : row)));
+      applyListingUpdates([updated]);
       setNotice(`Updated prices for ${listing.name}.`);
+      return true;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not update prices');
+      return false;
+    } finally {
+      setActionId(null);
+    }
+  }
+
+  async function saveBulkListingPricing(
+    items: Array<{ listing: ListingView; draft: DraftPricing }>,
+  ): Promise<boolean> {
+    if (!session || items.length === 0) return false;
+    setActionId('bulk-pricing');
+    setError(null);
+    setNotice(null);
+
+    const parsed: Array<{ listing: ListingView; pricing: ReturnType<typeof parseDraftPricing> }> = [];
+    const validationErrors: string[] = [];
+    for (const { listing, draft } of items) {
       try {
-        await reload();
-      } catch {
-        /* list already updated from PATCH response */
+        parsed.push({ listing, pricing: parseDraftPricing(draft, listing.name) });
+      } catch (err) {
+        validationErrors.push(err instanceof Error ? err.message : 'Invalid pricing');
       }
+    }
+    if (validationErrors.length > 0) {
+      setError(validationErrors.join('\n'));
+      setActionId(null);
+      return false;
+    }
+
+    try {
+      const settled = await Promise.allSettled(
+        parsed.map(({ listing, pricing }) =>
+          updateListingPricing(session.accessToken, session.vendorId, listing.id, {
+            ...pricing,
+            discountPrice: null,
+          }),
+        ),
+      );
+      const updated: ListingView[] = [];
+      const failures: string[] = [];
+      for (let i = 0; i < settled.length; i += 1) {
+        const result = settled[i];
+        const name = parsed[i]?.listing.name ?? 'Product';
+        if (result.status === 'fulfilled') {
+          updated.push(result.value);
+        } else {
+          const msg =
+            result.reason instanceof Error ? result.reason.message : 'Could not update prices';
+          failures.push(`${name}: ${msg}`);
+        }
+      }
+      applyListingUpdates(updated);
+      if (failures.length > 0) {
+        setError(
+          updated.length > 0
+            ? `Saved ${updated.length}; ${failures.length} failed:\n${failures.join('\n')}`
+            : failures.join('\n'),
+        );
+        return false;
+      }
+      setNotice(
+        updated.length === 1
+          ? `Updated prices for ${updated[0].name}.`
+          : `Updated prices for ${updated.length} listings.`,
+      );
       return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not update prices');
@@ -531,6 +674,7 @@ export function useVendorListings() {
 
   return {
     listings,
+    masterItems,
     categories,
     visibleItems,
     visibleListings,
@@ -556,6 +700,7 @@ export function useVendorListings() {
     selectedCount,
     catalogStats,
     reload,
+    invalidateAndReload,
     toggleItem,
     updateDraft,
     publishSelected,
@@ -564,6 +709,7 @@ export function useVendorListings() {
     hideSelectedListings,
     showSelectedListings,
     saveListingPricing,
+    saveBulkListingPricing,
     saveListingPhotos,
     uploadPhoto,
   };

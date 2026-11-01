@@ -17,6 +17,7 @@ type Props = {
   imageCount?: number;
   quantity: number;
   busy?: boolean;
+  outOfStock?: boolean;
   /** rail = compact scroller card. store = home merchandising card. */
   layout?: 'grid' | 'rail' | 'store';
   /** Denser rail tile (e.g. best-deals sheet grid). */
@@ -44,6 +45,7 @@ export function ProductCard({
   imageCount = 0,
   quantity,
   busy,
+  outOfStock = false,
   layout = 'grid',
   compactRail = false,
   etaLabel,
@@ -52,7 +54,14 @@ export function ProductCard({
   onDecrease,
 }: Props) {
   const visual = productVisual(name);
-  const badge = specialOfferActive ? 'SALE' : discountPercent && discountPercent > 0 ? `${discountPercent}% OFF` : null;
+  const badge = outOfStock
+    ? 'OUT OF STOCK'
+    : specialOfferActive
+      ? 'SALE'
+      : discountPercent && discountPercent > 0
+        ? `${discountPercent}% OFF`
+        : null;
+  const stepperDisabled = busy || outOfStock;
   const showRating = ratingCount > 0 && avgRating > 0;
   const rail = layout === 'rail';
   const store = layout === 'store';
@@ -74,7 +83,7 @@ export function ProductCard({
           <div style={styles.stepperWrapStore}>
             <QuantityStepper
               quantity={quantity}
-              disabled={busy}
+              disabled={stepperDisabled}
               onIncrease={onIncrease}
               onDecrease={onDecrease}
               size="xs"
@@ -142,7 +151,7 @@ export function ProductCard({
         <div style={dense ? styles.stepperWrapDense : rail ? styles.stepperWrapRail : styles.stepperWrap}>
           <QuantityStepper
             quantity={quantity}
-            disabled={busy}
+            disabled={stepperDisabled}
             onIncrease={onIncrease}
             onDecrease={onDecrease}
             size={rail ? 'xs' : 'sm'}
