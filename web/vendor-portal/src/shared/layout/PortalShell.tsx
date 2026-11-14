@@ -9,7 +9,13 @@ import { useCodConfirmPendingCount } from '@/features/cod/hooks/useCodConfirmPen
 import { usePayoutActionCount } from '@/features/payouts/hooks/usePayoutActionCount';
 import { Banner } from '@/shared/ui';
 import { useIsNarrow } from '@/shared/hooks/useIsNarrow';
-import { isGlamVendor, isLaundryVendor, useHidesListings } from '@/features/shop/hooks/useHidesListings';
+import {
+  isGlamVendor,
+  useHidesListings,
+  VENDOR_DESK_ROUTES,
+  vendorDeskPath,
+} from '@/features/shop/hooks/useHidesListings';
+import { useDiagnosticsStaffSession } from '@/features/diagnostics/hooks/useDiagnosticsStaffSession';
 
 type ShopPauseControl = {
   acceptingOrders: boolean;
@@ -27,14 +33,16 @@ type Props = {
 
 const NAV = [
   { to: '/dashboard', label: 'Home', icon: '🏠', end: true },
+  { to: '/food', label: 'Menu', icon: '🍽️', end: false },
+  { to: '/laundry', label: 'Laundry', icon: '👕', end: false },
+  { to: '/glam', label: 'Glam', icon: '💄', end: false },
+  { to: '/diagnostics', label: 'Diagnostics', icon: '🧪', end: false },
   { to: '/listings', label: 'Listings', icon: '🛒', end: false },
   { to: '/delivery-agents', label: 'Agents', icon: '🛵', end: false },
   { to: '/cod-handover', label: 'COD cash', icon: '💰', end: false },
   { to: '/reports', label: 'Reports', icon: '📊', end: false },
   { to: '/payouts', label: 'Payouts', icon: '💵', end: false },
   { to: '/sellers', label: 'Sellers', icon: '🏆', end: false },
-  { to: '/laundry', label: 'Laundry', icon: '👕', end: false },
-  { to: '/glam', label: 'Glam', icon: '💄', end: false },
   { to: '/settings', label: 'Settings', icon: '⚙️', end: false },
 ] as const;
 
@@ -50,16 +58,27 @@ export function PortalShell({ title, children, onRefresh, shopPause }: Props) {
   const narrow = useIsNarrow(767);
   const hidesListings = useHidesListings();
   const glamVendor = isGlamVendor(session?.serviceName);
-  const laundryVendor = isLaundryVendor(session?.serviceName);
+  const deskPath = vendorDeskPath(session?.serviceName);
+  const deskRoutes = new Set<string>(VENDOR_DESK_ROUTES);
+  const { collectionAgentOnly, loading: staffLoading } = useDiagnosticsStaffSession();
   type NavItem = (typeof NAV)[number];
   let nav: NavItem[] = hidesListings
     ? NAV.filter((item) => item.to !== '/listings' && item.to !== '/sellers')
-    : NAV.filter((item) => item.to !== '/laundry' && item.to !== '/glam');
-  if (hidesListings && glamVendor && !laundryVendor) {
-    nav = nav.filter((item) => item.to !== '/laundry');
+    : NAV.filter((item) => !deskRoutes.has(item.to));
+  if (hidesListings) {
+    nav = nav.filter((item) => !deskRoutes.has(item.to) || item.to === deskPath);
   }
-  if (hidesListings && laundryVendor && !glamVendor) {
-    nav = nav.filter((item) => item.to !== '/glam');
+  if (collectionAgentOnly || (deskPath === '/diagnostics' && staffLoading)) {
+    const hidden = new Set([
+      '/delivery-agents',
+      '/reports',
+      '/payouts',
+      '/diagnostics',
+      '/settings',
+      '/sellers',
+      '/listings',
+    ]);
+    nav = nav.filter((item) => !hidden.has(item.to));
   }
   const shopName = session?.shopName ?? 'Vendor shop';
   const phone = session?.phone;

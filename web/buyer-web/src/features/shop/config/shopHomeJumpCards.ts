@@ -5,7 +5,7 @@ export const HOME_RAIL_SECTION_IDS = {
   farm: 'hlm-home-rail-farm',
 } as const;
 
-export type ShopHomeJumpIcon = 'deals' | 'beauty' | 'fresh' | 'farm';
+export type ShopHomeJumpIcon = 'deals' | 'beauty' | 'fresh' | 'farm' | 'diagnostics';
 
 export type ShopHomeJumpCard = {
   id: string;
@@ -15,7 +15,10 @@ export type ShopHomeJumpCard = {
   accent: string;
   brandTag?: string;
   icon: ShopHomeJumpIcon;
-  sectionId: string;
+  /** Scroll target on shop home when set. */
+  sectionId?: string;
+  /** In-app route when set (e.g. diagnostics vertical). */
+  route?: string;
 };
 
 export function buildShopHomeJumpCards(townLabel: string): ShopHomeJumpCard[] {

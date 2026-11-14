@@ -21,8 +21,15 @@ spring:
     locations: classpath:db/migration
   kafka:
     bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
 
 hyperlocalmart:
+  secrets-encryption:
+    key: ${HLM_SECRETS_ENCRYPTION_KEY:}
   security:
     jwt:
       secret: ${JWT_SECRET:hyperlocalmart-dev-secret-change-in-production-min-32-chars!!}
@@ -37,6 +44,16 @@ hyperlocalmart:
   delivery-service:
     base-url: ${HLM_DELIVERY_SERVICE_URI:http://localhost:8088}
   payment:
+    admission:
+      enabled: ${HLM_PAYMENT_ADMISSION_ENABLED:false}
+      max-per-second: ${HLM_PAYMENT_ADMISSION_RPS:50}
+      max-wait-ms: ${HLM_PAYMENT_ADMISSION_MAX_WAIT_MS:30000}
+      retry-interval-ms: ${HLM_PAYMENT_ADMISSION_RETRY_MS:25}
+      fail-open-on-redis-error: ${HLM_PAYMENT_ADMISSION_FAIL_OPEN:true}
+    psp-outbound:
+      enabled: ${HLM_PAYMENT_PSP_LIMITER:true}
+      max-concurrent: ${HLM_PAYMENT_PSP_MAX_CONCURRENT:50}
+      max-wait-ms: ${HLM_PAYMENT_PSP_MAX_WAIT_MS:45000}
     razorpay-queue:
       enabled: ${HLM_RAZORPAY_QUEUE:true}
       max-concurrent: ${HLM_RAZORPAY_QUEUE_WORKERS:8}
@@ -74,6 +91,9 @@ management:
     web:
       exposure:
         include: health,info,prometheus
+  health:
+    redis:
+      enabled: false
 
 springdoc:
   api-docs:

@@ -6,10 +6,13 @@ import com.hyperlocalmart.order.beauty.BeautyPaymentStatus;
 import com.hyperlocalmart.order.beauty.BeautySettlementItems;
 import com.hyperlocalmart.order.beauty.BeautySettlementMoney;
 import com.hyperlocalmart.order.client.SuccessfulOnlineTotalLookup;
+import com.hyperlocalmart.order.diagnostics.DiagnosticsPaymentStatus;
+import com.hyperlocalmart.order.diagnostics.DiagnosticsSettlementMoney;
 import com.hyperlocalmart.order.dto.response.DeliveredVendorTown;
 import com.hyperlocalmart.order.dto.response.SettlementBagKey;
 import com.hyperlocalmart.order.dto.response.SettlementCandidateResponse;
 import com.hyperlocalmart.order.entity.BeautyOrder;
+import com.hyperlocalmart.order.entity.DiagnosticsOrder;
 import com.hyperlocalmart.order.entity.LaundryOrder;
 import com.hyperlocalmart.order.entity.Order;
 import com.hyperlocalmart.order.entity.PaymentMethod;
@@ -19,6 +22,7 @@ import com.hyperlocalmart.order.entity.VendorSubOrderStatus;
 import com.hyperlocalmart.order.laundry.LaundryOrderStatus;
 import com.hyperlocalmart.order.laundry.LaundryPaymentStatus;
 import com.hyperlocalmart.order.repository.BeautyOrderRepository;
+import com.hyperlocalmart.order.repository.DiagnosticsOrderRepository;
 import com.hyperlocalmart.order.repository.LaundryOrderRepository;
 import com.hyperlocalmart.order.repository.VendorSubOrderRepository;
 import lombok.RequiredArgsConstructor;
@@ -55,6 +59,7 @@ public class SettlementCandidateService {
     private final VendorSubOrderRepository vendorSubOrderRepository;
     private final LaundryOrderRepository laundryOrderRepository;
     private final BeautyOrderRepository beautyOrderRepository;
+    private final DiagnosticsOrderRepository diagnosticsOrderRepository;
     private final SuccessfulOnlineTotalLookup onlinePayments;
 
     /**
@@ -81,6 +86,9 @@ public class SettlementCandidateService {
         onlinePayments.prefetch(beautyOrders.stream().map(BeautyOrder::getId).toList());
         beautyOrders.stream()
                 .flatMap(order -> BeautySettlementItems.toItems(order, onlinePayments).stream())
+                .forEach(items::add);
+        diagnosticsOrderRepository.findSettlementCandidates(vendorId, townId, start, end).stream()
+                .map(this::toDiagnosticsItem)
                 .forEach(items::add);
         return SettlementCandidateResponse.builder()
                 .vendorId(vendorId)
@@ -109,6 +117,18 @@ public class SettlementCandidateService {
             out.add(new SettlementBagKey(vendorId, townId, subOrderId));
         }
         for (Object[] row : laundryOrderRepository.findSettlementKeys(start, end)) {
+            if (row == null || row.length < 3) {
+                continue;
+            }
+            UUID vendorId = uuid(row[0]);
+            UUID townId = uuid(row[1]);
+            UUID orderId = uuid(row[2]);
+            if (vendorId == null || townId == null || orderId == null) {
+                continue;
+            }
+            out.add(new SettlementBagKey(vendorId, townId, orderId));
+        }
+        for (Object[] row : diagnosticsOrderRepository.findSettlementKeys(start, end)) {
             if (row == null || row.length < 3) {
                 continue;
             }
@@ -179,6 +199,9 @@ public class SettlementCandidateService {
         for (Object[] row : beautyOrderRepository.findDeliveredVendorTowns(start, end)) {
             addVendorTown(towns, row);
         }
+        for (Object[] row : diagnosticsOrderRepository.findDeliveredVendorTowns(start, end)) {
+            addVendorTown(towns, row);
+        }
         return new ArrayList<>(towns.values());
     }
 
@@ -216,6 +239,15 @@ public class SettlementCandidateService {
             for (BeautyOrder order : beautyOrderRepository.findByVendorIdAndIdIn(vendorId, beautyIds)) {
                 if (order.getStatus() == BeautyOrderStatus.COMPLETED) {
                     items.addAll(BeautySettlementItems.toItems(order, onlinePayments));
+                    found.add(order.getId());
+                }
+            }
+        }
+        List<UUID> diagnosticsIds = subOrderIds.stream().filter(id -> !found.contains(id)).toList();
+        if (!diagnosticsIds.isEmpty()) {
+            for (DiagnosticsOrder order : diagnosticsOrderRepository.findByVendorIdAndIdIn(vendorId, diagnosticsIds)) {
+                if (DiagnosticsSettlementMoney.settlementEligible(order)) {
+                    items.add(toDiagnosticsItem(order));
                 }
             }
         }
@@ -304,10 +336,52 @@ public class SettlementCandidateService {
         return PaymentStatus.PENDING;
     }
 
+    /**
+     * Lab holds COD cash (no hub/agent payout). UPI is KoyaKart-pays-vendor on tests + home collection fee.
+     */
+    private SettlementCandidateResponse.Item toDiagnosticsItem(DiagnosticsOrder order) {
+        boolean online = DiagnosticsSettlementMoney.online(order);
+        Instant completed = DiagnosticsSettlementMoney.settlementInstant(order);
+        return SettlementCandidateResponse.Item.builder()
+                .subOrderId(order.getId())
+                .orderId(order.getId())
+                .orderNumber(order.getOrderNumber())
+                .subOrderNumber(order.getOrderNumber())
+                .placedAt(order.getPlacedAt())
+                .deliveredAt(completed)
+                .status(VendorSubOrderStatus.DELIVERED)
+                .paymentStatus(diagnosticsPayment(order.getPaymentStatus()))
+                .paymentMethod(online ? PaymentMethod.ONLINE : PaymentMethod.COD)
+                .vendorAgentDelivery(!online)
+                .subtotal(DiagnosticsSettlementMoney.goodsSubtotal(order))
+                // One settlement row per booking; commercial terms (per piece / per order) consume this count.
+                .pieceCount(1)
+                .platformFee(diagnosticPlatformFeeOnCandidate(order))
+                .codFee(DiagnosticsSettlementMoney.buyerCodFeeForSettlement(order))
+                .membershipFee(BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP))
+                .parlourPaymentFee(null)
+                .build();
+    }
+
+    private static PaymentStatus diagnosticsPayment(DiagnosticsPaymentStatus status) {
+        if (status == DiagnosticsPaymentStatus.PAID || status == DiagnosticsPaymentStatus.COLLECTED) {
+            return PaymentStatus.PAID;
+        }
+        if (status == DiagnosticsPaymentStatus.FAILED) {
+            return PaymentStatus.REFUNDED;
+        }
+        return PaymentStatus.PENDING;
+    }
+
     private static BigDecimal money(BigDecimal value) {
         if (value == null) {
             return BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
         }
         return value.setScale(2, RoundingMode.HALF_UP);
+    }
+
+    /** Buyer platform fee stored on the order — surfaced on Accounts/Payouts (UPI already with KoyaKart). */
+    private static BigDecimal diagnosticPlatformFeeOnCandidate(DiagnosticsOrder order) {
+        return money(order.getPlatformFeeAmount());
     }
 }

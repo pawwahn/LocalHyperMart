@@ -1,12 +1,11 @@
 package com.hyperlocalmart.payment.web;
 
 import com.hyperlocalmart.common.api.ApiResponse;
-import com.hyperlocalmart.common.exception.BusinessException;
-import com.hyperlocalmart.common.exception.ErrorCode;
 import com.hyperlocalmart.payment.dto.request.CreateRazorpaySettlementBatchRequest;
 import com.hyperlocalmart.payment.dto.response.PlatformFinanceComplianceResponse;
 import com.hyperlocalmart.payment.dto.response.PlatformFinanceLedgerResponse;
 import com.hyperlocalmart.payment.security.AuthUserPrincipal;
+import com.hyperlocalmart.payment.security.PlatformAdminPrincipalAuth;
 import com.hyperlocalmart.payment.service.PlatformFinanceComplianceService;
 import com.hyperlocalmart.payment.service.PlatformFinanceLedgerService;
 import jakarta.servlet.http.HttpServletRequest;
@@ -41,7 +40,7 @@ public class PlatformFinanceLedgerController {
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
             @RequestParam(required = false) UUID townId,
             HttpServletRequest httpRequest) {
-        requireSuperAdmin(principal);
+        PlatformAdminPrincipalAuth.requireStaff(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
                 platformFinanceLedgerService.ledger(townId, from, to)));
     }
@@ -53,7 +52,7 @@ public class PlatformFinanceLedgerController {
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
             @RequestParam(required = false) UUID townId,
             HttpServletRequest httpRequest) {
-        requireSuperAdmin(principal);
+        PlatformAdminPrincipalAuth.requireStaff(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
                 platformFinanceComplianceService.compliancePack(townId, from, to)));
     }
@@ -63,14 +62,8 @@ public class PlatformFinanceLedgerController {
             @AuthenticationPrincipal AuthUserPrincipal principal,
             @Valid @RequestBody CreateRazorpaySettlementBatchRequest request,
             HttpServletRequest httpRequest) {
-        requireSuperAdmin(principal);
+        PlatformAdminPrincipalAuth.requireMoveMoney(principal);
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponses.ok(httpRequest,
                 platformFinanceComplianceService.recordRazorpayBatch(principal.getUserId(), request)));
-    }
-
-    private static void requireSuperAdmin(AuthUserPrincipal principal) {
-        if (principal == null || principal.getRoles() == null || !principal.getRoles().contains("SUPER_ADMIN")) {
-            throw new BusinessException(ErrorCode.FORBIDDEN, "Super admin role required");
-        }
     }
 }

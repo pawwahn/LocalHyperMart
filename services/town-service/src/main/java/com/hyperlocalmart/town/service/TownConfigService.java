@@ -48,6 +48,7 @@ public class TownConfigService {
     private final TownRepository townRepository;
     private final PlatformSettingsService platformSettingsService;
     private final AdminAuditor adminAuditService;
+    private final TownVendorAgentDeliveryConfigService townVendorAgentDeliveryConfigService;
 
     @Transactional(readOnly = true)
     public TownOperationalConfigResponse getOperationalConfig(UUID townId) {
@@ -145,6 +146,13 @@ public class TownConfigService {
         if (request.getBeautyEnabled() != null) {
             value.put("beautyEnabled", request.getBeautyEnabled());
         }
+        applyDiagnosticsSettings(value, request);
+        if (request.getFoodDeliveryEnabled() != null) {
+            value.put("foodDeliveryEnabled", request.getFoodDeliveryEnabled());
+        }
+        if (request.getGroceryEnabled() != null) {
+            value.put("groceryEnabled", request.getGroceryEnabled());
+        }
         applyBeautyPaymentSettings(value, request);
         if (request.getBuyerCancelOrderEnabled() != null) {
             value.put("buyerCancelOrderEnabled", request.getBuyerCancelOrderEnabled());
@@ -179,7 +187,13 @@ public class TownConfigService {
         if (!townRepository.existsById(townId)) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "Town not found");
         }
-        if (request.getLaundryEnabled() == null && request.getBeautyEnabled() == null) {
+        if (request.getLaundryEnabled() == null && request.getBeautyEnabled() == null
+                && request.getDiagnosticsEnabled() == null
+                && request.getFoodDeliveryEnabled() == null
+                && request.getGroceryEnabled() == null
+                && request.getDiagnosticsPlatformFeeFlat() == null
+                && request.getDiagnosticsCodEnabled() == null
+                && request.getDiagnosticsCodSurchargeAmount() == null) {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, "No feature flags to update");
         }
         ensureDefaultOperationalConfig(townId);
@@ -195,6 +209,16 @@ public class TownConfigService {
         if (request.getBeautyEnabled() != null) {
             value.put("beautyEnabled", request.getBeautyEnabled());
         }
+        if (request.getDiagnosticsEnabled() != null) {
+            value.put("diagnosticsEnabled", request.getDiagnosticsEnabled());
+        }
+        if (request.getFoodDeliveryEnabled() != null) {
+            value.put("foodDeliveryEnabled", request.getFoodDeliveryEnabled());
+        }
+        if (request.getGroceryEnabled() != null) {
+            value.put("groceryEnabled", request.getGroceryEnabled());
+        }
+        applyDiagnosticsSettings(value, toUpdateRequest(request));
         config.setConfigValue(value);
         config.setUpdatedAt(Instant.now());
         townConfigRepository.save(config);
@@ -415,6 +439,12 @@ public class TownConfigService {
         value.put("deliveryWindowEnd", DEFAULT_WINDOW_END);
         value.put("laundryEnabled", false);
         value.put("beautyEnabled", false);
+        value.put("diagnosticsEnabled", false);
+        value.put("foodDeliveryEnabled", false);
+        value.put("groceryEnabled", true);
+        value.put("diagnosticsPlatformFeeFlat", BigDecimal.ZERO);
+        value.put("diagnosticsCodEnabled", true);
+        value.put("diagnosticsCodSurchargeAmount", BigDecimal.ZERO);
         value.put("buyerCancelOrderEnabled", true);
         value.put("buyerCancelItemsEnabled", true);
         return value;
@@ -521,6 +551,12 @@ public class TownConfigService {
                 .deliveryWindowEnd(readWindow(value, "deliveryWindowEnd", DEFAULT_WINDOW_END))
                 .laundryEnabled(readLaundryEnabled(value))
                 .beautyEnabled(readBeautyEnabled(value))
+                .diagnosticsEnabled(readDiagnosticsEnabled(value))
+                .foodDeliveryEnabled(readFoodDeliveryEnabled(value))
+                .groceryEnabled(readGroceryEnabled(value))
+                .diagnosticsPlatformFeeFlat(readDiagnosticsPlatformFeeFlat(value))
+                .diagnosticsCodEnabled(readDiagnosticsCodEnabled(value))
+                .diagnosticsCodSurchargeAmount(readDiagnosticsCodSurchargeAmount(value))
                 .beautyMinPrepayAmount(readBeautyMinPrepayAmount(value))
                 .beautyParlourPaymentFee(readBeautyParlourPaymentFee(value))
                 .buyerCancelOrderEnabled(readBuyerCancelOrderEnabled(value))
@@ -536,6 +572,7 @@ public class TownConfigService {
         TownOperationalConfigResponse.ScratchServiceRuleResponse beautyScratch = cfg.getScratchByService() == null
                 ? null
                 : cfg.getScratchByService().get("BEAUTY");
+        boolean vendorAgentDeliveryEnabled = townVendorAgentDeliveryConfigService.get(townId).isEnabled();
         return TownShopSettingsResponse.builder()
                 .themeColor(cfg.getThemeColor())
                 .bestDealsEnabled(cfg.isBestDealsEnabled())
@@ -548,6 +585,13 @@ public class TownConfigService {
                 .deliveryWindowEnd(cfg.getDeliveryWindowEnd())
                 .laundryEnabled(cfg.isLaundryEnabled())
                 .beautyEnabled(cfg.isBeautyEnabled())
+                .diagnosticsEnabled(cfg.isDiagnosticsEnabled())
+                .foodDeliveryEnabled(cfg.isFoodDeliveryEnabled())
+                .groceryEnabled(cfg.isGroceryEnabled())
+                .vendorAgentDeliveryEnabled(vendorAgentDeliveryEnabled)
+                .diagnosticsPlatformFeeFlat(cfg.getDiagnosticsPlatformFeeFlat())
+                .diagnosticsCodEnabled(cfg.isDiagnosticsCodEnabled())
+                .diagnosticsCodSurchargeAmount(cfg.getDiagnosticsCodSurchargeAmount())
                 .beautyMinPrepayAmount(cfg.getBeautyMinPrepayAmount())
                 .beautyParlourPaymentFee(cfg.getBeautyParlourPaymentFee())
                 .beautyScratchEnabled(beautyScratch != null && beautyScratch.isEnabled())
@@ -647,6 +691,68 @@ public class TownConfigService {
             return false;
         }
         return truthy(value.get("beautyEnabled"));
+    }
+
+    private static boolean readDiagnosticsEnabled(Map<String, Object> value) {
+        if (value == null || value.get("diagnosticsEnabled") == null) {
+            return false;
+        }
+        return truthy(value.get("diagnosticsEnabled"));
+    }
+
+    private static boolean readFoodDeliveryEnabled(Map<String, Object> value) {
+        if (value == null || value.get("foodDeliveryEnabled") == null) {
+            return false;
+        }
+        return truthy(value.get("foodDeliveryEnabled"));
+    }
+
+    private static boolean readGroceryEnabled(Map<String, Object> value) {
+        if (value == null || value.get("groceryEnabled") == null) {
+            return true;
+        }
+        return truthy(value.get("groceryEnabled"));
+    }
+
+    private static boolean readDiagnosticsCodEnabled(Map<String, Object> value) {
+        if (value == null || value.get("diagnosticsCodEnabled") == null) {
+            return true;
+        }
+        return truthy(value.get("diagnosticsCodEnabled"));
+    }
+
+    private BigDecimal readDiagnosticsPlatformFeeFlat(Map<String, Object> value) {
+        return normalizePlatformFee(readMoney(value, "diagnosticsPlatformFeeFlat", BigDecimal.ZERO));
+    }
+
+    private BigDecimal readDiagnosticsCodSurchargeAmount(Map<String, Object> value) {
+        return normalizeCodCharge(readMoney(value, "diagnosticsCodSurchargeAmount", BigDecimal.ZERO));
+    }
+
+    private static UpdateTownConfigRequest toUpdateRequest(PatchTownFeatureFlagsRequest request) {
+        UpdateTownConfigRequest mapped = new UpdateTownConfigRequest();
+        mapped.setDiagnosticsEnabled(request.getDiagnosticsEnabled());
+        mapped.setDiagnosticsPlatformFeeFlat(request.getDiagnosticsPlatformFeeFlat());
+        mapped.setDiagnosticsCodEnabled(request.getDiagnosticsCodEnabled());
+        mapped.setDiagnosticsCodSurchargeAmount(request.getDiagnosticsCodSurchargeAmount());
+        return mapped;
+    }
+
+    private static void applyDiagnosticsSettings(Map<String, Object> value, UpdateTownConfigRequest request) {
+        if (request.getDiagnosticsEnabled() != null) {
+            value.put("diagnosticsEnabled", request.getDiagnosticsEnabled());
+        }
+        if (request.getDiagnosticsPlatformFeeFlat() != null) {
+            value.put("diagnosticsPlatformFeeFlat", normalizePlatformFee(request.getDiagnosticsPlatformFeeFlat()));
+        }
+        if (request.getDiagnosticsCodEnabled() != null) {
+            value.put("diagnosticsCodEnabled", request.getDiagnosticsCodEnabled());
+        }
+        if (request.getDiagnosticsCodSurchargeAmount() != null) {
+            value.put(
+                    "diagnosticsCodSurchargeAmount",
+                    normalizeCodCharge(request.getDiagnosticsCodSurchargeAmount()));
+        }
     }
 
     private static boolean readCodEnabled(Map<String, Object> value) {
@@ -1006,6 +1112,9 @@ public class TownConfigService {
         }
         addBoolChange(parts, "Laundry", left.get("laundryEnabled"), right.get("laundryEnabled"));
         addBoolChange(parts, "Beauty", left.get("beautyEnabled"), right.get("beautyEnabled"));
+        addBoolChange(parts, "Diagnostics", left.get("diagnosticsEnabled"), right.get("diagnosticsEnabled"));
+        addBoolChange(parts, "Food delivery", left.get("foodDeliveryEnabled"), right.get("foodDeliveryEnabled"));
+        addBoolChange(parts, "Grocery", left.get("groceryEnabled"), right.get("groceryEnabled"));
         addBoolChange(parts, "Buyer cancel order", left.get("buyerCancelOrderEnabled"), right.get("buyerCancelOrderEnabled"));
         addBoolChange(parts, "Buyer cancel items", left.get("buyerCancelItemsEnabled"), right.get("buyerCancelItemsEnabled"));
         addBoolChange(parts, "COD", left.get("codEnabled"), right.get("codEnabled"));

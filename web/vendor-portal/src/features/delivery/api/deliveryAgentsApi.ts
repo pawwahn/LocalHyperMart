@@ -7,7 +7,29 @@ export type VendorAgentDto = {
   phone: string;
   status: string;
   agentType?: string;
+  govtIdType?: string | null;
+  govtIdNumber?: string | null;
+  reference1Name?: string | null;
+  reference1Phone?: string | null;
+  reference2Name?: string | null;
+  reference2Phone?: string | null;
+  labTitle?: string | null;
+  collectionCapable?: boolean | null;
 };
+
+export type UpdateVendorAgentInput = {
+  name: string;
+  govtIdType?: string;
+  govtIdNumber?: string;
+  reference1Name?: string;
+  reference1Phone?: string;
+  reference2Name?: string;
+  reference2Phone?: string;
+  labTitle?: string;
+  collectionCapable?: boolean;
+};
+
+export type AgentAvailabilityStatus = 'ACTIVE' | 'INACTIVE';
 
 export type CreateVendorAgentInput = {
   name: string;
@@ -19,6 +41,8 @@ export type CreateVendorAgentInput = {
   reference1Phone?: string;
   reference2Name?: string;
   reference2Phone?: string;
+  labTitle?: string;
+  collectionCapable?: boolean;
 };
 
 type ShopScope = {
@@ -49,5 +73,35 @@ export async function createVendorDeliveryAgent(
     shopId: scope.shopId,
     townId: scope.townId,
     body: input,
+  });
+}
+
+export async function updateVendorDeliveryAgent(
+  scope: ShopScope,
+  agentId: string,
+  input: UpdateVendorAgentInput,
+): Promise<VendorAgentDto> {
+  return apiRequest<VendorAgentDto>(`/api/v1/delivery/vendor/agents/${agentId}`, {
+    method: 'PUT',
+    token: scope.token,
+    vendorId: scope.vendorId,
+    shopId: scope.shopId,
+    townId: scope.townId,
+    body: input,
+  });
+}
+
+export async function updateVendorDeliveryAgentStatus(
+  scope: ShopScope,
+  agentId: string,
+  status: AgentAvailabilityStatus,
+): Promise<VendorAgentDto> {
+  return apiRequest<VendorAgentDto>(`/api/v1/delivery/vendor/agents/${agentId}/status`, {
+    method: 'PATCH',
+    token: scope.token,
+    vendorId: scope.vendorId,
+    shopId: scope.shopId,
+    townId: scope.townId,
+    body: { status },
   });
 }

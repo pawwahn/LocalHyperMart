@@ -3,10 +3,12 @@ package com.hyperlocalmart.vendor.web;
 import com.hyperlocalmart.common.api.ApiResponse;
 import com.hyperlocalmart.common.exception.BusinessException;
 import com.hyperlocalmart.common.exception.ErrorCode;
+import com.hyperlocalmart.common.security.PlatformAdminRoles;
 import com.hyperlocalmart.vendor.dto.request.SaveServiceOfferingRequest;
 import com.hyperlocalmart.vendor.dto.response.ServiceOfferingListResponse;
 import com.hyperlocalmart.vendor.dto.response.ServiceOfferingResponse;
 import com.hyperlocalmart.vendor.security.AuthUserPrincipal;
+import com.hyperlocalmart.vendor.security.PlatformAdminPrincipalAuth;
 import com.hyperlocalmart.vendor.service.ServiceOfferingService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -45,7 +47,7 @@ public class ServiceOfferingController {
             @AuthenticationPrincipal AuthUserPrincipal principal,
             @Valid @RequestBody SaveServiceOfferingRequest request,
             HttpServletRequest httpRequest) {
-        requireSuperAdmin(principal);
+        PlatformAdminPrincipalAuth.requireWrite(principal);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponses.ok(httpRequest, serviceOfferingService.create(request, principal.getUserId())));
     }
@@ -56,7 +58,7 @@ public class ServiceOfferingController {
             @PathVariable UUID id,
             @Valid @RequestBody SaveServiceOfferingRequest request,
             HttpServletRequest httpRequest) {
-        requireSuperAdmin(principal);
+        PlatformAdminPrincipalAuth.requireWrite(principal);
         return ResponseEntity.ok(ApiResponses.ok(
                 httpRequest, serviceOfferingService.update(id, request, principal.getUserId())));
     }
@@ -66,21 +68,19 @@ public class ServiceOfferingController {
             @AuthenticationPrincipal AuthUserPrincipal principal,
             @PathVariable UUID id,
             HttpServletRequest httpRequest) {
-        requireSuperAdmin(principal);
+        PlatformAdminPrincipalAuth.requireWrite(principal);
         serviceOfferingService.delete(id);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, null));
     }
 
     private static void requireAdmin(AuthUserPrincipal principal) {
-        if (principal == null
-                || (!principal.getRoles().contains("SUPER_ADMIN") && !principal.getRoles().contains("HUB_ADMIN"))) {
+        if (principal == null || principal.getRoles() == null) {
             throw new BusinessException(ErrorCode.FORBIDDEN, "Admin role required");
         }
-    }
-
-    private static void requireSuperAdmin(AuthUserPrincipal principal) {
-        if (principal == null || !principal.getRoles().contains("SUPER_ADMIN")) {
-            throw new BusinessException(ErrorCode.FORBIDDEN, "Super admin role required");
+        if (principal.getRoles().contains("HUB_ADMIN")
+                || PlatformAdminRoles.isPlatformStaff(principal.getRoles())) {
+            return;
         }
+        throw new BusinessException(ErrorCode.FORBIDDEN, "Admin role required");
     }
 }

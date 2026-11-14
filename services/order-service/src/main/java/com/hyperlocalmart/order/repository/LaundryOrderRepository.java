@@ -10,9 +10,12 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 public interface LaundryOrderRepository extends JpaRepository<LaundryOrder, UUID> {
+
+    Optional<LaundryOrder> findByOrderNumber(String orderNumber);
 
     List<LaundryOrder> findByBuyerIdAndTownIdOrderByPlacedAtDesc(UUID buyerId, UUID townId);
 

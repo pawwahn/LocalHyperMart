@@ -29,11 +29,21 @@ export async function resolveOnlineCheckout(opts: {
   retry?: () => Promise<OnlinePaymentRef>;
   poll?: { intervalMs?: number; timeoutMs?: number };
 }): Promise<GatewayCheckout> {
-  const paymentId = opts.payment?.paymentId;
-  if (!paymentId) {
-    throw new Error('Online payment did not start. Open the order and tap Pay now.');
+  let payment = opts.payment;
+  let paymentId = payment?.paymentId != null ? String(payment.paymentId).trim() : '';
+
+  /** Order detail APIs often omit `payment`; callers pass `retry` to start or refresh checkout. */
+  if (!paymentId && opts.retry) {
+    const retried = await opts.retry();
+    payment = { paymentId: retried.paymentId, checkout: retried.checkout };
+    paymentId = payment?.paymentId != null ? String(payment.paymentId).trim() : '';
   }
-  const immediate = normalizeGatewayCheckout(opts.payment?.checkout);
+
+  if (!paymentId) {
+    throw new Error('Online payment did not start. Tap Pay now again, or pull to refresh the order.');
+  }
+
+  const immediate = normalizeGatewayCheckout(payment?.checkout);
   if (checkoutCanOpen(immediate)) return immediate;
 
   const timeoutMs =

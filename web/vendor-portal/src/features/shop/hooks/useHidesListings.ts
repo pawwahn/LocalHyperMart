@@ -14,9 +14,27 @@ function isBeautyService(name: string | undefined): boolean {
   return /beauty|makeup|glam/i.test(name ?? '');
 }
 
+function isDiagnosticsService(name: string | undefined): boolean {
+  return /diagnostic|lab/i.test(name ?? '');
+}
+
+function isFoodService(name: string | undefined): boolean {
+  return /food/i.test(name ?? '');
+}
+
 export function catalogHiddenForVendor(me: MeHint | null | undefined): boolean {
   if (!me) return false;
-  return Boolean(me.hidesListings) || isLaundryService(me.serviceName) || isBeautyService(me.serviceName);
+  return (
+    Boolean(me.hidesListings) ||
+    isLaundryService(me.serviceName) ||
+    isBeautyService(me.serviceName) ||
+    isDiagnosticsService(me.serviceName) ||
+    isFoodService(me.serviceName)
+  );
+}
+
+export function isFoodVendor(serviceName: string | undefined): boolean {
+  return isFoodService(serviceName);
 }
 
 export function isGlamVendor(serviceName: string | undefined): boolean {
@@ -25,6 +43,23 @@ export function isGlamVendor(serviceName: string | undefined): boolean {
 
 export function isLaundryVendor(serviceName: string | undefined): boolean {
   return isLaundryService(serviceName);
+}
+
+export function isDiagnosticsVendor(serviceName: string | undefined): boolean {
+  return isDiagnosticsService(serviceName);
+}
+
+export const VENDOR_DESK_ROUTES = ['/laundry', '/glam', '/diagnostics', '/food'] as const;
+
+export type VendorDeskRoute = (typeof VENDOR_DESK_ROUTES)[number];
+
+/** At most one specialty desk (laundry / glam / diagnostics / food menu) per vendor. */
+export function vendorDeskPath(serviceName: string | undefined): VendorDeskRoute | null {
+  if (isFoodService(serviceName)) return '/food';
+  if (isLaundryService(serviceName)) return '/laundry';
+  if (isBeautyService(serviceName)) return '/glam';
+  if (isDiagnosticsService(serviceName)) return '/diagnostics';
+  return null;
 }
 
 function readCached(vendorId: string | undefined): boolean {

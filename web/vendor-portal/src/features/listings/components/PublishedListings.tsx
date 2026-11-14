@@ -27,6 +27,7 @@ type Props = {
   actionId: string | null;
   bulkBusy?: boolean;
   onToggle: (listing: ListingView) => void;
+  onToggleOutOfStock: (listing: ListingView) => void;
   onHideSelected: (listingIds: string[]) => Promise<void>;
   onShowSelected: (listingIds: string[]) => Promise<void>;
   onSavePricing: (listing: ListingView, draft: DraftPricing) => Promise<boolean>;
@@ -66,6 +67,7 @@ export function PublishedListings({
   actionId,
   bulkBusy = false,
   onToggle,
+  onToggleOutOfStock,
   onHideSelected,
   onShowSelected,
   onSavePricing,
@@ -568,6 +570,7 @@ export function PublishedListings({
                           <span style={styles.thumbEmpty}>📦</span>
                         )}
                         {listing.customImages ? <span style={styles.customDot} /> : null}
+                        {listing.buyerOutOfStock ? <span style={styles.oosDot} title="Out of stock for buyers" /> : null}
                       </button>
                     </td>
                     <td style={{ ...styles.tdProduct, ...cellBg }} title={`${listing.name}${listing.category ? ` · ${listing.category}` : ''}`}>
@@ -575,6 +578,9 @@ export function PublishedListings({
                         <strong style={styles.name}>{listing.name}</strong>
                         {listing.category ? (
                           <span style={styles.category}>{listing.category}</span>
+                        ) : null}
+                        {listing.buyerOutOfStock && onLiveTab ? (
+                          <span style={styles.oosChip}>Out of stock for buyers</span>
                         ) : null}
                       </div>
                     </td>
@@ -653,6 +659,21 @@ export function PublishedListings({
                           >
                             Edit
                           </Button>
+                          {onLiveTab ? (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              disabled={editDisabled}
+                              onClick={() => onToggleOutOfStock(listing)}
+                              title={
+                                listing.buyerOutOfStock
+                                  ? 'Allow buyers to add this item to cart again'
+                                  : 'Keep visible in shop but block add to cart'
+                              }
+                            >
+                              {listing.buyerOutOfStock ? 'In stock' : 'Out of stock'}
+                            </Button>
+                          ) : null}
                           <Button
                             variant="ghost"
                             size="sm"
@@ -1133,6 +1154,29 @@ const styles: Record<string, CSSProperties> = {
   },
   thumb: { width: '100%', height: '100%', objectFit: 'cover', display: 'block' },
   thumbEmpty: { display: 'grid', placeItems: 'center', height: '100%', fontSize: '1rem' },
+  oosChip: {
+    display: 'inline-block',
+    marginTop: '0.15rem',
+    fontSize: '0.68rem',
+    fontWeight: 700,
+    color: '#9a3412',
+    background: '#ffedd5',
+    border: '1px solid #fdba74',
+    borderRadius: 6,
+    padding: '0.08rem 0.35rem',
+    width: 'fit-content',
+  },
+  oosDot: {
+    position: 'absolute',
+    bottom: 3,
+    left: 3,
+    width: 8,
+    height: 8,
+    borderRadius: 999,
+    background: '#ea580c',
+    border: '1px solid #fff',
+    boxShadow: '0 0 0 1px rgba(234, 88, 12, 0.35)',
+  },
   customDot: {
     position: 'absolute',
     top: 3,

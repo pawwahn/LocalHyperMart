@@ -1,11 +1,10 @@
 package com.hyperlocalmart.payment.web;
 
 import com.hyperlocalmart.common.api.ApiResponse;
-import com.hyperlocalmart.common.exception.BusinessException;
-import com.hyperlocalmart.common.exception.ErrorCode;
 import com.hyperlocalmart.payment.dto.response.WalletBalanceResponse;
 import com.hyperlocalmart.payment.dto.response.WalletTransactionListResponse;
 import com.hyperlocalmart.payment.security.AuthUserPrincipal;
+import com.hyperlocalmart.payment.security.PlatformAdminPrincipalAuth;
 import com.hyperlocalmart.payment.service.WalletService;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
@@ -31,7 +30,7 @@ public class WalletAdminController {
             @AuthenticationPrincipal AuthUserPrincipal principal,
             @PathVariable UUID userId,
             HttpServletRequest httpRequest) {
-        requireSuperAdmin(principal);
+        PlatformAdminPrincipalAuth.requireStaff(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, walletService.getBalance(userId)));
     }
 
@@ -42,14 +41,8 @@ public class WalletAdminController {
             @RequestParam(defaultValue = "40") int limit,
             @RequestParam(defaultValue = "0") int offset,
             HttpServletRequest httpRequest) {
-        requireSuperAdmin(principal);
+        PlatformAdminPrincipalAuth.requireStaff(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
                 walletService.listTransactions(userId, limit, offset)));
-    }
-
-    private void requireSuperAdmin(AuthUserPrincipal principal) {
-        if (principal == null || principal.getRoles() == null || !principal.getRoles().contains("SUPER_ADMIN")) {
-            throw new BusinessException(ErrorCode.FORBIDDEN, "Super admin role required");
-        }
     }
 }

@@ -1,6 +1,7 @@
 package com.hyperlocalmart.vendor.service;
 
 import com.hyperlocalmart.vendor.entity.ServiceOffering;
+import com.hyperlocalmart.vendor.entity.VendorServiceFor;
 
 import java.util.Locale;
 
@@ -25,6 +26,22 @@ public final class CatalogListingPolicy {
         return lower.contains("beauty") || lower.contains("makeup");
     }
 
+    public static boolean isDiagnosticsService(String name) {
+        if (name == null) {
+            return false;
+        }
+        String lower = name.toLowerCase(Locale.ROOT);
+        return lower.contains("diagnostic") || lower.contains("lab");
+    }
+
+    public static boolean isFoodDeliveryService(String name) {
+        if (name == null) {
+            return false;
+        }
+        String lower = name.toLowerCase(Locale.ROOT);
+        return lower.contains("food");
+    }
+
     public static boolean hidesListings(ServiceOffering service, boolean laundryProfile, boolean beautyProfile) {
         if (laundryProfile || beautyProfile) {
             return true;
@@ -32,7 +49,8 @@ public final class CatalogListingPolicy {
         if (service == null) {
             return false;
         }
-        return service.isHidesListings() || isLaundryService(service.getName()) || isBeautyService(service.getName());
+        return service.isHidesListings() || isLaundryService(service.getName()) || isBeautyService(service.getName())
+                || isDiagnosticsService(service.getName()) || isFoodDeliveryService(service.getName());
     }
 
     /** @deprecated use {@link #hidesListings(ServiceOffering, boolean, boolean)} */
@@ -41,6 +59,30 @@ public final class CatalogListingPolicy {
     }
 
     public static boolean hidesListingsForName(String name, Boolean requested) {
-        return Boolean.TRUE.equals(requested) || isLaundryService(name) || isBeautyService(name);
+        return Boolean.TRUE.equals(requested) || isLaundryService(name) || isBeautyService(name)
+                || isDiagnosticsService(name) || isFoodDeliveryService(name);
+    }
+
+    /** Makeup & Beauty → Male/Female/Unisex; Diagnostics → Private/Hospital Lab (never Unisex). */
+    public static String serviceForAudienceLabel(String serviceOfferingName, VendorServiceFor value) {
+        if (value == null) {
+            return "";
+        }
+        if (isDiagnosticsService(serviceOfferingName)) {
+            return switch (value) {
+                case PRIVATE_LAB -> "Private Lab";
+                case HOSPITAL_LAB -> "Hospital Lab";
+                default -> "";
+            };
+        }
+        if (isBeautyService(serviceOfferingName)) {
+            return switch (value) {
+                case MALE -> "Male";
+                case FEMALE -> "Female";
+                case UNISEX -> "Unisex";
+                default -> "";
+            };
+        }
+        return "";
     }
 }

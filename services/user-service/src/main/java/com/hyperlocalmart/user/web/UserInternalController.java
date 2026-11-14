@@ -4,6 +4,7 @@ import com.hyperlocalmart.common.api.ApiResponse;
 import com.hyperlocalmart.user.dto.request.BindStaffContextRequest;
 import com.hyperlocalmart.user.dto.request.ConsumeCodPinOtpRequest;
 import com.hyperlocalmart.user.dto.request.CreateStaffUserRequest;
+import com.hyperlocalmart.user.dto.request.InternalSetPasswordRequest;
 import com.hyperlocalmart.user.dto.request.UpdateUserStatusRequest;
 import com.hyperlocalmart.user.dto.response.DeviceTokenInternalResponse;
 import com.hyperlocalmart.user.dto.response.StaffUserResponse;
@@ -59,6 +60,16 @@ public class UserInternalController {
             @Valid @RequestBody UpdateUserStatusRequest request,
             HttpServletRequest httpRequest) {
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, userService.updateUserStatus(userId, request)));
+    }
+
+    /** Service-to-service: e.g. diagnostics lab admin resets a staff portal login. */
+    @PatchMapping("/{userId}/password")
+    public ResponseEntity<ApiResponse<Void>> internalSetPassword(
+            @PathVariable UUID userId,
+            @Valid @RequestBody InternalSetPasswordRequest request,
+            HttpServletRequest httpRequest) {
+        userService.internalSetPassword(userId, request.getNewPassword());
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest, null));
     }
 
     @PostMapping("/{userId}/cod-pin-otp/consume")

@@ -61,34 +61,61 @@ export function ProductCard({
       : discountPercent && discountPercent > 0
         ? `${discountPercent}% OFF`
         : null;
-  const stepperDisabled = busy || outOfStock;
+  const blockAdd = outOfStock && quantity <= 0;
+  const stepperDisabled = busy || blockAdd;
   const showRating = ratingCount > 0 && avgRating > 0;
   const rail = layout === 'rail';
   const store = layout === 'store';
   const dense = rail && compactRail;
   const offerLine = discountPercent && discountPercent > 0 ? `${discountPercent}% OFF` : specialOfferActive ? 'OFFER' : null;
+  const badgeStyle = outOfStock
+    ? dense
+      ? styles.oosDense
+      : store
+        ? styles.oosStore
+        : styles.oosBadge
+    : dense
+      ? specialOfferActive
+        ? styles.saleDense
+        : styles.offerDense
+      : specialOfferActive
+        ? styles.sale
+        : styles.offer;
+
+  const addControl =
+    blockAdd ? (
+      <span style={store ? styles.oosPillStore : dense ? styles.oosPillDense : styles.oosPill} aria-hidden>
+        Out of stock
+      </span>
+    ) : (
+      <QuantityStepper
+        quantity={quantity}
+        disabled={stepperDisabled}
+        onIncrease={onIncrease}
+        onDecrease={onDecrease}
+        size={rail || store ? 'xs' : 'sm'}
+        addMode={dense ? 'icon' : 'label'}
+      />
+    );
 
   if (store) {
     return (
       <article className="hlm-product-card" style={styles.cardStore}>
         <div style={{ ...styles.mediaStore, background: imageUrl ? '#fff' : visual.tint }}>
           <button type="button" style={styles.mediaHit} onClick={onOpen} aria-label={`View ${name}`} />
+          {badge ? <span style={badgeStyle}>{badge}</span> : null}
           {imageUrl ? (
-            <img src={imageUrl} alt="" style={styles.photoStore} />
+            <img
+              src={imageUrl}
+              alt=""
+              style={{ ...styles.photoStore, ...(outOfStock ? styles.photoDimmed : {}) }}
+            />
           ) : (
             <span style={styles.initial} aria-hidden>
               {productInitial(name)}
             </span>
           )}
-          <div style={styles.stepperWrapStore}>
-            <QuantityStepper
-              quantity={quantity}
-              disabled={stepperDisabled}
-              onIncrease={onIncrease}
-              onDecrease={onDecrease}
-              size="xs"
-            />
-          </div>
+          <div style={styles.stepperWrapStore}>{addControl}</div>
         </div>
         <button type="button" style={styles.bodyHit} onClick={onOpen} aria-label={`View ${name} details`}>
           <div style={styles.bodyStore}>
@@ -123,23 +150,16 @@ export function ProductCard({
         }}
       >
         <button type="button" style={styles.mediaHit} onClick={onOpen} aria-label={`View ${name}`} />
-        {badge ? (
-          <span
-            style={
-              dense
-                ? specialOfferActive
-                  ? styles.saleDense
-                  : styles.offerDense
-                : specialOfferActive
-                  ? styles.sale
-                  : styles.offer
-            }
-          >
-            {badge}
-          </span>
-        ) : null}
+        {badge ? <span style={badgeStyle}>{badge}</span> : null}
         {imageUrl ? (
-          <img src={imageUrl} alt="" style={dense ? styles.photoDense : styles.photoContain} />
+          <img
+            src={imageUrl}
+            alt=""
+            style={{
+              ...(dense ? styles.photoDense : styles.photoContain),
+              ...(outOfStock ? styles.photoDimmed : {}),
+            }}
+          />
         ) : (
           <span style={dense ? styles.initialDense : rail ? styles.initialRail : styles.initial} aria-hidden>
             {productInitial(name)}
@@ -149,14 +169,7 @@ export function ProductCard({
           <span style={dense ? styles.multiDense : rail ? styles.multiRail : styles.multi}>{imageCount}</span>
         ) : null}
         <div style={dense ? styles.stepperWrapDense : rail ? styles.stepperWrapRail : styles.stepperWrap}>
-          <QuantityStepper
-            quantity={quantity}
-            disabled={stepperDisabled}
-            onIncrease={onIncrease}
-            onDecrease={onDecrease}
-            size={rail ? 'xs' : 'sm'}
-            addMode={dense ? 'icon' : 'label'}
-          />
+          {addControl}
         </div>
       </div>
       <button type="button" style={styles.bodyHit} onClick={onOpen} aria-label={`View ${name} details`}>
@@ -460,6 +473,106 @@ const styles: Record<string, CSSProperties> = {
     placeItems: 'center',
     padding: '0 0.22rem',
     pointerEvents: 'none',
+  },
+  photoDimmed: {
+    opacity: 0.72,
+    filter: 'grayscale(0.35)',
+  },
+  oosBadge: {
+    position: 'absolute',
+    top: 8,
+    left: 8,
+    zIndex: 2,
+    background: '#64748b',
+    color: '#fff',
+    fontSize: '0.58rem',
+    fontWeight: 800,
+    padding: '0.22rem 0.38rem',
+    borderRadius: 7,
+    letterSpacing: '0.03em',
+    maxWidth: '78%',
+    overflow: 'hidden',
+    whiteSpace: 'nowrap',
+    textOverflow: 'ellipsis',
+    pointerEvents: 'none',
+    boxShadow: '0 2px 6px rgba(0,0,0,0.14)',
+  },
+  oosDense: {
+    position: 'absolute',
+    top: 5,
+    left: 5,
+    zIndex: 2,
+    background: '#64748b',
+    color: '#fff',
+    fontSize: '0.5rem',
+    fontWeight: 800,
+    padding: '0.14rem 0.28rem',
+    borderRadius: 6,
+    letterSpacing: '0.02em',
+    maxWidth: '80%',
+    overflow: 'hidden',
+    whiteSpace: 'nowrap',
+    textOverflow: 'ellipsis',
+    pointerEvents: 'none',
+  },
+  oosStore: {
+    position: 'absolute',
+    top: 6,
+    left: 6,
+    zIndex: 2,
+    background: '#64748b',
+    color: '#fff',
+    fontSize: '0.52rem',
+    fontWeight: 800,
+    padding: '0.16rem 0.32rem',
+    borderRadius: 6,
+    letterSpacing: '0.03em',
+    pointerEvents: 'none',
+  },
+  oosPill: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 28,
+    padding: '0 0.45rem',
+    borderRadius: 8,
+    background: '#f1f5f9',
+    border: '1px solid #cbd5e1',
+    color: '#475569',
+    fontSize: '0.62rem',
+    fontWeight: 800,
+    letterSpacing: '0.02em',
+    whiteSpace: 'nowrap',
+  },
+  oosPillDense: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: 28,
+    minHeight: 28,
+    padding: '0 0.25rem',
+    borderRadius: 999,
+    background: '#f1f5f9',
+    border: '1px solid #cbd5e1',
+    color: '#475569',
+    fontSize: '0.5rem',
+    fontWeight: 800,
+    lineHeight: 1.1,
+    textAlign: 'center',
+  },
+  oosPillStore: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 26,
+    padding: '0 0.4rem',
+    borderRadius: 8,
+    background: '#f1f5f9',
+    border: '1px solid #cbd5e1',
+    color: '#475569',
+    fontSize: '0.58rem',
+    fontWeight: 800,
+    whiteSpace: 'nowrap',
   },
   offer: {
     position: 'absolute',

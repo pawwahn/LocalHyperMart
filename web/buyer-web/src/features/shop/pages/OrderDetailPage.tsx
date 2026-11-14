@@ -4,6 +4,7 @@ import { PortalShell } from '@/shared/layout/PortalShell';
 import { Banner, Button, Card, EmptyState, LoadingBlock } from '@/shared/ui';
 import { useAuth } from '@/shared/auth/AuthContext';
 import { useShop } from '../hooks/useShop';
+import { useBuyerAlerts } from '../hooks/useBuyerAlerts';
 import { useOrderDetail } from '../hooks/useOrderDetail';
 import { formatBuyerPaymentLabel } from '../lib/formatBuyerPaymentLabel';
 import { CheckoutDismissedError, openGatewayCheckout } from '../lib/gatewayCheckout';
@@ -103,6 +104,7 @@ export function OrderDetailPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const { orderId } = useParams<{ orderId: string }>();
+  const { markOrderSeen } = useBuyerAlerts();
   const preview = (location.state as { preview?: OrderDetailDto } | null)?.preview ?? null;
   const { session } = useAuth();
   const { cart } = useShop();
@@ -136,6 +138,10 @@ export function OrderDetailPage() {
   const [resultDialog, setResultDialog] = useState<{ title: string; description: string } | null>(
     null,
   );
+
+  useEffect(() => {
+    if (orderId) markOrderSeen(orderId);
+  }, [orderId, markOrderSeen]);
 
   useEffect(() => {
     const rating = order?.deliveryAgentRating;

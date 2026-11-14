@@ -1,9 +1,11 @@
 package com.hyperlocalmart.media.web;
 
 import com.hyperlocalmart.common.api.ApiResponse;
+import com.hyperlocalmart.media.dto.MediaContent;
 import com.hyperlocalmart.media.service.MediaService;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -31,5 +33,13 @@ public class MediaInternalController {
     public ResponseEntity<Void> delete(@PathVariable UUID id) {
         mediaService.deleteOne(id);
         return ResponseEntity.noContent().build();
+    }
+
+    @GetMapping("/{id}/content")
+    public ResponseEntity<byte[]> content(@PathVariable UUID id) {
+        MediaContent media = mediaService.loadContent(id);
+        return ResponseEntity.ok()
+                .contentType(MediaType.parseMediaType(media.contentType()))
+                .body(media.bytes());
     }
 }

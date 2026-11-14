@@ -61,17 +61,27 @@ public class TownDuesResponse {
         BigDecimal platformFee;
         /** Buyer COD surcharge on shop-held rows. */
         BigDecimal codFee;
+        /** Goods COD cash already with the shop/vendor on this row (shop-held bags). */
+        BigDecimal shopCodCash;
         /** Bundled buyer delivery / membership plan on shop-held COD. */
         BigDecimal membershipFee;
         /** Penalties or other charges on vendor collection bills. */
         BigDecimal penalty;
+        /** Buyer UPI collected by KoyaKart on this row (goods + fees on ONLINE / glam slices). */
+        BigDecimal upiAppReceived;
+        /** Open bags or orders paid via UPI on this row. */
+        Integer upiOrderCount;
         int itemCount;
         String reference;
         /** Settlement to confirm. Set when {@link #action} is CONFIRM for a vendor or hub settlement bill. */
         UUID settlementId;
         /** Hub payment submission to verify. Set when {@link #action} is CONFIRM for a hub bill. */
         UUID submissionId;
+        /** Open hub franchise / COD bill — super admin can cancel ISSUED franchise bills. */
+        UUID hubPaymentRequestId;
         String paymentMethod;
         String paymentReference;
+        /** Vendor/hub note entered with their payment reference (e.g. UPI). */
+        String paymentNotes;
     }
 }

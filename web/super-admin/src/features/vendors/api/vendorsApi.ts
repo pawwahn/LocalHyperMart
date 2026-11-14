@@ -1,4 +1,4 @@
-import { apiRequest, type PageData } from '@/shared/api/http';
+import { apiRequest, ApiError, type PageData } from '@/shared/api/http';
 import { normalizeServiceFor, type VendorServiceFor } from '@hlm-vendor';
 
 export type VendorRegistrationVm = {
@@ -48,7 +48,7 @@ export type UpdateVendorProfileInput = {
   shopName: string;
   address?: string;
   serviceId: string;
-  serviceFor: 'MALE' | 'FEMALE' | 'UNISEX';
+  serviceFor: VendorServiceFor;
   gstNumber?: string;
   fssaiNumber?: string;
   bankAccount?: string;
@@ -81,7 +81,7 @@ function mapRegistration(dto: RegistrationDto): VendorRegistrationVm {
 export type CreateRegistrationInput = {
   townId: string;
   serviceId: string;
-  serviceFor: 'MALE' | 'FEMALE' | 'UNISEX';
+  serviceFor: VendorServiceFor;
   businessName: string;
   ownerName?: string;
   phone: string;
@@ -119,16 +119,37 @@ export async function createRegistrationRequest(
   return mapRegistration(created);
 }
 
-export async function approveRegistration(token: string, id: string): Promise<VendorRegistrationVm> {
+export async function approveRegistration(
+  token: string,
+  id: string,
+  password?: string,
+): Promise<VendorRegistrationVm> {
+  const body =
+    password && password.trim().length >= 8 ? { password: password.trim() } : {};
   const approved = await apiRequest<RegistrationDto>(
     `/api/v1/vendors/registration-requests/${id}/approve`,
     {
       method: 'POST',
       token,
-      body: {},
+      body,
     },
   );
   return mapRegistration(approved);
+}
+
+export async function resetVendorLoginPassword(
+  token: string,
+  vendorId: string,
+  password: string,
+): Promise<void> {
+  const data = await apiRequest<{ reset?: boolean }>(`/api/v1/vendors/${vendorId}/login-password`, {
+    method: 'PUT',
+    token,
+    body: { password: password.trim() },
+  });
+  if (data != null && data.reset !== true) {
+    throw new ApiError('Password was not updated. Restart vendor-service and try again.', 500);
+  }
 }
 
 export async function rejectRegistration(

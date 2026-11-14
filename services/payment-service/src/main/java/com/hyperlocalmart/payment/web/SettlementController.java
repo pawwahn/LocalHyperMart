@@ -27,6 +27,7 @@ import com.hyperlocalmart.payment.dto.response.VendorSettlementAdjustmentRespons
 import com.hyperlocalmart.payment.entity.SettlementPayeeType;
 import com.hyperlocalmart.payment.entity.SettlementStatus;
 import com.hyperlocalmart.payment.security.AuthUserPrincipal;
+import com.hyperlocalmart.payment.security.PlatformAdminPrincipalAuth;
 import com.hyperlocalmart.payment.service.AgentPayService;
 import com.hyperlocalmart.payment.service.DeliverySettlementService;
 import com.hyperlocalmart.payment.service.SettlementService;
@@ -98,7 +99,7 @@ public class SettlementController {
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
             HttpServletRequest httpRequest) {
-        requireSuperAdmin(principal);
+        PlatformAdminPrincipalAuth.requireStaff(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
                 settlementService.listCandidates(townId, vendorId, from, to)));
     }
@@ -112,7 +113,7 @@ public class SettlementController {
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
             HttpServletRequest httpRequest) {
-        requireSuperAdmin(principal);
+        PlatformAdminPrincipalAuth.requireStaff(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
                 deliverySettlementService.listCandidates(townId, payeeType, payeeId, from, to)));
     }
@@ -122,7 +123,7 @@ public class SettlementController {
             @AuthenticationPrincipal AuthUserPrincipal principal,
             @Valid @RequestBody CreateDeliverySettlementRequest request,
             HttpServletRequest httpRequest) {
-        requireSuperAdmin(principal);
+        PlatformAdminPrincipalAuth.requireMoveMoney(principal);
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponses.ok(httpRequest,
                 deliverySettlementService.create(principal.getUserId(), request)));
     }
@@ -132,7 +133,7 @@ public class SettlementController {
             @AuthenticationPrincipal AuthUserPrincipal principal,
             @Valid @RequestBody CreateSettlementRequest request,
             HttpServletRequest httpRequest) {
-        requireSuperAdmin(principal);
+        PlatformAdminPrincipalAuth.requireMoveMoney(principal);
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponses.ok(httpRequest,
                 settlementService.create(principal.getUserId(), request)));
     }
@@ -143,7 +144,7 @@ public class SettlementController {
             @PathVariable UUID settlementId,
             @Valid @RequestBody MarkSettlementPaidRequest request,
             HttpServletRequest httpRequest) {
-        requireSuperAdmin(principal);
+        PlatformAdminPrincipalAuth.requireMoveMoney(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
                 settlementService.markPaid(principal.getUserId(), settlementId, request)));
     }
@@ -157,7 +158,7 @@ public class SettlementController {
             @RequestParam(required = false) SettlementStatus status,
             @RequestHeader(value = "X-Vendor-Id", required = false) UUID vendorIdHeader,
             HttpServletRequest httpRequest) {
-        if (isSuperAdmin(principal)) {
+        if (PlatformAdminPrincipalAuth.isPlatformStaff(principal)) {
             if (payeeType == SettlementPayeeType.HUB) {
                 settlementService.ensureHubPayoutInvoices(townId, payeeId);
             }
@@ -182,7 +183,7 @@ public class SettlementController {
             @PathVariable UUID settlementId,
             @RequestHeader(value = "X-Vendor-Id", required = false) UUID vendorIdHeader,
             HttpServletRequest httpRequest) {
-        if (isSuperAdmin(principal)) {
+        if (PlatformAdminPrincipalAuth.isPlatformStaff(principal)) {
             return ResponseEntity.ok(ApiResponses.ok(httpRequest, settlementService.get(settlementId)));
         }
         requireVendor(principal);
@@ -199,7 +200,7 @@ public class SettlementController {
             @AuthenticationPrincipal AuthUserPrincipal principal,
             @RequestParam UUID vendorId,
             HttpServletRequest httpRequest) {
-        requireSuperAdmin(principal);
+        PlatformAdminPrincipalAuth.requireStaff(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, Map.of(
                 "items", settlementService.listSubscriptionBills(vendorId))));
     }
@@ -209,7 +210,7 @@ public class SettlementController {
             @AuthenticationPrincipal AuthUserPrincipal principal,
             @Valid @RequestBody CollectSubscriptionBillRequest request,
             HttpServletRequest httpRequest) {
-        requireSuperAdmin(principal);
+        PlatformAdminPrincipalAuth.requireMoveMoney(principal);
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponses.ok(httpRequest,
                 settlementService.collectSubscriptionBill(principal.getUserId(), request)));
     }
@@ -219,7 +220,7 @@ public class SettlementController {
             @AuthenticationPrincipal AuthUserPrincipal principal,
             @Valid @RequestBody SendSubscriptionBillRequest request,
             HttpServletRequest httpRequest) {
-        requireSuperAdmin(principal);
+        PlatformAdminPrincipalAuth.requireIssueBills(principal);
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponses.ok(httpRequest,
                 settlementService.sendSubscriptionBill(principal.getUserId(), request)));
     }
@@ -230,7 +231,7 @@ public class SettlementController {
             @PathVariable UUID settlementId,
             @Valid @RequestBody(required = false) SubscriptionPaymentRequest request,
             HttpServletRequest httpRequest) {
-        requireSuperAdmin(principal);
+        PlatformAdminPrincipalAuth.requireMoveMoney(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
                 settlementService.confirmSubscriptionPayment(principal.getUserId(), settlementId, request)));
     }
@@ -241,7 +242,7 @@ public class SettlementController {
             @PathVariable UUID settlementId,
             @Valid @RequestBody CorrectSubscriptionPaymentRequest request,
             HttpServletRequest httpRequest) {
-        requireSuperAdmin(principal);
+        PlatformAdminPrincipalAuth.requireMoveMoney(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
                 settlementService.correctSubscriptionPayment(principal.getUserId(), settlementId, request)));
     }
@@ -252,7 +253,7 @@ public class SettlementController {
             @PathVariable UUID settlementId,
             @Valid @RequestBody RejectSubscriptionPaymentRequest request,
             HttpServletRequest httpRequest) {
-        requireSuperAdmin(principal);
+        PlatformAdminPrincipalAuth.requireMoveMoney(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
                 settlementService.rejectSubscriptionPayment(principal.getUserId(), settlementId, request)));
     }
@@ -285,7 +286,7 @@ public class SettlementController {
             @AuthenticationPrincipal AuthUserPrincipal principal,
             @PathVariable UUID settlementId,
             HttpServletRequest httpRequest) {
-        requireSuperAdmin(principal);
+        PlatformAdminPrincipalAuth.requireIssueBills(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
                 settlementService.sendVendorCollectionBill(principal.getUserId(), settlementId)));
     }
@@ -297,7 +298,7 @@ public class SettlementController {
             @PathVariable UUID settlementId,
             @Valid @RequestBody(required = false) SubscriptionPaymentRequest request,
             HttpServletRequest httpRequest) {
-        requireSuperAdmin(principal);
+        PlatformAdminPrincipalAuth.requireMoveMoney(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
                 settlementService.confirmVendorBillPayment(principal.getUserId(), settlementId, request)));
     }
@@ -309,7 +310,7 @@ public class SettlementController {
             @PathVariable UUID settlementId,
             @Valid @RequestBody RejectSubscriptionPaymentRequest request,
             HttpServletRequest httpRequest) {
-        requireSuperAdmin(principal);
+        PlatformAdminPrincipalAuth.requireMoveMoney(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
                 settlementService.rejectVendorBillPayment(principal.getUserId(), settlementId, request)));
     }
@@ -332,7 +333,7 @@ public class SettlementController {
             @AuthenticationPrincipal AuthUserPrincipal principal,
             @PathVariable UUID settlementId,
             HttpServletRequest httpRequest) {
-        requireSuperAdmin(principal);
+        PlatformAdminPrincipalAuth.requireMoveMoney(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
                 settlementService.remindVendorBill(principal.getUserId(), settlementId)));
     }
@@ -353,7 +354,7 @@ public class SettlementController {
             @AuthenticationPrincipal AuthUserPrincipal principal,
             @PathVariable UUID settlementId,
             HttpServletRequest httpRequest) {
-        requireSuperAdmin(principal);
+        PlatformAdminPrincipalAuth.requireMoveMoney(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
                 settlementService.remindVendorAck(principal.getUserId(), settlementId)));
     }
@@ -389,7 +390,7 @@ public class SettlementController {
             @PathVariable UUID settlementId,
             @Valid @RequestBody CorrectVendorPayoutRequest request,
             HttpServletRequest httpRequest) {
-        requireSuperAdmin(principal);
+        PlatformAdminPrincipalAuth.requireMoveMoney(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
                 settlementService.correctVendorPayout(principal.getUserId(), settlementId, request)));
     }
@@ -422,7 +423,7 @@ public class SettlementController {
             @AuthenticationPrincipal AuthUserPrincipal principal,
             @Valid @RequestBody AdminCodCashHolderLookupRequest request,
             HttpServletRequest httpRequest) {
-        requireSuperAdmin(principal);
+        PlatformAdminPrincipalAuth.requireStaff(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
                 settlementService.lookupAdminOrderSettlements(request.getOrderIds())));
     }
@@ -433,7 +434,7 @@ public class SettlementController {
             @AuthenticationPrincipal AuthUserPrincipal principal,
             @Valid @RequestBody AdminCodCashHolderLookupRequest request,
             HttpServletRequest httpRequest) {
-        requireSuperAdmin(principal);
+        PlatformAdminPrincipalAuth.requireStaff(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
                 settlementService.lookupAdminCashHolders(request.getOrderIds())));
     }
@@ -468,19 +469,9 @@ public class SettlementController {
         }
     }
 
-    private void requireSuperAdmin(AuthUserPrincipal principal) {
-        if (!isSuperAdmin(principal)) {
-            throw new BusinessException(ErrorCode.FORBIDDEN, "Super admin role required");
-        }
-    }
-
     private void requireVendor(AuthUserPrincipal principal) {
         if (principal == null || !principal.getRoles().contains("VENDOR")) {
             throw new BusinessException(ErrorCode.FORBIDDEN, "Vendor role required");
         }
-    }
-
-    private boolean isSuperAdmin(AuthUserPrincipal principal) {
-        return principal != null && principal.getRoles().contains("SUPER_ADMIN");
     }
 }

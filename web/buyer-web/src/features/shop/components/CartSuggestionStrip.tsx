@@ -94,7 +94,8 @@ function SuggestionTile({ item, busyKey, quantityFor, onIncrease, onDecrease }: 
       aria-label={item.fromPreviousOrder ? `${item.name}, from your previous order` : undefined}
     >
       <div style={styles.shelf}>
-        {discount ? <span style={styles.discountPill}>{discount}% off</span> : null}
+        {item.outOfStock ? <span style={styles.oosPill}>Out of stock</span> : null}
+        {discount && !item.outOfStock ? <span style={styles.discountPill}>{discount}% off</span> : null}
         {item.fromPreviousOrder ? (
           <span style={styles.prevOrderPill} title="From your previous order">
             from prev. order
@@ -110,14 +111,20 @@ function SuggestionTile({ item, busyKey, quantityFor, onIncrease, onDecrease }: 
           )}
         </div>
         <div style={qty > 0 ? styles.stepperActive : styles.stepperAdd}>
-          <QuantityStepper
-            size="xs"
-            addMode="icon"
-            quantity={qty}
-            disabled={busy}
-            onIncrease={() => onIncrease(item.listingId)}
-            onDecrease={() => onDecrease(item.listingId)}
-          />
+          {item.outOfStock && qty <= 0 ? (
+            <span style={styles.oosAddBlock} aria-hidden>
+              —
+            </span>
+          ) : (
+            <QuantityStepper
+              size="xs"
+              addMode="icon"
+              quantity={qty}
+              disabled={busy || (item.outOfStock && qty <= 0)}
+              onIncrease={() => onIncrease(item.listingId)}
+              onDecrease={() => onDecrease(item.listingId)}
+            />
+          )}
         </div>
       </div>
 
@@ -283,6 +290,32 @@ const styles: Record<string, CSSProperties> = {
     fontSize: '2rem',
     lineHeight: 1,
     opacity: 0.72,
+  },
+  oosPill: {
+    position: 'absolute',
+    top: 6,
+    left: 6,
+    zIndex: 2,
+    padding: '0.12rem 0.32rem',
+    borderRadius: 6,
+    background: '#64748b',
+    color: '#f8fafc',
+    fontSize: '0.52rem',
+    fontWeight: 800,
+    letterSpacing: '0.02em',
+    lineHeight: 1.2,
+  },
+  oosAddBlock: {
+    display: 'grid',
+    placeItems: 'center',
+    width: 28,
+    height: 28,
+    borderRadius: 999,
+    background: '#f1f5f9',
+    border: '1px solid #cbd5e1',
+    color: '#94a3b8',
+    fontSize: '0.75rem',
+    fontWeight: 800,
   },
   discountPill: {
     position: 'absolute',

@@ -29,6 +29,47 @@ export function IconGrid({ active }: Props) {
   );
 }
 
+export function IconServices({ active }: Props) {
+  return (
+    <svg viewBox="0 0 24 24" style={svg} aria-hidden>
+      <rect
+        x="4"
+        y="5"
+        width="7"
+        height="7"
+        rx="1.6"
+        fill={active ? 'currentColor' : 'none'}
+        stroke="currentColor"
+        strokeWidth="1.8"
+      />
+      <rect
+        x="13"
+        y="5"
+        width="7"
+        height="7"
+        rx="1.6"
+        fill={active ? 'currentColor' : 'none'}
+        stroke="currentColor"
+        strokeWidth="1.8"
+      />
+      <path
+        d="M6 17.5h12"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+      <path
+        d="M8.5 14.5v3M12 13.5v4M15.5 15v2.5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
 export function IconBasket({ active }: Props) {
   return (
     <svg viewBox="0 0 24 24" style={svg} aria-hidden>

@@ -82,6 +82,24 @@ public class TownOperationalConfigResponse {
     private boolean beautyEnabled = false;
 
     @Builder.Default
+    private boolean diagnosticsEnabled = false;
+
+    @Builder.Default
+    private boolean foodDeliveryEnabled = false;
+
+    @Builder.Default
+    private boolean groceryEnabled = true;
+
+    @Builder.Default
+    private BigDecimal diagnosticsPlatformFeeFlat = BigDecimal.ZERO;
+
+    @Builder.Default
+    private boolean diagnosticsCodEnabled = true;
+
+    @Builder.Default
+    private BigDecimal diagnosticsCodSurchargeAmount = BigDecimal.ZERO;
+
+    @Builder.Default
     private BigDecimal beautyMinPrepayAmount = BigDecimal.ZERO;
 
     @Builder.Default

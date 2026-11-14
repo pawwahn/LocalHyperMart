@@ -3,6 +3,7 @@ package com.hyperlocalmart.order.client;
 import com.hyperlocalmart.common.exception.BusinessException;
 import com.hyperlocalmart.common.exception.ErrorCode;
 import com.hyperlocalmart.common.api.ApiResponse;
+import com.hyperlocalmart.order.config.RestClientFactory;
 import com.hyperlocalmart.order.config.PaymentServiceProperties;
 import com.hyperlocalmart.order.dto.response.GatewayCheckoutResponse;
 import com.hyperlocalmart.order.dto.response.PaymentInfoResponse;
@@ -24,7 +25,7 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class PaymentClient implements SuccessfulOnlineTotalLookup {
 
-    private final RestClient.Builder restClientBuilder;
+    private final RestClientFactory restClients;
     private final PaymentServiceProperties paymentServiceProperties;
 
     public PaymentInfoResponse initiatePayment(
@@ -38,7 +39,7 @@ public class PaymentClient implements SuccessfulOnlineTotalLookup {
             String orderNumber,
             String orderStatus,
             String paymentMethod) {
-        RestClient client = restClientBuilder.baseUrl(paymentServiceProperties.getBaseUrl()).build();
+        RestClient client = restClients.forBaseUrl(paymentServiceProperties.getBaseUrl());
         Map<String, Object> body = new java.util.HashMap<>();
         body.put("orderId", orderId);
         body.put("townId", townId);
@@ -106,7 +107,7 @@ public class PaymentClient implements SuccessfulOnlineTotalLookup {
     }
 
     public void initiateRefund(UUID orderId, UUID buyerId, BigDecimal amount, String reason) {
-        RestClient client = restClientBuilder.baseUrl(paymentServiceProperties.getBaseUrl()).build();
+        RestClient client = restClients.forBaseUrl(paymentServiceProperties.getBaseUrl());
         Map<String, Object> body = new java.util.HashMap<>();
         body.put("orderId", orderId);
         body.put("amount", amount != null ? amount : BigDecimal.ZERO);
@@ -128,7 +129,7 @@ public class PaymentClient implements SuccessfulOnlineTotalLookup {
      */
     public BigDecimal refundSuccessfulPaymentIfAny(UUID orderId, UUID buyerId, String reason) {
         try {
-            RestClient client = restClientBuilder.baseUrl(paymentServiceProperties.getBaseUrl()).build();
+            RestClient client = restClients.forBaseUrl(paymentServiceProperties.getBaseUrl());
             Map<String, Object> body = new java.util.HashMap<>();
             body.put("orderId", orderId);
             body.put("amount", BigDecimal.ZERO); // ignored — payment-service refunds capture amount
@@ -156,7 +157,7 @@ public class PaymentClient implements SuccessfulOnlineTotalLookup {
     }
 
     public BigDecimal getWalletBalance(UUID userId) {
-        RestClient client = restClientBuilder.baseUrl(paymentServiceProperties.getBaseUrl()).build();
+        RestClient client = restClients.forBaseUrl(paymentServiceProperties.getBaseUrl());
         ApiResponse<WalletBalanceResult> response = client.get()
                 .uri("/api/v1/internal/wallet/{userId}", userId)
                 .retrieve()
@@ -169,7 +170,7 @@ public class PaymentClient implements SuccessfulOnlineTotalLookup {
 
     public BigDecimal creditWallet(UUID userId, BigDecimal amount, String referenceType, UUID referenceId,
                                    UUID orderId, UUID orderItemId, String note) {
-        RestClient client = restClientBuilder.baseUrl(paymentServiceProperties.getBaseUrl()).build();
+        RestClient client = restClients.forBaseUrl(paymentServiceProperties.getBaseUrl());
         Map<String, Object> body = new java.util.HashMap<>();
         body.put("userId", userId);
         body.put("amount", amount);
@@ -191,7 +192,7 @@ public class PaymentClient implements SuccessfulOnlineTotalLookup {
 
     public BigDecimal debitWallet(UUID userId, BigDecimal amount, String referenceType, UUID referenceId,
                                   UUID orderId, String note) {
-        RestClient client = restClientBuilder.baseUrl(paymentServiceProperties.getBaseUrl()).build();
+        RestClient client = restClients.forBaseUrl(paymentServiceProperties.getBaseUrl());
         Map<String, Object> body = new java.util.HashMap<>();
         body.put("userId", userId);
         body.put("amount", amount);
@@ -232,7 +233,7 @@ public class PaymentClient implements SuccessfulOnlineTotalLookup {
             UUID subOrderId,
             BigDecimal amount,
             String reason) {
-        RestClient client = restClientBuilder.baseUrl(paymentServiceProperties.getBaseUrl()).build();
+        RestClient client = restClients.forBaseUrl(paymentServiceProperties.getBaseUrl());
         Map<String, Object> body = new java.util.HashMap<>();
         body.put("townId", townId);
         body.put("vendorId", vendorId);
@@ -278,7 +279,7 @@ public class PaymentClient implements SuccessfulOnlineTotalLookup {
         }
         Map<UUID, BigDecimal> out = new HashMap<>();
         try {
-            RestClient client = restClientBuilder.baseUrl(paymentServiceProperties.getBaseUrl()).build();
+            RestClient client = restClients.forBaseUrl(paymentServiceProperties.getBaseUrl());
             for (int i = 0; i < ids.size(); i += 400) {
                 List<UUID> chunk = ids.subList(i, Math.min(i + 400, ids.size()));
                 ApiResponse<List<CollectedSuccessBatchRow>> response = client.post()
@@ -322,7 +323,7 @@ public class PaymentClient implements SuccessfulOnlineTotalLookup {
 
     public ConsumeMembershipResult tryConsumeMembership(UUID buyerId, UUID orderId, BigDecimal quotedDeliveryFee) {
         try {
-            RestClient client = restClientBuilder.baseUrl(paymentServiceProperties.getBaseUrl()).build();
+            RestClient client = restClients.forBaseUrl(paymentServiceProperties.getBaseUrl());
             Map<String, Object> body = new java.util.HashMap<>();
             body.put("buyerId", buyerId);
             body.put("orderId", orderId);
@@ -343,7 +344,7 @@ public class PaymentClient implements SuccessfulOnlineTotalLookup {
 
     public void restoreMembershipCredit(UUID buyerId, UUID orderId, String reason) {
         try {
-            RestClient client = restClientBuilder.baseUrl(paymentServiceProperties.getBaseUrl()).build();
+            RestClient client = restClients.forBaseUrl(paymentServiceProperties.getBaseUrl());
             Map<String, Object> body = new java.util.HashMap<>();
             body.put("buyerId", buyerId);
             body.put("orderId", orderId);
@@ -369,7 +370,7 @@ public class PaymentClient implements SuccessfulOnlineTotalLookup {
             UUID orderId,
             boolean codOrder,
             String idempotencyKey) {
-        RestClient client = restClientBuilder.baseUrl(paymentServiceProperties.getBaseUrl()).build();
+        RestClient client = restClients.forBaseUrl(paymentServiceProperties.getBaseUrl());
         Map<String, Object> body = new java.util.HashMap<>();
         body.put("buyerId", buyerId);
         body.put("buyerPhone", buyerPhone);
@@ -393,7 +394,7 @@ public class PaymentClient implements SuccessfulOnlineTotalLookup {
 
     public void cancelBundledMembership(UUID orderId) {
         try {
-            RestClient client = restClientBuilder.baseUrl(paymentServiceProperties.getBaseUrl()).build();
+            RestClient client = restClients.forBaseUrl(paymentServiceProperties.getBaseUrl());
             client.post()
                     .uri("/api/v1/internal/memberships/bundle/cancel/{orderId}", orderId)
                     .retrieve()

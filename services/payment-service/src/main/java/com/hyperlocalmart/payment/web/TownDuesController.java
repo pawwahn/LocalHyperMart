@@ -1,10 +1,9 @@
 package com.hyperlocalmart.payment.web;
 
 import com.hyperlocalmart.common.api.ApiResponse;
-import com.hyperlocalmart.common.exception.BusinessException;
-import com.hyperlocalmart.common.exception.ErrorCode;
 import com.hyperlocalmart.payment.dto.response.TownDuesResponse;
 import com.hyperlocalmart.payment.security.AuthUserPrincipal;
+import com.hyperlocalmart.payment.security.PlatformAdminPrincipalAuth;
 import com.hyperlocalmart.payment.service.TownDuesService;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
@@ -32,11 +31,10 @@ public class TownDuesController {
             @RequestParam(required = false) UUID townId,
             @RequestParam(defaultValue = "true") boolean includeOpenWork,
             @RequestParam(defaultValue = "false") boolean openWorkOnly,
+            @RequestParam(required = false) String openWorkActions,
             HttpServletRequest httpRequest) {
-        if (principal == null || principal.getRoles() == null || !principal.getRoles().contains("SUPER_ADMIN")) {
-            throw new BusinessException(ErrorCode.FORBIDDEN, "Super admin role required");
-        }
+        PlatformAdminPrincipalAuth.requireStaff(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
-                townDuesService.dues(from, to, townId, includeOpenWork, openWorkOnly)));
+                townDuesService.dues(from, to, townId, includeOpenWork, openWorkOnly, openWorkActions)));
     }
 }

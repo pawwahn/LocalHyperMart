@@ -3,12 +3,14 @@ package com.hyperlocalmart.vendor.web;
 import com.hyperlocalmart.common.api.ApiResponse;
 import com.hyperlocalmart.common.exception.BusinessException;
 import com.hyperlocalmart.common.exception.ErrorCode;
+import com.hyperlocalmart.vendor.dto.request.SetVendorLoginPasswordRequest;
 import com.hyperlocalmart.vendor.dto.request.UpdateVendorProfileRequest;
 import com.hyperlocalmart.vendor.dto.request.UpdateVendorStatusRequest;
 import com.hyperlocalmart.vendor.dto.response.VendorListResponse;
 import com.hyperlocalmart.vendor.dto.response.VendorResponse;
 import com.hyperlocalmart.vendor.entity.VendorStatus;
 import com.hyperlocalmart.vendor.security.AuthUserPrincipal;
+import com.hyperlocalmart.common.security.PlatformAdminRoles;
 import com.hyperlocalmart.vendor.service.VendorRegistrationService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -24,6 +26,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.Map;
 import java.util.UUID;
 
 @RestController
@@ -42,7 +45,7 @@ public class VendorAdminController {
             @RequestParam UUID townId,
             @RequestParam(required = false) String status,
             HttpServletRequest httpRequest) {
-        requireAdmin(principal);
+        requireAdminRead(principal);
         VendorStatus parsed = parseStatus(status);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, vendorRegistrationService.listVendors(townId, parsed)));
     }
@@ -53,7 +56,7 @@ public class VendorAdminController {
             @PathVariable UUID vendorId,
             @Valid @RequestBody UpdateVendorProfileRequest request,
             HttpServletRequest httpRequest) {
-        requireAdmin(principal);
+        requireAdminWrite(principal);
         return ResponseEntity.ok(ApiResponses.ok(
                 httpRequest,
                 vendorRegistrationService.updateVendorProfile(vendorId, principal.getUserId(), request)));
@@ -65,10 +68,21 @@ public class VendorAdminController {
             @PathVariable UUID vendorId,
             @Valid @RequestBody UpdateVendorStatusRequest request,
             HttpServletRequest httpRequest) {
-        requireAdmin(principal);
+        requireAdminWrite(principal);
         return ResponseEntity.ok(ApiResponses.ok(
                 httpRequest,
                 vendorRegistrationService.updateVendorStatus(vendorId, principal.getUserId(), request)));
+    }
+
+    @PutMapping(VENDOR_ID + "/login-password")
+    public ResponseEntity<ApiResponse<Map<String, Boolean>>> resetLoginPassword(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @PathVariable UUID vendorId,
+            @Valid @RequestBody SetVendorLoginPasswordRequest request,
+            HttpServletRequest httpRequest) {
+        requireAdminWrite(principal);
+        vendorRegistrationService.resetVendorLoginPassword(vendorId, request.getPassword(), principal.getUserId());
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest, Map.of("reset", true)));
     }
 
     private static VendorStatus parseStatus(String status) {
@@ -82,10 +96,25 @@ public class VendorAdminController {
         }
     }
 
-    private static void requireAdmin(AuthUserPrincipal principal) {
-        if (principal == null
-                || (!principal.getRoles().contains("SUPER_ADMIN") && !principal.getRoles().contains("HUB_ADMIN"))) {
+    private static void requireAdminRead(AuthUserPrincipal principal) {
+        if (principal == null || principal.getRoles() == null) {
             throw new BusinessException(ErrorCode.FORBIDDEN, "Admin role required");
         }
+        if (principal.getRoles().contains("HUB_ADMIN")
+                || PlatformAdminRoles.isPlatformStaff(principal.getRoles())) {
+            return;
+        }
+        throw new BusinessException(ErrorCode.FORBIDDEN, "Admin role required");
+    }
+
+    private static void requireAdminWrite(AuthUserPrincipal principal) {
+        if (principal == null || principal.getRoles() == null) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "Admin role required");
+        }
+        if (principal.getRoles().contains("HUB_ADMIN")
+                || PlatformAdminRoles.canWriteConfig(principal.getRoles())) {
+            return;
+        }
+        throw new BusinessException(ErrorCode.FORBIDDEN, "Admin role required");
     }
 }

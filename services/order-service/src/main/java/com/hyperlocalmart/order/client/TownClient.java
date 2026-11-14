@@ -1,6 +1,9 @@
 package com.hyperlocalmart.order.client;
 
 import com.hyperlocalmart.common.api.ApiResponse;
+import com.hyperlocalmart.common.exception.BusinessException;
+import com.hyperlocalmart.common.exception.ErrorCode;
+import com.hyperlocalmart.order.config.RestClientFactory;
 import com.hyperlocalmart.order.config.TownServiceProperties;
 import com.hyperlocalmart.order.scratch.ScratchServiceKind;
 import lombok.RequiredArgsConstructor;
@@ -17,11 +20,11 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class TownClient {
 
-    private final RestClient.Builder restClientBuilder;
+    private final RestClientFactory restClients;
     private final TownServiceProperties townServiceProperties;
 
     public TownSummary getTownSummary(UUID townId) {
-        RestClient client = restClientBuilder.baseUrl(townServiceProperties.getBaseUrl()).build();
+        RestClient client = restClients.forBaseUrl(townServiceProperties.getBaseUrl());
         ApiResponse<TownSummary> response = client.get()
                 .uri("/api/v1/internal/towns/{townId}/summary", townId)
                 .retrieve()
@@ -35,7 +38,7 @@ public class TownClient {
     /** Town delivery + buyer platform fee. Nulls mean “use caller fallback”. */
     public CheckoutFees resolveTownCheckoutFees(UUID townId, BigDecimal orderValue) {
         try {
-            RestClient client = restClientBuilder.baseUrl(townServiceProperties.getBaseUrl()).build();
+            RestClient client = restClients.forBaseUrl(townServiceProperties.getBaseUrl());
             String uri = orderValue == null
                     ? "/api/v1/internal/towns/{townId}/delivery-fee"
                     : "/api/v1/internal/towns/{townId}/delivery-fee?orderValue={orderValue}";
@@ -65,7 +68,7 @@ public class TownClient {
     /** Platform-wide delivery fee (independent of town). Falls back to null on failure. */
     public BigDecimal getPlatformDeliveryFee() {
         try {
-            RestClient client = restClientBuilder.baseUrl(townServiceProperties.getBaseUrl()).build();
+            RestClient client = restClients.forBaseUrl(townServiceProperties.getBaseUrl());
             ApiResponse<Map<String, Object>> response = client.get()
                     .uri("/api/v1/internal/platform/delivery-fee")
                     .retrieve()
@@ -81,7 +84,7 @@ public class TownClient {
 
     public BuyerCancelPolicy getBuyerCancelPolicy(UUID townId) {
         try {
-            RestClient client = restClientBuilder.baseUrl(townServiceProperties.getBaseUrl()).build();
+            RestClient client = restClients.forBaseUrl(townServiceProperties.getBaseUrl());
             ApiResponse<Map<String, Object>> response = client.get()
                     .uri("/api/v1/internal/towns/{townId}/buyer-cancel-policy", townId)
                     .retrieve()
@@ -102,7 +105,7 @@ public class TownClient {
 
     public PaymentSettings getPaymentSettings(UUID townId) {
         try {
-            RestClient client = restClientBuilder.baseUrl(townServiceProperties.getBaseUrl()).build();
+            RestClient client = restClients.forBaseUrl(townServiceProperties.getBaseUrl());
             ApiResponse<Map<String, Object>> response = client.get()
                     .uri("/api/v1/internal/towns/{townId}/operational-config", townId)
                     .retrieve()
@@ -127,7 +130,7 @@ public class TownClient {
 
     public BeautyBookingSettings getBeautyBookingSettings(UUID townId) {
         try {
-            RestClient client = restClientBuilder.baseUrl(townServiceProperties.getBaseUrl()).build();
+            RestClient client = restClients.forBaseUrl(townServiceProperties.getBaseUrl());
             ApiResponse<Map<String, Object>> response = client.get()
                     .uri("/api/v1/internal/towns/{townId}/operational-config", townId)
                     .retrieve()
@@ -156,7 +159,7 @@ public class TownClient {
 
     public ScratchSettings getScratchSettings(UUID townId, String serviceKind) {
         try {
-            RestClient client = restClientBuilder.baseUrl(townServiceProperties.getBaseUrl()).build();
+            RestClient client = restClients.forBaseUrl(townServiceProperties.getBaseUrl());
             ApiResponse<Map<String, Object>> response = client.get()
                     .uri("/api/v1/internal/towns/{townId}/operational-config", townId)
                     .retrieve()
@@ -261,7 +264,7 @@ public class TownClient {
     /** Whether hub admins may see buyer ratings of delivery agents. Defaults to true if town-service is unreachable. */
     public boolean hubAdminCanSeeAgentRatings() {
         try {
-            RestClient client = restClientBuilder.baseUrl(townServiceProperties.getBaseUrl()).build();
+            RestClient client = restClients.forBaseUrl(townServiceProperties.getBaseUrl());
             ApiResponse<Map<String, Object>> response = client.get()
                     .uri("/api/v1/internal/platform/settings-flags")
                     .retrieve()
@@ -293,7 +296,7 @@ public class TownClient {
             body.put("actorRole", "SUPER_ADMIN");
             if (townId != null) body.put("townId", townId);
             if (entityId != null) body.put("entityId", entityId);
-            restClientBuilder.baseUrl(townServiceProperties.getBaseUrl()).build()
+            restClients.forBaseUrl(townServiceProperties.getBaseUrl())
                     .post()
                     .uri("/api/v1/internal/admin-audit")
                     .body(body)
@@ -313,9 +316,47 @@ public class TownClient {
         return shopFlag(townId, "beautyEnabled");
     }
 
+    /** True only when the town operational config has diagnostics on. */
+    public boolean isDiagnosticsEnabled(UUID townId) {
+        return getDiagnosticsSettings(townId).enabled();
+    }
+
+    public DiagnosticsSettings getDiagnosticsSettings(UUID townId) {
+        try {
+            RestClient client = restClients.forBaseUrl(townServiceProperties.getBaseUrl());
+            ApiResponse<Map<String, Object>> response = client.get()
+                    .uri("/api/v1/internal/towns/{townId}/operational-config", townId)
+                    .retrieve()
+                    .body(new ParameterizedTypeReference<ApiResponse<Map<String, Object>>>() {});
+            if (response == null || response.getData() == null) {
+                throw new BusinessException(ErrorCode.INTERNAL_ERROR,
+                        "Could not check diagnostics for this town. Try again.");
+            }
+            Map<String, Object> data = response.getData();
+            boolean enabled = !Boolean.FALSE.equals(data.get("diagnosticsEnabled"))
+                    && !"false".equalsIgnoreCase(String.valueOf(data.get("diagnosticsEnabled")));
+            boolean codEnabled = !Boolean.FALSE.equals(data.get("diagnosticsCodEnabled"))
+                    && !"false".equalsIgnoreCase(String.valueOf(data.get("diagnosticsCodEnabled")));
+            BigDecimal platformFeeFlat = money(data.get("diagnosticsPlatformFeeFlat"));
+            BigDecimal codSurcharge = money(data.get("diagnosticsCodSurchargeAmount"));
+            if (platformFeeFlat == null || platformFeeFlat.compareTo(BigDecimal.ZERO) < 0) {
+                platformFeeFlat = BigDecimal.ZERO;
+            }
+            if (codSurcharge == null || codSurcharge.compareTo(BigDecimal.ZERO) < 0) {
+                codSurcharge = BigDecimal.ZERO;
+            }
+            return new DiagnosticsSettings(enabled, platformFeeFlat, codEnabled, codSurcharge);
+        } catch (BusinessException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            throw new BusinessException(ErrorCode.INTERNAL_ERROR,
+                    "Could not check diagnostics for this town. Try again.");
+        }
+    }
+
     private boolean shopFlag(UUID townId, String key) {
         try {
-            RestClient client = restClientBuilder.baseUrl(townServiceProperties.getBaseUrl()).build();
+            RestClient client = restClients.forBaseUrl(townServiceProperties.getBaseUrl());
             ApiResponse<Map<String, Object>> response = client.get()
                     .uri("/api/v1/towns/{townId}/shop-settings", townId)
                     .retrieve()
@@ -332,7 +373,7 @@ public class TownClient {
 
     public VendorAgentDeliverySettings getVendorAgentDeliverySettings(UUID townId) {
         try {
-            RestClient client = restClientBuilder.baseUrl(townServiceProperties.getBaseUrl()).build();
+            RestClient client = restClients.forBaseUrl(townServiceProperties.getBaseUrl());
             ApiResponse<Map<String, Object>> response = client.get()
                     .uri("/api/v1/internal/towns/{townId}/vendor-agent-delivery-config", townId)
                     .retrieve()
@@ -399,6 +440,20 @@ public class TownClient {
     public record BuyerCancelPolicy(boolean cancelOrderEnabled, boolean cancelItemsEnabled) {
         static BuyerCancelPolicy defaults() {
             return new BuyerCancelPolicy(true, true);
+        }
+    }
+
+    public record DiagnosticsSettings(
+            boolean enabled,
+            BigDecimal platformFeeFlat,
+            boolean codEnabled,
+            BigDecimal codSurchargeAmount) {
+        static DiagnosticsSettings defaults() {
+            return new DiagnosticsSettings(
+                    false,
+                    BigDecimal.ZERO.setScale(2, java.math.RoundingMode.HALF_UP),
+                    false,
+                    BigDecimal.ZERO.setScale(2, java.math.RoundingMode.HALF_UP));
         }
     }
 }

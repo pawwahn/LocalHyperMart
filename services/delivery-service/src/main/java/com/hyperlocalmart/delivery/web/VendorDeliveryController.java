@@ -4,6 +4,8 @@ import com.hyperlocalmart.common.api.ApiResponse;
 import com.hyperlocalmart.common.exception.BusinessException;
 import com.hyperlocalmart.common.exception.ErrorCode;
 import com.hyperlocalmart.delivery.dto.request.CreateVendorAgentRequest;
+import com.hyperlocalmart.delivery.dto.request.UpdateAgentStatusRequest;
+import com.hyperlocalmart.delivery.dto.request.UpdateVendorAgentRequest;
 import com.hyperlocalmart.delivery.dto.response.AgentResponse;
 import com.hyperlocalmart.delivery.security.AuthUserPrincipal;
 import com.hyperlocalmart.delivery.service.VendorAgentService;
@@ -44,6 +46,30 @@ public class VendorDeliveryController {
         requireVendor(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
                 vendorAgentService.createAgent(vendorId, shopId, townId, principal.getUserId(), request)));
+    }
+
+    @PutMapping("/agents/{agentId}")
+    public ResponseEntity<ApiResponse<AgentResponse>> updateAgent(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @RequestHeader("X-Vendor-Id") UUID vendorId,
+            @PathVariable UUID agentId,
+            @Valid @RequestBody UpdateVendorAgentRequest request,
+            HttpServletRequest httpRequest) {
+        requireVendor(principal);
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                vendorAgentService.updateAgent(vendorId, agentId, principal.getUserId(), request)));
+    }
+
+    @PatchMapping("/agents/{agentId}/status")
+    public ResponseEntity<ApiResponse<AgentResponse>> updateAgentStatus(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @RequestHeader("X-Vendor-Id") UUID vendorId,
+            @PathVariable UUID agentId,
+            @Valid @RequestBody UpdateAgentStatusRequest request,
+            HttpServletRequest httpRequest) {
+        requireVendor(principal);
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                vendorAgentService.updateAgentStatus(vendorId, agentId, principal.getUserId(), request)));
     }
 
     private void requireVendor(AuthUserPrincipal principal) {

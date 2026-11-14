@@ -217,10 +217,14 @@ function isShopHeld(holder: OrderCashHolder): boolean {
 type AwaitingSplit = {
   payCount: number;
   payGross: number;
+  /** Sum of buyer receipt totals (GMV + platform / app fees) on KoyaKart-pay bags. */
+  payReceiptTotal: number;
+  payPlatformTotal: number;
   payFee: number;
   payNet: number;
   shopCount: number;
   shopGross: number;
+  shopLabGmv: number;
   /** Commercial commission only (shop terms). */
   shopCommission: number;
   /** Platform + COD + delivery plan on shop-held cash. */
@@ -258,6 +262,18 @@ function shopBuyerPaidTotal(row: SalesReportRow): number {
   const pool = shopCodCashCollected(row) ?? shopGoodsSubtotal(row);
   const plan = Number(row.membershipFeeAmount ?? 0);
   return Math.round((pool + plan) * 100) / 100;
+}
+
+/** What the buyer paid KoyaKart online (goods + app fees on the receipt). */
+function onlineBuyerReceiptTotal(row: SalesReportRow): number {
+  return Math.round(
+    (shopGoodsSubtotal(row) +
+      Number(row.platformFeeAmount ?? 0) +
+      Number(row.codFeeAmount ?? 0) +
+      Number(row.parlourPaymentFeeAmount ?? 0) +
+      Number(row.membershipFeeAmount ?? 0)) *
+      100,
+  ) / 100;
 }
 
 function shopBuyerFeeParts(row: SalesReportRow) {
@@ -392,10 +408,32 @@ function shopCodCashLines(row: SalesReportRow): { label: string; amount: number;
   return lines;
 }
 
+function isKoyaKartPaysOnline(row: SalesReportRow): boolean {
+  return /^(ONLINE|UPI)$/i.test(String(row.paymentMethod ?? '').trim());
+}
+
+function onlineVendorNet(row: SalesReportRow, commission: number | null | undefined): number | null {
+  const lab = shopGoodsSubtotal(row);
+  const comm = commission ?? null;
+  return comm != null ? Math.max(0, lab - comm) : null;
+}
+
+function AwaitingMoney({ value, tone }: { value: number | null | undefined; tone?: 'comm' | 'payout' }) {
+  if (value == null) return <span style={styles.moneyDash}>—</span>;
+  const text = tone === 'comm' ? `− ${formatMoney(value)}` : formatMoney(value);
+  const color =
+    tone === 'comm' ? 'var(--metric-commission)' : tone === 'payout' ? 'var(--metric-awaiting)' : undefined;
+  const weight = tone === 'payout' ? 900 : 700;
+  const size = tone === 'payout' ? '0.86rem' : undefined;
+  return (
+    <span style={{ ...styles.moneyNum, color, fontWeight: weight, fontSize: size }}>{text}</span>
+  );
+}
+
 function ShopCashCell({ row, shopHeld }: { row: SalesReportRow; shopHeld: boolean }) {
   const goods = shopGoodsSubtotal(row);
   if (!shopHeld) {
-    return <>{formatMoney(goods)}</>;
+    return <div title="Bag GMV">{formatMoney(goods)}</div>;
   }
   const paid = shopBuyerPaidTotal(row);
   const lines = shopCodCashLines(row);
@@ -488,10 +526,13 @@ function splitAwaiting(
   const out: AwaitingSplit = {
     payCount: 0,
     payGross: 0,
+    payReceiptTotal: 0,
+    payPlatformTotal: 0,
     payFee: 0,
     payNet: 0,
     shopCount: 0,
     shopGross: 0,
+    shopLabGmv: 0,
     shopCommission: 0,
     shopPassThrough: 0,
     shopPlatform: 0,
@@ -507,6 +548,7 @@ function splitAwaiting(
     if (isShopHeld(resolveCashHolder(row, holders[row.subOrderId]))) {
       out.shopCount += 1;
       out.shopGross += shopBuyerPaidTotal(row);
+      out.shopLabGmv += shopGoodsSubtotal(row);
       out.shopCommission += commission;
       out.shopPassThrough += passThrough;
       out.shopPlatform += buyer.platform;
@@ -518,6 +560,8 @@ function splitAwaiting(
       const fee = isGlamRemittanceRow(row) ? 0 : commission;
       out.payCount += 1;
       out.payGross += koyaKartPayoutGross(row);
+      out.payReceiptTotal += onlineBuyerReceiptTotal(row);
+      out.payPlatformTotal += Number(row.platformFeeAmount ?? 0);
       out.payFee += fee;
     }
   }
@@ -859,7 +903,11 @@ export function PayoutsPage() {
       setHoldersReady(true);
       void loadBillParties(session.accessToken, session.vendorId, session.shopName, session.phone);
     } catch (err) {
-      setError(err instanceof ApiError || err instanceof Error ? err.message : 'Failed to load payouts');
+      if (err instanceof ApiError && err.status === 401) {
+        setError('Session expired — sign in again.');
+      } else {
+        setError(err instanceof ApiError || err instanceof Error ? err.message : 'Failed to load payouts');
+      }
       setAwaitingRows([]);
       setDeliveredRows([]);
       setOrderPayouts({});
@@ -1123,6 +1171,7 @@ export function PayoutsPage() {
   );
   const periodAwaitingFee = periodSplit.payFee + periodSplit.shopFee;
   const estUnpaidFee = periodAwaitingFee;
+  const estUnpaidCommission = periodSplit.payFee + periodSplit.shopCommission;
 
   /** Open settlements are already net of fees; otherwise only bags whose cash KoyaKart / hub holds are paid out. */
   const awaitingDisplayAmount = usingSettlementAwaiting
@@ -1424,7 +1473,7 @@ export function PayoutsPage() {
                       0,
                     )
                   : estUnpaidFee > 0
-                    ? periodSplit.shopCommission
+                    ? estUnpaidCommission
                     : settlementSummary.paidCommission,
               )}
             </strong>
@@ -1445,11 +1494,19 @@ export function PayoutsPage() {
                 : estUnpaidFee > 0
                 ? periodSplit.shopPassThrough > 0
                   ? `Est. ${formatMoney(periodSplit.shopCommission)} commission + ${formatMoney(periodSplit.shopPassThrough)} platform / COD / plan on ${shopCashCount} shop cash bag${shopCashCount === 1 ? '' : 's'}`
-                  : `Est. shop fees on ${visibleAwaiting.length} unpaid${
-                      settlementSummary.paidCommission > 0
-                        ? ` · ${formatMoney(settlementSummary.paidCommission)} on paid`
-                        : ''
-                    }`
+                  : estUnpaidCommission > 0
+                    ? periodSplit.payFee > 0 && periodSplit.shopCommission <= 0
+                      ? `Est. ${formatMoney(periodSplit.payFee)} on ${periodSplit.payCount} unpaid online bag${periodSplit.payCount === 1 ? '' : 's'} (withheld from payout)`
+                      : `Est. commission on ${visibleAwaiting.length} unpaid bag${visibleAwaiting.length === 1 ? '' : 's'}${
+                          settlementSummary.paidCommission > 0
+                            ? ` · ${formatMoney(settlementSummary.paidCommission)} on paid`
+                            : ''
+                        }`
+                    : `Est. shop fees on ${visibleAwaiting.length} unpaid${
+                        settlementSummary.paidCommission > 0
+                          ? ` · ${formatMoney(settlementSummary.paidCommission)} on paid`
+                          : ''
+                      }`
                 : settlementSummary.paidCount > 0
                   ? 'On paid settlements'
                   : feeQuote
@@ -2028,14 +2085,16 @@ export function PayoutsPage() {
                   `}</style>
                   <table className="payouts-awaiting-table" style={styles.tableAwaiting}>
                     <colgroup>
-                      <col style={{ width: '12%' }} />
-                      <col style={{ width: '16%' }} />
-                      <col style={{ width: '6%' }} />
+                      <col style={{ width: '11%' }} />
+                      <col style={{ width: '13%' }} />
+                      <col style={{ width: '5%' }} />
+                      <col style={{ width: '7%' }} />
+                      <col style={{ width: '9%' }} />
+                      <col style={{ width: '8%' }} />
+                      <col style={{ width: '7%' }} />
                       <col style={{ width: '8%' }} />
                       <col style={{ width: '9%' }} />
-                      <col style={{ width: '24%' }} />
-                      <col style={{ width: '11%' }} />
-                      <col style={{ width: '14%' }} />
+                      <col style={{ width: '10%' }} />
                     </colgroup>
                     <thead>
                       <tr>
@@ -2068,15 +2127,24 @@ export function PayoutsPage() {
                           style={styles.thSortCompact}
                         />
                         <SortableTh
-                          label="Buyer paid"
+                          label="Customer paid"
                           column="amount"
                           sort={awaitingSort}
                           onSort={(c) => setAwaitingSort((p) => toggleSort(p, c))}
                           align="right"
                           style={styles.thSortCompactRight}
                         />
-                        <th style={styles.thCompactRight} title={SHOP_COD_BILL_HINT}>
-                          Bill to KK
+                        <th style={styles.thCompactRight} title="Lab GMV (goods / service subtotal)">
+                          Lab
+                        </th>
+                        <th style={styles.thCompactRight} title="Platform fee on buyer receipt">
+                          Plat
+                        </th>
+                        <th
+                          style={styles.thCompactRight}
+                          title="Commission withheld from payout (online) or due to KoyaKart (shop COD)"
+                        >
+                          Comm
                         </th>
                         <th style={styles.thCompactRight} title="KoyaKart pays you (online / hub cash)">
                           KK pays
@@ -2090,9 +2158,35 @@ export function PayoutsPage() {
                         const commission = rowFees[row.subOrderId] as number | undefined;
                         const shopHeld = isShopHeld(holder);
                         const breakdown = shopHeld ? shopFeeBreakdown(commission, row) : null;
+                        const onlineCommission =
+                          !shopHeld && !isGlamRemittanceRow(row) && commission != null ? commission : null;
                         const fee = breakdown?.total ?? null;
+                        const lab = shopGoodsSubtotal(row);
+                        const feeParts = shopBuyerFeeParts(row);
+                        const platformAmt = feeParts.platform > 0 ? feeParts.platform : null;
+                        const customerPaid = shopHeld
+                          ? shopBuyerPaidTotal(row)
+                          : isGlamRemittanceRow(row)
+                            ? koyaKartPayoutGross(row)
+                            : isKoyaKartPaysOnline(row)
+                              ? onlineBuyerReceiptTotal(row)
+                              : lab;
+                        const commAmt = shopHeld
+                          ? breakdown?.commission ?? null
+                          : isGlamRemittanceRow(row)
+                            ? 0
+                            : onlineCommission;
+                        const kkPays = shopHeld
+                          ? null
+                          : isGlamRemittanceRow(row)
+                            ? koyaKartPayoutGross(row)
+                            : isKoyaKartPaysOnline(row)
+                              ? onlineVendorNet(row, onlineCommission)
+                              : fee == null
+                                ? null
+                                : Math.max(0, lab - (commAmt ?? 0));
                         return (
-                        <tr key={row.subOrderId}>
+                        <tr key={row.subOrderId} style={styles.awaitingRow}>
                           <td style={styles.tdAwaitingMuted}>
                             {shortWhen(payoutAt(row))}
                             <div style={styles.subOrderNoWrap}>Placed {shortWhen(row.placedAt)}</div>
@@ -2105,40 +2199,24 @@ export function PayoutsPage() {
                           <td style={styles.tdAwaiting} title={holder.holderDetail || undefined}>
                             <span style={holderChip(holder.holderRole)}>{holder.holderLabel}</span>
                           </td>
-                          <td style={styles.tdAwaitingRight}>
-                            <ShopCashCell row={row} shopHeld={shopHeld} />
+                          <td style={styles.tdAwaitingMoney}>
+                            <AwaitingMoney value={customerPaid} />
                           </td>
-                          <td style={{ ...styles.tdAwaitingRight, color: 'var(--metric-commission)', verticalAlign: 'top' }}>
-                            {fee == null ? (
-                              '—'
-                            ) : (
-                              <>
-                                <div style={styles.feeTotal}>− {formatMoney(fee)}</div>
-                                {breakdown ? <ShopFeeBreakdownView parts={breakdown} /> : null}
-                                {shopHeld && breakdown ? (
-                                  <ShopNetKeepView row={row} breakdown={breakdown} />
-                                ) : null}
-                              </>
-                            )}
+                          <td style={styles.tdAwaitingMoney}>
+                            <AwaitingMoney value={lab} />
                           </td>
-                          {shopHeld ? (
-                            <td
-                              style={{ ...styles.tdAwaitingRight, color: 'var(--text-muted)' }}
-                              title="You already have this cash — only the fee goes to KoyaKart"
-                            >
-                              —
-                            </td>
-                          ) : (
-                            <td style={{ ...styles.tdAwaitingRight, color: 'var(--metric-awaiting)', fontWeight: 800 }}>
-                              {fee == null
-                                ? '—'
-                                : formatMoney(
-                                    isGlamRemittanceRow(row)
-                                      ? koyaKartPayoutGross(row)
-                                      : Number(row.subtotal ?? 0) - fee,
-                                  )}
-                            </td>
-                          )}
+                          <td style={styles.tdAwaitingMoney}>
+                            <AwaitingMoney value={platformAmt} />
+                          </td>
+                          <td style={styles.tdAwaitingMoney}>
+                            <AwaitingMoney value={commAmt != null && commAmt > 0 ? commAmt : null} tone="comm" />
+                          </td>
+                          <td
+                            style={styles.tdAwaitingMoney}
+                            title={shopHeld ? 'You already have this cash — only the fee goes to KoyaKart' : undefined}
+                          >
+                            <AwaitingMoney value={kkPays} tone="payout" />
+                          </td>
                           <td style={styles.tdAwaiting}>
                             <span style={shopHeld ? styles.feeDue : styles.open}>
                               {shopHeld ? SHOP_COD_STATUS_PAY : 'KK pays you'}
@@ -2158,7 +2236,13 @@ export function PayoutsPage() {
                             </span>
                           ) : null}
                         </td>
+                        <td style={styles.tfRightWrap}>
+                          {formatMoney(periodSplit.payReceiptTotal > 0 ? periodSplit.payReceiptTotal : periodSplit.payGross)}
+                        </td>
                         <td style={styles.tfRightWrap}>{formatMoney(periodSplit.payGross)}</td>
+                        <td style={styles.tfRightWrap}>
+                          {periodSplit.payPlatformTotal > 0 ? formatMoney(periodSplit.payPlatformTotal) : '—'}
+                        </td>
                         <td style={{ ...styles.tfRightWrap, color: 'var(--metric-commission)' }}>
                           {feeQuote ? `− ${formatMoney(periodSplit.payFee)}` : '—'}
                         </td>
@@ -2175,17 +2259,12 @@ export function PayoutsPage() {
                             Cash in shop · {periodSplit.shopCount} bag{periodSplit.shopCount === 1 ? '' : 's'}
                           </td>
                           <td style={styles.tfRightWrap}>{formatMoney(periodSplit.shopGross)}</td>
-                          <td style={{ ...styles.tfRightWrap, color: 'var(--metric-commission)', verticalAlign: 'top' }}>
-                            {feeQuote ? (
-                              <>
-                                <div>− {formatMoney(periodSplit.shopFee)}</div>
-                                {shopSplitBreakdownText(periodSplit) ? (
-                                  <div style={styles.tfFeeParts}>{shopSplitBreakdownText(periodSplit)}</div>
-                                ) : null}
-                              </>
-                            ) : (
-                              '—'
-                            )}
+                          <td style={styles.tfRightWrap}>{formatMoney(periodSplit.shopLabGmv)}</td>
+                          <td style={styles.tfRightWrap}>
+                            {periodSplit.shopPlatform > 0 ? formatMoney(periodSplit.shopPlatform) : '—'}
+                          </td>
+                          <td style={{ ...styles.tfRightWrap, color: 'var(--metric-commission)' }}>
+                            {feeQuote ? `− ${formatMoney(periodSplit.shopCommission)}` : '—'}
                           </td>
                           <td style={{ ...styles.tfRightWrap, color: 'var(--text-muted)' }}>—</td>
                           <td style={styles.tfAwaiting}>
@@ -2197,7 +2276,7 @@ export function PayoutsPage() {
                         </tr>
                       ) : null}
                       <tr>
-                        <td style={styles.tfFinalLabel} colSpan={6}>
+                        <td style={styles.tfFinalLabel} colSpan={8}>
                           KoyaKart pays you
                           {awaitingPaged.totalPages > 1 ? ' (all pages)' : ''}
                         </td>
@@ -2208,7 +2287,7 @@ export function PayoutsPage() {
                       </tr>
                       {periodSplit.shopCount > 0 ? (
                         <tr>
-                          <td style={styles.tfOweLabel} colSpan={6}>
+                          <td style={styles.tfOweLabel} colSpan={8}>
                             {SHOP_COD_BILL_LABEL}
                             <span style={styles.tfInlineWrap}> · commission + app fees</span>
                           </td>
@@ -2296,6 +2375,9 @@ export function PayoutsPage() {
                                   UTR {b.vendorPaymentReference}
                                   {b.vendorPaidAt ? ` · ${formatPaidAt(b.vendorPaidAt)}` : ''}
                                 </div>
+                                {b.vendorPaymentNotes?.trim() ? (
+                                  <div style={styles.sub}>Note: {b.vendorPaymentNotes.trim()}</div>
+                                ) : null}
                               </>
                             ) : (
                               <span style={styles.sub}>—</span>
@@ -2483,6 +2565,9 @@ export function PayoutsPage() {
                             <>
                                 <span style={styles.open}>KoyaKart checking</span>
                                 <div style={styles.sub}>UTR {s.vendorPaymentReference ?? '—'}</div>
+                                {s.vendorPaymentNotes?.trim() ? (
+                                  <div style={styles.sub}>Note: {s.vendorPaymentNotes.trim()}</div>
+                                ) : null}
                             </>
                           ) : (
                               <>
@@ -2963,8 +3048,12 @@ const styles: Record<string, CSSProperties> = {
     width: '100%',
     tableLayout: 'fixed',
     borderCollapse: 'separate',
-    borderSpacing: 0,
+    borderSpacing: '0 0.22rem',
     fontSize: '0.78rem',
+  },
+  awaitingRow: {
+    background: 'var(--bg-elevated)',
+    transition: 'box-shadow 120ms ease',
   },
   table: { width: '100%', borderCollapse: 'separate', borderSpacing: 0, fontSize: '0.85rem' },
   th: { position: 'sticky', top: 0, background: 'var(--bg-muted)', zIndex: 1 },
@@ -3084,6 +3173,18 @@ const styles: Record<string, CSSProperties> = {
     minWidth: 0,
     overflowWrap: 'anywhere',
   },
+  tdAwaitingMoney: {
+    padding: '0.28rem 0.36rem',
+    borderBottom: '1px solid var(--border)',
+    textAlign: 'right' as const,
+    verticalAlign: 'middle',
+    whiteSpace: 'nowrap' as const,
+  },
+  moneyNum: {
+    fontVariantNumeric: 'tabular-nums',
+    whiteSpace: 'nowrap' as const,
+  },
+  moneyDash: { color: 'var(--text-muted)', fontWeight: 500 },
   feeTotal: { fontWeight: 800 },
   feeBreakdown: {
     marginTop: '0.15rem',
@@ -3097,6 +3198,111 @@ const styles: Record<string, CSSProperties> = {
   feeBreakdownLine: { lineHeight: 1.3 },
   feeBreakdownPlan: { color: '#9a3412', fontWeight: 800 },
   cashCollected: { fontWeight: 800, lineHeight: 1.25 },
+  receiptCard: {
+    display: 'grid',
+    gap: '0.3rem',
+    padding: '0.34rem 0.4rem',
+    borderRadius: 10,
+    background: 'linear-gradient(148deg, #ffffff 0%, #f8fafc 55%, #f0fdfa 100%)',
+    border: '1px solid color-mix(in srgb, var(--border) 78%, #0f766e 22%)',
+    boxShadow: '0 1px 5px rgba(15, 23, 42, 0.06)',
+  },
+  receiptHead: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'baseline',
+    gap: '0.35rem',
+  },
+  receiptKicker: {
+    fontSize: '0.58rem',
+    fontWeight: 800,
+    textTransform: 'uppercase',
+    letterSpacing: '0.06em',
+    color: 'var(--text-muted)',
+  },
+  receiptTotal: {
+    fontSize: '0.9rem',
+    fontWeight: 900,
+    color: 'var(--text)',
+    fontVariantNumeric: 'tabular-nums',
+  },
+  receiptChips: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    justifyContent: 'flex-end',
+    gap: '0.22rem',
+  },
+  chipLab: {
+    fontSize: '0.6rem',
+    fontWeight: 750,
+    padding: '0.12rem 0.36rem',
+    borderRadius: 999,
+    background: '#f1f5f9',
+    border: '1px solid #e2e8f0',
+    color: '#334155',
+    whiteSpace: 'nowrap',
+  },
+  chipPlatform: {
+    fontSize: '0.6rem',
+    fontWeight: 750,
+    padding: '0.12rem 0.36rem',
+    borderRadius: 999,
+    background: '#ecfdf5',
+    border: '1px solid #99f6e4',
+    color: '#0f766e',
+    whiteSpace: 'nowrap',
+  },
+  chipCommission: {
+    fontSize: '0.6rem',
+    fontWeight: 750,
+    padding: '0.12rem 0.36rem',
+    borderRadius: 999,
+    background: '#fff7ed',
+    border: '1px solid #fed7aa',
+    color: '#9a3412',
+    whiteSpace: 'nowrap',
+  },
+  chipPending: {
+    fontSize: '0.6rem',
+    fontWeight: 700,
+    padding: '0.12rem 0.36rem',
+    borderRadius: 999,
+    border: '1px dashed #cbd5e1',
+    color: 'var(--text-muted)',
+  },
+  youGetCell: {
+    display: 'grid',
+    gap: '0.05rem',
+    justifyItems: 'end',
+    padding: '0.15rem 0',
+  },
+  youGetAmount: {
+    fontSize: '0.96rem',
+    fontWeight: 900,
+    color: '#c2410c',
+    fontVariantNumeric: 'tabular-nums',
+    lineHeight: 1.15,
+  },
+  youGetLabel: {
+    fontSize: '0.56rem',
+    fontWeight: 800,
+    textTransform: 'uppercase',
+    letterSpacing: '0.05em',
+    color: '#9a3412',
+    opacity: 0.88,
+  },
+  commPill: {
+    display: 'inline-grid',
+    gap: '0.05rem',
+    justifyItems: 'end',
+    padding: '0.24rem 0.4rem',
+    borderRadius: 9,
+    background: 'linear-gradient(145deg, #fff1f2 0%, #ffe4e6 100%)',
+    border: '1px solid #fecdd3',
+  },
+  commPillValue: { fontWeight: 800, fontSize: '0.78rem', color: '#be123c', fontVariantNumeric: 'tabular-nums' },
+  commPillHint: { fontSize: '0.54rem', fontWeight: 700, color: '#9f1239', opacity: 0.9 },
+  commEmpty: { color: 'var(--text-muted)' },
   cashBuyerParts: {
     marginTop: '0.1rem',
     fontSize: '0.6rem',

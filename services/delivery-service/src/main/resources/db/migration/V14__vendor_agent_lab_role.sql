@@ -1,0 +1,5 @@
+ALTER TABLE delivery_agents
+    ADD COLUMN IF NOT EXISTS lab_title VARCHAR(30),
+    ADD COLUMN IF NOT EXISTS collection_capable BOOLEAN NOT NULL DEFAULT FALSE;
+
+COMMENT ON COLUMN delivery_agents.lab_title IS 'MANAGER | COLLECTION_AGENT | LAB_TECHNICIAN | DELIVERY_ONLY (diagnostics labs)';

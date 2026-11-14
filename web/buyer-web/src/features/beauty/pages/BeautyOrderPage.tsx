@@ -10,6 +10,7 @@ import { ConfirmDialog } from '@/features/shop/components/ConfirmDialog';
 import { OrderStatusTimeline, type TimelineStep } from '@/features/shop/components/OrderStatusTimeline';
 import { buildBeautyBuyerTimeline } from '../lib/beautyOrderProgress';
 import { StarRating } from '@/features/shop/components/StarRating';
+import { useBuyerAlerts } from '@/features/shop/hooks/useBuyerAlerts';
 import { beautyPaymentPlanView } from '@hlm-beauty';
 import {
   BEAUTY_SERVICES,
@@ -76,6 +77,7 @@ function toTimelineSteps(order: BeautyOrder): TimelineStep[] {
 
 export function BeautyOrderPage() {
   const { orderId } = useParams();
+  const { markOrderSeen } = useBuyerAlerts();
   const { session } = useAuth();
   const token = session?.accessToken ?? '';
   const navigate = useNavigate();
@@ -93,11 +95,16 @@ export function BeautyOrderPage() {
   const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
 
   useEffect(() => {
+    if (orderId) markOrderSeen(orderId);
+  }, [orderId, markOrderSeen]);
+
+  useEffect(() => {
     if (!token || !orderId) return;
     let cancelled = false;
     fetchBeautyOrder(token, orderId)
       .then((row) => {
         if (!cancelled) {
+          setError(null);
           setOrder(row);
           if (row.myRatingStars) setRatingStars(row.myRatingStars);
         }

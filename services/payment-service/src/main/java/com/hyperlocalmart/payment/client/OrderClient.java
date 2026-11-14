@@ -24,6 +24,30 @@ public class OrderClient {
     private final RestClient.Builder restClientBuilder;
     private final OrderServiceProperties orderServiceProperties;
 
+    public OrderSnapshot resolveOrder(String query) {
+        RestClient client = restClientBuilder.baseUrl(orderServiceProperties.getBaseUrl()).build();
+        try {
+            ApiResponse<OrderSnapshot> response = client.get()
+                    .uri(uriBuilder -> uriBuilder
+                            .path("/api/v1/internal/orders/resolve")
+                            .queryParam("q", query)
+                            .build())
+                    .retrieve()
+                    .body(new ParameterizedTypeReference<ApiResponse<OrderSnapshot>>() {});
+            if (response == null || response.getData() == null) {
+                throw new com.hyperlocalmart.common.exception.BusinessException(
+                        com.hyperlocalmart.common.exception.ErrorCode.NOT_FOUND, "Order not found");
+            }
+            return response.getData();
+        } catch (org.springframework.web.client.RestClientResponseException ex) {
+            if (ex.getStatusCode().value() == 404) {
+                throw new com.hyperlocalmart.common.exception.BusinessException(
+                        com.hyperlocalmart.common.exception.ErrorCode.NOT_FOUND, "Order not found");
+            }
+            throw ex;
+        }
+    }
+
     public OrderSnapshot getOrder(UUID orderId, UUID buyerId) {
         RestClient client = restClientBuilder.baseUrl(orderServiceProperties.getBaseUrl()).build();
         try {

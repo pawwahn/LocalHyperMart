@@ -3,13 +3,18 @@ package com.hyperlocalmart.order.service;
 import com.hyperlocalmart.order.beauty.BeautyOrderStatus;
 import com.hyperlocalmart.order.beauty.BeautyPaymentMethod;
 import com.hyperlocalmart.order.beauty.BeautyPaymentStatus;
+import com.hyperlocalmart.order.diagnostics.DiagnosticsOrderStatus;
+import com.hyperlocalmart.order.diagnostics.DiagnosticsPaymentMethod;
+import com.hyperlocalmart.order.diagnostics.DiagnosticsPaymentStatus;
 import com.hyperlocalmart.order.entity.BeautyOrder;
+import com.hyperlocalmart.order.entity.DiagnosticsOrder;
 import com.hyperlocalmart.order.entity.Order;
 import com.hyperlocalmart.order.entity.PaymentMethod;
 import com.hyperlocalmart.order.entity.PaymentStatus;
 import com.hyperlocalmart.order.entity.VendorSubOrder;
 import com.hyperlocalmart.order.entity.VendorSubOrderStatus;
 import com.hyperlocalmart.order.repository.BeautyOrderRepository;
+import com.hyperlocalmart.order.repository.DiagnosticsOrderRepository;
 import com.hyperlocalmart.order.repository.LaundryOrderRepository;
 import com.hyperlocalmart.order.repository.VendorSubOrderRepository;
 import org.junit.jupiter.api.Test;
@@ -48,6 +53,9 @@ class SettlementCandidateServiceTest {
     @Mock
     private BeautyOrderRepository beautyOrderRepository;
 
+    @Mock
+    private DiagnosticsOrderRepository diagnosticsOrderRepository;
+
     private final Map<UUID, BigDecimal> onlineByOrder = new HashMap<>();
 
     private SettlementCandidateService settlementCandidateService;
@@ -59,6 +67,7 @@ class SettlementCandidateServiceTest {
                 vendorSubOrderRepository,
                 laundryOrderRepository,
                 beautyOrderRepository,
+                diagnosticsOrderRepository,
                 orderId -> onlineByOrder.get(orderId));
     }
 
@@ -81,6 +90,11 @@ class SettlementCandidateServiceTest {
                 eq(to.plusDays(1).atStartOfDay(IST).toInstant())))
                 .thenReturn(List.of());
         when(beautyOrderRepository.findSettlementCandidates(
+                eq(vendorId), eq(townId),
+                eq(from.atStartOfDay(IST).toInstant()),
+                eq(to.plusDays(1).atStartOfDay(IST).toInstant())))
+                .thenReturn(List.of());
+        when(diagnosticsOrderRepository.findSettlementCandidates(
                 eq(vendorId), eq(townId),
                 eq(from.atStartOfDay(IST).toInstant()),
                 eq(to.plusDays(1).atStartOfDay(IST).toInstant())))
@@ -140,6 +154,9 @@ class SettlementCandidateServiceTest {
         when(beautyOrderRepository.findSettlementCandidates(
                 eq(vendorId), eq(townId), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
                 .thenReturn(List.of(glam));
+        when(diagnosticsOrderRepository.findSettlementCandidates(
+                eq(vendorId), eq(townId), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
+                .thenReturn(List.of());
         onlineByOrder.put(glam.getId(), new BigDecimal("50.00"));
 
         var response = settlementCandidateService.listCandidates(vendorId, townId, from, to);
@@ -202,6 +219,9 @@ class SettlementCandidateServiceTest {
         when(beautyOrderRepository.findSettlementCandidates(
                 eq(vendorId), eq(townId), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
                 .thenReturn(List.of(glam));
+        when(diagnosticsOrderRepository.findSettlementCandidates(
+                eq(vendorId), eq(townId), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
+                .thenReturn(List.of());
         onlineByOrder.put(orderId, new BigDecimal("1100.00"));
 
         var response = settlementCandidateService.listCandidates(vendorId, townId, from, to);
@@ -230,12 +250,113 @@ class SettlementCandidateServiceTest {
                 .thenReturn(List.of());
         when(beautyOrderRepository.findByVendorIdAndIdIn(vendorId, List.of(placedId)))
                 .thenReturn(List.of());
+        when(diagnosticsOrderRepository.findByVendorIdAndIdIn(vendorId, List.of(placedId)))
+                .thenReturn(List.of());
 
         var items = settlementCandidateService.resolveSubOrders(vendorId, List.of(deliveredId, placedId));
 
         assertThat(items).hasSize(1);
         assertThat(items.getFirst().getSubOrderId()).isEqualTo(deliveredId);
         assertThat(items.getFirst().getStatus()).isEqualTo(VendorSubOrderStatus.DELIVERED);
+    }
+
+    @Test
+    void listCandidates_diagnosticsCodBillsFeesToLab() {
+        UUID vendorId = UUID.randomUUID();
+        UUID townId = UUID.randomUUID();
+        LocalDate from = LocalDate.of(2026, 11, 1);
+        LocalDate to = LocalDate.of(2026, 11, 30);
+
+        DiagnosticsOrder cod = DiagnosticsOrder.builder()
+                .id(UUID.randomUUID())
+                .orderNumber("DX081126-0001")
+                .townId(townId)
+                .vendorId(vendorId)
+                .status(DiagnosticsOrderStatus.COMPLETED)
+                .paymentMethod(DiagnosticsPaymentMethod.COD)
+                .paymentStatus(DiagnosticsPaymentStatus.COLLECTED)
+                .testsSubtotal(new BigDecimal("700.00"))
+                .homeCollectionFee(new BigDecimal("100.00"))
+                .platformFeeAmount(new BigDecimal("20.00"))
+                .codFee(new BigDecimal("5.00"))
+                .placedAt(Instant.parse("2026-11-08T04:00:00Z"))
+                .build();
+
+        when(vendorSubOrderRepository.findSettlementCandidates(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
+                .thenReturn(List.of());
+        when(laundryOrderRepository.findSettlementCandidates(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
+                .thenReturn(List.of());
+        when(beautyOrderRepository.findSettlementCandidates(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
+                .thenReturn(List.of());
+        when(diagnosticsOrderRepository.findSettlementCandidates(
+                eq(vendorId), eq(townId), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
+                .thenReturn(List.of(cod));
+
+        var response = settlementCandidateService.listCandidates(vendorId, townId, from, to);
+
+        assertThat(response.getItems()).hasSize(1);
+        var item = response.getItems().getFirst();
+        assertThat(item.getPaymentMethod()).isEqualTo(PaymentMethod.COD);
+        assertThat(item.isVendorAgentDelivery()).isTrue();
+        assertThat(item.getSubtotal()).isEqualByComparingTo("800.00");
+        assertThat(item.getPlatformFee()).isEqualByComparingTo("20.00");
+        assertThat(item.getCodFee()).isEqualByComparingTo("5.00");
+        assertThat(item.getPieceCount()).isEqualTo(1);
+    }
+
+    @Test
+    void listCandidates_diagnosticsUpiPaysLabOnGmv() {
+        UUID vendorId = UUID.randomUUID();
+        UUID townId = UUID.randomUUID();
+        LocalDate from = LocalDate.of(2026, 11, 1);
+        LocalDate to = LocalDate.of(2026, 11, 30);
+
+        DiagnosticsOrder upi = DiagnosticsOrder.builder()
+                .id(UUID.randomUUID())
+                .orderNumber("DX081126-0002")
+                .townId(townId)
+                .vendorId(vendorId)
+                .status(DiagnosticsOrderStatus.COMPLETED)
+                .paymentMethod(DiagnosticsPaymentMethod.UPI)
+                .paymentStatus(DiagnosticsPaymentStatus.PAID)
+                .testsSubtotal(new BigDecimal("1200.00"))
+                .homeCollectionFee(new BigDecimal("0.00"))
+                .platformFeeAmount(new BigDecimal("25.00"))
+                .placedAt(Instant.parse("2026-11-08T05:00:00Z"))
+                .build();
+
+        when(vendorSubOrderRepository.findSettlementCandidates(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
+                .thenReturn(List.of());
+        when(laundryOrderRepository.findSettlementCandidates(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
+                .thenReturn(List.of());
+        when(beautyOrderRepository.findSettlementCandidates(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
+                .thenReturn(List.of());
+        when(diagnosticsOrderRepository.findSettlementCandidates(
+                eq(vendorId), eq(townId), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
+                .thenReturn(List.of(upi));
+
+        var response = settlementCandidateService.listCandidates(vendorId, townId, from, to);
+
+        assertThat(response.getItems()).hasSize(1);
+        var item = response.getItems().getFirst();
+        assertThat(item.getPaymentMethod()).isEqualTo(PaymentMethod.ONLINE);
+        assertThat(item.isVendorAgentDelivery()).isFalse();
+        assertThat(item.getSubtotal()).isEqualByComparingTo("1200.00");
+        assertThat(item.getPlatformFee()).isEqualByComparingTo("0.00");
+        assertThat(item.getCodFee()).isEqualByComparingTo("0.00");
+        assertThat(item.getPieceCount()).isEqualTo(1);
     }
 
     private static VendorSubOrder sample(VendorSubOrderStatus status, String orderNumber) {

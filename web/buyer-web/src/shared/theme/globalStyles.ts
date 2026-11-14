@@ -46,6 +46,9 @@ export function injectGlobalStyles(): void {
       --sticky-cart-h: 56px;
       --glam-dock-h: 9.25rem;
       --touch-min: 44px;
+      /* KoyaKart list stripes — subtle alternating rows (use with explicit row background) */
+      --hlm-row-stripe-a: #ffffff;
+      --hlm-row-stripe-b: color-mix(in srgb, var(--bg-muted) 48%, var(--bg-elevated) 52%);
     }
     @media (min-width: 768px) {
       :root {
@@ -310,6 +313,19 @@ export function injectGlobalStyles(): void {
       .hlm-shop-chrome-card {
         border-radius: 18px !important;
       }
+    }
+
+    /**
+     * Stacked list rows (cart lines, order lines, etc.): alternate background.
+     * Add class "hlm-row-stripe" on each row; use data-stripe="a"|"b" or omit and rely on nth-child from parent .hlm-row-stripe-list.
+     */
+    .hlm-row-stripe-list > .hlm-row-stripe:nth-child(odd) {
+      background: var(--hlm-row-stripe-a) !important;
+      border-color: color-mix(in srgb, var(--border) 88%, transparent) !important;
+    }
+    .hlm-row-stripe-list > .hlm-row-stripe:nth-child(even) {
+      background: var(--hlm-row-stripe-b) !important;
+      border-color: color-mix(in srgb, var(--border) 82%, transparent) !important;
     }
   `;
   document.head.appendChild(style);

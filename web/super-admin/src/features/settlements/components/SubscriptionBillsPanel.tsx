@@ -448,8 +448,14 @@ export function SubscriptionBillsPanel({
                       </span>
                     </td>
                     <td style={styles.td}>{b.invoiceNumber ?? '—'}</td>
-                    <td style={s === 'REJECTED' ? { ...styles.td, ...styles.struck } : styles.td} title={b.vendorPaymentNotes || b.rejectReason || undefined}>
-                      {payment}
+                    <td style={s === 'REJECTED' ? { ...styles.td, ...styles.struck } : styles.td}>
+                      <div>{payment}</div>
+                      {b.vendorPaymentNotes?.trim() ? (
+                        <div style={styles.subNote}>Vendor note: {b.vendorPaymentNotes.trim()}</div>
+                      ) : null}
+                      {s === 'REJECTED' && b.rejectReason?.trim() ? (
+                        <div style={styles.subNote}>Rejected: {b.rejectReason.trim()}</div>
+                      ) : null}
                     </td>
                     <td style={b.bankPaidOn ? styles.td : styles.tdMuted}>{dayLabel(b.bankPaidOn)}</td>
                     <td style={styles.tdMuted}>{ack}</td>
@@ -683,6 +689,14 @@ const styles: Record<string, CSSProperties> = {
     fontVariantNumeric: 'tabular-nums',
   },
   tdMuted: { padding: '0.28rem 0.45rem', borderBottom: '1px solid var(--border)', verticalAlign: 'middle', color: 'var(--text-muted)' },
+  subNote: {
+    marginTop: '0.2rem',
+    fontSize: '0.7rem',
+    color: 'var(--text-muted)',
+    lineHeight: 1.35,
+    whiteSpace: 'normal',
+    maxWidth: '14rem',
+  },
   iconBtn: {
     width: 28,
     height: 28,

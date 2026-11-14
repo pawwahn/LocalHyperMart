@@ -53,4 +53,8 @@ public class CartItem extends BaseAuditEntity {
 
     @Column(name = "line_total", nullable = false, precision = 12, scale = 2)
     private BigDecimal lineTotal;
+
+    @Column(name = "listing_kind", nullable = false, length = 20)
+    @Builder.Default
+    private String listingKind = "GROCERY";
 }

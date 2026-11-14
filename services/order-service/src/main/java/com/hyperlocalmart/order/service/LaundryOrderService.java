@@ -6,6 +6,7 @@ import com.hyperlocalmart.common.exception.ErrorCode;
 import com.hyperlocalmart.order.client.AddressClient;
 import com.hyperlocalmart.order.client.DeliveryClient;
 import com.hyperlocalmart.order.client.MediaClient;
+import com.hyperlocalmart.order.client.NotificationClient;
 import com.hyperlocalmart.order.client.PaymentClient;
 import com.hyperlocalmart.order.client.TownClient;
 import com.hyperlocalmart.order.client.VendorLaundryClient;
@@ -72,6 +73,7 @@ public class LaundryOrderService {
     private final VendorLaundryClient vendorLaundryClient;
     private final AddressClient addressClient;
     private final MediaClient mediaClient;
+    private final NotificationClient notificationClient;
     private final DeliveryClient deliveryClient;
     private final ScratchCardService scratchCardService;
 
@@ -241,6 +243,41 @@ public class LaundryOrderService {
         return orderRepository.findByBuyerIdAndTownIdOrderByPlacedAtDesc(buyerId, townId).stream()
                 .map(order -> toResponse(order, false))
                 .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public Optional<OrderInternalSnapshotResponse> internalLookupSnapshot(UUID orderId) {
+        return orderRepository.findById(orderId).map(this::internalLookupSnapshot);
+    }
+
+    @Transactional(readOnly = true)
+    public Optional<OrderInternalSnapshotResponse> internalLookupSnapshotByNumber(String orderNumber) {
+        if (orderNumber == null || orderNumber.isBlank()) {
+            return Optional.empty();
+        }
+        return orderRepository.findByOrderNumber(orderNumber.trim()).map(this::internalLookupSnapshot);
+    }
+
+    private OrderInternalSnapshotResponse internalLookupSnapshot(LaundryOrder order) {
+        OrderStatus status = order.getStatus() == LaundryOrderStatus.AWAITING_PAYMENT
+                ? OrderStatus.PAYMENT_PENDING
+                : OrderStatus.PLACED;
+        boolean online = order.getPaymentMethod() == LaundryPaymentMethod.UPI;
+        PaymentStatus paymentStatus = online && order.getStatus() == LaundryOrderStatus.AWAITING_PAYMENT
+                ? PaymentStatus.PENDING
+                : PaymentStatus.PAID;
+        PaymentMethod method = online ? PaymentMethod.ONLINE : PaymentMethod.COD;
+        return OrderInternalSnapshotResponse.builder()
+                .orderId(order.getId())
+                .buyerId(order.getBuyerId())
+                .townId(order.getTownId())
+                .orderNumber(order.getOrderNumber())
+                .status(status)
+                .paymentStatus(paymentStatus)
+                .paymentMethod(method)
+                .totalAmount(buyerPayable(order))
+                .buyerPhone(order.getContactPhone())
+                .build();
     }
 
     @Transactional(readOnly = true)
@@ -485,6 +522,7 @@ public class LaundryOrderService {
             }
         }
         event(order, actorId, move.name(), from.name(), to.name(), blank(note));
+        notifyLaundryBuyer(order, to.label());
         // Pickup trip ends when collected. When clothes become READY, open a drop trip for the
         // same agent so it shows in the agent app (do not re-push on OUT_FOR_DROP / DELIVER —
         // that race-creates a second trip while the agent is finishing).
@@ -1141,5 +1179,16 @@ public class LaundryOrderService {
             case "OTHER" -> "other";
             default -> "that item";
         };
+    }
+
+    private void notifyLaundryBuyer(LaundryOrder order, String statusLabel) {
+        notificationClient.notifyOrderStatusUpdated(
+                order.getTownId(),
+                order.getId(),
+                order.getBuyerId(),
+                order.getContactPhone(),
+                order.getOrderNumber(),
+                statusLabel,
+                "Laundry");
     }
 }

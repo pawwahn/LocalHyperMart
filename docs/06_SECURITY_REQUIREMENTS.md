@@ -76,6 +76,8 @@
 # Payments
 
 * No card data on platform
+* Payment gateway API secrets (Razorpay/Cashfree/PhonePe) stored in Postgres **AES-256-GCM** when `HLM_SECRETS_ENCRYPTION_KEY` is set (required on payment-service with `hlm-secure`)
+* Super-admin gateway API **never returns** raw secrets after save — rotate by submitting a new value only
 * **Idempotency-Key** on order/payment POST
 * Buyer block by town admin / super admin (no default COD cap)
 * Chargebacks — super admin only
@@ -86,6 +88,8 @@
 
 * PII encryption at rest (phone, address, GST, bank)
 * Field-level encryption for bank/GST recommended
+* User login passwords: **BCrypt** in `hyperlocalmart_user.users.password_hash` (never plaintext)
+* QA/production: `hlm-secure` profile rejects dev JWT defaults, missing internal service secret, and payment webhook bypass
 * Account delete → **anonymize** orders (retain financial audit)
 * Logs never contain passwords, OTP, JWT
 * Agent app masks buyer phone until delivery

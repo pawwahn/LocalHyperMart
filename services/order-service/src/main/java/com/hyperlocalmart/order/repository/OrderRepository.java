@@ -32,6 +32,8 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
 
     Optional<Order> findByIdAndTownId(UUID id, UUID townId);
 
+    Optional<Order> findByOrderNumber(String orderNumber);
+
     /** Buyer basket/history list — no collection fetch so LIMIT stays in SQL. */
     Page<Order> findByBuyerIdAndTownIdOrderByCreatedAtDesc(UUID buyerId, UUID townId, Pageable pageable);
 

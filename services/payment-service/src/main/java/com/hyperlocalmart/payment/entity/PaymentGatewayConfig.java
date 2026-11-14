@@ -30,19 +30,19 @@ public class PaymentGatewayConfig extends BaseAuditEntity {
     @Column(name = "client_id", length = 200)
     private String clientId;
 
-    @Column(name = "client_secret", length = 500)
+    @Column(name = "client_secret", length = 1024)
     private String clientSecret;
 
     @Column(name = "client_version", length = 40)
     private String clientVersion;
 
-    @Column(name = "webhook_secret", length = 500)
+    @Column(name = "webhook_secret", length = 1024)
     private String webhookSecret;
 
     @Column(name = "webhook_username", length = 120)
     private String webhookUsername;
 
-    @Column(name = "webhook_password", length = 500)
+    @Column(name = "webhook_password", length = 1024)
     private String webhookPassword;
 
     @Column(length = 20)

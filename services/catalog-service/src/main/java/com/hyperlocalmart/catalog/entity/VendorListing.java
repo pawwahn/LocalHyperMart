@@ -1,7 +1,17 @@
 package com.hyperlocalmart.catalog.entity;
 
 import com.hyperlocalmart.common.domain.BaseAuditEntity;
-import jakarta.persistence.*;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.GenerationType;
+import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
+import jakarta.persistence.Table;
 import lombok.*;
 
 import java.math.BigDecimal;
@@ -77,4 +87,9 @@ public class VendorListing extends BaseAuditEntity {
 
     @Column(name = "price_updated_at")
     private Instant priceUpdatedAt;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "listing_kind", nullable = false, length = 20)
+    @Builder.Default
+    private ListingKind listingKind = ListingKind.GROCERY;
 }

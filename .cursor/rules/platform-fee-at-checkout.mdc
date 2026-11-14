@@ -1,0 +1,39 @@
+---
+description: Platform fee and COD surcharges — show only at checkout/payment, not in browse docks
+alwaysApply: true
+---
+
+# Platform fee at checkout (buyer UI)
+
+**Platform fee** (town flat / convenience fee) and **COD surcharges** are KoyaKart pass-through charges. Buyers must see them **only at checkout or payment**, with a **line-by-line breakdown** — never baked into browse/catalog totals.
+
+## Browse phase (catalog, sticky dock, floating bar)
+
+Show **goods / service subtotal only** (tests, packages, glam services, laundry pieces, grocery `payableSubtotal`).
+
+- Do **not** add platform fee or COD fee to dock/bar headline amounts.
+- Subtitle hint is OK: e.g. “fees at checkout”, “Platform fee shown before you pay”.
+- **Service-specific charges** tied to the product (e.g. diagnostics **home collection**, glam **home visit**, laundry **pickup/drop**) may appear in browse subtotals when the product cannot be booked without them — but **platform fee never** in browse totals.
+
+## Checkout phase (bill summary, confirm sheet, pay button, gateway)
+
+Show full payable total with explicit rows:
+
+- Goods / services subtotal  
+- Home collection / travel / delivery (if applicable)  
+- **Platform fee** (label clearly — “Platform fee” or “Service fee”)  
+- COD handling (if COD selected)  
+- **Amount payable** / Pay now total  
+
+Grocery **Basket** page sticky footer is checkout — including platform fee there is correct.
+
+## Vertical reference
+
+| Vertical    | Browse total              | Checkout breakdown        |
+|------------|---------------------------|---------------------------|
+| Grocery    | Sticky cart = items only  | Cart bill + sticky pay    |
+| Diagnostics| Dock = tests/packages     | Step 2 bill + book button |
+| Laundry    | Dock = pieces + travel    | Confirm sheet + platform  |
+| Glam       | Dock subtotal w/o platform| Confirm sheet + platform  |
+
+When adding a new vertical, follow the same split unless product explicitly documents otherwise.

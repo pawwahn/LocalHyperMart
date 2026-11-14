@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { PortalShell } from '@/shared/layout/PortalShell';
 import { useAuth } from '@/shared/auth/AuthContext';
+import { ConfigWriteBanner } from '@/shared/auth/ConfigWriteBanner';
+import { usePlatformAdminAccess } from '@/shared/auth/usePlatformAdminAccess';
 import { ApiError } from '@/shared/api/http';
 import { Banner, Button, Card, TextField, SearchSelect, ConfirmDialog } from '@/shared/ui';
 import { AdminHistoryPanel } from '@/shared/audit/AdminHistoryPanel';
@@ -10,8 +12,15 @@ import { listServices, type ServiceOffering } from '@/features/services/api/serv
 import { Link } from 'react-router-dom';
 import { TermsAcceptBlock } from '@hlm-legal';
 import {
+  VENDOR_DIAGNOSTICS_LAB_TYPE_OPTIONS,
   VENDOR_SERVICE_FOR_OPTIONS,
+  isBeautyServiceName,
+  isDiagnosticsLabType,
+  isDiagnosticsServiceName,
+  normalizeDiagnosticsLabType,
   normalizeServiceFor,
+  serviceForAudienceLabel,
+  serviceForLabel,
   vendorNameWithServiceFor,
 } from '@hlm-vendor';
 import type { VendorServiceFor } from '@hlm-vendor';
@@ -21,6 +30,7 @@ import {
   listRegistrationRequests,
   listVendors,
   rejectRegistration,
+  resetVendorLoginPassword,
   updateVendorProfile,
   updateVendorStatus,
   type VendorRegistrationVm,
@@ -51,6 +61,7 @@ function initials(name: string): string {
 
 export function VendorsPage() {
   const { session } = useAuth();
+  const { canWriteConfig } = usePlatformAdminAccess();
   const token = session?.accessToken ?? '';
   const [towns, setTowns] = useState<TownVm[]>([]);
   const [townId, setTownId] = useState('');
@@ -81,6 +92,14 @@ export function VendorsPage() {
   const [disableReason, setDisableReason] = useState('');
   const [statusBusyId, setStatusBusyId] = useState<string | null>(null);
   const [pendingEnable, setPendingEnable] = useState<VendorVm | null>(null);
+  const [approveTarget, setApproveTarget] = useState<VendorRegistrationVm | null>(null);
+  const [approvePassword, setApprovePassword] = useState('');
+  const [resetLoginTarget, setResetLoginTarget] = useState<VendorVm | null>(null);
+  const [resetLoginPassword, setResetLoginPassword] = useState('');
+  const [resetLoginBusy, setResetLoginBusy] = useState(false);
+  const [resetLoginError, setResetLoginError] = useState<string | null>(null);
+  const [approveBusy, setApproveBusy] = useState(false);
+  const [approveError, setApproveError] = useState<string | null>(null);
   const [editId, setEditId] = useState<string | null>(null);
   const [editBusinessName, setEditBusinessName] = useState('');
   const [editOwnerName, setEditOwnerName] = useState('');
@@ -92,6 +111,7 @@ export function VendorsPage() {
   const [editIfsc, setEditIfsc] = useState('');
   const [editServiceId, setEditServiceId] = useState('');
   const [editServiceFor, setEditServiceFor] = useState<VendorServiceFor | ''>('');
+  const [editSaveError, setEditSaveError] = useState<string | null>(null);
   const [vendorTermsAcknowledged, setVendorTermsAcknowledged] = useState(false);
   const [acknowledgedLegalVersion, setAcknowledgedLegalVersion] = useState(1);
 
@@ -193,8 +213,15 @@ export function VendorsPage() {
       setError('Select a service');
       return;
     }
-    if (!serviceFor) {
+    const selectedServiceName = serviceNameById.get(serviceId);
+    const needsServiceFor = isBeautyServiceName(selectedServiceName);
+    const needsDiagnosticsLabType = isDiagnosticsServiceName(selectedServiceName);
+    if (needsServiceFor && !serviceFor) {
       setError('Select who this service is for (Male, Female, or Unisex)');
+      return;
+    }
+    if (needsDiagnosticsLabType && !isDiagnosticsLabType(serviceFor)) {
+      setError('Select lab type (Private Lab or Hospital Lab)');
       return;
     }
     if (!vendorTermsAcknowledged) {
@@ -213,7 +240,12 @@ export function VendorsPage() {
       await createRegistrationRequest(token, {
         townId,
         serviceId,
-        serviceFor,
+        serviceFor:
+          needsServiceFor && serviceFor
+            ? serviceFor
+            : needsDiagnosticsLabType && isDiagnosticsLabType(serviceFor)
+              ? serviceFor
+              : 'UNISEX',
         businessName: businessName.trim(),
         ownerName: ownerName.trim() || undefined,
         phone: normalizedPhone,
@@ -249,25 +281,78 @@ export function VendorsPage() {
     }
   }
 
-  async function onApprove(id: string) {
-    setBusy(true);
+  async function onApproveConfirm() {
+    if (!approveTarget) return;
+    if (!canWriteConfig) {
+      setApproveError('You need config write access to approve vendors.');
+      return;
+    }
+    setApproveBusy(true);
+    setApproveError(null);
     setError(null);
     setNotice(null);
     try {
-      const approved = await approveRegistration(token, id);
+      const custom = approvePassword.trim();
+      const approved = await approveRegistration(
+        token,
+        approveTarget.id,
+        custom.length >= 8 ? custom : undefined,
+      );
       const pwd = approved.temporaryPassword?.trim();
       setNotice(
         pwd
           ? `Approved. Share once — ${approved.phone} / ${pwd}`
           : 'Vendor approved',
       );
+      setApproveTarget(null);
+      setApprovePassword('');
       setTab('vendors');
       await reload();
     } catch (err) {
-      setError(err instanceof ApiError || err instanceof Error ? err.message : 'Approve failed');
+      setApproveError(err instanceof ApiError || err instanceof Error ? err.message : 'Approve failed');
     } finally {
-      setBusy(false);
+      setApproveBusy(false);
     }
+  }
+
+  async function onResetLoginConfirm() {
+    if (!resetLoginTarget) return;
+    if (!canWriteConfig) {
+      setResetLoginError('You need config write access to reset vendor logins.');
+      return;
+    }
+    const next = resetLoginPassword.trim();
+    if (next.length < 8) {
+      setResetLoginError('Password must be at least 8 characters');
+      return;
+    }
+    const phone = resetLoginTarget.phone;
+    setResetLoginBusy(true);
+    setResetLoginError(null);
+    setError(null);
+    setNotice(null);
+    try {
+      await resetVendorLoginPassword(token, resetLoginTarget.id, next);
+      setNotice(`Portal password updated for ${phone}. Share once with the shop owner.`);
+      setResetLoginTarget(null);
+      setResetLoginPassword('');
+      setResetLoginError(null);
+    } catch (err) {
+      const msg = err instanceof ApiError || err instanceof Error ? err.message : 'Could not reset password';
+      setResetLoginError(
+        msg.includes('404') || /not found/i.test(msg)
+          ? `${msg} If you just deployed, restart vendor-service and hard-refresh this page.`
+          : msg,
+      );
+    } finally {
+      setResetLoginBusy(false);
+    }
+  }
+
+  function defaultVendorTempPassword(phone: string): string {
+    const digits = phone.replace(/\D/g, '');
+    const tail = digits.length >= 4 ? digits.slice(-4) : '????';
+    return `HlM@${tail}`;
   }
 
   async function onRejectConfirm() {
@@ -313,6 +398,7 @@ export function VendorsPage() {
   }
 
   function openEdit(vendor: VendorVm) {
+    setEditSaveError(null);
     setEditId(vendor.id);
     setEditBusinessName(vendor.businessName ?? '');
     setEditOwnerName(vendor.ownerName ?? '');
@@ -323,7 +409,14 @@ export function VendorsPage() {
     setEditBankAccount(vendor.bankAccount ?? '');
     setEditIfsc(vendor.ifsc ?? '');
     setEditServiceId(vendor.serviceId ?? '');
-    setEditServiceFor(normalizeServiceFor(vendor.serviceFor) ?? 'UNISEX');
+    const vendorServiceName = vendor.serviceName ?? serviceNameById.get(vendor.serviceId ?? '');
+    setEditServiceFor(
+      isBeautyServiceName(vendorServiceName)
+        ? (normalizeServiceFor(vendor.serviceFor) ?? 'UNISEX')
+        : isDiagnosticsServiceName(vendorServiceName)
+          ? (normalizeDiagnosticsLabType(vendor.serviceFor) ?? '')
+          : '',
+    );
     setDisableId(null);
     setDisableReason('');
     setRejectId(null);
@@ -331,6 +424,14 @@ export function VendorsPage() {
 
   function closeEdit() {
     setEditId(null);
+    setEditSaveError(null);
+  }
+
+  function offeringNameForService(serviceId: string, vendorRecord?: VendorVm | null): string | undefined {
+    const fromCatalog = serviceNameById.get(serviceId);
+    if (fromCatalog?.trim()) return fromCatalog;
+    const fromVendor = vendorRecord?.serviceName?.trim();
+    return fromVendor || undefined;
   }
 
   async function onSaveEdit() {
@@ -348,20 +449,34 @@ export function VendorsPage() {
       setError('Select a service');
       return;
     }
-    if (!editServiceFor) {
+    const editingVendor = vendors.find((v) => v.id === editId) ?? null;
+    const editSelectedServiceName = offeringNameForService(editServiceId, editingVendor);
+    const needsServiceFor = isBeautyServiceName(editSelectedServiceName);
+    const needsDiagnosticsLabType = isDiagnosticsServiceName(editSelectedServiceName);
+    if (needsServiceFor && !editServiceFor) {
       setError('Select who this service is for (Male, Female, or Unisex)');
+      return;
+    }
+    if (needsDiagnosticsLabType && !isDiagnosticsLabType(editServiceFor)) {
+      setError('Select lab type (Private Lab or Hospital Lab)');
       return;
     }
     setBusy(true);
     setError(null);
     setNotice(null);
+    setEditSaveError(null);
     try {
       const updated = await updateVendorProfile(token, editId, {
         businessName: editBusinessName.trim(),
         ownerName: editOwnerName.trim() || undefined,
         shopName: editShopName.trim(),
         serviceId: editServiceId,
-        serviceFor: editServiceFor,
+        serviceFor:
+          needsServiceFor && editServiceFor
+            ? editServiceFor
+            : needsDiagnosticsLabType && isDiagnosticsLabType(editServiceFor)
+              ? editServiceFor
+              : 'UNISEX',
         address: editAddress.trim() || undefined,
         gstNumber: gst || undefined,
         fssaiNumber: editFssaiNumber.trim() || undefined,
@@ -369,18 +484,36 @@ export function VendorsPage() {
         ifsc: editIfsc.trim() || undefined,
       });
       const savedFor = normalizeServiceFor(updated.serviceFor);
-      if (savedFor && savedFor !== editServiceFor) {
+      if (needsServiceFor && savedFor && savedFor !== editServiceFor) {
         setError(
           `Service for did not stick (saved as ${savedFor}). Restart vendor-service after migration V25.`,
         );
         return;
       }
+      if (needsDiagnosticsLabType && !isDiagnosticsLabType(updated.serviceFor)) {
+        const stuckMsg =
+          `Lab type did not save (server returned ${serviceForLabel(updated.serviceFor) || 'Unisex'}). ` +
+          'Rebuild vendor-service and restart it (e.g. mvn -DskipTests package, then docker compose up -d --build vendor-service).';
+        setEditSaveError(stuckMsg);
+        setError(stuckMsg);
+        return;
+      }
       setVendors((prev) => prev.map((v) => (v.id === updated.id ? updated : v)));
       setNotice(`Updated ${updated.shopName ?? updated.businessName}`);
       setEditId(null);
-      await reload();
+      try {
+        await reload();
+      } catch (reloadErr) {
+        setError(
+          reloadErr instanceof ApiError || reloadErr instanceof Error
+            ? `Saved, but refresh failed: ${reloadErr.message}`
+            : 'Saved, but refresh failed — use Refresh',
+        );
+      }
     } catch (err) {
-      setError(err instanceof ApiError || err instanceof Error ? err.message : 'Update failed');
+      const msg = err instanceof ApiError || err instanceof Error ? err.message : 'Update failed';
+      setEditSaveError(msg);
+      setError(msg);
     } finally {
       setBusy(false);
     }
@@ -429,10 +562,43 @@ export function VendorsPage() {
     [services],
   );
 
+  const serviceNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const service of services) map.set(service.id, service.name);
+    return map;
+  }, [services]);
+
+  const editingVendor = useMemo(
+    () => (editId ? vendors.find((v) => v.id === editId) ?? null : null),
+    [editId, vendors],
+  );
+
+  const addNeedsServiceFor = isBeautyServiceName(serviceNameById.get(serviceId));
+  const addNeedsDiagnosticsLabType = isDiagnosticsServiceName(serviceNameById.get(serviceId));
+  const editNeedsServiceFor = isBeautyServiceName(offeringNameForService(editServiceId, editingVendor));
+  const editNeedsDiagnosticsLabType = isDiagnosticsServiceName(offeringNameForService(editServiceId, editingVendor));
+
+  function onAddServiceChange(nextServiceId: string) {
+    setServiceId(nextServiceId);
+    const nextName = serviceNameById.get(nextServiceId);
+    if (!isBeautyServiceName(nextName) && !isDiagnosticsServiceName(nextName)) {
+      setServiceFor('');
+    }
+  }
+
+  function onEditServiceChange(nextServiceId: string) {
+    setEditServiceId(nextServiceId);
+    const nextName = serviceNameById.get(nextServiceId);
+    if (!isBeautyServiceName(nextName) && !isDiagnosticsServiceName(nextName)) {
+      setEditServiceFor('');
+    }
+  }
+
   return (
     <PortalShell title="Vendors" onRefresh={() => void reload()}>
       {error ? <Banner tone="danger">{error}</Banner> : null}
       {notice ? <Banner tone="success">{notice}</Banner> : null}
+      <ConfigWriteBanner noun="vendors" />
 
       <Card elevated style={styles.toolbar}>
         <div style={styles.toolbarRow}>
@@ -449,7 +615,8 @@ export function VendorsPage() {
             <Button
               size="sm"
               variant={showAdd ? 'secondary' : 'primary'}
-              disabled={!townId}
+              disabled={!canWriteConfig || !townId}
+              title={canWriteConfig ? undefined : 'Write access required'}
               onClick={() => setShowAdd((v) => !v)}
             >
               {showAdd ? 'Close' : 'Add vendor'}
@@ -478,18 +645,30 @@ export function VendorsPage() {
               label="Service"
               value={serviceId}
               options={serviceOptions}
-              onChange={setServiceId}
+              onChange={onAddServiceChange}
               placeholder={services.length === 0 ? 'Add a service first' : 'Select service'}
               emptyMessage="No services yet"
             />
-            <SearchSelect
-              label="Service for"
-              value={serviceFor}
-              options={VENDOR_SERVICE_FOR_OPTIONS}
-              onChange={(v) => setServiceFor(v as VendorServiceFor)}
-              placeholder="Male / Female / Unisex"
-              emptyMessage="No options"
-            />
+            {addNeedsServiceFor ? (
+              <SearchSelect
+                label="Service for"
+                value={serviceFor}
+                options={VENDOR_SERVICE_FOR_OPTIONS}
+                onChange={(v) => setServiceFor(v as VendorServiceFor)}
+                placeholder="Male / Female / Unisex"
+                emptyMessage="No options"
+              />
+            ) : null}
+            {addNeedsDiagnosticsLabType ? (
+              <SearchSelect
+                label="Lab type"
+                value={serviceFor}
+                options={VENDOR_DIAGNOSTICS_LAB_TYPE_OPTIONS}
+                onChange={(v) => setServiceFor(v as VendorServiceFor)}
+                placeholder="Private Lab / Hospital Lab"
+                emptyMessage="No options"
+              />
+            ) : null}
             <TextField label="Business" value={businessName} onChange={(e) => setBusinessName(e.target.value)} />
             <TextField label="Shop" value={shopName} onChange={(e) => setShopName(e.target.value)} />
             <TextField label="Owner" value={ownerName} onChange={(e) => setOwnerName(e.target.value)} />
@@ -547,10 +726,12 @@ export function VendorsPage() {
           <div style={styles.formActions}>
             <Button
               disabled={
+                !canWriteConfig ||
                 busy ||
                 !townId ||
                 !serviceId ||
-                !serviceFor ||
+                (addNeedsServiceFor && !serviceFor) ||
+                (addNeedsDiagnosticsLabType && !isDiagnosticsLabType(serviceFor)) ||
                 !businessName.trim() ||
                 !shopName.trim() ||
                 !phone.trim() ||
@@ -634,7 +815,7 @@ export function VendorsPage() {
                   <div style={styles.itemBody}>
                     <div style={styles.itemTitleRow}>
                       <strong style={styles.itemName}>
-                        {vendorNameWithServiceFor(req.shopName, req.serviceFor)}
+                        {vendorNameWithServiceFor(req.shopName, req.serviceFor, req.serviceName)}
                       </strong>
                       <span style={styles.pillWarn}>Pending</span>
                     </div>
@@ -654,7 +835,12 @@ export function VendorsPage() {
                           placeholder="Required"
                         />
                         <div style={styles.actions}>
-                          <Button size="sm" variant="danger" disabled={busy} onClick={() => void onRejectConfirm()}>
+                          <Button
+                            size="sm"
+                            variant="danger"
+                            disabled={!canWriteConfig || busy}
+                            onClick={() => void onRejectConfirm()}
+                          >
                             Confirm
                           </Button>
                           <Button
@@ -672,13 +858,21 @@ export function VendorsPage() {
                       </div>
                     ) : (
                       <div style={styles.actions}>
-                        <Button size="sm" disabled={busy} onClick={() => void onApprove(req.id)}>
+                        <Button
+                          size="sm"
+                          disabled={!canWriteConfig || busy}
+                          onClick={() => {
+                            setApprovePassword('');
+                            setApproveError(null);
+                            setApproveTarget(req);
+                          }}
+                        >
                           Approve
                         </Button>
                         <Button
                           size="sm"
                           variant="ghost"
-                          disabled={busy}
+                          disabled={!canWriteConfig || busy}
                           onClick={() => {
                             setRejectId(req.id);
                             setRejectReason('');
@@ -719,7 +913,11 @@ export function VendorsPage() {
                     <div style={styles.itemBody}>
                       <div style={styles.itemTitleRow}>
                         <strong style={styles.itemName}>
-                          {vendorNameWithServiceFor(v.shopName ?? v.businessName, v.serviceFor)}
+                          {vendorNameWithServiceFor(
+                            v.shopName ?? v.businessName,
+                            v.serviceFor,
+                            v.serviceName,
+                          )}
                         </strong>
                         <span style={disabled ? styles.pillDanger : styles.pillOk}>
                           {disabled ? 'Disabled' : 'Active'}
@@ -728,6 +926,9 @@ export function VendorsPage() {
                       <p style={styles.meta}>
                         {v.businessName}
                         {v.serviceName ? ` · ${v.serviceName}` : ''}
+                        {serviceForAudienceLabel(v.serviceName, v.serviceFor)
+                          ? ` · ${serviceForAudienceLabel(v.serviceName, v.serviceFor)}`
+                          : ''}
                         {v.ownerName ? ` · ${v.ownerName}` : ''} · {v.phone}
                         {v.gstNumber ? ` · GST ${v.gstNumber}` : ' · No GST'}
                         {v.fssaiNumber ? ` · FSSAI ${v.fssaiNumber}` : ''}
@@ -742,18 +943,30 @@ export function VendorsPage() {
                               label="Service"
                               value={editServiceId}
                               options={serviceOptions}
-                              onChange={setEditServiceId}
+                              onChange={onEditServiceChange}
                               placeholder={services.length === 0 ? 'Add a service first' : 'Select service'}
                               emptyMessage="No services yet"
                             />
-                            <SearchSelect
-                              label="Service for"
-                              value={editServiceFor}
-                              options={VENDOR_SERVICE_FOR_OPTIONS}
-                              onChange={(v) => setEditServiceFor(v as VendorServiceFor)}
-                              placeholder="Male / Female / Unisex"
-                              emptyMessage="No options"
-                            />
+                            {editNeedsServiceFor ? (
+                              <SearchSelect
+                                label="Service for"
+                                value={editServiceFor}
+                                options={VENDOR_SERVICE_FOR_OPTIONS}
+                                onChange={(v) => setEditServiceFor(v as VendorServiceFor)}
+                                placeholder="Male / Female / Unisex"
+                                emptyMessage="No options"
+                              />
+                            ) : null}
+                            {editNeedsDiagnosticsLabType ? (
+                              <SearchSelect
+                                label="Lab type"
+                                value={editServiceFor}
+                                options={VENDOR_DIAGNOSTICS_LAB_TYPE_OPTIONS}
+                                onChange={(v) => setEditServiceFor(v as VendorServiceFor)}
+                                placeholder="Private Lab / Hospital Lab"
+                                emptyMessage="No options"
+                              />
+                            ) : null}
                             <TextField
                               label="Business"
                               value={editBusinessName}
@@ -806,8 +1019,9 @@ export function VendorsPage() {
                               maxLength={11}
                             />
                           </div>
+                          {editSaveError ? <p style={styles.editSaveError}>{editSaveError}</p> : null}
                           <div style={styles.actions}>
-                            <Button size="sm" disabled={busy} onClick={() => void onSaveEdit()}>
+                            <Button size="sm" disabled={!canWriteConfig || busy} onClick={() => void onSaveEdit()}>
                               {busy ? 'Saving…' : 'Save'}
                             </Button>
                             <Button size="sm" variant="ghost" disabled={busy} onClick={closeEdit}>
@@ -827,7 +1041,7 @@ export function VendorsPage() {
                             <Button
                               size="sm"
                               variant="danger"
-                              disabled={statusBusy}
+                              disabled={!canWriteConfig || statusBusy}
                               onClick={() => void onDisableConfirm()}
                             >
                               {statusBusy ? '…' : 'Confirm'}
@@ -850,20 +1064,36 @@ export function VendorsPage() {
                           <Button
                             size="sm"
                             variant="secondary"
-                            disabled={statusBusy || busy}
+                            disabled={!canWriteConfig || statusBusy || busy}
                             onClick={() => openEdit(v)}
                           >
                             Edit
                           </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            disabled={!canWriteConfig || statusBusy || busy}
+                            onClick={() => {
+                              setResetLoginPassword('');
+                              setResetLoginError(null);
+                              setResetLoginTarget(v);
+                            }}
+                          >
+                            Reset login
+                          </Button>
                           {disabled ? (
-                            <Button size="sm" disabled={statusBusy || busy} onClick={() => requestEnable(v)}>
+                            <Button
+                              size="sm"
+                              disabled={!canWriteConfig || statusBusy || busy}
+                              onClick={() => requestEnable(v)}
+                            >
                               {statusBusy ? '…' : 'Enable'}
                             </Button>
                           ) : (
                             <Button
                               size="sm"
                               variant="ghost"
-                              disabled={statusBusy || busy}
+                              disabled={!canWriteConfig || statusBusy || busy}
                               onClick={() => {
                                 setDisableId(v.id);
                                 setDisableReason('');
@@ -897,6 +1127,84 @@ export function VendorsPage() {
         onClose={() => {
           if (!statusBusyId) setPendingEnable(null);
         }}
+      />
+
+      <ConfirmDialog
+        open={approveTarget != null}
+        title="Approve vendor?"
+        description={
+          approveTarget ? (
+            <div style={styles.resetDlg}>
+              <p style={styles.resetHint}>
+                Create portal login for <strong>{approveTarget.phone}</strong> (
+                {approveTarget.shopName || approveTarget.businessName}).
+              </p>
+              {approveError ? <Banner tone="danger">{approveError}</Banner> : null}
+              <TextField
+                label="Portal password (optional)"
+                type="password"
+                value={approvePassword}
+                onChange={(e) => setApprovePassword(e.target.value)}
+                autoComplete="new-password"
+                placeholder={`Default ${defaultVendorTempPassword(approveTarget.phone)}`}
+              />
+              <p style={styles.resetHint}>
+                Leave blank to use the default{' '}
+                <strong>{defaultVendorTempPassword(approveTarget.phone)}</strong>. Min 8 characters if you set your own.
+              </p>
+            </div>
+          ) : null
+        }
+        confirmLabel="Approve & create login"
+        busy={approveBusy}
+        danger={false}
+        confirmDisabled={
+          !canWriteConfig || (approvePassword.trim().length > 0 && approvePassword.trim().length < 8)
+        }
+        onClose={() => {
+          if (!approveBusy) {
+            setApproveTarget(null);
+            setApprovePassword('');
+            setApproveError(null);
+          }
+        }}
+        onConfirm={() => void onApproveConfirm()}
+      />
+
+      <ConfirmDialog
+        open={resetLoginTarget != null}
+        title="Reset vendor portal password?"
+        description={
+          resetLoginTarget ? (
+            <div style={styles.resetDlg}>
+              <p style={styles.resetHint}>
+                Set a new password for <strong>{resetLoginTarget.phone}</strong> (
+                {resetLoginTarget.shopName ?? resetLoginTarget.businessName}).
+              </p>
+              {resetLoginError ? <Banner tone="danger">{resetLoginError}</Banner> : null}
+              <TextField
+                label="New password"
+                type="password"
+                value={resetLoginPassword}
+                onChange={(e) => setResetLoginPassword(e.target.value)}
+                autoComplete="new-password"
+                disabled={resetLoginBusy}
+              />
+            </div>
+          ) : null
+        }
+        confirmLabel="Update password"
+        busy={resetLoginBusy}
+        danger={false}
+        confirmDisabled={!canWriteConfig || resetLoginPassword.trim().length < 8}
+        onClose={() => {
+          if (!resetLoginBusy) {
+            setResetLoginTarget(null);
+            setResetLoginPassword('');
+            setResetLoginError(null);
+          }
+        }}
+        onConfirm={() => void onResetLoginConfirm()}
       />
     </PortalShell>
   );
@@ -1079,6 +1387,13 @@ const styles: Record<string, CSSProperties> = {
   },
   meta: { margin: 0, color: 'var(--text-muted)', fontSize: '0.86rem' },
   reason: { margin: 0, color: 'var(--danger, #b42318)', fontSize: '0.82rem' },
+  editSaveError: {
+    margin: '0.35rem 0 0',
+    color: 'var(--danger, #b42318)',
+    fontSize: '0.84rem',
+    fontWeight: 600,
+    lineHeight: 1.35,
+  },
   pillOk: {
     fontSize: '0.72rem',
     fontWeight: 800,
@@ -1128,4 +1443,6 @@ const styles: Record<string, CSSProperties> = {
     fontWeight: 800,
     fontSize: '1rem',
   },
+  resetDlg: { display: 'flex', flexDirection: 'column', gap: '0.55rem', textAlign: 'left' },
+  resetHint: { margin: 0, fontSize: '0.82rem', lineHeight: 1.4, color: 'var(--text)' },
 };

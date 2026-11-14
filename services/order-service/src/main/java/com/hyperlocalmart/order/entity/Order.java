@@ -131,6 +131,11 @@ public class Order extends BaseAuditEntity {
     @Builder.Default
     private boolean vendorAgentDelivery = false;
 
+    /** GROCERY or FOOD — food uses same bag checkout but separate buyer journey. */
+    @Column(name = "order_line_kind", nullable = false, length = 20)
+    @Builder.Default
+    private String orderLineKind = "GROCERY";
+
     @OneToMany(mappedBy = "order", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
     @Builder.Default
     private List<VendorSubOrder> vendorSubOrders = new ArrayList<>();

@@ -12,6 +12,7 @@ import com.hyperlocalmart.payment.dto.response.CodCustodianOutstandingResponse;
 import com.hyperlocalmart.payment.dto.response.CodCustodianPendingDetailResponse;
 import com.hyperlocalmart.payment.dto.response.CodCustodianReceivableResponse;
 import com.hyperlocalmart.payment.security.AuthUserPrincipal;
+import com.hyperlocalmart.payment.security.PlatformAdminPrincipalAuth;
 import com.hyperlocalmart.payment.service.CodAgentHandoverService;
 import com.hyperlocalmart.payment.service.CodCloseDayService;
 import com.hyperlocalmart.payment.service.CodCustodianReceivableService;
@@ -117,7 +118,7 @@ public class CodAgentHandoverController {
         requireHubVendorOrSuper(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
                 handoverService.listPendingForCustodian(
-                        principal.getUserId(), townId, hubId, vendorId, date, isSuperAdmin(principal))));
+                        principal.getUserId(), townId, hubId, vendorId, date, isPlatformStaff(principal))));
     }
 
     @PostMapping("/api/v1/payments/cod/handovers/confirm")
@@ -138,7 +139,7 @@ public class CodAgentHandoverController {
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
             HttpServletRequest httpRequest) {
-        requireSuperAdmin(principal);
+        PlatformAdminPrincipalAuth.requireStaff(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, handoverService.oversight(townId, from, to)));
     }
 
@@ -152,20 +153,18 @@ public class CodAgentHandoverController {
         if (principal == null) {
             throw new BusinessException(ErrorCode.FORBIDDEN, "Authentication required");
         }
-        if (isSuperAdmin(principal) || principal.getRoles().contains("HUB_ADMIN")
+        if (isPlatformStaff(principal) || principal.getRoles().contains("HUB_ADMIN")
                 || principal.getRoles().contains("VENDOR")) {
             return;
         }
-        throw new BusinessException(ErrorCode.FORBIDDEN, "Hub admin, vendor, or super admin required");
+        throw new BusinessException(ErrorCode.FORBIDDEN, "Hub admin, vendor, or app admin required");
     }
 
-    private static void requireSuperAdmin(AuthUserPrincipal principal) {
-        if (!isSuperAdmin(principal)) {
-            throw new BusinessException(ErrorCode.FORBIDDEN, "Super admin required");
-        }
+    private static boolean isPlatformStaff(AuthUserPrincipal principal) {
+        return PlatformAdminPrincipalAuth.isPlatformStaff(principal);
     }
 
     private static boolean isSuperAdmin(AuthUserPrincipal principal) {
-        return principal != null && principal.getRoles().contains("SUPER_ADMIN");
+        return PlatformAdminPrincipalAuth.isSuperAdmin(principal);
     }
 }

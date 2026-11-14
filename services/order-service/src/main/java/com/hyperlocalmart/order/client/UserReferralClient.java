@@ -1,5 +1,6 @@
 package com.hyperlocalmart.order.client;
 
+import com.hyperlocalmart.order.config.RestClientFactory;
 import com.hyperlocalmart.order.config.UserServiceProperties;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -14,12 +15,12 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class UserReferralClient {
 
-    private final RestClient.Builder restClientBuilder;
+    private final RestClientFactory restClients;
     private final UserServiceProperties userServiceProperties;
 
     public void onOrderDelivered(UUID buyerId, UUID orderId) {
         try {
-            RestClient client = restClientBuilder.baseUrl(userServiceProperties.getBaseUrl()).build();
+            RestClient client = restClients.forBaseUrl(userServiceProperties.getBaseUrl());
             client.post()
                     .uri("/api/v1/internal/referrals/order-delivered")
                     .body(Map.of("buyerId", buyerId, "orderId", orderId))

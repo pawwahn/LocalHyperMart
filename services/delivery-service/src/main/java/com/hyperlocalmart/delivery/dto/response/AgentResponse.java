@@ -28,4 +28,6 @@ public class AgentResponse {
     String reference1Phone;
     String reference2Name;
     String reference2Phone;
+    String labTitle;
+    Boolean collectionCapable;
 }

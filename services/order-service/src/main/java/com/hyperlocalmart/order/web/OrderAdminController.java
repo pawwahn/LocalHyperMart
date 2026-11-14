@@ -18,6 +18,8 @@ import com.hyperlocalmart.order.dto.response.VendorOrderAlertResponse;
 import com.hyperlocalmart.order.entity.ClaimStatus;
 import com.hyperlocalmart.order.entity.OrderStatus;
 import com.hyperlocalmart.order.security.AuthUserPrincipal;
+import com.hyperlocalmart.order.security.PlatformAdminPrincipalAuth;
+import com.hyperlocalmart.common.security.PlatformAdminRoles;
 import com.hyperlocalmart.order.service.OrderAdminService;
 import com.hyperlocalmart.order.service.OrderClaimService;
 import com.hyperlocalmart.order.service.OpsAssuranceReportService;
@@ -129,7 +131,7 @@ public class OrderAdminController {
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
             HttpServletRequest httpRequest) {
-        requireSuperAdmin(principal);
+        PlatformAdminPrincipalAuth.requireStaff(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, platformReportService.getReport(townId, from, to)));
     }
 
@@ -140,7 +142,7 @@ public class OrderAdminController {
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
             HttpServletRequest httpRequest) {
-        requireSuperAdmin(principal);
+        PlatformAdminPrincipalAuth.requireStaff(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, opsAssuranceReportService.getReport(townId, from, to)));
     }
 
@@ -151,7 +153,7 @@ public class OrderAdminController {
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
             HttpServletRequest httpRequest) {
-        requireSuperAdmin(principal);
+        PlatformAdminPrincipalAuth.requireStaff(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
                 scratchCardAdminService.townGiftReport(townId, from, to)));
     }
@@ -182,15 +184,13 @@ public class OrderAdminController {
     }
 
     private void requireHubOrSuperAdmin(AuthUserPrincipal principal) {
-        if (principal == null || (!principal.getRoles().contains("HUB_ADMIN")
-                && !principal.getRoles().contains("SUPER_ADMIN"))) {
-            throw new BusinessException(ErrorCode.FORBIDDEN, "Hub admin or super admin role required");
+        if (principal == null || principal.getRoles() == null) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "Hub admin or app admin role required");
         }
-    }
-
-    private void requireSuperAdmin(AuthUserPrincipal principal) {
-        if (principal == null || !principal.getRoles().contains("SUPER_ADMIN")) {
-            throw new BusinessException(ErrorCode.FORBIDDEN, "Super admin role required");
+        if (principal.getRoles().contains("HUB_ADMIN")
+                || PlatformAdminRoles.isPlatformStaff(principal.getRoles())) {
+            return;
         }
+        throw new BusinessException(ErrorCode.FORBIDDEN, "Hub admin or app admin role required");
     }
 }

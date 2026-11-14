@@ -49,9 +49,9 @@ class PaymentServiceTest {
     @Mock private MembershipService membershipService;
     @Mock private ObjectMapper objectMapper;
     @Mock private TransactionTemplate transactionTemplate;
-    @Mock private RazorpayGatewayQueueService razorpayGatewayQueue;
     @Mock private RazorpayGatewaySyncService razorpayGatewaySync;
     @Mock private PaymentOrderNotificationService paymentOrderNotificationService;
+    @Mock private PaymentAdmissionService paymentAdmissionService;
 
     @InjectMocks
     private PaymentService paymentService;
@@ -68,7 +68,6 @@ class PaymentServiceTest {
             callback.doInTransaction(null);
             return null;
         }).when(transactionTemplate).executeWithoutResult(any());
-        when(razorpayGatewayQueue.isEnabled()).thenReturn(false);
         doAnswer(invocation -> {
             UUID paymentId = invocation.getArgument(0);
             com.hyperlocalmart.payment.entity.Payment payment = storedPayment.get();
@@ -107,12 +106,13 @@ class PaymentServiceTest {
             return payment;
         });
         when(paymentRepository.findById(any())).thenAnswer(invocation -> Optional.ofNullable(storedPayment.get()));
-        when(paymentProperties.isRazorpayConfigured()).thenReturn(false);
+        when(paymentProperties.isRazorpayConfigured()).thenReturn(true);
+        when(paymentProperties.getRazorpayKeyId()).thenReturn("rzp_test");
 
         PaymentResponse response = paymentService.initiate(buyerId, request, "idem-1");
 
         assertThat(response.getStatus()).isEqualTo(PaymentStatus.PENDING);
-        assertThat(response.getUpiIntent()).contains("upi://pay");
+        assertThat(response.getUpiIntent()).isNull();
         assertThat(response.getAmount()).isEqualByComparingTo("538.00");
         assertThat(response.getCheckout()).isNotNull();
         assertThat(response.getCheckout().getGatewayOrderId()).isEqualTo("order_test123");

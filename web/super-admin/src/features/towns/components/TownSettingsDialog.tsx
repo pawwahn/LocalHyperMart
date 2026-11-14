@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
+import { Link } from 'react-router-dom';
 import { ApiError } from '@/shared/api/http';
 import { APP_NAME } from '@hlm-brand';
 import { Banner, Button, TextField, Toast } from '@/shared/ui';
@@ -9,9 +10,11 @@ import {
   defaultScratchByService,
   deriveBeautyPrepayFilter,
   getTownConfig,
+  patchTownServiceFlags,
   SCRATCH_SERVICE_KEYS,
   updateTownConfig,
   type DeliverySlabVm,
+  type TownConfigVm,
   type ScratchServiceKey,
   type TownVm,
 } from '../api/townsApi';
@@ -61,7 +64,7 @@ type SettingsSection =
   | 'payments'
   | 'buyer-cancel'
   | 'promotions'
-  | 'laundry'
+  | 'services'
   | 'hub-pay'
   | 'vendor-delivery'
   | 'status'
@@ -75,6 +78,7 @@ type Props = {
   onSaved: (message: string) => void;
   onRequestTownStatus: (next: 'ENABLED' | 'DISABLED') => void;
   townStatusBusy?: boolean;
+  readOnly?: boolean;
 };
 
 const CONFIG_SECTIONS: SettingsSection[] = [
@@ -83,7 +87,7 @@ const CONFIG_SECTIONS: SettingsSection[] = [
   'payments',
   'buyer-cancel',
   'promotions',
-  'laundry',
+  'services',
 ];
 
 const TOWN_AUDIT_TABS: HistoryTab[] = [
@@ -101,7 +105,7 @@ const NAV_GROUPS: { title: string; items: { id: SettingsSection; label: string }
       { id: 'payments', label: 'Payments' },
       { id: 'buyer-cancel', label: 'Order cancellation' },
       { id: 'promotions', label: 'Scratch card' },
-      { id: 'laundry', label: 'Laundry & beauty' },
+      { id: 'services', label: 'Services' },
     ],
   },
   {
@@ -145,6 +149,7 @@ export function TownSettingsDialog({
   onSaved,
   onRequestTownStatus,
   townStatusBusy,
+  readOnly = false,
 }: Props) {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -163,8 +168,11 @@ export function TownSettingsDialog({
   const [codCharge, setCodCharge] = useState('0');
   const [windowStart, setWindowStart] = useState('17:00');
   const [windowEnd, setWindowEnd] = useState('19:00');
+  const [groceryEnabled, setGroceryEnabled] = useState(true);
   const [laundryEnabled, setLaundryEnabled] = useState(false);
   const [beautyEnabled, setBeautyEnabled] = useState(false);
+  const [diagnosticsEnabled, setDiagnosticsEnabled] = useState(false);
+  const [foodDeliveryEnabled, setFoodDeliveryEnabled] = useState(false);
   const [buyerCancelOrderEnabled, setBuyerCancelOrderEnabled] = useState(true);
   const [buyerCancelItemsEnabled, setBuyerCancelItemsEnabled] = useState(true);
   const [savedNotice, setSavedNotice] = useState<string | null>(null);
@@ -194,6 +202,14 @@ export function TownSettingsDialog({
     setSection('log');
   }
 
+  function applyServiceFlags(cfg: TownConfigVm) {
+    setGroceryEnabled(cfg.groceryEnabled !== false);
+    setLaundryEnabled(cfg.laundryEnabled === true);
+    setBeautyEnabled(cfg.beautyEnabled === true);
+    setDiagnosticsEnabled(cfg.diagnosticsEnabled === true);
+    setFoodDeliveryEnabled(cfg.foodDeliveryEnabled === true);
+  }
+
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
@@ -218,8 +234,7 @@ export function TownSettingsDialog({
         setCodEnabled(cfg.codEnabled !== false);
         setUpiEnabled(cfg.upiEnabled !== false);
         setCodCharge(String(cfg.codCharge ?? 0));
-        setLaundryEnabled(cfg.laundryEnabled === true);
-        setBeautyEnabled(cfg.beautyEnabled === true);
+        applyServiceFlags(cfg);
         setBuyerCancelOrderEnabled(cfg.buyerCancelOrderEnabled !== false);
         setBuyerCancelItemsEnabled(cfg.buyerCancelItemsEnabled !== false);
       })
@@ -233,7 +248,7 @@ export function TownSettingsDialog({
     return () => {
       cancelled = true;
     };
-  }, [token, town.id, platformDeliveryFee]);
+  }, [token, town.id]);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -261,6 +276,39 @@ export function TownSettingsDialog({
   }
 
   async function onSave() {
+    if (section === 'services') {
+      if (townDisabled) {
+        setError('Enable this town under Town → Enable / disable before turning services on.');
+        return;
+      }
+      setBusy(true);
+      setError(null);
+      setToast(null);
+      try {
+        const saved = await patchTownServiceFlags(token, town.id, {
+          groceryEnabled,
+          laundryEnabled,
+          beautyEnabled,
+          diagnosticsEnabled,
+          foodDeliveryEnabled,
+        });
+        applyServiceFlags(saved);
+        setSavedNotice('Saved and logged.');
+        setToast({ message: 'Saved successfully', tone: 'success' });
+        setHistoryTick((n) => n + 1);
+        if (bodyRef.current) bodyRef.current.scrollTop = 0;
+        setSection('log');
+        onSaved(`Services saved for ${town.displayName}`);
+      } catch (err) {
+        const message = err instanceof ApiError || err instanceof Error ? err.message : 'Save failed';
+        setError(message);
+        setToast({ message, tone: 'danger' });
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+
     const prices = dealPrices.map((raw) => Math.round(Number(raw)));
     if (prices.some((n) => !Number.isFinite(n) || n < 1)) {
       setError('Enter 4 deal prices as whole numbers of ₹1 or more.');
@@ -402,9 +450,13 @@ export function TownSettingsDialog({
         deliveryWindowEnd: windowEnd,
         laundryEnabled,
         beautyEnabled,
+        diagnosticsEnabled,
+        foodDeliveryEnabled,
+        groceryEnabled,
         buyerCancelOrderEnabled,
         buyerCancelItemsEnabled,
       });
+      applyServiceFlags(saved);
       setScratchByService(saved.scratchByService ?? defaultScratchByService());
       setSavedNotice('Saved and logged.');
       setToast({ message: 'Saved successfully', tone: 'success' });
@@ -744,8 +796,30 @@ export function TownSettingsDialog({
           </section>
         ) : null}
 
-        {isConfigSection && !loading && section === 'laundry' ? (
+        {isConfigSection && !loading && section === 'services' ? (
           <section style={styles.card}>
+            <p style={styles.sectionLead}>
+              Turn each vertical on for buyers in this town. The whole town must be enabled under Town → Enable /
+              disable. Checkout rules for grocery live under Theme &amp; deals, Delivery fees, and Payments.
+            </p>
+            <div style={styles.toggleRow}>
+              <span>
+                <strong style={styles.toggleTitle}>Groceries in this town</strong>
+                <span style={styles.toggleHint}>
+                  Local shop catalog and cart — buyers see Koya Grocery in services and can shop essentials
+                </span>
+              </span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={groceryEnabled && !townDisabled}
+                disabled={townDisabled || readOnly}
+                style={groceryEnabled && !townDisabled ? styles.switchOn : styles.switchOff}
+                onClick={() => setGroceryEnabled((v) => !v)}
+              >
+                <span style={groceryEnabled && !townDisabled ? styles.knobOn : styles.knobOff} />
+              </button>
+            </div>
             <div style={styles.toggleRow}>
               <span>
                 <strong style={styles.toggleTitle}>Laundry in this town</strong>
@@ -774,6 +848,43 @@ export function TownSettingsDialog({
                 onClick={() => setBeautyEnabled((v) => !v)}
               >
                 <span style={beautyEnabled ? styles.knobOn : styles.knobOff} />
+              </button>
+            </div>
+            <div style={styles.toggleRow}>
+              <span>
+                <strong style={styles.toggleTitle}>Diagnostics in this town</strong>
+                <span style={styles.toggleHint}>
+                  Home sample collection and lab bookings — set platform fee and COD under{' '}
+                  <Link to="/diagnostics" style={styles.inlineLink}>
+                    Diagnostics
+                  </Link>
+                </span>
+              </span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={diagnosticsEnabled}
+                style={diagnosticsEnabled ? styles.switchOn : styles.switchOff}
+                onClick={() => setDiagnosticsEnabled((v) => !v)}
+              >
+                <span style={diagnosticsEnabled ? styles.knobOn : styles.knobOff} />
+              </button>
+            </div>
+            <div style={styles.toggleRow}>
+              <span>
+                <strong style={styles.toggleTitle}>Food delivery in this town</strong>
+                <span style={styles.toggleHint}>
+                  Local hotels and restaurants — buyers use Koya Food, not the grocery catalog
+                </span>
+              </span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={foodDeliveryEnabled}
+                style={foodDeliveryEnabled ? styles.switchOn : styles.switchOff}
+                onClick={() => setFoodDeliveryEnabled((v) => !v)}
+              >
+                <span style={foodDeliveryEnabled ? styles.knobOn : styles.knobOff} />
               </button>
             </div>
           </section>
@@ -1129,11 +1240,11 @@ export function TownSettingsDialog({
               </span>
             </p>
             {townDisabled ? (
-              <Button disabled={townStatusBusy} onClick={() => onRequestTownStatus('ENABLED')}>
+              <Button disabled={townStatusBusy || readOnly} onClick={() => onRequestTownStatus('ENABLED')}>
                 {townStatusBusy ? '…' : 'Enable town'}
               </Button>
             ) : (
-              <Button variant="ghost" disabled={townStatusBusy} onClick={() => onRequestTownStatus('DISABLED')}>
+              <Button variant="ghost" disabled={townStatusBusy || readOnly} onClick={() => onRequestTownStatus('DISABLED')}>
                 {townStatusBusy ? '…' : 'Disable town'}
               </Button>
             )}
@@ -1158,14 +1269,14 @@ export function TownSettingsDialog({
             {!loading || !isConfigSection || section === 'vendor-delivery' || section === 'hub-pay' ? (
               <div style={styles.actions}>
                 {isConfigSection && !loading ? (
-                  <Button disabled={busy} onClick={() => void onSave()}>
-                    {busy ? 'Saving…' : section === 'laundry' ? 'Save laundry' : 'Save checkout settings'}
+                  <Button disabled={busy || readOnly} onClick={() => void onSave()}>
+                    {busy ? 'Saving…' : section === 'services' ? 'Save services' : 'Save checkout settings'}
                   </Button>
                 ) : null}
                 {section === 'vendor-delivery' &&
                 !vendorDeliveryUi.loading &&
                 !vendorDeliveryUi.editing ? (
-                  <Button onClick={() => vendorDeliveryRef.current?.startEdit()}>Edit</Button>
+                  <Button disabled={readOnly} onClick={() => vendorDeliveryRef.current?.startEdit()}>Edit</Button>
                 ) : null}
                 {section === 'vendor-delivery' &&
                 vendorDeliveryUi.editing &&
@@ -1179,7 +1290,7 @@ export function TownSettingsDialog({
                       Cancel
                     </Button>
                     <Button
-                      disabled={vendorDeliveryUi.busy}
+                      disabled={vendorDeliveryUi.busy || readOnly}
                       onClick={() => vendorDeliveryRef.current?.save()}
                     >
                       {vendorDeliveryUi.busy ? 'Saving…' : 'Save'}
@@ -1190,7 +1301,7 @@ export function TownSettingsDialog({
                 !hubPayUi.loading &&
                 hubPayUi.panel === 'edit' &&
                 !hubPayUi.editing ? (
-                  <Button onClick={() => hubPayRef.current?.startEdit()}>Edit</Button>
+                  <Button disabled={readOnly} onClick={() => hubPayRef.current?.startEdit()}>Edit</Button>
                 ) : null}
                 {section === 'hub-pay' && !hubPayUi.loading && hubPayUi.editing ? (
                   <>
@@ -1201,7 +1312,7 @@ export function TownSettingsDialog({
                     >
                       Cancel
                     </Button>
-                    <Button disabled={hubPayUi.busy} onClick={() => hubPayRef.current?.save()}>
+                    <Button disabled={hubPayUi.busy || readOnly} onClick={() => hubPayRef.current?.save()}>
                       {hubPayUi.busy ? 'Saving…' : 'Save'}
                     </Button>
                   </>
@@ -1720,5 +1831,11 @@ const styles: Record<string, CSSProperties> = {
     borderRadius: 6,
     background: 'var(--danger-soft, #fee2e2)',
     color: 'var(--danger, #b42318)',
+  },
+  inlineLink: {
+    color: 'var(--accent)',
+    fontWeight: 600,
+    textDecoration: 'underline',
+    textUnderlineOffset: '2px',
   },
 };

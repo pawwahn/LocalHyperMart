@@ -1,7 +1,12 @@
 import type { CSSProperties } from 'react';
 import { Link } from 'react-router-dom';
 import type { ShopServiceBanner } from '../config/shopServiceBanners';
-import { ServiceGlamIcon, ServiceLaundryIcon } from './JumpCardIcons';
+import {
+  ServiceDiagnosticsIcon,
+  ServiceGlamIcon,
+  ServiceGroceryIcon,
+  ServiceLaundryIcon,
+} from './JumpCardIcons';
 
 const GRID_CSS = `
   .hlm-service-banner-wrap {
@@ -38,7 +43,15 @@ function ServiceIcon({ id, accent }: { id: ShopServiceBanner['id']; accent: stri
   };
   return (
     <span style={wrap} aria-hidden>
-      {id === 'glam' ? <ServiceGlamIcon /> : <ServiceLaundryIcon />}
+      {id === 'grocery' ? (
+        <ServiceGroceryIcon />
+      ) : id === 'glam' ? (
+        <ServiceGlamIcon />
+      ) : id === 'diagnostics' ? (
+        <ServiceDiagnosticsIcon />
+      ) : (
+        <ServiceLaundryIcon />
+      )}
     </span>
   );
 }

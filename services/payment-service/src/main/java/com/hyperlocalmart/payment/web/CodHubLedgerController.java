@@ -3,9 +3,11 @@ package com.hyperlocalmart.payment.web;
 import com.hyperlocalmart.common.api.ApiResponse;
 import com.hyperlocalmart.common.exception.BusinessException;
 import com.hyperlocalmart.common.exception.ErrorCode;
+import com.hyperlocalmart.common.security.PlatformAdminRoles;
 import com.hyperlocalmart.payment.dto.request.CreateCodHubPlatformRemittanceRequest;
 import com.hyperlocalmart.payment.dto.response.CodHubLedgerResponse;
 import com.hyperlocalmart.payment.security.AuthUserPrincipal;
+import com.hyperlocalmart.payment.security.PlatformAdminPrincipalAuth;
 import com.hyperlocalmart.payment.service.CodHubLedgerService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -34,10 +36,10 @@ public class CodHubLedgerController {
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
             HttpServletRequest httpRequest) {
-        requireHubOrSuperAdmin(principal);
+        requireHubOrPlatformStaff(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
                 codHubLedgerService.ledger(
-                        townId, hubId, from, to, principal.getUserId(), isSuperAdmin(principal))));
+                        townId, hubId, from, to, principal.getUserId(), isPlatformStaff(principal))));
     }
 
     @PostMapping("/remittances")
@@ -45,26 +47,23 @@ public class CodHubLedgerController {
             @AuthenticationPrincipal AuthUserPrincipal principal,
             @Valid @RequestBody CreateCodHubPlatformRemittanceRequest request,
             HttpServletRequest httpRequest) {
-        requireSuperAdmin(principal);
+        PlatformAdminPrincipalAuth.requireMoveMoney(principal);
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponses.ok(httpRequest,
                 codHubLedgerService.recordRemittance(request, principal.getUserId())));
     }
 
-    private static void requireHubOrSuperAdmin(AuthUserPrincipal principal) {
-        if (principal == null
-                || (!principal.getRoles().contains("HUB_ADMIN")
-                && !principal.getRoles().contains("SUPER_ADMIN"))) {
-            throw new BusinessException(ErrorCode.FORBIDDEN, "Hub admin or super admin role required");
+    private static void requireHubOrPlatformStaff(AuthUserPrincipal principal) {
+        if (principal == null || principal.getRoles() == null) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "Hub admin or app admin role required");
         }
+        if (principal.getRoles().contains("HUB_ADMIN")
+                || PlatformAdminRoles.isPlatformStaff(principal.getRoles())) {
+            return;
+        }
+        throw new BusinessException(ErrorCode.FORBIDDEN, "Hub admin or app admin role required");
     }
 
-    private static void requireSuperAdmin(AuthUserPrincipal principal) {
-        if (principal == null || !principal.getRoles().contains("SUPER_ADMIN")) {
-            throw new BusinessException(ErrorCode.FORBIDDEN, "Super admin role required");
-        }
-    }
-
-    private static boolean isSuperAdmin(AuthUserPrincipal principal) {
-        return principal != null && principal.getRoles().contains("SUPER_ADMIN");
+    private static boolean isPlatformStaff(AuthUserPrincipal principal) {
+        return PlatformAdminPrincipalAuth.isPlatformStaff(principal);
     }
 }

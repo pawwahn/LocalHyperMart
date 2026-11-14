@@ -269,11 +269,11 @@ public class OrderClaimService {
     }
 
     private void validateTownAccess(UUID actorUserId, List<String> roles, UUID townId) {
-        if (roles.contains("SUPER_ADMIN")) {
+        if (com.hyperlocalmart.common.security.PlatformAdminRoles.isPlatformStaff(roles)) {
             return;
         }
         if (!roles.contains("HUB_ADMIN")) {
-            throw new BusinessException(ErrorCode.FORBIDDEN, "Hub admin or super admin role required");
+            throw new BusinessException(ErrorCode.FORBIDDEN, "Hub admin or app admin role required");
         }
         DeliveryClient.HubAdminContext context = deliveryClient.getHubAdminContext(actorUserId);
         if (!context.townId().equals(townId)) {

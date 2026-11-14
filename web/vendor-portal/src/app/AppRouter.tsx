@@ -15,6 +15,8 @@ import { DeliveryAgentsPage } from '@/features/delivery/pages/DeliveryAgentsPage
 import { VendorCodHandoverPage } from '@/features/cod/pages/VendorCodHandoverPage';
 import { LaundryDeskPage } from '@/features/laundry/pages/LaundryDeskPage';
 import { GlamDeskPage } from '@/features/beauty/pages/GlamDeskPage';
+import { DiagnosticsDeskPage } from '@/features/diagnostics/pages/DiagnosticsDeskPage';
+import { FoodDeskPage } from '@/features/food/pages/FoodDeskPage';
 import { NativeAppBridge } from '@hlm-native';
 
 const VENDOR_TAB_ROOTS = [
@@ -66,6 +68,8 @@ export function AppRouter() {
                 <Route path="/settings" element={<SettingsPage />} />
                 <Route path="/laundry" element={<LaundryDeskPage />} />
                 <Route path="/glam" element={<GlamDeskPage />} />
+                <Route path="/diagnostics" element={<DiagnosticsDeskPage />} />
+                <Route path="/food" element={<FoodDeskPage />} />
                 <Route path="/delivery-agents" element={<DeliveryAgentsPage />} />
                 <Route path="/cod-handover" element={<VendorCodHandoverPage />} />
               </Route>

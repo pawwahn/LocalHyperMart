@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react';
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '@/shared/auth/AuthContext';
 import { useTown } from '@/shared/town/TownContext';
 import { getPublicPlatformSettings } from '@/features/auth/api/platformSettingsApi';
@@ -28,21 +28,26 @@ export function StickyCartBar({
 }: Props) {
   const { session } = useAuth();
   const { townId, openPicker } = useTown();
+  const location = useLocation();
   const { cart, busyKey, quantityFor, rememberItems, doIncrease, doDecrease } = useShop();
+  const showMealPlanner =
+    !Boolean(cart?.foodCart) && !location.pathname.startsWith('/food');
   const [plansOpen, setPlansOpen] = useState(false);
   const [mealPlannerOn, setMealPlannerOn] = useState(false);
   const [mealPlannerIconUrl, setMealPlannerIconUrl] = useState('');
   const [mealPlannerOpen, setMealPlannerOpen] = useState(false);
   const [membershipCatalog, setMembershipCatalog] = useState<MembershipCatalog | null>(null);
+  const foodCart = Boolean(cart?.foodCart);
   const itemCount = itemCountProp ?? cart?.itemCount ?? 0;
   const itemsPayable = cart?.payableSubtotal ?? 0;
   const totalLabel = totalLabelProp ?? cart?.payableLabel;
-  const { nudge, progress } = useDeliveryQuote(itemsPayable, itemCount > 0);
+  const { nudge, progress } = useDeliveryQuote(itemsPayable, itemCount > 0 && !foodCart);
 
   const starterPlan = cheapestPurchasable(membershipCatalog);
   const memberCredits = membershipCatalog?.mine?.usableCredits ?? 0;
   const showPlanLink =
     itemCount > 0 &&
+    !foodCart &&
     Boolean(membershipCatalog?.platformEnabled) &&
     memberCredits <= 0 &&
     !membershipCatalog?.mine?.active &&
@@ -129,7 +134,7 @@ export function StickyCartBar({
             </button>
           ) : null}
         </div>
-        {mealPlannerOn ? (
+        {mealPlannerOn && showMealPlanner ? (
           <button
             type="button"
             style={styles.mealIcon}
@@ -153,7 +158,7 @@ export function StickyCartBar({
         </Link>
       </div>
       <MealPlannerSheet
-        open={mealPlannerOpen && mealPlannerOn}
+        open={mealPlannerOpen && mealPlannerOn && showMealPlanner}
         townId={townId ?? ''}
         busyKey={busyKey}
         quantityFor={quantityFor}

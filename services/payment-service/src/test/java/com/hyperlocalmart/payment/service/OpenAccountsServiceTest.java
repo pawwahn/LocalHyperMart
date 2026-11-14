@@ -28,6 +28,8 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -87,6 +89,7 @@ class OpenAccountsServiceTest {
         assertThat(line.commission()).isEqualByComparingTo("42.00");
         assertThat(line.detail()).contains("goods ₹560.00", "commission ₹42.00", "cash with shop", "CLX/AP-111026-0002");
         assertThat(line.reference()).isEqualTo("CLX/AP-111026-0002");
+        assertThat(line.shopCodCash()).isEqualByComparingTo("560.00");
     }
 
     @Test
@@ -160,6 +163,7 @@ class OpenAccountsServiceTest {
         assertThat(line.amount()).isEqualByComparingTo("141.38");
         assertThat(line.commission()).isEqualByComparingTo("138.38");
         assertThat(line.detail()).contains("commission ₹138.38", "platform fee ₹3.00");
+        assertThat(line.shopCodCash()).isEqualByComparingTo("1845.00");
     }
 
     @Test
@@ -283,6 +287,13 @@ class OpenAccountsServiceTest {
                 && l.partyName().equals("U V Beauty Parlour")
                 && l.amount().compareTo(new BigDecimal("50.00")) == 0))
                 .isTrue();
+        OpenAccountsService.Line pay = lines.stream()
+                .filter(l -> "PAY".equals(l.action()) && "U V Beauty Parlour".equals(l.partyName()))
+                .findFirst()
+                .orElseThrow();
+        assertThat(pay.itemCount()).isEqualTo(1);
+        assertThat(pay.upiOrderCount()).isEqualTo(1);
+        assertThat(pay.upiAppReceived()).isEqualByComparingTo("79.95");
     }
 
     @Test
@@ -333,6 +344,21 @@ class OpenAccountsServiceTest {
         return builder.build();
     }
 
+    private static SettlementCandidateView.Item dxBag(String orderNumber, String subtotal, String platform) {
+        return SettlementCandidateView.Item.builder()
+                .subOrderId(UUID.randomUUID())
+                .orderId(UUID.randomUUID())
+                .orderNumber(orderNumber)
+                .paymentMethod("ONLINE")
+                .vendorAgentDelivery(false)
+                .subtotal(new BigDecimal(subtotal))
+                .platformFee(new BigDecimal(platform))
+                .placedAt(Instant.parse("2026-11-07T02:30:00Z"))
+                .deliveredAt(Instant.parse("2026-11-08T03:00:00Z"))
+                .alreadySettled(false)
+                .build();
+    }
+
     private static SettlementCandidateView.Item bag(
             String orderNumber, String method, String location, boolean vendorAgent, String subtotal) {
         return SettlementCandidateView.Item.builder()
@@ -362,5 +388,44 @@ class OpenAccountsServiceTest {
                 false,
                 slab,
                 List.of());
+    }
+
+    @Test
+    void diagnosticsUpiPay_commissionWhenPieceCountMissingOnCandidate() {
+        when(orderClient.deliveredVendorTowns(any(), any())).thenReturn(List.of(
+                new OrderClient.VendorTown(vendorId, townId)));
+        when(settlementService.listCandidates(eq(townId), eq(vendorId), any(), any())).thenReturn(
+                SettlementCandidateView.builder()
+                        .vendorId(vendorId)
+                        .townId(townId)
+                        .pendingClaimChargebacks(BigDecimal.ZERO)
+                        .items(List.of(
+                                dxBag("DX261106-0001", "744.00", "2.00"),
+                                dxBag("DX261106-0002", "744.00", "2.00"),
+                                dxBag("DX261106-0004", "744.00", "2.00"),
+                                dxBag("DX261107-0008", "744.00", "2.00")))
+                        .build());
+        when(vendorClient.quoteCommercialTerms(eq(vendorId), any(), any(), anyList(), eq(false), eq(false)))
+                .thenReturn(quote("2976.00", "40.00", "2936.00", null));
+
+        List<OpenAccountsService.Line> lines = openAccountsService.scan(null, null);
+
+        assertThat(lines).hasSize(1);
+        OpenAccountsService.Line line = lines.get(0);
+        assertThat(line.action()).isEqualTo("PAY");
+        assertThat(line.commission()).isEqualByComparingTo("40.00");
+        assertThat(line.platformFee()).isEqualByComparingTo("8.00");
+        assertThat(line.amount()).isEqualByComparingTo("2936.00");
+        assertThat(line.detail()).contains("commission ₹40.00", "pay ₹2936.00");
+    }
+
+    @Test
+    void payOnlyScope_skipsDeliveredCodTownScan() {
+        when(orderClient.deliveredVendorTowns(any(), any())).thenReturn(List.of());
+        when(orderClient.settlementBagKeys(any(), any())).thenReturn(List.of());
+
+        openAccountsService.scan(null, null, null, OpenAccountsService.OpenWorkScope.PAY_ONLY);
+
+        verify(orderClient, never()).getCodDeliveredRange(any(), any(), any(), any(), any());
     }
 }

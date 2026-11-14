@@ -20,7 +20,7 @@ public class TownVendorAgentDeliveryController {
     public ResponseEntity<ApiResponse<TownVendorAgentDeliveryConfigResponse>> getForAdmin(
             @PathVariable UUID townId,
             HttpServletRequest httpRequest) {
-        AdminAuth.requireSuperAdmin(httpRequest);
+        AdminAuth.requirePlatformWrite(httpRequest);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, configService.get(townId)));
     }
 
@@ -29,7 +29,7 @@ public class TownVendorAgentDeliveryController {
             @PathVariable UUID townId,
             @RequestBody TownVendorAgentDeliveryConfigResponse request,
             HttpServletRequest httpRequest) {
-        AdminAuth.requireSuperAdmin(httpRequest);
+        AdminAuth.requirePlatformWrite(httpRequest);
         UUID actorId = AdminAuth.requireUserId(httpRequest);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, configService.replace(townId, request, actorId)));
     }

@@ -26,6 +26,33 @@ export class ApiError extends Error {
   get isUnauthorized(): boolean {
     return this.status === 401;
   }
+
+  get isRateLimited(): boolean {
+    return this.status === 429;
+  }
+}
+
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/** Retries idempotent-safe calls when the platform is temporarily throttling (HTTP 429). */
+export async function apiRequestWithRateLimitRetry<T>(
+  path: string,
+  options: RequestOptions = {},
+  maxAttempts = 5,
+): Promise<T> {
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      return await apiRequest<T>(path, options);
+    } catch (err) {
+      lastErr = err;
+      if (!(err instanceof ApiError) || !err.isRateLimited || attempt >= maxAttempts - 1) {
+        throw err;
+      }
+      await sleep(Math.min(250 * (attempt + 1), 1500));
+    }
+  }
+  throw lastErr;
 }
 
 type RequestOptions = {

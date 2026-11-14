@@ -81,11 +81,22 @@ public class OpenAccountsService {
     private List<OrderClient.VendorTown> scanVendorTowns;
     private final ConcurrentHashMap<String, SettlementCandidateView> scanCandidates = new ConcurrentHashMap<>();
 
+    /** Limits which open-work lines are produced — avoids heavy scans when only payouts matter. */
+    public enum OpenWorkScope {
+        ALL,
+        PAY_ONLY,
+        RECEIVE_ONLY
+    }
+
     public List<Line> scan(LocalDate from, LocalDate to) {
-        return scan(from, to, null);
+        return scan(from, to, null, OpenWorkScope.ALL);
     }
 
     public List<Line> scan(LocalDate from, LocalDate to, UUID townId) {
+        return scan(from, to, townId, OpenWorkScope.ALL);
+    }
+
+    public List<Line> scan(LocalDate from, LocalDate to, UUID townId, OpenWorkScope scope) {
         LocalDate end = to == null ? LocalDate.now(IST) : to;
         LocalDate start = from == null ? end.minusDays(UNBOUNDED_SCAN_DAYS) : from;
         if (start.isBefore(OPEN_START)) {
@@ -112,23 +123,29 @@ public class OpenAccountsService {
         final LocalDate scanEnd = end;
         final UUID scanTownId = townId;
         long t0 = System.nanoTime();
+        final OpenWorkScope workScope = scope == null ? OpenWorkScope.ALL : scope;
         try {
             List<Line> vendorLines = Collections.synchronizedList(new ArrayList<>());
             List<Line> hubLines = Collections.synchronizedList(new ArrayList<>());
             List<Line> codLines = Collections.synchronizedList(new ArrayList<>());
             var vendor = java.util.concurrent.CompletableFuture.runAsync(() ->
-                    scanVendors(vendorLines, scanFrom, scanTo, scanStart, scanEnd, scanTownId));
-            var hubs = java.util.concurrent.CompletableFuture.runAsync(() ->
-                    scanHubsAndAgents(hubLines, scanStart, scanEnd, scanTownId));
-            var cod = java.util.concurrent.CompletableFuture.runAsync(() ->
-                    scanDeliveredCodAccounts(codLines, scanStart, scanEnd, scanTownId));
+                    scanVendors(vendorLines, scanFrom, scanTo, scanStart, scanEnd, scanTownId, workScope));
+            var hubs = workScope != OpenWorkScope.RECEIVE_ONLY
+                    ? java.util.concurrent.CompletableFuture.runAsync(() ->
+                    scanHubsAndAgents(hubLines, scanStart, scanEnd, scanTownId))
+                    : java.util.concurrent.CompletableFuture.completedFuture(null);
+            var cod = workScope == OpenWorkScope.ALL || workScope == OpenWorkScope.RECEIVE_ONLY
+                    ? java.util.concurrent.CompletableFuture.runAsync(() ->
+                    scanDeliveredCodAccounts(codLines, scanStart, scanEnd, scanTownId))
+                    : java.util.concurrent.CompletableFuture.completedFuture(null);
             java.util.concurrent.CompletableFuture.allOf(vendor, hubs, cod).join();
             out.addAll(vendorLines);
             out.addAll(hubLines);
             out.addAll(codLines);
             log.info(
-                    "Open accounts scan {} ms · vendorLines={} hubLines={} codLines={}",
+                    "Open accounts scan {} ms · scope={} · vendorLines={} hubLines={} codLines={}",
                     (System.nanoTime() - t0) / 1_000_000,
+                    workScope,
                     vendorLines.size(),
                     hubLines.size(),
                     codLines.size());
@@ -146,7 +163,8 @@ public class OpenAccountsService {
             LocalDate requestedTo,
             LocalDate start,
             LocalDate end,
-            UUID townFilter) {
+            UUID townFilter,
+            OpenWorkScope scope) {
         List<OrderClient.BagKey> keys;
         try {
             keys = bagKeysForScan(start, end);
@@ -155,7 +173,7 @@ public class OpenAccountsService {
             keys = null;
         }
         if (keys == null) {
-            scanVendorsOneByOne(out, requestedFrom, requestedTo, start, end, townFilter);
+            scanVendorsOneByOne(out, requestedFrom, requestedTo, start, end, townFilter, scope);
             return;
         }
         Map<String, UUID> vendorByPair = new LinkedHashMap<>();
@@ -199,8 +217,8 @@ public class OpenAccountsService {
             jobs.add(() -> {
                 List<Line> local = new ArrayList<>();
                 try {
-                    appendVendor(local, townId, vendorId, start, end);
-                    if (vendorTownId != null) {
+                    appendVendor(local, townId, vendorId, start, end, scope);
+                    if (scope != OpenWorkScope.PAY_ONLY && vendorTownId != null) {
                         appendUnsentSubscription(local, vendorTownId, vendorId, requestedFrom, requestedTo);
                     }
                 } catch (RuntimeException ex) {
@@ -219,7 +237,8 @@ public class OpenAccountsService {
             LocalDate requestedTo,
             LocalDate start,
             LocalDate end,
-            UUID townFilter) {
+            UUID townFilter,
+            OpenWorkScope scope) {
         List<OrderClient.VendorTown> pairs;
         try {
             pairs = vendorTownsForScan(start, end);
@@ -236,11 +255,11 @@ public class OpenAccountsService {
                 continue;
             }
             try {
-                appendVendor(out, pair.townId(), pair.vendorId(), start, end);
+                appendVendor(out, pair.townId(), pair.vendorId(), start, end, scope);
             } catch (RuntimeException ex) {
                 log.warn("Skipped open shop work for {}: {}", pair.vendorId(), ex.toString());
             }
-            if (subscriptionsDone.add(pair.vendorId())) {
+            if (scope != OpenWorkScope.PAY_ONLY && subscriptionsDone.add(pair.vendorId())) {
                 try {
                     appendUnsentSubscription(out, pair.townId(), pair.vendorId(), requestedFrom, requestedTo);
                 } catch (RuntimeException ex) {
@@ -271,7 +290,9 @@ public class OpenAccountsService {
         }
     }
 
-    private void appendVendor(List<Line> out, UUID townId, UUID vendorId, LocalDate start, LocalDate end) {
+    private void appendVendor(
+            List<Line> out, UUID townId, UUID vendorId, LocalDate start, LocalDate end, OpenWorkScope scope) {
+        OpenWorkScope workScope = scope == null ? OpenWorkScope.ALL : scope;
         SettlementCandidateView view = listCandidatesForScan(townId, vendorId, start, end);
         List<SettlementCandidateView.Item> items = view.getItems() == null ? List.of() : view.getItems();
         List<SettlementCandidateView.Item> open = items.stream().filter(item -> !item.isAlreadySettled()).toList();
@@ -287,7 +308,7 @@ public class OpenAccountsService {
                         item.isVendorAgentDelivery(), item.getPaymentMethod(), item.getCodCashLocation()))
                 .toList();
         String shop = shopName(vendorId);
-        if (!collect.isEmpty()) {
+        if (workScope != OpenWorkScope.PAY_ONLY && !collect.isEmpty()) {
             VendorClient.CommercialTermsQuote quote = vendorClient.quoteCommercialTerms(
                     vendorId, start, end, orderLines(collect), false, true);
             BigDecimal commissionOnly = money(quote.commissionAmount());
@@ -309,15 +330,19 @@ public class OpenAccountsService {
                     extra = extra + " · platform fee " + inr(platform);
                 }
                 extra = extra + " · " + cashNote(collect);
+                String collectTitle = allDiagnosticsBookings(collect)
+                        ? "Diagnostics booking — lab holds COD"
+                        : "Shop holds the cash — bill commission + platform fee";
                 out.add(line(townId, "VENDOR", vendorId, shop, "SEND_BILL",
-                        "Shop holds the cash — bill commission + platform fee",
+                        collectTitle,
                         bagsDetail(collect, extra),
                         periodStart(collect, start), periodEnd(collect, end),
                         fee, collect.size(), firstOrder(collect), commissionOnly,
-                        feePart(platform), feePart(cod), feePart(membership), null));
+                        feePart(platform), feePart(cod), feePart(membership), null,
+                        null, null, feePart(shopCodGoodsHeld(collect))));
             }
         }
-        if (!pay.isEmpty()) {
+        if (workScope != OpenWorkScope.RECEIVE_ONLY && !pay.isEmpty()) {
             BigDecimal claims = money(view.getPendingClaimChargebacks());
             List<SettlementCandidateView.Item> glamOnlinePay = pay.stream()
                     .filter(item -> item.getOnlineRemittanceAmount() != null
@@ -339,7 +364,7 @@ public class OpenAccountsService {
             if (!standardPay.isEmpty()) {
                 VendorClient.CommercialTermsQuote quote = vendorClient.quoteCommercialTerms(
                         vendorId, start, end, orderLines(standardPay), false, false);
-                commission = money(quote.totalFeeAmount());
+                commission = money(quote.commissionAmount());
                 net = net.add(money(quote.suggestedNet()));
             }
             net = net.subtract(claims);
@@ -368,11 +393,22 @@ public class OpenAccountsService {
                 } else if (!standardPay.isEmpty() && glamOnlinePay.isEmpty()) {
                     extra = extra + " · pay " + inr(net);
                 }
+                String payTitle = allDiagnosticsBookings(pay)
+                        ? (commission.signum() > 0
+                                ? "Diagnostics — pay lab (UPI) · commission cut from payout"
+                                : "Diagnostics booking — pay lab (UPI)")
+                        : "Pay the shop — commission already taken off";
+                BigDecimal platformRetained = feePart(platformFees(standardPay));
+                List<SettlementCandidateView.Item> upiPay =
+                        pay.stream().filter(OpenAccountsService::isUpiPaidItem).toList();
+                BigDecimal upiAppReceived = feePart(sumUpiBuyerPaid(upiPay));
+                Integer upiOrderCount = upiPay.isEmpty() ? null : upiPay.size();
                 out.add(line(townId, "VENDOR", vendorId, shop, "PAY",
-                        "Pay the shop — commission already taken off",
+                        payTitle,
                         bagsDetail(pay, extra),
                         periodStart(pay, start), periodEnd(pay, end),
-                        net, pay.size(), firstOrder(pay), commission, null, null, null, null));
+                        net, pay.size(), firstOrder(pay), commission,
+                        platformRetained, null, null, null, upiAppReceived, upiOrderCount, null));
             }
         }
     }
@@ -918,7 +954,9 @@ public class OpenAccountsService {
                 when = Instant.now();
             }
             lines.add(new VendorClient.OrderLine(
-                    item.getSubtotal() == null ? BigDecimal.ZERO : item.getSubtotal(), when, item.getPieceCount()));
+                    item.getSubtotal() == null ? BigDecimal.ZERO : item.getSubtotal(),
+                    when,
+                    com.hyperlocalmart.payment.settlement.SettlementPieceCount.forCandidateView(item)));
         }
         return lines;
     }
@@ -1044,6 +1082,18 @@ public class OpenAccountsService {
         return instant == null ? null : instant.atZone(IST).toLocalDate();
     }
 
+    private static boolean allDiagnosticsBookings(List<SettlementCandidateView.Item> items) {
+        if (items == null || items.isEmpty()) {
+            return false;
+        }
+        return items.stream().allMatch(OpenAccountsService::diagnosticsBooking);
+    }
+
+    private static boolean diagnosticsBooking(SettlementCandidateView.Item item) {
+        String orderNumber = item.getOrderNumber();
+        return orderNumber != null && orderNumber.startsWith("DX");
+    }
+
     private static BigDecimal money(BigDecimal raw) {
         if (raw == null) {
             return BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
@@ -1076,6 +1126,34 @@ public class OpenAccountsService {
         return money(value);
     }
 
+    private static boolean isUpiPaidItem(SettlementCandidateView.Item item) {
+        if (item.getOnlineRemittanceAmount() != null && item.getOnlineRemittanceAmount().signum() > 0) {
+            return true;
+        }
+        return item.getPaymentMethod() != null && "ONLINE".equalsIgnoreCase(item.getPaymentMethod());
+    }
+
+    private static BigDecimal buyerUpiTotal(SettlementCandidateView.Item item) {
+        return money(item.getSubtotal())
+                .add(money(item.getPlatformFee()))
+                .add(money(item.getParlourPaymentFee()))
+                .add(money(item.getMembershipFee()))
+                .add(money(item.getCodFee()));
+    }
+
+    private static BigDecimal sumUpiBuyerPaid(List<SettlementCandidateView.Item> items) {
+        return items.stream()
+                .map(OpenAccountsService::buyerUpiTotal)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
+    /** Goods subtotal on shop-held COD bags — cash the vendor already has. */
+    private static BigDecimal shopCodGoodsHeld(List<SettlementCandidateView.Item> items) {
+        return items.stream()
+                .map(item -> money(item.getSubtotal()))
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
     private static Line line(
             UUID townId,
             String party,
@@ -1091,7 +1169,7 @@ public class OpenAccountsService {
             String reference,
             BigDecimal commission) {
         return line(townId, party, partyId, partyName, action, what, detail, periodStart, periodEnd, amount,
-                itemCount, reference, commission, null, null, null, null);
+                itemCount, reference, commission, null, null, null, null, null, null, null);
     }
 
     private static Line line(
@@ -1112,9 +1190,34 @@ public class OpenAccountsService {
             BigDecimal codFee,
             BigDecimal membershipFee,
             BigDecimal penalty) {
+        return line(townId, party, partyId, partyName, action, what, detail, periodStart, periodEnd, amount,
+                itemCount, reference, commission, platformFee, codFee, membershipFee, penalty, null, null, null);
+    }
+
+    private static Line line(
+            UUID townId,
+            String party,
+            UUID partyId,
+            String partyName,
+            String action,
+            String what,
+            String detail,
+            LocalDate periodStart,
+            LocalDate periodEnd,
+            BigDecimal amount,
+            int itemCount,
+            String reference,
+            BigDecimal commission,
+            BigDecimal platformFee,
+            BigDecimal codFee,
+            BigDecimal membershipFee,
+            BigDecimal penalty,
+            BigDecimal upiAppReceived,
+            Integer upiOrderCount,
+            BigDecimal shopCodCash) {
         return new Line(townId, party, partyId, partyName, action, what, detail,
                 periodStart, periodEnd, amount, itemCount, reference, commission,
-                platformFee, codFee, membershipFee, penalty);
+                platformFee, codFee, membershipFee, penalty, upiAppReceived, upiOrderCount, shopCodCash);
     }
 
     public record Line(
@@ -1134,6 +1237,9 @@ public class OpenAccountsService {
             BigDecimal platformFee,
             BigDecimal codFee,
             BigDecimal membershipFee,
-            BigDecimal penalty) {
+            BigDecimal penalty,
+            BigDecimal upiAppReceived,
+            Integer upiOrderCount,
+            BigDecimal shopCodCash) {
     }
 }

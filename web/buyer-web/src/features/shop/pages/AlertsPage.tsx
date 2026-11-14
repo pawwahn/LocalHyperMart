@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useState, type CSSProperties } from 'react';
+import { useEffect, useMemo, type CSSProperties } from 'react';
 import { Link } from 'react-router-dom';
 import { PortalShell } from '@/shared/layout/PortalShell';
 import { Banner, EmptyState, LoadingBlock } from '@/shared/ui';
-import { useAuth } from '@/shared/auth/AuthContext';
-import { listMyNotifications, type BuyerNotificationDto } from '../api/notificationsApi';
+import { useBuyerAlerts } from '../hooks/useBuyerAlerts';
+import { buyerOrderPath, isNotificationUnread } from '../lib/buyerAlertsState';
+import type { BuyerNotificationDto } from '../api/notificationsApi';
 
 function formatWhen(value?: string): string {
   if (!value) return '';
@@ -20,7 +21,7 @@ function formatWhen(value?: string): string {
 function channelLabel(channel: string): string {
   const c = channel.toUpperCase();
   if (c === 'SMS') return 'SMS';
-  if (c === 'PUSH') return 'Push';
+  if (c === 'PUSH') return 'In-app';
   return channel;
 }
 
@@ -28,6 +29,8 @@ function eventTitle(code: string): string {
   switch (code) {
     case 'ORDER_PLACED':
       return 'Order placed';
+    case 'ORDER_STATUS_UPDATED':
+      return 'Order update';
     case 'SUB_ORDER_READY':
       return 'Shop ready';
     case 'ORDER_AT_HUB':
@@ -53,58 +56,59 @@ function eventTitle(code: string): string {
   }
 }
 
-export function AlertsPage() {
-  const { session } = useAuth();
-  const [items, setItems] = useState<BuyerNotificationDto[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+function rowIsUnread(n: BuyerNotificationDto, globalSeenAt: number): boolean {
+  return isNotificationUnread(n, globalSeenAt);
+}
 
-  const reload = useCallback(async () => {
-    if (!session?.accessToken) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const list = await listMyNotifications(session.accessToken, 50);
-      setItems(list);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not load alerts');
-    } finally {
-      setLoading(false);
-    }
-  }, [session?.accessToken]);
+export function AlertsPage() {
+  const { items, loading, reload, markAllSeen, globalSeenAt } = useBuyerAlerts();
 
   useEffect(() => {
-    void reload();
-  }, [reload]);
+    const id = window.setTimeout(() => markAllSeen(), 600);
+    return () => window.clearTimeout(id);
+  }, [markAllSeen]);
+
+  const empty = !loading && items.length === 0;
+
+  const list = useMemo(
+    () =>
+      items.map((n) => ({
+        n,
+        unread: rowIsUnread(n, globalSeenAt),
+      })),
+    [items, globalSeenAt],
+  );
 
   return (
     <PortalShell
       title="Alerts"
-      subtitle="Order updates sent to you (SMS / push stub until live providers)."
+      subtitle="Updates on grocery, glam, laundry, and diagnostics bookings."
       onRefresh={reload}
       showDeliveryBanner={false}
     >
-      {error ? <Banner tone="danger">{error}</Banner> : null}
       {loading && items.length === 0 ? (
         <LoadingBlock label="Loading alerts…" />
-      ) : items.length === 0 ? (
+      ) : empty ? (
         <EmptyState
           title="No alerts yet"
-          description="When your order status changes, updates will show up here."
+          description="When an order moves forward, you'll see it here and on the bell icon."
         />
       ) : (
         <ul style={styles.list}>
-          {items.map((n) => (
-            <li key={n.id} style={styles.row}>
+          {list.map(({ n, unread }) => (
+            <li key={n.id} style={{ ...styles.row, ...(unread ? styles.rowUnread : null) }}>
               <div style={styles.rowTop}>
-                <span style={styles.title}>{eventTitle(n.eventCode)}</span>
+                <span style={styles.title}>
+                  {eventTitle(n.eventCode)}
+                  {unread ? <span style={styles.newDot} aria-label="New" /> : null}
+                </span>
                 <span style={styles.meta}>
                   {channelLabel(n.channel)} · {formatWhen(n.createdAt)}
                 </span>
               </div>
               <p style={styles.body}>{n.body || '—'}</p>
               {n.orderId ? (
-                <Link to={`/orders/${n.orderId}`} style={styles.link}>
+                <Link to={buyerOrderPath(n.orderId, n.body)} style={styles.link}>
                   View order
                 </Link>
               ) : null}
@@ -126,6 +130,10 @@ const styles: Record<string, CSSProperties> = {
     display: 'grid',
     gap: '0.35rem',
   },
+  rowUnread: {
+    borderColor: 'color-mix(in srgb, #dc2626 35%, var(--border))',
+    background: 'color-mix(in srgb, #fef2f2 50%, var(--bg-elevated))',
+  },
   rowTop: {
     display: 'flex',
     justifyContent: 'space-between',
@@ -133,7 +141,21 @@ const styles: Record<string, CSSProperties> = {
     flexWrap: 'wrap',
     alignItems: 'baseline',
   },
-  title: { fontWeight: 800, fontFamily: 'var(--font-display)', fontSize: '0.95rem' },
+  title: {
+    fontWeight: 800,
+    fontFamily: 'var(--font-display)',
+    fontSize: '0.95rem',
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '0.35rem',
+  },
+  newDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 'var(--radius-full)',
+    background: '#dc2626',
+    flexShrink: 0,
+  },
   meta: { color: 'var(--text-muted)', fontSize: '0.75rem' },
   body: { margin: 0, fontSize: '0.88rem', lineHeight: 1.45, color: 'var(--text)' },
   link: {

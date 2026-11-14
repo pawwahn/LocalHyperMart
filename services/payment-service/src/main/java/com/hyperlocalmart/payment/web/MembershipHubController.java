@@ -60,7 +60,8 @@ public class MembershipHubController {
         if (principal == null || principal.getRoles() == null) {
             throw new BusinessException(ErrorCode.FORBIDDEN, "Hub admin role required");
         }
-        if (principal.getRoles().contains("HUB_ADMIN") || principal.getRoles().contains("SUPER_ADMIN")) {
+        if (principal.getRoles().contains("HUB_ADMIN")
+                || com.hyperlocalmart.common.security.PlatformAdminRoles.isPlatformStaff(principal.getRoles())) {
             return;
         }
         throw new BusinessException(ErrorCode.FORBIDDEN, "Hub admin role required");

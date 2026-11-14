@@ -1,5 +1,6 @@
 package com.hyperlocalmart.order.client;
 
+import com.hyperlocalmart.order.config.RestClientFactory;
 import com.hyperlocalmart.order.config.NotificationServiceProperties;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -19,7 +20,7 @@ public class NotificationClient {
 
     private static final List<String> CHANNELS = List.of("SMS", "PUSH");
 
-    private final RestClient.Builder restClientBuilder;
+    private final RestClientFactory restClients;
     private final NotificationServiceProperties notificationServiceProperties;
 
     public void notifyOrderPlaced(UUID townId, UUID orderId, UUID buyerId, String buyerPhone,
@@ -122,6 +123,16 @@ public class NotificationClient {
         send("ITEM_REMOVED_COD_REDUCED", townId, orderId, buyerId, buyerPhone, params);
     }
 
+    /** Buyer alerts inbox + push when a service order moves forward (diagnostics, laundry, beauty, …). */
+    public void notifyOrderStatusUpdated(UUID townId, UUID orderId, UUID buyerId, String buyerPhone,
+                                         String orderNumber, String statusLabel, String serviceName) {
+        Map<String, String> params = new HashMap<>();
+        params.put("orderNumber", orderNumber == null ? "" : orderNumber);
+        params.put("statusLabel", statusLabel == null || statusLabel.isBlank() ? "Updated" : statusLabel.trim());
+        params.put("serviceName", serviceName == null || serviceName.isBlank() ? "Order" : serviceName.trim());
+        send("ORDER_STATUS_UPDATED", townId, orderId, buyerId, buyerPhone, params);
+    }
+
     public void notifyVendorShopRejected(UUID townId, UUID recipientUserId, String recipientPhone,
                                          UUID orderId, String orderNumber, String shopName,
                                          BigDecimal amount, String reason, String buyerPhone) {
@@ -144,7 +155,7 @@ public class NotificationClient {
     private void sendChannel(String eventCode, String channel, UUID townId, UUID orderId, UUID recipientUserId,
                              String recipientPhone, Map<String, String> params) {
         try {
-            RestClient client = restClientBuilder.baseUrl(notificationServiceProperties.getBaseUrl()).build();
+            RestClient client = restClients.forBaseUrl(notificationServiceProperties.getBaseUrl());
             Map<String, Object> body = new HashMap<>();
             body.put("eventCode", eventCode);
             body.put("channel", channel);

@@ -21,7 +21,6 @@ public class CreateRegistrationRequest {
     @NotNull
     private UUID serviceId;
 
-    @NotNull
     @JsonAlias("service_for")
     private VendorServiceFor serviceFor;
 

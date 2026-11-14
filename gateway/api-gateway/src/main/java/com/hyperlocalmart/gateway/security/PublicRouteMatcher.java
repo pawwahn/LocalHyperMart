@@ -55,6 +55,9 @@ public final class PublicRouteMatcher {
         if (method == HttpMethod.GET && path.matches("^/api/v1/catalog/recipes/[0-9a-fA-F-]{36}$")) {
             return true;
         }
+        if (method == HttpMethod.GET && path.matches("^/api/v1/catalog/food/vendors/[0-9a-fA-F-]{36}/menu$")) {
+            return true;
+        }
         if (method == HttpMethod.POST && path.startsWith("/api/v1/payments/webhooks/")) {
             return true;
         }

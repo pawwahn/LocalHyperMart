@@ -1,0 +1,17 @@
+---
+description: Buyer order alerts — backend events + bell badge + per-order indicator (all services)
+alwaysApply: true
+---
+
+# Buyer order alerts (product rule)
+
+## Backend
+
+When a vendor or system action updates **any** buyer order (grocery, diagnostics, laundry, beauty, delivery milestones), enqueue a buyer notification via `NotificationClient` (`ORDER_STATUS_UPDATED` or the specific event code). Alerts must persist as **SENT** rows in notification-service so `/api/v1/notifications` returns them (PUSH channel is the inbox source of truth).
+
+## Buyer UI (always)
+
+1. **Header bell** — show a badge/dot when `unreadCount > 0` (all services).
+2. **Orders list** — every order row with unread alerts shows a visible **update indicator** (dot or badge), regardless of service type.
+3. **Mark read** — opening `/alerts` marks the inbox seen; opening an order detail marks that order's alerts seen.
+4. Use `useBuyerAlerts()` / `BuyerAlertsProvider`; do not ship new order surfaces without wiring alert state.

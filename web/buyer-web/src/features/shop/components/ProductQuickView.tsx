@@ -116,11 +116,18 @@ export function ProductQuickView({
     setActive(idx);
   };
 
-  const badge = product.specialOfferActive
-    ? 'SALE'
-    : product.discountPercent && product.discountPercent > 0
-      ? `${product.discountPercent}% OFF`
-      : null;
+  const badge = product.outOfStock
+    ? 'OUT OF STOCK'
+    : product.specialOfferActive
+      ? 'SALE'
+      : product.discountPercent && product.discountPercent > 0
+        ? `${product.discountPercent}% OFF`
+        : null;
+  const badgeStyle = product.outOfStock
+    ? styles.oosBadge
+    : product.specialOfferActive
+      ? styles.sale
+      : styles.offer;
   const showRating = (product.ratingCount ?? 0) > 0 && (product.avgRating ?? 0) > 0;
 
   return (
@@ -137,9 +144,7 @@ export function ProductQuickView({
         </button>
 
         <div style={{ ...styles.galleryShell, background: visual.tint }}>
-          {badge ? (
-            <span style={product.specialOfferActive ? styles.sale : styles.offer}>{badge}</span>
-          ) : null}
+          {badge ? <span style={badgeStyle}>{badge}</span> : null}
           {images.length > 0 ? (
             <div
               ref={scrollerRef}
@@ -192,6 +197,12 @@ export function ProductQuickView({
             {product.unit}
             {product.vendorNote ? ` · ${product.vendorNote}` : ''}
           </p>
+          {product.outOfStock ? (
+            <p style={styles.oosNotice}>
+              This item is visible in the shop but temporarily out of stock. You can browse details; add to cart
+              is disabled until the shop restocks it.
+            </p>
+          ) : null}
         </div>
 
         {related.length > 0 && onOpenRelated && onIncreaseListing && onDecreaseListing && quantityFor ? (
@@ -220,7 +231,7 @@ export function ProductQuickView({
                       size="xs"
                       addMode="icon"
                       quantity={qty}
-                      disabled={busyKey === item.listingId}
+                      disabled={busyKey === item.listingId || item.outOfStock}
                       onIncrease={() => onIncreaseListing(item.listingId)}
                       onDecrease={() => onDecreaseListing(item.listingId)}
                     />
@@ -236,13 +247,17 @@ export function ProductQuickView({
             <span style={styles.price}>{product.priceLabel}</span>
             {product.mrpLabel ? <span style={styles.mrp}>{product.mrpLabel}</span> : null}
           </div>
-          <QuantityStepper
-            quantity={quantity}
-            disabled={busy || product.outOfStock}
-            onIncrease={onIncrease}
-            onDecrease={onDecrease}
-            size="md"
-          />
+          {product.outOfStock && quantity <= 0 ? (
+            <span style={styles.oosFooterPill}>Out of stock</span>
+          ) : (
+            <QuantityStepper
+              quantity={quantity}
+              disabled={busy || (product.outOfStock && quantity <= 0)}
+              onIncrease={onIncrease}
+              onDecrease={onDecrease}
+              size="md"
+            />
+          )}
         </div>
       </div>
     </div>
@@ -499,6 +514,44 @@ const styles: Record<string, CSSProperties> = {
     fontSize: '0.68rem',
     fontWeight: 800,
     color: 'var(--accent)',
+  },
+  oosBadge: {
+    position: 'absolute',
+    top: 8,
+    left: 8,
+    zIndex: 2,
+    background: '#64748b',
+    color: '#fff',
+    fontSize: '0.62rem',
+    fontWeight: 800,
+    padding: '0.22rem 0.42rem',
+    borderRadius: 7,
+    letterSpacing: '0.03em',
+    pointerEvents: 'none',
+  },
+  oosNotice: {
+    margin: '0.35rem 0 0',
+    padding: '0.45rem 0.55rem',
+    borderRadius: 10,
+    background: '#f8fafc',
+    border: '1px solid #e2e8f0',
+    color: '#475569',
+    fontSize: '0.78rem',
+    lineHeight: 1.45,
+  },
+  oosFooterPill: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 40,
+    padding: '0 0.85rem',
+    borderRadius: 10,
+    background: '#f1f5f9',
+    border: '1px solid #cbd5e1',
+    color: '#475569',
+    fontSize: '0.82rem',
+    fontWeight: 800,
+    whiteSpace: 'nowrap',
   },
   footer: {
     display: 'flex',

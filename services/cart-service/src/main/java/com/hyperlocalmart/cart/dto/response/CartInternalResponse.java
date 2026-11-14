@@ -24,4 +24,8 @@ public class CartInternalResponse {
     private List<CartInternalItemResponse> items;
     private String membershipSlab;
     private BigDecimal membershipFee;
+
+    private boolean foodCart;
+
+    private UUID foodVendorId;
 }

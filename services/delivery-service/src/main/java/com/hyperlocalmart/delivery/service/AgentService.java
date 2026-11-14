@@ -296,7 +296,7 @@ public class AgentService {
     public AgentResponse updateAgentStatus(UUID actorUserId, List<String> roles, UUID agentId, UpdateAgentStatusRequest request) {
         DeliveryAgent agent = deliveryAgentRepository.findById(agentId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Agent not found"));
-        boolean superAdmin = roles.contains("SUPER_ADMIN");
+        boolean superAdmin = com.hyperlocalmart.common.security.PlatformAdminRoles.isSuperAdmin(roles);
 
         if (request.getStatus() == AgentStatus.DISABLED && !superAdmin) {
             throw new BusinessException(ErrorCode.FORBIDDEN, "Only super admin can permanently disable agents");

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { PortalShell } from '@/shared/layout/PortalShell';
 import { Badge, Banner, EmptyState, LoadingBlock } from '@/shared/ui';
@@ -11,6 +11,9 @@ import type { OrderSummaryDto } from '../api/shopApi';
 import { fetchMyLaundryOrders, type LaundryOrder } from '@/features/laundry/api/laundryApi';
 import { beautyBookingTotal, beautyPaymentPlanView } from '@hlm-beauty';
 import { fetchMyBeautyOrders, type BeautyOrder } from '@/features/beauty/api/beautyApi';
+import { fetchMyDiagnosticsOrders, type DiagnosticsOrder } from '@/features/diagnostics/api/diagnosticsApi';
+import { diagnosticsReportReady } from '@/features/diagnostics/lib/diagnosticsOrderProgress';
+import { useBuyerAlerts } from '../hooks/useBuyerAlerts';
 
 const PAGE_SIZE = 20;
 
@@ -40,7 +43,8 @@ function formatWhen(value?: string): string {
 type HistoryItem =
   | { kind: 'grocery'; at: number; order: OrderSummaryDto }
   | { kind: 'laundry'; at: number; order: LaundryOrder }
-  | { kind: 'beauty'; at: number; order: BeautyOrder };
+  | { kind: 'beauty'; at: number; order: BeautyOrder }
+  | { kind: 'diagnostics'; at: number; order: DiagnosticsOrder };
 
 function placedMs(value?: string | null): number {
   if (!value) return 0;
@@ -68,6 +72,30 @@ function laundryTotal(order: LaundryOrder): number {
 
 function beautyTotal(order: BeautyOrder): number {
   return beautyBookingTotal(order);
+}
+
+function diagnosticsTotal(order: DiagnosticsOrder): number {
+  return (
+    Number(order.testsSubtotal ?? 0) +
+    Number(order.homeCollectionFee ?? 0) +
+    Number(order.platformFeeAmount ?? 0) +
+    Number(order.codFee ?? 0)
+  );
+}
+
+function diagnosticsHistoryAt(order: DiagnosticsOrder): number {
+  return placedMs(order.placedAt) || placedMs(order.slotStart) || placedMs(order.slotEnd);
+}
+
+function diagnosticsPayHint(order: DiagnosticsOrder): string {
+  const m = order.paymentMethod?.toUpperCase() ?? '';
+  const ps = order.paymentStatus?.toUpperCase() ?? '';
+  if (m === 'UPI' || m === 'ONLINE') {
+    if (ps === 'PAID' || ps === 'COLLECTED') return 'Online · paid';
+    if (order.status === 'AWAITING_PAYMENT') return 'Online · payment pending';
+    return 'Online';
+  }
+  return 'Pay at doorstep (COD)';
 }
 
 function buildPeriodOptions(times: number[]): Array<{ key: PeriodKey; label: string }> {
@@ -106,43 +134,69 @@ function matchesPeriod(at: number, period: PeriodKey, nowMs: number): boolean {
   return true;
 }
 
+function OrderUpdateDot({ show }: { show: boolean }) {
+  if (!show) return null;
+  return <span style={styles.alertDot} aria-label="New update" title="New update" />;
+}
+
 export function OrdersPage() {
   const navigate = useNavigate();
   const { session } = useAuth();
+  const { hasUnreadOrder } = useBuyerAlerts();
   const { townId } = useTown();
   const { orders, cart, loading, error, reload } = useShop();
   const [laundryOrders, setLaundryOrders] = useState<LaundryOrder[]>([]);
   const [laundryLoading, setLaundryLoading] = useState(false);
   const [beautyOrders, setBeautyOrders] = useState<BeautyOrder[]>([]);
+  const [diagOrders, setDiagOrders] = useState<DiagnosticsOrder[]>([]);
+  const [auxiliaryError, setAuxiliaryError] = useState<string | null>(null);
   const authExpired = Boolean(error && /sign-in expired|invalid jwt|unauthorized/i.test(error));
   const [query, setQuery] = useState('');
   const [period, setPeriod] = useState<PeriodKey>('m6');
   const [visible, setVisible] = useState(PAGE_SIZE);
 
-  useEffect(() => {
+  const loadServiceOrders = useCallback(async () => {
     if (!session?.accessToken || !townId) {
       setLaundryOrders([]);
       setBeautyOrders([]);
+      setDiagOrders([]);
+      setAuxiliaryError(null);
       return;
     }
-    let cancelled = false;
     setLaundryLoading(true);
-    void Promise.all([
-      fetchMyLaundryOrders(session.accessToken, townId).catch(() => [] as LaundryOrder[]),
-      fetchMyBeautyOrders(session.accessToken, townId).catch(() => [] as BeautyOrder[]),
-    ])
-      .then(([laundry, beauty]) => {
-        if (cancelled) return;
-        setLaundryOrders(laundry);
-        setBeautyOrders(beauty);
-      })
-      .finally(() => {
-        if (!cancelled) setLaundryLoading(false);
-      });
-    return () => {
-      cancelled = true;
+    setAuxiliaryError(null);
+    const failures: string[] = [];
+    const guarded = async <T,>(label: string, run: () => Promise<T>, empty: T): Promise<T> => {
+      try {
+        return await run();
+      } catch {
+        failures.push(label);
+        return empty;
+      }
     };
+    const token = session.accessToken;
+    const [laundry, beauty, diag] = await Promise.all([
+      guarded('laundry', () => fetchMyLaundryOrders(token, townId), [] as LaundryOrder[]),
+      guarded('glam', () => fetchMyBeautyOrders(token, townId), [] as BeautyOrder[]),
+      guarded('lab bookings', () => fetchMyDiagnosticsOrders(token, townId), [] as DiagnosticsOrder[]),
+    ]);
+    setLaundryOrders(laundry);
+    setBeautyOrders(beauty);
+    setDiagOrders(diag);
+    if (failures.length > 0) {
+      setAuxiliaryError(`Couldn't load ${failures.join(', ')}. Tap refresh to try again.`);
+    }
+    setLaundryLoading(false);
   }, [session?.accessToken, townId]);
+
+  useEffect(() => {
+    void loadServiceOrders();
+  }, [loadServiceOrders]);
+
+  const refreshAll = useCallback(() => {
+    void reload();
+    void loadServiceOrders();
+  }, [reload, loadServiceOrders]);
 
   function openOrder(o: OrderSummaryDto) {
     navigate(`/orders/${o.orderId}`, { state: { preview: summaryToPreview(o) } });
@@ -157,10 +211,11 @@ export function OrdersPage() {
       ...orders.map((order) => ({ kind: 'grocery' as const, at: groceryOrderHistoryAt(order), order })),
       ...laundryOrders.map((order) => ({ kind: 'laundry' as const, at: placedMs(order.placedAt), order })),
       ...beautyOrders.map((order) => ({ kind: 'beauty' as const, at: placedMs(order.placedAt), order })),
+      ...diagOrders.map((order) => ({ kind: 'diagnostics' as const, at: diagnosticsHistoryAt(order), order })),
     ];
     rows.sort((a, b) => b.at - a.at);
     return rows;
-  }, [laundryOrders, beautyOrders, orders]);
+  }, [laundryOrders, beautyOrders, diagOrders, orders]);
 
   const periodOptions = useMemo(() => buildPeriodOptions(history.map((row) => row.at)), [history]);
 
@@ -178,6 +233,11 @@ export function OrdersPage() {
       if (row.kind === 'beauty') {
         const order = row.order;
         const hay = `${order.orderNumber} ${order.statusLabel} ${order.artistName} glam ${order.serviceLabel ?? order.serviceType}`.toLowerCase();
+        return hay.includes(q);
+      }
+      if (row.kind === 'diagnostics') {
+        const order = row.order;
+        const hay = `${order.orderNumber} ${order.statusLabel} diagnostics lab ${order.shopName} ${diagnosticsPayHint(order)}`.toLowerCase();
         return hay.includes(q);
       }
       const o = row.order;
@@ -199,7 +259,7 @@ export function OrdersPage() {
     <PortalShell
       title="Orders"
       cartCount={cart?.itemCount ?? 0}
-      onRefresh={() => void reload()}
+      onRefresh={refreshAll}
       showDeliveryBanner={false}
       showTownPicker={false}
     >
@@ -223,7 +283,7 @@ export function OrdersPage() {
         <EmptyState
           icon="📦"
           title="No orders yet"
-          description="Grocery, glam, and laundry orders show up here."
+          description="Grocery, glam, laundry, and lab home-collection bookings show up here."
           actionLabel="Shop now"
           onAction={() => navigate('/shop')}
         />
@@ -232,7 +292,15 @@ export function OrdersPage() {
           {error ? (
             <Banner tone="warning">
               Couldn’t refresh fully. Showing your last loaded orders.{' '}
-              <button type="button" style={styles.linkBtn} onClick={() => void reload()}>
+              <button type="button" style={styles.linkBtn} onClick={refreshAll}>
+                Retry
+              </button>
+            </Banner>
+          ) : null}
+          {auxiliaryError ? (
+            <Banner tone="warning">
+              {auxiliaryError}{' '}
+              <button type="button" style={styles.linkBtn} onClick={refreshAll}>
                 Retry
               </button>
             </Banner>
@@ -282,6 +350,49 @@ export function OrdersPage() {
             <>
               <div style={styles.list}>
                 {shown.map((row, index) => {
+                  if (row.kind === 'diagnostics') {
+                    const order = row.order;
+                    const total = diagnosticsTotal(order);
+                    const testsCount = order.lines?.length ?? 0;
+                    const interimCount = diagnosticsReportReady(order)
+                      ? 0
+                      : (order.reportAttachments?.filter((a) => String(a.kind).toUpperCase() === 'INTERIM').length ?? 0);
+                    return (
+                      <button
+                        key={order.id}
+                        type="button"
+                        style={{
+                          ...styles.row,
+                          borderTop: index === 0 ? 'none' : '1px solid var(--border)',
+                        }}
+                        onClick={() => navigate(`/diagnostics/orders/${order.id}`)}
+                      >
+                        <div style={styles.rowMain}>
+                          <div style={styles.metaRow}>
+                            <span style={styles.orderNo}>{order.orderNumber}</span>
+                            <p style={styles.meta}>
+                              {formatWhen(order.placedAt)}
+                              {' · '}
+                              Diagnostics · {testsCount} test{testsCount === 1 ? '' : 's'} · {order.shopName}
+                              {' · '}
+                              {diagnosticsPayHint(order)}
+                            </p>
+                            <Badge tone={statusTone(order.statusLabel)}>{order.statusLabel}</Badge>
+                            {interimCount > 0 ? (
+                              <Badge tone="warning">
+                                {interimCount} interim report{interimCount === 1 ? '' : 's'}
+                              </Badge>
+                            ) : null}
+                          </div>
+                        </div>
+                        <div style={styles.rowSide}>
+                          <p style={styles.amount}>₹{total.toFixed(2).replace(/\.00$/, '')}</p>
+                          <OrderUpdateDot show={hasUnreadOrder(order.id)} />
+                          <p style={styles.chevron}>›</p>
+                        </div>
+                      </button>
+                    );
+                  }
                   if (row.kind === 'beauty') {
                     const order = row.order;
                     const total = beautyTotal(order);
@@ -312,6 +423,7 @@ export function OrdersPage() {
                         </div>
                         <div style={styles.rowSide}>
                           <p style={styles.amount}>₹{total.toFixed(2).replace(/\.00$/, '')}</p>
+                          <OrderUpdateDot show={hasUnreadOrder(order.id)} />
                           <p style={styles.chevron}>›</p>
                         </div>
                       </button>
@@ -347,6 +459,7 @@ export function OrdersPage() {
                         </div>
                         <div style={styles.rowSide}>
                           <p style={styles.amount}>₹{total.toFixed(2).replace(/\.00$/, '')}</p>
+                          <OrderUpdateDot show={hasUnreadOrder(order.id)} />
                           <p style={styles.chevron}>›</p>
                         </div>
                       </button>
@@ -386,6 +499,7 @@ export function OrdersPage() {
                       </div>
                       <div style={styles.rowSide}>
                         <p style={styles.amount}>₹{Number(o.totalAmount).toFixed(2).replace(/\.00$/, '')}</p>
+                        <OrderUpdateDot show={hasUnreadOrder(o.orderId)} />
                         <p style={styles.chevron}>›</p>
                       </div>
                     </button>
@@ -516,6 +630,14 @@ const styles: Record<string, CSSProperties> = {
     fontSize: '0.95rem',
   },
   chevron: { margin: 0, color: 'var(--text-muted)', fontSize: '1.1rem', fontWeight: 700 },
+  alertDot: {
+    width: 9,
+    height: 9,
+    borderRadius: 'var(--radius-full)',
+    background: '#dc2626',
+    flexShrink: 0,
+    boxShadow: '0 0 0 2px var(--bg-elevated)',
+  },
   moreBtn: {
     border: '1px solid var(--border)',
     background: 'var(--bg-elevated)',

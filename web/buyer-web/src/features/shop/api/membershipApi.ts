@@ -1,4 +1,4 @@
-import { apiRequest } from '@/shared/api/http';
+import { apiRequest, apiRequestWithRateLimitRetry } from '@/shared/api/http';
 
 export type MembershipSlabOffer = {
   code: string;
@@ -78,12 +78,17 @@ export async function purchaseMembership(
   input: { slab: string; channel: 'ONLINE' | 'CASH'; townId: string },
   idempotencyKey: string,
 ): Promise<MembershipPurchase> {
-  return apiRequest<MembershipPurchase>('/api/v1/payments/memberships/purchase', {
-    token,
-    method: 'POST',
-    body: input,
-    headers: { 'Idempotency-Key': idempotencyKey },
-  });
+  return apiRequestWithRateLimitRetry<MembershipPurchase>(
+    '/api/v1/payments/memberships/purchase',
+    {
+      token,
+      method: 'POST',
+      body: input,
+      headers: { 'Idempotency-Key': idempotencyKey },
+      timeoutMs: 45_000,
+    },
+    6,
+  );
 }
 
 export async function confirmMembershipPayment(

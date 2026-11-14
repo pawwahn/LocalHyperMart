@@ -38,7 +38,7 @@ public class AdminAuditController {
             @RequestParam(required = false) String action,
             @RequestParam(required = false) String prefix,
             HttpServletRequest httpRequest) {
-        AdminAuth.requireSuperAdmin(httpRequest);
+        AdminAuth.requirePlatformStaff(httpRequest);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
                 adminAuditService.list(screen, townId, page, size, from, to, q, splitCsv(action), splitCsv(prefix))));
     }

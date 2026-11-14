@@ -5,10 +5,12 @@ import { ThemePicker } from '@hlm-theme';
 import { PortalShell } from '@/shared/layout/PortalShell';
 import { useAuth } from '@/shared/auth/AuthContext';
 import { useShop } from '../hooks/useShop';
+import { useBuyerAlerts } from '../hooks/useBuyerAlerts';
 
 export function MorePage() {
   const { session, logout } = useAuth();
   const { cart } = useShop();
+  const { unreadCount } = useBuyerAlerts();
   const navigate = useNavigate();
   const [signingOut, setSigningOut] = useState(false);
 
@@ -16,7 +18,12 @@ export function MorePage() {
     const links = [
       { key: 'orders', to: '/orders' as const, label: 'Orders', hint: 'Grocery, glam & laundry' },
       { key: 'addresses', to: '/addresses' as const, label: 'Saved addresses', hint: 'Edit or delete delivery addresses' },
-      { key: 'alerts', to: '/alerts' as const, label: 'Alerts', hint: 'Order updates' },
+      {
+        key: 'alerts',
+        to: '/alerts' as const,
+        label: unreadCount > 0 ? `Alerts (${unreadCount} new)` : 'Alerts',
+        hint: 'Order updates — all services',
+      },
       { key: 'wallet', to: '/wallet' as const, label: 'Wallet', hint: 'Store credit' },
       { key: 'spend', to: '/spend' as const, label: 'My spend', hint: 'Orders, COD vs online, monthly total' },
       { key: 'membership', to: '/membership' as const, label: 'Free delivery plans', hint: '3 / 6 / 12 months · buy here' },
@@ -25,7 +32,7 @@ export function MorePage() {
       { key: 'privacy', to: '/privacy' as const, label: 'Privacy & data', hint: 'Marketing, delete account, open source' },
     ];
     return links;
-  }, []);
+  }, [unreadCount]);
 
   return (
     <PortalShell

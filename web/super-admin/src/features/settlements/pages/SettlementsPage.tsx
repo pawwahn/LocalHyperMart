@@ -1,8 +1,11 @@
 import { PickerDateField } from '@hlm-dates';
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { accountsCollectUrl } from '@/features/dues/accountsDeepLinks';
 import { PortalShell } from '@/shared/layout/PortalShell';
 import { useAuth } from '@/shared/auth/AuthContext';
+import { usePlatformAdminAccess } from '@/shared/auth/usePlatformAdminAccess';
 import { ApiError } from '@/shared/api/http';
 import { Banner, Button, Card, ConfirmDialog } from '@/shared/ui';
 import { listTowns, type TownVm } from '@/features/towns/api/townsApi';
@@ -168,6 +171,10 @@ function tidyFeeLine(line: string): string {
 
 export function SettlementsPage() {
   const { session } = useAuth();
+  const { canMoveMoney, canIssueBills } = usePlatformAdminAccess();
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const settleDeepLinkApplied = useRef(false);
   const token = session?.accessToken ?? '';
 
   const initial = rangeForReportPreset(DEFAULT_REPORT_DATE_PRESET);
@@ -974,7 +981,14 @@ export function SettlementsPage() {
   }
 
   const canSendBill =
-    !saving && !!townId && !!vendorId && !feeQuoteLoading && !feeQuoteError && !!feeQuote && expectedNet > 0;
+    canIssueBills &&
+    !saving &&
+    !!townId &&
+    !!vendorId &&
+    !feeQuoteLoading &&
+    !feeQuoteError &&
+    !!feeQuote &&
+    expectedNet > 0;
   const sendBillHint = saving
     ? null
     : !townId || !vendorId
@@ -1004,6 +1018,7 @@ export function SettlementsPage() {
 
   /** Vendor pays KK — record cash already at shop (txn captured in confirm dialog). */
   const canAlreadyReceived =
+    canMoveMoney &&
     !saving &&
     !!townId &&
     !!vendorId &&
@@ -1013,6 +1028,7 @@ export function SettlementsPage() {
     expectedNet > 0;
 
   const canPay =
+    canMoveMoney &&
     !saving &&
     !!townId &&
     !!vendorId &&
@@ -1079,6 +1095,40 @@ export function SettlementsPage() {
     else setVendorPaysSubTab('records');
     void reloadHistory();
   }
+
+  function openAccountsCollect() {
+    if (!townId || !vendorId) return;
+    navigate(accountsCollectUrl({ townId, partyId: vendorId, party: 'VENDOR' }));
+  }
+
+  useEffect(() => {
+    if (settleDeepLinkApplied.current) return;
+    const qTown = searchParams.get('townId') ?? '';
+    const qVendor = searchParams.get('vendorId') ?? '';
+    const qVendorTab = searchParams.get('vendorTab') ?? '';
+    const qPaysSub = searchParams.get('paysSubTab') ?? '';
+    const qTab = searchParams.get('tab') ?? '';
+    if (!qTown && !qVendor && !qVendorTab && !qPaysSub && !qTab) return;
+    settleDeepLinkApplied.current = true;
+    if (qTab === 'HUB' || qTab === 'AGENT') setTab(qTab);
+    else if (qVendor || qVendorTab || qPaysSub) setTab('VENDOR');
+    if (qTown) setTownId(qTown);
+    if (qVendor) setVendorId(qVendor);
+    if (qVendorTab === 'vendor-to-app' || qVendorTab === 'app-to-vendor' || qVendorTab === 'subscription') {
+      setVendorTab(qVendorTab);
+    }
+    if (qPaysSub === 'collect' || qPaysSub === 'records') {
+      setVendorPaysSubTab(qPaysSub);
+    }
+    if (qPaysSub === 'records') setVendorAppSubTab('records');
+    const next = new URLSearchParams(searchParams);
+    next.delete('townId');
+    next.delete('vendorId');
+    next.delete('vendorTab');
+    next.delete('paysSubTab');
+    next.delete('tab');
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   useEffect(() => {
     setHistoryPage(0);
@@ -1261,6 +1311,11 @@ export function SettlementsPage() {
                             ) : null}
                             {s.vendorPaymentRejectedAt && s.vendorPaymentRejectReason ? (
                               <div style={styles.billReason}>Your comment: {s.vendorPaymentRejectReason}</div>
+                            ) : null}
+                            {s.vendorPaidAt && s.vendorPaymentNotes?.trim() ? (
+                              <div style={styles.billReason}>
+                                Vendor note: {s.vendorPaymentNotes.trim()}
+                              </div>
                             ) : null}
                             {s.vendorPaidAt ? (
                               <div style={styles.billActions}>
@@ -1576,6 +1631,7 @@ export function SettlementsPage() {
               if (t === 'records') openVendorRecords('collect');
             }}
             onCheckRecords={() => void remindOpenBills()}
+            onOpenAccountsCollect={openAccountsCollect}
             remindingBills={remindingId === 'bills'}
             awaitingBillCount={billsAwaitingVendor.length}
             paidBillCount={billsToConfirm.length}
@@ -1621,6 +1677,7 @@ export function SettlementsPage() {
               paysSubTab={vendorPaysSubTab}
               onPaysSubTab={setVendorPaysSubTab}
               onCheckRecords={() => void remindOpenBills()}
+              onOpenAccountsCollect={openAccountsCollect}
               remindingBills={remindingId === 'bills'}
               awaitingBillCount={billsAwaitingVendor.length}
               paidBillCount={billsToConfirm.length}
@@ -2274,6 +2331,12 @@ export function SettlementsPage() {
                   {billAsk.s.vendorPaymentMethod ?? '—'} · {billAsk.s.vendorPaymentReference ?? '—'}
                 </strong>
               </div>
+              {billAsk.s.vendorPaymentNotes?.trim() ? (
+                <div style={styles.dlgRow}>
+                  <span>Vendor note</span>
+                  <strong>{billAsk.s.vendorPaymentNotes.trim()}</strong>
+                </div>
+              ) : null}
               <BankPaidOnField
                 value={billBankPaidOn}
                 max={todayIstDate()}

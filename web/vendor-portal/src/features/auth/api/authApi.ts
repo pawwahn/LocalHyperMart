@@ -1,6 +1,7 @@
 import { apiRequest } from '@/shared/api/http';
 import type { AuthSession } from '@/shared/auth/session';
 import { resolveTownDisplayName } from '@/features/towns/api/townsApi';
+import { catalogHiddenForVendor } from '@/features/shop/hooks/useHidesListings';
 
 type LoginApiResponse = {
   accessToken: string;
@@ -37,10 +38,19 @@ export const PILOT_SHOP_NAME_BY_PHONE: Record<string, string> = {
   '9876500002': 'Siva General Store',
 };
 
+export async function refreshAccessToken(refreshToken: string): Promise<LoginApiResponse> {
+  return apiRequest<LoginApiResponse>('/api/v1/auth/refresh', {
+    method: 'POST',
+    body: { refreshToken },
+    skipAuthRetry: true,
+  });
+}
+
 export async function login(phone: string, password: string): Promise<AuthSession> {
   const data = await apiRequest<LoginApiResponse>('/api/v1/auth/login', {
     method: 'POST',
     body: { phone, password },
+    skipAuthRetry: true,
   });
 
   const roles = data.roles ?? [];
@@ -90,7 +100,7 @@ export async function login(phone: string, password: string): Promise<AuthSessio
     shopName: shopName ?? 'Your shop',
     townName,
     serviceName: me.serviceName ?? undefined,
-    hidesListings: Boolean(me.hidesListings) || /laundry/i.test(me.serviceName ?? ''),
+    hidesListings: catalogHiddenForVendor(me),
   };
 }
 
@@ -98,6 +108,7 @@ export async function forgotPassword(phone: string): Promise<void> {
   await apiRequest<null>('/api/v1/auth/forgot-password', {
     method: 'POST',
     body: { phone },
+    skipAuthRetry: true,
   });
 }
 
@@ -105,6 +116,7 @@ export async function resetPassword(phone: string, otp: string, newPassword: str
   await apiRequest<null>('/api/v1/auth/reset-password', {
     method: 'POST',
     body: { phone, otp, newPassword },
+    skipAuthRetry: true,
   });
 }
 

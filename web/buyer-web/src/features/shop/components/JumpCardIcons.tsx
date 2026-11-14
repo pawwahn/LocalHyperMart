@@ -38,6 +38,14 @@ export function JumpCardIcon({ id, color }: { id: ShopHomeJumpIcon; color: strin
           <path d="M6 21c0-3.3 2.7-6 6-6s6 2.7 6 6" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
         </svg>
       );
+    case 'diagnostics':
+      return (
+        <svg viewBox="0 0 24 24" style={style} fill="none" aria-hidden>
+          <path d="M8 4h8v3H8V4Z" stroke="currentColor" strokeWidth="1.75" strokeLinejoin="round" />
+          <path d="M7 9h10l-1.2 11H8.2L7 9Z" stroke="currentColor" strokeWidth="1.75" strokeLinejoin="round" />
+          <path d="M10 13h4M12 11v4" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
+        </svg>
+      );
     default:
       return null;
   }
@@ -56,11 +64,35 @@ export function ServiceGlamIcon({ style }: { style?: CSSProperties }) {
   );
 }
 
+export function ServiceDiagnosticsIcon({ style }: { style?: CSSProperties }) {
+  return (
+    <svg viewBox="0 0 24 24" style={{ ...svg, ...style }} fill="none" aria-hidden>
+      <path d="M8 4h8v3H8V4Z" stroke="currentColor" strokeWidth="1.75" strokeLinejoin="round" />
+      <path d="M7 9h10l-1.2 11H8.2L7 9Z" stroke="currentColor" strokeWidth="1.75" strokeLinejoin="round" />
+      <path d="M10 13h4M12 11v4" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 export function ServiceLaundryIcon({ style }: { style?: CSSProperties }) {
   return (
     <svg viewBox="0 0 24 24" style={{ ...svg, ...style }} fill="none" aria-hidden>
       <path d="M8 4.5h8l.7 2H7.3L8 4.5Z" stroke="currentColor" strokeWidth="1.75" strokeLinejoin="round" />
       <path d="M6.5 8.5h11l-.8 11.5a2 2 0 0 1-2 1.8H9.3a2 2 0 0 1-2-1.8L6.5 8.5Z" stroke="currentColor" strokeWidth="1.75" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+export function ServiceGroceryIcon({ style }: { style?: CSSProperties }) {
+  return (
+    <svg viewBox="0 0 24 24" style={{ ...svg, ...style }} fill="none" aria-hidden>
+      <path
+        d="M4.5 8.5h15l-1.2 9.2a2 2 0 0 1-2 1.8H7.7a2 2 0 0 1-2-1.8L4.5 8.5Z"
+        stroke="currentColor"
+        strokeWidth="1.75"
+        strokeLinejoin="round"
+      />
+      <path d="M8 8.5 9.4 4.8h5.2L16 8.5" stroke="currentColor" strokeWidth="1.75" strokeLinejoin="round" />
     </svg>
   );
 }

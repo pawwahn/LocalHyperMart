@@ -3,6 +3,7 @@ package com.hyperlocalmart.payment.web;
 import com.hyperlocalmart.common.api.ApiResponse;
 import com.hyperlocalmart.common.exception.BusinessException;
 import com.hyperlocalmart.common.exception.ErrorCode;
+import com.hyperlocalmart.common.security.PlatformAdminRoles;
 import com.hyperlocalmart.payment.dto.request.ReviewHubPlatformPaymentRequest;
 import com.hyperlocalmart.payment.dto.request.SubmitHubPlatformPaymentRequest;
 import com.hyperlocalmart.payment.dto.request.UpdateHubPlatformPaymentRequest;
@@ -10,6 +11,7 @@ import com.hyperlocalmart.payment.dto.response.HubPlatformPaymentPayableResponse
 import com.hyperlocalmart.payment.dto.response.HubPlatformPaymentReceiptResponse;
 import com.hyperlocalmart.payment.dto.response.HubPlatformPaymentSubmissionResponse;
 import com.hyperlocalmart.payment.security.AuthUserPrincipal;
+import com.hyperlocalmart.payment.security.PlatformAdminPrincipalAuth;
 import com.hyperlocalmart.payment.service.HubPlatformPaymentSubmissionService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -81,7 +83,7 @@ public class HubPlatformPaymentController {
             @RequestParam UUID townId,
             @RequestParam(required = false) UUID hubId,
             HttpServletRequest httpRequest) {
-        requireSuperAdmin(principal);
+        PlatformAdminPrincipalAuth.requireStaff(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, submissionService.listForAdmin(townId, hubId, principal.getUserId())));
     }
 
@@ -91,7 +93,7 @@ public class HubPlatformPaymentController {
             @PathVariable UUID submissionId,
             @RequestBody(required = false) ReviewHubPlatformPaymentRequest request,
             HttpServletRequest httpRequest) {
-        requireSuperAdmin(principal);
+        PlatformAdminPrincipalAuth.requireMoveMoney(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
                 submissionService.verify(submissionId, principal.getUserId(), request)));
     }
@@ -102,23 +104,19 @@ public class HubPlatformPaymentController {
             @PathVariable UUID submissionId,
             @Valid @RequestBody ReviewHubPlatformPaymentRequest request,
             HttpServletRequest httpRequest) {
-        requireSuperAdmin(principal);
+        PlatformAdminPrincipalAuth.requireMoveMoney(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
                 submissionService.reject(submissionId, principal.getUserId(), request)));
     }
 
     private static void requireHubAdmin(AuthUserPrincipal principal) {
-        if (principal == null
-                || principal.getRoles() == null
-                || (!principal.getRoles().contains("HUB_ADMIN")
-                && !principal.getRoles().contains("SUPER_ADMIN"))) {
+        if (principal == null || principal.getRoles() == null) {
             throw new BusinessException(ErrorCode.FORBIDDEN, "Hub admin role required");
         }
-    }
-
-    private static void requireSuperAdmin(AuthUserPrincipal principal) {
-        if (principal == null || principal.getRoles() == null || !principal.getRoles().contains("SUPER_ADMIN")) {
-            throw new BusinessException(ErrorCode.FORBIDDEN, "Super admin role required");
+        if (principal.getRoles().contains("HUB_ADMIN")
+                || PlatformAdminRoles.isPlatformStaff(principal.getRoles())) {
+            return;
         }
+        throw new BusinessException(ErrorCode.FORBIDDEN, "Hub admin role required");
     }
 }

@@ -12,6 +12,7 @@ import com.hyperlocalmart.payment.entity.SettlementStatus;
 import com.hyperlocalmart.payment.repository.CodCloseDayLineItemRepository;
 import com.hyperlocalmart.payment.repository.CodCloseDayRepository;
 import com.hyperlocalmart.payment.repository.CodHubPlatformRemittanceRepository;
+import com.hyperlocalmart.payment.repository.HubFranchiseWaiverRepository;
 import com.hyperlocalmart.payment.repository.HubPaymentRequestRepository;
 import com.hyperlocalmart.payment.repository.HubPlatformPaymentSubmissionLineRepository;
 import com.hyperlocalmart.payment.repository.SettlementRepository;
@@ -62,6 +63,7 @@ public class TownDuesService {
     private final CodCloseDayRepository closeDayRepository;
     private final CodHubPlatformRemittanceRepository remittanceRepository;
     private final HubPaymentRequestRepository requestRepository;
+    private final HubFranchiseWaiverRepository franchiseWaiverRepository;
     private final HubPlatformPaymentSubmissionLineRepository submissionLineRepository;
     private final SettlementRepository settlementRepository;
     private final TownClient townClient;
@@ -88,6 +90,16 @@ public class TownDuesService {
      */
     public TownDuesResponse dues(
             LocalDate from, LocalDate to, UUID townId, boolean includeOpenWork, boolean openWorkOnly) {
+        return dues(from, to, townId, includeOpenWork, openWorkOnly, null);
+    }
+
+    public TownDuesResponse dues(
+            LocalDate from,
+            LocalDate to,
+            UUID townId,
+            boolean includeOpenWork,
+            boolean openWorkOnly,
+            String openWorkActions) {
         long started = System.nanoTime();
         long ledgerMs = 0;
         long openMs = 0;
@@ -99,7 +111,7 @@ public class TownDuesService {
         }
         if (includeOpenWork || openWorkOnly) {
             long t0 = System.nanoTime();
-            drafts.addAll(openWorkDrafts(from, to, townId));
+            drafts.addAll(openWorkDrafts(from, to, townId, parseOpenWorkScope(openWorkActions)));
             openMs = (System.nanoTime() - t0) / 1_000_000;
         }
 
@@ -143,7 +155,7 @@ public class TownDuesService {
                 .towns(towns)
                 .build();
         log.info(
-                "Town dues loaded in {} ms (ledger {} ms, open {} ms) · towns={} lines={} townFilter={} openWork={} openWorkOnly={}",
+                "Town dues loaded in {} ms (ledger {} ms, open {} ms) · towns={} lines={} townFilter={} openWork={} openWorkOnly={} actions={}",
                 (System.nanoTime() - started) / 1_000_000,
                 ledgerMs,
                 openMs,
@@ -151,8 +163,32 @@ public class TownDuesService {
                 towns.stream().mapToInt(t -> t.getLines().size()).sum(),
                 townId,
                 includeOpenWork,
-                openWorkOnly);
+                openWorkOnly,
+                openWorkActions);
         return response;
+    }
+
+    static OpenAccountsService.OpenWorkScope parseOpenWorkScope(String actions) {
+        if (actions == null || actions.isBlank()) {
+            return OpenAccountsService.OpenWorkScope.ALL;
+        }
+        Set<String> tokens = new HashSet<>();
+        for (String part : actions.split(",")) {
+            String token = part == null ? "" : part.trim().toUpperCase(Locale.ROOT);
+            if (!token.isEmpty()) {
+                tokens.add(token);
+            }
+        }
+        if (tokens.isEmpty()) {
+            return OpenAccountsService.OpenWorkScope.ALL;
+        }
+        if (tokens.size() == 1 && tokens.contains("PAY")) {
+            return OpenAccountsService.OpenWorkScope.PAY_ONLY;
+        }
+        if (!tokens.contains("PAY") && tokens.stream().anyMatch(t -> "SEND_BILL".equals(t) || "COLLECT".equals(t) || "CONFIRM".equals(t))) {
+            return OpenAccountsService.OpenWorkScope.RECEIVE_ONLY;
+        }
+        return OpenAccountsService.OpenWorkScope.ALL;
     }
 
     @Transactional(readOnly = true)
@@ -166,10 +202,10 @@ public class TownDuesService {
     }
 
     /** Heavy scan — do not run inside a long DB transaction (HTTP to order/vendor/delivery). */
-    List<Draft> openWorkDrafts(LocalDate from, LocalDate to, UUID townId) {
+    List<Draft> openWorkDrafts(LocalDate from, LocalDate to, UUID townId, OpenAccountsService.OpenWorkScope scope) {
         List<Draft> drafts = new ArrayList<>();
         try {
-            for (OpenAccountsService.Line open : openAccountsService.scan(from, to, townId)) {
+            for (OpenAccountsService.Line open : openAccountsService.scan(from, to, townId, scope)) {
                 drafts.add(new Draft(
                         open.townId(),
                         open.party(),
@@ -188,6 +224,11 @@ public class TownDuesService {
                         open.codFee(),
                         open.membershipFee(),
                         open.penalty(),
+                        open.upiAppReceived(),
+                        open.upiOrderCount(),
+                        open.shopCodCash(),
+                        null,
+                        null,
                         null,
                         null,
                         null,
@@ -226,6 +267,11 @@ public class TownDuesService {
                     date(row[5]),
                     amount,
                     count,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
                     null,
                     null,
                     null,
@@ -288,7 +334,12 @@ public class TownDuesService {
                     null,
                     null,
                     null,
+                    null,
+                    null,
+                    null,
                     confirm ? row.getSubmissionId() : null,
+                    franchise && !confirm ? row.getId() : null,
+                    null,
                     null,
                     null));
         }
@@ -307,6 +358,12 @@ public class TownDuesService {
                 case AGENT -> "AGENT";
             };
             boolean collection = row.getDirection() == SettlementDirection.COLLECTION;
+            BigDecimal shopCod = collection
+                    && row.getPayeeType() == SettlementPayeeType.VENDOR
+                    && row.getGrossAmount() != null
+                    && row.getGrossAmount().signum() > 0
+                    ? money(row.getGrossAmount())
+                    : null;
             String action;
             String what;
             if (!collection) {
@@ -350,10 +407,15 @@ public class TownDuesService {
                     null,
                     null,
                     null,
+                    null,
+                    null,
+                    shopCod,
                     settlementDueId(row, action),
                     null,
+                    null,
                     row.getVendorPaymentMethod(),
-                    row.getVendorPaymentReference()));
+                    row.getVendorPaymentReference(),
+                    row.getVendorPaymentNotes()));
         }
         return out;
     }
@@ -416,6 +478,11 @@ public class TownDuesService {
                             null,
                             null,
                             null,
+                            null,
+                            null,
+                            null,
+                            null,
+                            null,
                             null));
                 }
             }
@@ -435,6 +502,9 @@ public class TownDuesService {
             addFranchiseKey(keys, uuid(row[0]), date(row[1]));
         }
         for (Object[] row : submissionLineRepository.findVerifiedFranchisePeriodStarts(from, to)) {
+            addFranchiseKey(keys, uuid(row[0]), date(row[1]));
+        }
+        for (Object[] row : franchiseWaiverRepository.findKeysBetween(from, to)) {
             addFranchiseKey(keys, uuid(row[0]), date(row[1]));
         }
         return keys;
@@ -551,10 +621,15 @@ public class TownDuesService {
             BigDecimal codFee,
             BigDecimal membershipFee,
             BigDecimal penalty,
+            BigDecimal upiAppReceived,
+            Integer upiOrderCount,
+            BigDecimal shopCodCash,
             UUID settlementId,
             UUID submissionId,
+            UUID hubPaymentRequestId,
             String paymentMethod,
-            String paymentReference) {
+            String paymentReference,
+            String paymentNotes) {
         TownDuesResponse.Line toLine() {
             return TownDuesResponse.Line.builder()
                     .party(party)
@@ -571,12 +646,17 @@ public class TownDuesService {
                     .codFee(codFee)
                     .membershipFee(membershipFee)
                     .penalty(penalty)
+                    .upiAppReceived(upiAppReceived)
+                    .upiOrderCount(upiOrderCount)
+                    .shopCodCash(shopCodCash)
                     .itemCount(itemCount)
                     .reference(reference)
                     .settlementId(settlementId)
                     .submissionId(submissionId)
+                    .hubPaymentRequestId(hubPaymentRequestId)
                     .paymentMethod(paymentMethod)
                     .paymentReference(paymentReference)
+                    .paymentNotes(paymentNotes)
                     .build();
         }
     }

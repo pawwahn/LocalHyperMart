@@ -31,12 +31,11 @@ import { ensureShopHomeAislesCss } from '../components/shopHomeAisles.css';
 import { BestDealsSheet } from '../components/BestDealsSheet';
 import { groupCategoriesIntoAisles } from '../lib/aisles';
 import { useBrowserVoiceSearch } from '../hooks/useBrowserVoiceSearch';
+import { foodCartLandingPath } from '@/features/food/lib/foodCartLanding';
 import { useShop } from '../hooks/useShop';
 import { BuyAgainBar } from '../components/BuyAgainBar';
 import { ShopHomeJumpCarousel } from '../components/ShopHomeJumpCarousel';
-import { ShopServiceBannerCarousel } from '../components/ShopServiceBannerCarousel';
 import { buildShopHomeJumpCards, HOME_RAIL_SECTION_IDS } from '../config/shopHomeJumpCards';
-import { buildShopServiceBanners } from '../config/shopServiceBanners';
 import { IconMic, IconMicActive, IconSearch } from '@/shared/ui/ChromeIcons';
 
 const SEARCH_HINTS = ['Egg', 'Bread', 'Milk', 'Rice', 'Maggi', 'Tomato'];
@@ -109,10 +108,8 @@ export function ShopPage({ browseOnly = false }: Props) {
     townLabel,
     bestDealsEnabled,
     deliveryWindowLabel,
-    beautyEnabled,
-    beautyReady,
-    laundryEnabled,
-    laundryReady,
+    groceryEnabled,
+    groceryReady,
   } = useTown();
   const {
     cart,
@@ -127,6 +124,7 @@ export function ShopPage({ browseOnly = false }: Props) {
     doDecrease,
     setError,
     setNotice,
+    foodBasketActive,
   } = useShop();
   const [categoryId, setCategoryId] = useState<string | null>(null);
   const [categoryName, setCategoryName] = useState<string>('');
@@ -450,12 +448,10 @@ export function ShopPage({ browseOnly = false }: Props) {
     [discountPool, bestsellerPool, featuredDiscounted, popularFallback, buyAgainIds],
   );
   const showOffers = offerItems.length >= 2;
-  const jumpCards = useMemo(() => buildShopHomeJumpCards(townLabel), [townLabel]);
-  const serviceBanners = useMemo(
-    () => buildShopServiceBanners({ beautyEnabled, laundryEnabled }),
-    [beautyEnabled, laundryEnabled],
+  const jumpCards = useMemo(
+    () => buildShopHomeJumpCards(townLabel),
+    [townLabel],
   );
-  const townServicesReady = beautyReady && laundryReady;
 
   const loadPage = useCallback(
     async (nextPage: number, append: boolean) => {
@@ -563,6 +559,23 @@ export function ShopPage({ browseOnly = false }: Props) {
     setProducts([]);
     setCatalogLoading(true);
     setCatalogError(null);
+  }
+
+  const foodLanding = foodCartLandingPath(cart, foodBasketActive);
+  useEffect(() => {
+    if (!foodLanding) return;
+    navigate(foodLanding, { replace: true });
+  }, [foodLanding, navigate]);
+
+  if (groceryReady && !groceryEnabled) {
+    return (
+      <PortalShell title="Grocery" subtitle={townLabel || 'Your town'} showStickyCart={false}>
+        <p style={{ margin: '0.5rem 0', color: 'var(--text-muted)', lineHeight: 1.45 }}>
+          Grocery shopping is turned off in {townLabel || 'this town'} right now. Use <strong>Services</strong> in the
+          bottom bar for food, glam, laundry, and other options.
+        </p>
+      </PortalShell>
+    );
   }
 
   return (
@@ -676,18 +689,9 @@ export function ShopPage({ browseOnly = false }: Props) {
             />
           )}
           {!browseOnly && !inCategory && !searching ? (
-            <ShopHomeJumpCarousel cards={jumpCards} />
+            <ShopHomeJumpCarousel cards={jumpCards} onNavigate={(path) => navigate(path)} />
           ) : null}
-          {!browseOnly && !inCategory && !searching && townServicesReady && serviceBanners.length > 0 ? (
-            <ShopServiceBannerCarousel banners={serviceBanners} />
-          ) : null}
-          {!browseOnly &&
-          !inCategory &&
-          !searching &&
-          buyAgainItems.length === 0 &&
-          isAuthenticated &&
-          session?.accessToken &&
-          townId ? (
+          {!browseOnly && !inCategory && !searching && isAuthenticated && session?.accessToken && townId ? (
             <BuyAgainBar
               townId={townId}
               token={session.accessToken}

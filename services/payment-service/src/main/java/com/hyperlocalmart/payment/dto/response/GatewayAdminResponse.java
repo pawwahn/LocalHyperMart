@@ -11,10 +11,14 @@ public class GatewayAdminResponse {
     String label;
     boolean enabled;
     String clientId;
+    /** Never returned — use {@link #clientSecretConfigured}. */
     String clientSecret;
+    boolean clientSecretConfigured;
     String clientVersion;
     String webhookSecret;
+    boolean webhookSecretConfigured;
     String webhookUsername;
     String webhookPassword;
+    boolean webhookPasswordConfigured;
     String environment;
 }

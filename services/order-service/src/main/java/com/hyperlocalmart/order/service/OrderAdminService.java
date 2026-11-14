@@ -1,6 +1,7 @@
 package com.hyperlocalmart.order.service;
 
 import com.hyperlocalmart.common.api.PageResponse;
+import com.hyperlocalmart.common.security.PlatformAdminRoles;
 import com.hyperlocalmart.common.exception.BusinessException;
 import com.hyperlocalmart.common.exception.ErrorCode;
 import com.hyperlocalmart.order.client.DeliveryClient;
@@ -74,7 +75,7 @@ public class OrderAdminService {
             int page,
             int size) {
         if (buyerId != null) {
-            if (!roles.contains("SUPER_ADMIN")) {
+            if (!PlatformAdminRoles.isPlatformStaff(roles)) {
                 if (townId == null) {
                     throw new BusinessException(ErrorCode.VALIDATION_ERROR, "townId is required");
                 }
@@ -237,11 +238,11 @@ public class OrderAdminService {
     }
 
     private void validateTownAccess(UUID actorUserId, List<String> roles, UUID townId) {
-        if (roles.contains("SUPER_ADMIN")) {
+        if (PlatformAdminRoles.isPlatformStaff(roles)) {
             return;
         }
         if (!roles.contains("HUB_ADMIN")) {
-            throw new BusinessException(ErrorCode.FORBIDDEN, "Hub admin or super admin role required");
+            throw new BusinessException(ErrorCode.FORBIDDEN, "Hub admin or app admin role required");
         }
         DeliveryClient.HubAdminContext context = deliveryClient.getHubAdminContext(actorUserId);
         if (!context.townId().equals(townId)) {

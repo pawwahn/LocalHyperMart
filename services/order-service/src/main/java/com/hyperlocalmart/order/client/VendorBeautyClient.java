@@ -5,6 +5,7 @@ import com.hyperlocalmart.common.beauty.BeautyStaffOverrides;
 import com.hyperlocalmart.common.api.ApiResponse;
 import com.hyperlocalmart.common.exception.BusinessException;
 import com.hyperlocalmart.common.exception.ErrorCode;
+import com.hyperlocalmart.order.config.RestClientFactory;
 import com.hyperlocalmart.order.config.VendorServiceProperties;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import lombok.RequiredArgsConstructor;
@@ -21,11 +22,11 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class VendorBeautyClient {
 
-    private final RestClient.Builder restClientBuilder;
+    private final RestClientFactory restClients;
     private final VendorServiceProperties vendorServiceProperties;
 
     public List<BeautyArtistView> bookableArtists(UUID townId) {
-        RestClient client = restClientBuilder.baseUrl(vendorServiceProperties.getBaseUrl()).build();
+        RestClient client = restClients.forBaseUrl(vendorServiceProperties.getBaseUrl());
         try {
             ApiResponse<List<BeautyArtistView>> response = client.get()
                     .uri("/api/v1/internal/vendors/beauty/artists?townId={townId}", townId)
@@ -36,12 +37,14 @@ public class VendorBeautyClient {
             }
             return response.getData();
         } catch (RestClientResponseException ex) {
+            throw vendorListFailure(ex, "Could not load beauty artists");
+        } catch (Exception ex) {
             throw new BusinessException(ErrorCode.INTERNAL_ERROR, "Could not load beauty artists");
         }
     }
 
     public BeautyArtistView artist(UUID vendorId) {
-        RestClient client = restClientBuilder.baseUrl(vendorServiceProperties.getBaseUrl()).build();
+        RestClient client = restClients.forBaseUrl(vendorServiceProperties.getBaseUrl());
         try {
             ApiResponse<BeautyArtistView> response = client.get()
                     .uri("/api/v1/internal/vendors/beauty/artists/{vendorId}", vendorId)
@@ -57,7 +60,7 @@ public class VendorBeautyClient {
     }
 
     public void applyRatingAggregate(java.util.UUID vendorId, java.math.BigDecimal ratingScore, int ratingCount) {
-        RestClient client = restClientBuilder.baseUrl(vendorServiceProperties.getBaseUrl()).build();
+        RestClient client = restClients.forBaseUrl(vendorServiceProperties.getBaseUrl());
         try {
             client.post()
                     .uri("/api/v1/internal/vendors/beauty/artists/{vendorId}/rating-aggregate", vendorId)
@@ -70,7 +73,7 @@ public class VendorBeautyClient {
     }
 
     public UUID vendorIdForUser(UUID userId) {
-        RestClient client = restClientBuilder.baseUrl(vendorServiceProperties.getBaseUrl()).build();
+        RestClient client = restClients.forBaseUrl(vendorServiceProperties.getBaseUrl());
         try {
             ApiResponse<java.util.Map<String, String>> response = client.get()
                     .uri("/api/v1/internal/vendors/beauty/by-user/{userId}", userId)
@@ -152,6 +155,15 @@ public class VendorBeautyClient {
         public int staffCapacityFor(java.time.LocalDate day) {
             return BeautyStaffOverrides.effective(staffCapacity(), staffOverrides, day);
         }
+    }
+
+    private static BusinessException vendorListFailure(RestClientResponseException ex, String defaultFallback) {
+        if (ex.getStatusCode().value() == 404) {
+            return new BusinessException(ErrorCode.INTERNAL_ERROR,
+                    "Could not reach vendor-service for glam listings — restart order-service and vendor-service after diagnostics deploy, "
+                            + "and ensure HLM_INTERNAL_SERVICE_SECRET matches on every service");
+        }
+        return mapClientError(ex, defaultFallback, defaultFallback);
     }
 
     private static BusinessException mapClientError(

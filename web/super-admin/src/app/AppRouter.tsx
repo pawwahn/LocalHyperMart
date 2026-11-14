@@ -7,6 +7,7 @@ import { AuthProvider } from '@/shared/auth/AuthContext';
 import { RequireAuth } from '@/shared/routing/RequireAuth';
 import { LoginPage } from '@/features/auth/pages/LoginPage';
 import { CookieNotice, LegalDocumentPage, OpenSourceNoticesPage } from '@hlm-legal';
+import { DiagnosticsAdminPage } from '@/features/diagnostics/pages/DiagnosticsAdminPage';
 
 const DashboardPage = lazy(() =>
   import('@/features/dashboard/pages/DashboardPage').then((m) => ({ default: m.DashboardPage })),
@@ -91,6 +92,9 @@ const CompliancePage = lazy(() =>
 const PaymentGatewaysPage = lazy(() =>
   import('@/features/payments/pages/PaymentGatewaysPage').then((m) => ({ default: m.PaymentGatewaysPage })),
 );
+const PaymentLookupPage = lazy(() =>
+  import('@/features/payments/pages/PaymentLookupPage').then((m) => ({ default: m.PaymentLookupPage })),
+);
 
 function RouteFallback() {
   return <p style={{ margin: '1rem', color: 'var(--text-muted)' }}>Loading…</p>;
@@ -123,6 +127,8 @@ export function AppRouter() {
                 <Route path="/grocery" element={<GroceryAdminPage />} />
                 <Route path="/laundry" element={<LaundryAdminPage />} />
                 <Route path="/beauty" element={<BeautyAdminPage />} />
+                <Route path="/diagnostics" element={<DiagnosticsAdminPage />} />
+                <Route path="/diagnostics/*" element={<DiagnosticsAdminPage />} />
                 <Route path="/vendor-billing" element={<VendorBillingPage />} />
                 <Route path="/catalog" element={<CatalogPage />} />
                 <Route path="/recipes" element={<RecipesPage />} />
@@ -134,7 +140,9 @@ export function AppRouter() {
                 <Route path="/cash" element={<CashPage />} />
                 <Route path="/hubs" element={<HubsPage />} />
                 <Route path="/agents" element={<AgentsPage />} />
-                <Route path="/payments" element={<PaymentGatewaysPage />} />
+                <Route path="/payments" element={<Navigate to="/payments/lookup" replace />} />
+                <Route path="/payments/lookup" element={<PaymentLookupPage />} />
+                <Route path="/payments/gateways" element={<PaymentGatewaysPage />} />
                 <Route path="/compliance" element={<CompliancePage />} />
                 <Route path="/settings" element={<SettingsPage />} />
               </Route>

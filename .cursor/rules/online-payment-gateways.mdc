@@ -16,6 +16,7 @@ alwaysApply: false
 ## Gateway session creation
 
 - **Cashfree and PhonePe** must create gateway session **synchronously** on initiate and on `GET /payments/{id}/checkout` — do not queue behind Razorpay workers.
+- **Peak load:** `hyperlocalmart.payment.admission` (Redis, cluster-wide initiates/sec) and `psp-outbound` (concurrent PSP API calls) — idempotent retries skip admission; Cashfree/PhonePe still sync inside the PSP limiter.
 - When switching gateway on a pending payment row, clear `gatewayOrderId` and `gatewaySession`.
 - `needsGatewaySync`: also true when Cashfree has order id but no `gatewaySession`.
 

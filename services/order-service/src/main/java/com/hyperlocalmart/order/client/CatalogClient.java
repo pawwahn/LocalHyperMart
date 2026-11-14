@@ -1,6 +1,7 @@
 package com.hyperlocalmart.order.client;
 
 import com.hyperlocalmart.common.api.ApiResponse;
+import com.hyperlocalmart.order.config.RestClientFactory;
 import com.hyperlocalmart.order.config.CatalogServiceProperties;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.ParameterizedTypeReference;
@@ -17,7 +18,7 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class CatalogClient {
 
-    private final RestClient.Builder restClientBuilder;
+    private final RestClientFactory restClients;
     private final CatalogServiceProperties catalogServiceProperties;
 
     public ListingSnapshot getListing(UUID listingId, UUID townId) {
@@ -30,7 +31,7 @@ public class CatalogClient {
     }
 
     private ListingSnapshot getListing(UUID listingId, UUID townId, boolean requireActive) {
-        RestClient client = restClientBuilder.baseUrl(catalogServiceProperties.getBaseUrl()).build();
+        RestClient client = restClients.forBaseUrl(catalogServiceProperties.getBaseUrl());
         ApiResponse<ListingSnapshot> response = client.get()
                 .uri(uriBuilder -> uriBuilder
                         .path("/api/v1/internal/listings/{listingId}")
@@ -46,7 +47,7 @@ public class CatalogClient {
     }
 
     public void applyListingRating(UUID listingId, int stars, Integer previousStars) {
-        RestClient client = restClientBuilder.baseUrl(catalogServiceProperties.getBaseUrl()).build();
+        RestClient client = restClients.forBaseUrl(catalogServiceProperties.getBaseUrl());
         Map<String, Object> body = new HashMap<>();
         body.put("stars", stars);
         if (previousStars != null) {

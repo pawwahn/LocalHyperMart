@@ -1,5 +1,5 @@
 import type { CSSProperties, ReactNode } from 'react';
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { HeaderIconButton } from '@hlm-theme';
@@ -16,11 +16,14 @@ import {
   IconBasket,
   IconGrid,
   IconHome,
-  IconBeauty,
-  IconLaundry,
   IconMore,
+  IconServices,
   IconWallet,
 } from '@/features/shop/components/NavIcons';
+import { foodCartLandingPath } from '@/features/food/lib/foodCartLanding';
+import { buildShopServiceBanners } from '@/features/shop/config/shopServiceBanners';
+import { ServicesPickerSheet } from '@/features/shop/components/ServicesPickerSheet';
+import { useBuyerAlerts } from '@/features/shop/hooks/useBuyerAlerts';
 
 type Props = {
   title?: string;
@@ -55,17 +58,74 @@ export function PortalShell({
 }: Props) {
   const { session, logout } = useAuth();
   const buyerName = useBuyerDisplayName();
-  const { townLabel, openPicker, deliveryWindowLabel, laundryEnabled, beautyEnabled } = useTown();
-  const serviceTabCount = (laundryEnabled ? 1 : 0) + (beautyEnabled ? 1 : 0);
-  const { cart } = useShop();
+  const {
+    townLabel,
+    openPicker,
+    deliveryWindowLabel,
+    laundryEnabled,
+    laundryReady,
+    beautyEnabled,
+    beautyReady,
+    diagnosticsEnabled,
+    diagnosticsReady,
+    foodDeliveryEnabled,
+    foodDeliveryReady,
+    groceryEnabled,
+    groceryReady,
+  } = useTown();
+  const { cart, foodBasketActive } = useShop();
+  const townServicesReady = laundryReady && beautyReady && diagnosticsReady && foodDeliveryReady && groceryReady;
+  const townServices = useMemo(() => {
+    const banners = buildShopServiceBanners({
+      groceryEnabled,
+      beautyEnabled,
+      laundryEnabled,
+      diagnosticsEnabled,
+      foodDeliveryEnabled,
+    });
+    if (cart?.foodCart || foodBasketActive) {
+      return banners.filter((b) => b.id === 'food');
+    }
+    return banners;
+  }, [
+    groceryEnabled,
+    beautyEnabled,
+    laundryEnabled,
+    diagnosticsEnabled,
+    foodDeliveryEnabled,
+    cart?.foodCart,
+    foodBasketActive,
+  ]);
+  const foodLanding = foodCartLandingPath(cart, foodBasketActive);
+  const homeTabTo = foodLanding ?? '/shop';
+  const categoriesTabTo = foodLanding ?? '/categories';
+  const showServicesTab = townServicesReady && townServices.length > 0;
+  const tabCount = 5 + (showServicesTab ? 1 : 0);
+  const [servicesSheetOpen, setServicesSheetOpen] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
+  const onServiceRoute =
+    location.pathname.startsWith('/beauty') ||
+    location.pathname.startsWith('/laundry') ||
+    location.pathname.startsWith('/diagnostics') ||
+    location.pathname.startsWith('/food');
+  useEffect(() => {
+    setServicesSheetOpen(false);
+  }, [location.pathname]);
+
+  useEffect(() => {
+    if (!foodLanding) return;
+    if (location.pathname === '/shop' || location.pathname === '/categories') {
+      navigate(foodLanding, { replace: true });
+    }
+  }, [foodLanding, location.pathname, navigate]);
   const onCart = location.pathname.startsWith('/cart');
   const resolvedCount = cartCount ?? cart?.itemCount ?? 0;
   const resolvedTotal = cartTotalLabel ?? cart?.payableLabel;
   const showFloatingCart = showStickyCart && !onCart && resolvedCount > 0;
   const hasFooter = Boolean(footerSlot);
   const [refreshing, setRefreshing] = useState(false);
+  const { unreadCount } = useBuyerAlerts();
 
   async function handleRefresh() {
     if (!onRefresh || refreshing) return;
@@ -90,6 +150,11 @@ export function PortalShell({
       }}
     >
       <TownPickerSheet />
+      <ServicesPickerSheet
+        open={servicesSheetOpen}
+        services={townServices}
+        onClose={() => setServicesSheetOpen(false)}
+      />
       <header style={shopChrome ? styles.headerShop : styles.header}>
         {shopChrome ? null : (
           <div style={styles.brandRow}>
@@ -105,11 +170,11 @@ export function PortalShell({
             <div style={styles.headerActions}>
               {session ? (
                 <HeaderIconButton
-                  label="Order alerts"
+                  label={unreadCount > 0 ? `Order alerts, ${unreadCount} new` : 'Order alerts'}
                   onClick={() => navigate('/alerts')}
                   style={styles.headerIcon}
                 >
-                  <IconBell />
+                  <AlertBell unreadCount={unreadCount} />
                 </HeaderIconButton>
               ) : null}
               {onRefresh ? (
@@ -171,11 +236,11 @@ export function PortalShell({
                   {session ? (
                     <>
                       <HeaderIconButton
-                        label="Order alerts"
+                        label={unreadCount > 0 ? `Order alerts, ${unreadCount} new` : 'Order alerts'}
                         onClick={() => navigate('/alerts')}
                         style={styles.shopIconBtn}
                       >
-                        <IconBell />
+                        <AlertBell unreadCount={unreadCount} />
                       </HeaderIconButton>
                       <button
                         type="button"
@@ -241,13 +306,13 @@ export function PortalShell({
         className="hlm-buyer-tabbar"
         style={{
           ...styles.tabbar,
-          gridTemplateColumns: `repeat(${5 + serviceTabCount}, 1fr)`,
+          gridTemplateColumns: `repeat(${tabCount}, 1fr)`,
         }}
         aria-label="Primary"
       >
-        <Tab to="/shop" current={location.pathname} label="Home" icon={(active) => <IconHome active={active} />} />
+        <Tab to={homeTabTo} current={location.pathname} label="Home" icon={(active) => <IconHome active={active} />} />
         <Tab
-          to="/categories"
+          to={categoriesTabTo}
           current={location.pathname}
           label="Categories"
           icon={(active) => <IconGrid active={active} />}
@@ -259,20 +324,18 @@ export function PortalShell({
           badge={resolvedCount}
           icon={(active) => <IconBasket active={active} />}
         />
-        {beautyEnabled ? (
-          <Tab
-            to="/beauty"
-            current={location.pathname}
-            label="Glam"
-            icon={(active) => <IconBeauty active={active} />}
-          />
-        ) : null}
-        {laundryEnabled ? (
-          <Tab
-            to="/laundry"
-            current={location.pathname}
-            label="Laundry"
-            icon={(active) => <IconLaundry active={active} />}
+        {showServicesTab ? (
+          <TabAction
+            label="Services"
+            active={servicesSheetOpen || onServiceRoute}
+            icon={(active) => <IconServices active={active} />}
+            onClick={() => {
+              if (townServices.length === 1) {
+                navigate(townServices[0].to);
+                return;
+              }
+              setServicesSheetOpen(true);
+            }}
           />
         ) : null}
         <Tab
@@ -284,6 +347,19 @@ export function PortalShell({
         <Tab to="/more" current={location.pathname} label="More" icon={(active) => <IconMore active={active} />} />
       </nav>
     </div>
+  );
+}
+
+function AlertBell({ unreadCount }: { unreadCount: number }) {
+  return (
+    <span style={styles.alertBellWrap}>
+      <IconBell />
+      {unreadCount > 0 ? (
+        <span style={styles.alertBellBadge} aria-hidden>
+          {unreadCount > 9 ? '9+' : unreadCount}
+        </span>
+      ) : null}
+    </span>
   );
 }
 
@@ -316,6 +392,32 @@ function Tab({
       </span>
       <span>{label}</span>
     </Link>
+  );
+}
+
+function TabAction({
+  icon,
+  label,
+  active,
+  onClick,
+}: {
+  icon: (active: boolean) => ReactNode;
+  label: string;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className={active ? 'hlm-buyer-tab hlm-buyer-tab--active' : 'hlm-buyer-tab'}
+      style={{ ...(active ? styles.tabActive : styles.tab), ...styles.tabButton }}
+      onClick={onClick}
+    >
+      <span style={styles.tabIcon} aria-hidden>
+        {icon(active)}
+      </span>
+      <span>{label}</span>
+    </button>
   );
 }
 
@@ -662,6 +764,13 @@ const styles: Record<string, CSSProperties> = {
     zIndex: 50,
     boxSizing: 'border-box',
   },
+  tabButton: {
+    border: 'none',
+    background: 'transparent',
+    cursor: 'pointer',
+    font: 'inherit',
+    width: '100%',
+  },
   tab: {
     display: 'grid',
     placeItems: 'center',
@@ -685,6 +794,24 @@ const styles: Record<string, CSSProperties> = {
     minHeight: 'var(--touch-min)',
   },
   tabIcon: { position: 'relative', lineHeight: 1 },
+  alertBellWrap: { position: 'relative', display: 'inline-grid', placeItems: 'center', lineHeight: 1 },
+  alertBellBadge: {
+    position: 'absolute',
+    top: -5,
+    right: -7,
+    minWidth: 15,
+    height: 15,
+    padding: '0 3px',
+    borderRadius: 999,
+    background: '#dc2626',
+    color: '#fff',
+    fontSize: '0.58rem',
+    fontWeight: 800,
+    display: 'inline-grid',
+    placeItems: 'center',
+    border: '1.5px solid var(--bg-elevated, #fff)',
+    lineHeight: 1,
+  },
   tabBadge: {
     position: 'absolute',
     top: -6,

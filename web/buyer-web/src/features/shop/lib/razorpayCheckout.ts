@@ -68,6 +68,13 @@ function loadCheckoutScript(): Promise<void> {
   return loading;
 }
 
+/** Start checkout.js while the buyer is still choosing a slot, so Pay does not wait on the script. */
+export function preloadRazorpayCheckout(): void {
+  void loadCheckoutScript().catch(() => {
+    // Confirm loads it again and surfaces the error there.
+  });
+}
+
 export async function openRazorpayCheckout(
   checkout: GatewayCheckout,
   prefill?: { contact?: string; name?: string },

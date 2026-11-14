@@ -1,11 +1,10 @@
 package com.hyperlocalmart.vendor.web;
 
 import com.hyperlocalmart.common.api.ApiResponse;
-import com.hyperlocalmart.common.exception.BusinessException;
-import com.hyperlocalmart.common.exception.ErrorCode;
 import com.hyperlocalmart.vendor.dto.request.UpsertLaundryProfileRequest;
 import com.hyperlocalmart.vendor.dto.response.LaundryShopResponse;
 import com.hyperlocalmart.vendor.security.AuthUserPrincipal;
+import com.hyperlocalmart.vendor.security.PlatformAdminPrincipalAuth;
 import com.hyperlocalmart.vendor.service.LaundryVendorService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -35,7 +34,7 @@ public class LaundryAdminController {
             @AuthenticationPrincipal AuthUserPrincipal principal,
             @RequestParam UUID townId,
             HttpServletRequest httpRequest) {
-        requireAdmin(principal);
+        PlatformAdminPrincipalAuth.requireStaff(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, laundryVendorService.listForTown(townId, false)));
     }
 
@@ -44,7 +43,7 @@ public class LaundryAdminController {
             @AuthenticationPrincipal AuthUserPrincipal principal,
             @PathVariable UUID vendorId,
             HttpServletRequest httpRequest) {
-        requireAdmin(principal);
+        PlatformAdminPrincipalAuth.requireStaff(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, laundryVendorService.get(vendorId, true, true)));
     }
 
@@ -54,14 +53,8 @@ public class LaundryAdminController {
             @PathVariable UUID vendorId,
             @Valid @RequestBody UpsertLaundryProfileRequest request,
             HttpServletRequest httpRequest) {
-        requireAdmin(principal);
+        PlatformAdminPrincipalAuth.requireWrite(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
                 laundryVendorService.upsertByAdmin(vendorId, principal.getUserId(), request)));
-    }
-
-    private static void requireAdmin(AuthUserPrincipal principal) {
-        if (principal == null || !principal.getRoles().contains("SUPER_ADMIN")) {
-            throw new BusinessException(ErrorCode.FORBIDDEN, "Super admin role required");
-        }
     }
 }

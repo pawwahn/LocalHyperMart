@@ -68,6 +68,26 @@ public class UpdateTownConfigRequest {
     /** Makeup & beauty bookings can be placed in this town. */
     private Boolean beautyEnabled;
 
+    /** Home diagnostics / lab bookings in this town. */
+    private Boolean diagnosticsEnabled;
+
+    /** Food delivery from local hotels / restaurants in this town. */
+    private Boolean foodDeliveryEnabled;
+
+    /** Grocery shop catalog and cart in this town. */
+    private Boolean groceryEnabled;
+
+    /** Flat platform fee (₹) per diagnostics order in this town. */
+    @DecimalMin("0.0")
+    private BigDecimal diagnosticsPlatformFeeFlat;
+
+    /** Allow COD on diagnostics orders in this town. */
+    private Boolean diagnosticsCodEnabled;
+
+    /** Extra COD surcharge (₹) on diagnostics orders. */
+    @DecimalMin("0.0")
+    private BigDecimal diagnosticsCodSurchargeAmount;
+
     /** Minimum online prepay (INR) for glam “pay at parlour” bookings. 0 = full payment only. */
     @DecimalMin("0.0")
     private BigDecimal beautyMinPrepayAmount;

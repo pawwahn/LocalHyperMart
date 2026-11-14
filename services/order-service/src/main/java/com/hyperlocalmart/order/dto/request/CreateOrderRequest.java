@@ -28,4 +28,7 @@ public class CreateOrderRequest {
      * Default false — credit stays in the wallet unless the buyer opts in.
      */
     private boolean useStoreCredit;
+
+    /** When true, hotel staff delivers (vendor agent). Hub delivery when false or omitted. */
+    private Boolean vendorAgentDelivery;
 }

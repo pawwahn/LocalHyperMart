@@ -3,6 +3,7 @@ package com.hyperlocalmart.order.client;
 import com.hyperlocalmart.common.api.ApiResponse;
 import com.hyperlocalmart.common.exception.BusinessException;
 import com.hyperlocalmart.common.exception.ErrorCode;
+import com.hyperlocalmart.order.config.RestClientFactory;
 import com.hyperlocalmart.order.config.UserServiceProperties;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.ParameterizedTypeReference;
@@ -17,11 +18,11 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class AddressClient {
 
-    private final RestClient.Builder restClientBuilder;
+    private final RestClientFactory restClients;
     private final UserServiceProperties userServiceProperties;
 
     public Map<String, Object> getAddressSnapshot(UUID addressId, UUID userId, UUID townId) {
-        RestClient client = restClientBuilder.baseUrl(userServiceProperties.getBaseUrl()).build();
+        RestClient client = restClients.forBaseUrl(userServiceProperties.getBaseUrl());
         try {
             ApiResponse<Map<String, Object>> response = client.get()
                     .uri(uriBuilder -> uriBuilder

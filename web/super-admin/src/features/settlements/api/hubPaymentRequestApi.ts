@@ -113,3 +113,15 @@ export async function cancelHubPaymentRequest(token: string, requestId: string):
     body: {},
   });
 }
+
+/** Skip hub franchise for a month — removes Accounts row and cancels an open ISSUED bill if any. */
+export async function waiveHubFranchiseMonth(
+  token: string,
+  body: { townId: string; hubId: string; billingYear: number; billingMonth: number; reason?: string },
+): Promise<void> {
+  await apiRequest<void>('/api/v1/payments/hub/payment-requests/franchise/waive', {
+    method: 'POST',
+    token,
+    body,
+  });
+}

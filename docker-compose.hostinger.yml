@@ -1,0 +1,7 @@
+# Use with QA stack on a VPS: bind web only on localhost so host nginx can use :80/:443
+#   docker compose -f docker-compose.qa.yml -f docker-compose.hostinger.yml --env-file .env.qa up -d --build
+
+services:
+  web:
+    ports:
+      - "127.0.0.1:8080:80"

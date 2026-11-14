@@ -11,6 +11,7 @@ import {
   parseDraftPricing,
   setListingImages,
   updateListingActive,
+  updateListingBuyerOutOfStock,
   updateListingPricing,
   uploadListingImage,
   type CategoryView,
@@ -483,6 +484,32 @@ export function useVendorListings() {
     }
   }
 
+  async function toggleListingOutOfStock(listing: ListingView) {
+    if (!session) return;
+    const markOutOfStock = !listing.buyerOutOfStock;
+    setActionId(listing.id);
+    setError(null);
+    setNotice(null);
+    try {
+      const updated = await updateListingBuyerOutOfStock(
+        session.accessToken,
+        session.vendorId,
+        listing.id,
+        markOutOfStock,
+      );
+      applyListingUpdates([updated]);
+      setNotice(
+        markOutOfStock
+          ? `“${listing.name}” stays visible to buyers but cannot be added to cart until you mark it in stock.`
+          : `“${listing.name}” is in stock again for buyers.`,
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not update stock status');
+    } finally {
+      setActionId(null);
+    }
+  }
+
   function draftFromListingRow(listing: ListingView): DraftPricing {
     return {
       vendorMrp: listing.vendorMrp,
@@ -706,6 +733,7 @@ export function useVendorListings() {
     publishSelected,
     acknowledgePublish,
     toggleActive,
+    toggleListingOutOfStock,
     hideSelectedListings,
     showSelectedListings,
     saveListingPricing,

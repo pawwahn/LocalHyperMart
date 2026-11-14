@@ -7,6 +7,7 @@ import com.hyperlocalmart.payment.client.DeliveryClient;
 import com.hyperlocalmart.payment.repository.CodCloseDayLineItemRepository;
 import com.hyperlocalmart.payment.dto.request.CreateHubCodPaymentRequest;
 import com.hyperlocalmart.payment.dto.request.CreateHubFranchisePaymentRequest;
+import com.hyperlocalmart.payment.dto.request.WaiveHubFranchiseRequest;
 import com.hyperlocalmart.payment.dto.request.PreviewHubCodForMeRequest;
 import com.hyperlocalmart.payment.dto.request.SubmitHubPaymentForRequest;
 import com.hyperlocalmart.payment.dto.response.CodHubLedgerResponse;
@@ -17,6 +18,7 @@ import com.hyperlocalmart.payment.dto.response.HubPaymentRequestResponse;
 import com.hyperlocalmart.payment.dto.response.HubPlatformPaymentSubmissionResponse;
 import com.hyperlocalmart.payment.entity.*;
 import com.hyperlocalmart.payment.repository.HubPaymentRequestCodLineRepository;
+import com.hyperlocalmart.payment.repository.HubFranchiseWaiverRepository;
 import com.hyperlocalmart.payment.repository.HubPaymentRequestRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -48,6 +50,7 @@ public class HubPaymentRequestService {
     private final HubPaymentRequestCodLineRepository codLineRepository;
     private final HubPlatformPaymentSubmissionService submissionService;
     private final HubBillNumberService billNumberService;
+    private final HubFranchiseWaiverRepository franchiseWaiverRepository;
 
     @Transactional(readOnly = true)
     public List<HubPaymentRequestResponse> listForHub(UUID hubAdminUserId, HubPaymentRequestType type) {
@@ -268,6 +271,42 @@ public class HubPaymentRequestService {
         row.setUpdatedBy(actorUserId);
         HubPaymentRequest saved = requestRepository.save(row);
         return toSummary(saved, (int) codLineRepository.countByRequest_Id(saved.getId()));
+    }
+
+    /**
+     * Skip franchise rent for a calendar month (e.g. disabled late). Cancels an open ISSUED bill if one exists.
+     */
+    @Transactional
+    public void waiveFranchiseMonth(WaiveHubFranchiseRequest request, UUID actorUserId) {
+        YearMonth ym = YearMonth.of(request.getBillingYear(), request.getBillingMonth());
+        LocalDate start = ym.atDay(1);
+        LocalDate end = ym.atEndOfMonth();
+        if (franchiseWaiverRepository.existsByHubIdAndPeriodStart(request.getHubId(), start)) {
+            return;
+        }
+        for (HubPaymentRequest open : requestRepository.findFranchiseForPeriod(
+                request.getHubId(), start, List.of(HubPaymentRequestStatus.ISSUED))) {
+            open.setStatus(HubPaymentRequestStatus.CANCELLED);
+            open.setUpdatedBy(actorUserId);
+            requestRepository.save(open);
+        }
+        HubFranchiseWaiver waiver = HubFranchiseWaiver.builder()
+                .townId(request.getTownId())
+                .hubId(request.getHubId())
+                .periodStart(start)
+                .periodEnd(end)
+                .reason(blankToNull(request.getReason()))
+                .build();
+        waiver.setCreatedBy(actorUserId);
+        waiver.setUpdatedBy(actorUserId);
+        franchiseWaiverRepository.save(waiver);
+    }
+
+    private static String blankToNull(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        return value.trim();
     }
 
     @Transactional

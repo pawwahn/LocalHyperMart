@@ -4,11 +4,10 @@ import com.hyperlocalmart.catalog.dto.request.CreateMasterItemRequest;
 import com.hyperlocalmart.catalog.dto.request.SetMasterItemImagesRequest;
 import com.hyperlocalmart.catalog.dto.response.MasterItemSummaryResponse;
 import com.hyperlocalmart.catalog.security.AuthUserPrincipal;
+import com.hyperlocalmart.catalog.security.PlatformAdminPrincipalAuth;
 import com.hyperlocalmart.catalog.service.VendorListingService;
 import com.hyperlocalmart.common.api.ApiResponse;
 import com.hyperlocalmart.common.api.PageResponse;
-import com.hyperlocalmart.common.exception.BusinessException;
-import com.hyperlocalmart.common.exception.ErrorCode;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
@@ -62,7 +61,7 @@ public class MasterItemController {
             @AuthenticationPrincipal AuthUserPrincipal principal,
             @Valid @RequestBody CreateMasterItemRequest request,
             HttpServletRequest httpRequest) {
-        requireSuperAdmin(principal);
+        PlatformAdminPrincipalAuth.requireWrite(principal);
         MasterItemSummaryResponse created = vendorListingService.createMasterItem(request, principal.getUserId());
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponses.ok(httpRequest, created));
     }
@@ -80,7 +79,7 @@ public class MasterItemController {
             @PathVariable UUID masterItemId,
             @Valid @RequestBody CreateMasterItemRequest request,
             HttpServletRequest httpRequest) {
-        requireSuperAdmin(principal);
+        PlatformAdminPrincipalAuth.requireWrite(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
                 vendorListingService.updateMasterItem(masterItemId, request, principal.getUserId())));
     }
@@ -90,7 +89,7 @@ public class MasterItemController {
             @AuthenticationPrincipal AuthUserPrincipal principal,
             @PathVariable UUID masterItemId,
             HttpServletRequest httpRequest) {
-        requireSuperAdmin(principal);
+        PlatformAdminPrincipalAuth.requireWrite(principal);
         vendorListingService.deleteMasterItem(masterItemId, principal.getUserId());
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, Map.of("deleted", true)));
     }
@@ -109,14 +108,9 @@ public class MasterItemController {
             @PathVariable UUID masterItemId,
             @Valid @RequestBody SetMasterItemImagesRequest request,
             HttpServletRequest httpRequest) {
-        requireSuperAdmin(principal);
+        PlatformAdminPrincipalAuth.requireWrite(principal);
         List<String> urls = vendorListingService.setMasterItemImages(masterItemId, request);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, Map.of("items", urls)));
     }
 
-    private void requireSuperAdmin(AuthUserPrincipal principal) {
-        if (principal == null || !principal.getRoles().contains("SUPER_ADMIN")) {
-            throw new BusinessException(ErrorCode.FORBIDDEN, "Super admin role required");
-        }
-    }
 }

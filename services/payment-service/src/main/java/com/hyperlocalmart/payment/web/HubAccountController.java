@@ -82,7 +82,7 @@ public class HubAccountController {
         if (principal == null
                 || principal.getRoles() == null
                 || (!principal.getRoles().contains("HUB_ADMIN")
-                && !principal.getRoles().contains("SUPER_ADMIN"))) {
+                && !com.hyperlocalmart.common.security.PlatformAdminRoles.isPlatformStaff(principal.getRoles()))) {
             throw new BusinessException(ErrorCode.FORBIDDEN, "Hub admin role required");
         }
     }

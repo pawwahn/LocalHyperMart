@@ -9,6 +9,7 @@ import {
   type GatewayAdminRow,
   type GatewayId,
 } from '../api/paymentGatewaysApi';
+import { PaymentsSubNav } from '../components/PaymentsSubNav';
 
 const EMPTY: GatewayAdminRow[] = [
   blank('RAZORPAY', 'Razorpay'),
@@ -23,10 +24,13 @@ function blank(gateway: GatewayId, label: string): GatewayAdminRow {
     enabled: false,
     clientId: '',
     clientSecret: '',
+    clientSecretConfigured: false,
     clientVersion: gateway === 'PHONEPE' ? '1' : '',
     webhookSecret: '',
+    webhookSecretConfigured: false,
     webhookUsername: '',
     webhookPassword: '',
+    webhookPasswordConfigured: false,
     environment: gateway === 'RAZORPAY' ? '' : 'sandbox',
   };
 }
@@ -81,11 +85,13 @@ export function PaymentGatewaysPage() {
 
   return (
     <PortalShell title="Payments" subtitle="Turn gateways on and store their keys" onRefresh={() => void load()}>
+      <PaymentsSubNav />
       <div style={styles.stack}>
         {error ? <Banner tone="danger">{error}</Banner> : null}
         {saved ? <Banner tone="success">{saved}</Banner> : null}
         <p style={styles.hint}>
-          Keys stay in payment-service. Checkout uses the saved values as soon as you save.
+          Secrets are encrypted at rest in payment-service. Leave secret fields blank to keep the current value; type
+          only when rotating keys.
         </p>
         {rows.map((row) => (
           <Card key={row.gateway} padding="sm" style={styles.card}>
@@ -117,6 +123,7 @@ export function PaymentGatewaysPage() {
                 label={row.gateway === 'RAZORPAY' ? 'Key secret' : 'Client secret'}
                 type="password"
                 value={row.clientSecret}
+                placeholder={row.clientSecretConfigured ? 'Saved — leave blank to keep' : 'Required to enable'}
                 autoComplete="new-password"
                 disabled={loading || saving}
                 style={styles.secret}
@@ -128,6 +135,7 @@ export function PaymentGatewaysPage() {
                   label="Webhook secret"
                   type="password"
                   value={row.webhookSecret}
+                  placeholder={row.webhookSecretConfigured ? 'Saved — leave blank to keep' : 'Optional'}
                   autoComplete="new-password"
                   disabled={loading || saving}
                   style={styles.secret}
@@ -177,6 +185,7 @@ export function PaymentGatewaysPage() {
                     label="Webhook password"
                     type="password"
                     value={row.webhookPassword}
+                    placeholder={row.webhookPasswordConfigured ? 'Saved — leave blank to keep' : 'Optional'}
                     autoComplete="new-password"
                     disabled={loading || saving}
                     style={styles.secret}
@@ -206,18 +215,22 @@ function merge(data: GatewayAdminRow[]): GatewayAdminRow[] {
       gateway: fallback.gateway,
       label: row.label || fallback.label,
       clientId: row.clientId ?? '',
-      clientSecret: row.clientSecret ?? '',
+      clientSecret: '',
+      clientSecretConfigured: row.clientSecretConfigured === true,
       clientVersion: row.clientVersion || fallback.clientVersion,
-      webhookSecret: row.webhookSecret ?? '',
+      webhookSecret: '',
+      webhookSecretConfigured: row.webhookSecretConfigured === true,
       webhookUsername: row.webhookUsername ?? '',
-      webhookPassword: row.webhookPassword ?? '',
+      webhookPassword: '',
+      webhookPasswordConfigured: row.webhookPasswordConfigured === true,
       environment: row.environment || fallback.environment,
     };
   });
 }
 
 function statusLabel(row: GatewayAdminRow): string {
-  const hasKeys = row.clientId.trim().length > 0 && row.clientSecret.trim().length > 0;
+  const hasKeys =
+    row.clientId.trim().length > 0 && (row.clientSecretConfigured === true || row.clientSecret.trim().length > 0);
   if (row.enabled && hasKeys) return 'Buyers can pay here';
   if (row.enabled) return 'On, keys missing';
   return 'Hidden from checkout';

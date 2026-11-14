@@ -158,7 +158,9 @@ public class CatalogListingClient {
             BigDecimal gstPercent,
             BigDecimal cessPercent,
             boolean priceIncludesTax,
-            String countryOfOrigin
+            String countryOfOrigin,
+            String listingKind,
+            String vendorNote
     ) {
         @JsonIgnore
         public ListingSnapshot(
@@ -174,7 +176,7 @@ public class CatalogListingClient {
                 BigDecimal effectivePrice,
                 boolean active) {
             this(listingId, townId, vendorId, shopId, masterItemId, name, unit, price, discountPrice, effectivePrice,
-                    active, null, null, null, false, null);
+                    active, null, null, null, false, null, null, null);
         }
     }
 }

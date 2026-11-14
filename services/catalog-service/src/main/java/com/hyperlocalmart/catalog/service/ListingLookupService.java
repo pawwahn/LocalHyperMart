@@ -3,6 +3,7 @@ package com.hyperlocalmart.catalog.service;
 import com.hyperlocalmart.catalog.client.VendorShopClient;
 import com.hyperlocalmart.catalog.dto.response.ListingSnapshotResponse;
 import com.hyperlocalmart.catalog.entity.CatalogItemStatus;
+import com.hyperlocalmart.catalog.entity.ListingKind;
 import com.hyperlocalmart.catalog.entity.VendorListing;
 import com.hyperlocalmart.catalog.repository.VendorListingRepository;
 import com.hyperlocalmart.common.exception.BusinessException;
@@ -93,9 +94,12 @@ public class ListingLookupService {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Listing is not available");
         }
         if (requireActive) {
-            var category = listing.getMasterItem().getCategory();
-            if (category == null || !categoryVisibilityService.isVisibleInTown(category, townId)) {
-                throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Listing is not available");
+            boolean foodMenu = listing.getListingKind() == ListingKind.FOOD_MENU;
+            if (!foodMenu) {
+                var category = listing.getMasterItem().getCategory();
+                if (category == null || !categoryVisibilityService.isVisibleInTown(category, townId)) {
+                    throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Listing is not available");
+                }
             }
             ProductTaxCompliance.validateForSale(listing.getMasterItem());
             requireShopOpenForCustomers(listing.getShopId());
@@ -119,6 +123,8 @@ public class ListingLookupService {
                 .discountPrice(listing.getDiscountPrice())
                 .effectivePrice(ListingPricing.resolveEffectivePrice(listing))
                 .active(listing.isActive())
+                .listingKind(listing.getListingKind() == null ? ListingKind.GROCERY.name() : listing.getListingKind().name())
+                .vendorNote(listing.getVendorNote())
                 .build();
     }
 

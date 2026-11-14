@@ -3,6 +3,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { BrandMark } from '@hlm-brand';
 import { HeaderIconButton, ThemePicker } from '@hlm-theme';
 import { useAuth } from '@/shared/auth/AuthContext';
+import { usePlatformAdminAccess } from '@/shared/auth/usePlatformAdminAccess';
 
 type Props = {
   title: string;
@@ -59,6 +60,7 @@ const NAV_GROUPS: Array<{ label: string; items: NavItem[] }> = [
       { to: '/grocery', label: 'Grocery', icon: 'vendors' },
       { to: '/laundry', label: 'Laundry', icon: 'vendors' },
       { to: '/beauty', label: 'Glam', icon: 'vendors' },
+      { to: '/diagnostics', label: 'Diagnostics', icon: 'vendors' },
       { to: '/agents', label: 'Agents', icon: 'agents' },
       { to: '/customers', label: 'Customers', icon: 'customers' },
     ],
@@ -97,6 +99,7 @@ const NAV_GROUPS: Array<{ label: string; items: NavItem[] }> = [
 
 export function PortalShell({ title, subtitle, children, onRefresh }: Props) {
   const { session, logout } = useAuth();
+  const { roleLabel } = usePlatformAdminAccess();
   const location = useLocation();
   const [navOpen, setNavOpen] = useState(false);
 
@@ -126,7 +129,7 @@ export function PortalShell({ title, subtitle, children, onRefresh }: Props) {
 
       <aside className={`sa-sidebar${navOpen ? ' is-open' : ''}`} aria-label="Super admin">
         <div className="sa-brand">
-          <BrandMark variant="sidebar" subtitle="Super Admin" />
+          <BrandMark variant="sidebar" subtitle="App admin" />
         </div>
 
         <nav className="sa-nav" aria-label="Primary">
@@ -155,7 +158,7 @@ export function PortalShell({ title, subtitle, children, onRefresh }: Props) {
 
         {session?.phone ? (
           <div className="sa-sidebar-foot">
-            <span className="sa-sidebar-foot-k">Signed in</span>
+            <span className="sa-sidebar-foot-k">Signed in · {roleLabel}</span>
             <span className="sa-sidebar-foot-v">{session.phone}</span>
           </div>
         ) : null}

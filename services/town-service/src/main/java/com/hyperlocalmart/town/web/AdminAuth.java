@@ -2,6 +2,8 @@ package com.hyperlocalmart.town.web;
 
 import com.hyperlocalmart.common.exception.BusinessException;
 import com.hyperlocalmart.common.exception.ErrorCode;
+import com.hyperlocalmart.common.security.PlatformAdminAuth;
+import com.hyperlocalmart.common.security.PlatformAdminRoles;
 import jakarta.servlet.http.HttpServletRequest;
 
 import java.util.Arrays;
@@ -27,14 +29,35 @@ public final class AdminAuth {
     }
 
     public static void requireSuperAdmin(HttpServletRequest request) {
-        Set<String> roles = roles(request);
-        if (!roles.contains("SUPER_ADMIN")) {
-            throw new BusinessException(ErrorCode.FORBIDDEN, "Super admin role required");
-        }
+        PlatformAdminAuth.requireSuperAdmin(roles(request));
+    }
+
+    public static void requirePlatformStaff(HttpServletRequest request) {
+        PlatformAdminAuth.requireStaff(roles(request));
+    }
+
+    public static void requirePlatformWrite(HttpServletRequest request) {
+        PlatformAdminAuth.requireWrite(roles(request));
+    }
+
+    public static void requireMoveMoney(HttpServletRequest request) {
+        PlatformAdminAuth.requireMoveMoney(roles(request));
+    }
+
+    public static void requireIssueBills(HttpServletRequest request) {
+        PlatformAdminAuth.requireIssueBills(roles(request));
     }
 
     public static boolean isSuperAdmin(HttpServletRequest request) {
-        return roles(request).contains("SUPER_ADMIN");
+        return PlatformAdminRoles.isSuperAdmin(roles(request));
+    }
+
+    public static boolean isPlatformStaff(HttpServletRequest request) {
+        return PlatformAdminRoles.isPlatformStaff(roles(request));
+    }
+
+    public static boolean canWriteConfig(HttpServletRequest request) {
+        return PlatformAdminRoles.canWriteConfig(roles(request));
     }
 
     public static boolean isHubAdmin(HttpServletRequest request) {

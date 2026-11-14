@@ -15,6 +15,8 @@ import java.util.UUID;
 
 public interface BeautyOrderRepository extends JpaRepository<BeautyOrder, UUID> {
 
+    Optional<BeautyOrder> findByOrderNumber(String orderNumber);
+
     List<BeautyOrder> findByBuyerIdAndTownIdOrderByPlacedAtDesc(UUID buyerId, UUID townId);
 
     Optional<BeautyOrder> findByIdAndBuyerId(UUID id, UUID buyerId);

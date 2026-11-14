@@ -44,7 +44,7 @@ public class TownDeliveryPayoutController {
             @PathVariable UUID townId,
             @RequestBody TownDeliveryPayoutConfigResponse request,
             HttpServletRequest httpRequest) {
-        AdminAuth.requireSuperAdmin(httpRequest);
+        AdminAuth.requirePlatformWrite(httpRequest);
         UUID actorId = AdminAuth.requireUserId(httpRequest);
         TownDeliveryPayoutConfigResponse cfg = payoutConfigService.replace(townId, request, actorId);
         applyPermissions(cfg, Viewer.SUPER);
@@ -95,7 +95,7 @@ public class TownDeliveryPayoutController {
     }
 
     private Viewer requireViewer(HttpServletRequest request, UUID townId) {
-        if (AdminAuth.isSuperAdmin(request)) {
+        if (AdminAuth.canWriteConfig(request)) {
             return Viewer.SUPER;
         }
         if (!AdminAuth.isHubAdmin(request)) {

@@ -18,9 +18,10 @@ type Props = {
   token: string;
   onClose: () => void;
   onSaved: (hub: AdminHubVm, message: string) => void;
+  readOnly?: boolean;
 };
 
-export function HubDetailDialog({ hub, townLabel, stateName, stateCode, token, onClose, onSaved }: Props) {
+export function HubDetailDialog({ hub, townLabel, stateName, stateCode, token, onClose, onSaved, readOnly = false }: Props) {
   const [panel, setPanel] = useState<'edit' | 'log'>('edit');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -277,7 +278,7 @@ export function HubDetailDialog({ hub, townLabel, stateName, stateCode, token, o
               <Button variant="ghost" disabled={busy} onClick={onClose}>
                 Close
               </Button>
-              <Button disabled={busy} onClick={() => void onSave()}>
+              <Button disabled={busy || readOnly} onClick={() => void onSave()}>
                 {busy ? 'Saving…' : 'Save'}
               </Button>
             </div>

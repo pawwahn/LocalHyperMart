@@ -5,10 +5,12 @@ import com.hyperlocalmart.common.api.FieldErrorDetail;
 import com.hyperlocalmart.common.exception.BusinessException;
 import com.hyperlocalmart.common.exception.ErrorCode;
 import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.InvalidDataAccessResourceUsageException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -45,15 +47,41 @@ public class GlobalExceptionHandler {
         return ResponseEntity.badRequest().body(body);
     }
 
-    @ExceptionHandler(InvalidDataAccessResourceUsageException.class)
-    public ResponseEntity<ApiResponse<Void>> handleInvalidSql(
+    @ExceptionHandler(DataAccessException.class)
+    public ResponseEntity<ApiResponse<Void>> handleDataAccess(DataAccessException ex, HttpServletRequest request) {
+        if (ex instanceof InvalidDataAccessResourceUsageException resourceEx) {
+            return handleInvalidSql(resourceEx, request);
+        }
+        String raw = ex.getMostSpecificCause() != null ? ex.getMostSpecificCause().getMessage() : ex.getMessage();
+        String message = ErrorCode.INTERNAL_ERROR.getDefaultMessage();
+        if (raw != null) {
+            String lower = raw.toLowerCase();
+            if (lower.contains("hotel_photo_media_ids")) {
+                message =
+                        "Hotel photos need DB migration V34 — restart vendor-service (port 8083) so Flyway runs, then refresh";
+            }
+        }
+        org.slf4j.LoggerFactory.getLogger(GlobalExceptionHandler.class)
+                .error("Data access error on {} {}: {}", request.getMethod(), request.getRequestURI(), raw, ex);
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(errorBody(ErrorCode.INTERNAL_ERROR.name(), message, request, null));
+    }
+
+    private ResponseEntity<ApiResponse<Void>> handleInvalidSql(
             InvalidDataAccessResourceUsageException ex, HttpServletRequest request) {
         String raw = ex.getMostSpecificCause() != null ? ex.getMostSpecificCause().getMessage() : ex.getMessage();
         String message = ErrorCode.INTERNAL_ERROR.getDefaultMessage();
         if (raw != null) {
             String lower = raw.toLowerCase();
-            if (lower.contains("work_photo_media_ids") || lower.contains("does not exist")) {
-                message = "Database schema is out of date — restart vendor-service (Flyway V24) or run the latest DB migrations";
+            if (lower.contains("food_menu_categories") || lower.contains("food_menu_items")) {
+                message = "Food menu tables missing — restart catalog-service with -Rebuild (Flyway V22+) or run start-dev -Rebuild";
+            } else if (lower.contains("hotel_photo_media_ids")) {
+                message =
+                        "Hotel photos need DB migration V34 — restart vendor-service (port 8083) so Flyway runs, then refresh";
+            } else if (lower.contains("work_photo_media_ids")) {
+                message = "Glam work photos need migration V24 — restart vendor-service (port 8083), then refresh";
+            } else if (lower.contains("does not exist")) {
+                message = "Database schema is out of date — restart vendor-service (Flyway migrations) or run the latest DB migrations";
             }
         }
         org.slf4j.LoggerFactory.getLogger(GlobalExceptionHandler.class)
@@ -101,6 +129,28 @@ public class GlobalExceptionHandler {
         org.slf4j.LoggerFactory.getLogger(GlobalExceptionHandler.class)
                 .warn("Upstream I/O on {} {}: {}", request.getMethod(), request.getRequestURI(), detail);
         return ResponseEntity.status(HttpStatus.GATEWAY_TIMEOUT)
+                .body(errorBody(ErrorCode.INTERNAL_ERROR.name(), message, request, null));
+    }
+
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<ApiResponse<Void>> handleUnreadableJson(
+            HttpMessageNotReadableException ex, HttpServletRequest request) {
+        org.slf4j.LoggerFactory.getLogger(GlobalExceptionHandler.class)
+                .warn("Unreadable JSON on {} {}: {}", request.getMethod(), request.getRequestURI(), ex.getMessage());
+        return ResponseEntity.badRequest()
+                .body(errorBody(ErrorCode.VALIDATION_ERROR.name(), "Invalid request body", request, null));
+    }
+
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<ApiResponse<Void>> handleIllegalArgument(
+            IllegalArgumentException ex, HttpServletRequest request) {
+        String raw = ex.getMessage() != null ? ex.getMessage() : ex.toString();
+        String message = raw.toLowerCase().contains("vendorservicefor") || raw.toLowerCase().contains("service_for")
+                ? "Vendor profile has an invalid lab/audience value — pick Private Lab or Hospital Lab and save again"
+                : ErrorCode.INTERNAL_ERROR.getDefaultMessage();
+        org.slf4j.LoggerFactory.getLogger(GlobalExceptionHandler.class)
+                .error("Illegal argument on {} {}: {}", request.getMethod(), request.getRequestURI(), raw, ex);
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(errorBody(ErrorCode.INTERNAL_ERROR.name(), message, request, null));
     }
 

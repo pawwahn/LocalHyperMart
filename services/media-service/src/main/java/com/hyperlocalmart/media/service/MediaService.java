@@ -28,17 +28,25 @@ import java.util.UUID;
 public class MediaService {
 
     private static final long MAX_BYTES = 5L * 1024 * 1024;
+    private static final long MAX_REPORT_BYTES = 10L * 1024 * 1024;
     private static final Set<String> ALLOWED_CONTENT_TYPES = Set.of(
             "image/jpeg",
             "image/png",
             "image/webp",
             "image/gif"
     );
+    private static final Set<String> REPORT_CONTENT_TYPES = Set.of(
+            "image/jpeg",
+            "image/png",
+            "image/webp",
+            "application/pdf"
+    );
     private static final Map<String, String> EXTENSIONS = Map.of(
             "image/jpeg", "jpg",
             "image/png", "png",
             "image/webp", "webp",
-            "image/gif", "gif"
+            "image/gif", "gif",
+            "application/pdf", "pdf"
     );
 
     private final MediaFileRepository mediaFileRepository;
@@ -53,13 +61,19 @@ public class MediaService {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Context is required");
         }
 
+        String contextUpper = context.trim().toUpperCase(Locale.ROOT);
+        boolean reportUpload = "DIAGNOSTICS_REPORT".equals(contextUpper);
         String contentType = normalizeContentType(file.getContentType());
-        if (!ALLOWED_CONTENT_TYPES.contains(contentType)) {
-            throw new BusinessException(ErrorCode.VALIDATION_ERROR,
-                    "Only jpeg, png, webp, and gif images are allowed");
+        Set<String> allowed = reportUpload ? REPORT_CONTENT_TYPES : ALLOWED_CONTENT_TYPES;
+        if (!allowed.contains(contentType)) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, reportUpload
+                    ? "Report files must be PDF, JPEG, or PNG"
+                    : "Only jpeg, png, webp, and gif images are allowed");
         }
-        if (file.getSize() > MAX_BYTES) {
-            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "File exceeds max size of 5MB");
+        long maxBytes = reportUpload ? MAX_REPORT_BYTES : MAX_BYTES;
+        if (file.getSize() > maxBytes) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR,
+                    reportUpload ? "Report file exceeds max size of 10MB" : "File exceeds max size of 5MB");
         }
 
         byte[] header;
@@ -68,7 +82,11 @@ public class MediaService {
         } catch (IOException e) {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Could not read uploaded file");
         }
-        if (!ImageFileSignatures.matchesDeclaredType(contentType, header)) {
+        if ("application/pdf".equals(contentType)) {
+            if (header.length < 5 || header[0] != '%' || header[1] != 'P' || header[2] != 'D' || header[3] != 'F') {
+                throw new BusinessException(ErrorCode.VALIDATION_ERROR, "File content does not match a PDF");
+            }
+        } else if (!ImageFileSignatures.matchesDeclaredType(contentType, header)) {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR,
                     "File content does not match a supported image type");
         }
@@ -108,7 +126,11 @@ public class MediaService {
     public MediaMeta meta(UUID id) {
         MediaFile mediaFile = mediaFileRepository.findById(id)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Media file not found"));
-        return new MediaMeta(mediaFile.getId(), mediaFile.getOwnerUserId(), mediaFile.getContext());
+        return new MediaMeta(
+                mediaFile.getId(),
+                mediaFile.getOwnerUserId(),
+                mediaFile.getContext(),
+                mediaFile.getContentType());
     }
 
     /**
@@ -156,6 +178,6 @@ public class MediaService {
         return normalized;
     }
 
-    public record MediaMeta(UUID id, UUID ownerUserId, String context) {
+    public record MediaMeta(UUID id, UUID ownerUserId, String context, String contentType) {
     }
 }

@@ -391,7 +391,15 @@ export async function quoteMyFees(
     vendorId,
     body: {
       includeSubscription: opts?.includeSubscription ?? false,
-      orderLines: lines.map((l) => ({ amount: Math.max(0, Number(l.amount || 0)), placedAt: l.placedAt || undefined })),
+      orderLines: lines.map((l) => ({
+        amount: Math.max(0, Number(l.amount || 0)),
+        placedAt: l.placedAt || undefined,
+        pieceCount: (() => {
+          const n = Math.floor(Number(l.pieceCount ?? 0));
+          if (n > 0) return n;
+          return Number(l.amount || 0) > 0 ? 1 : 0;
+        })(),
+      })),
     },
   });
 }

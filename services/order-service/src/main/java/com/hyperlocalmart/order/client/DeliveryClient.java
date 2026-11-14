@@ -1,6 +1,7 @@
 package com.hyperlocalmart.order.client;
 
 import com.hyperlocalmart.common.api.ApiResponse;
+import com.hyperlocalmart.order.config.RestClientFactory;
 import com.hyperlocalmart.order.config.DeliveryServiceProperties;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -20,7 +21,7 @@ import java.util.concurrent.ConcurrentHashMap;
 @RequiredArgsConstructor
 public class DeliveryClient {
 
-    private final RestClient.Builder restClientBuilder;
+    private final RestClientFactory restClients;
     private final DeliveryServiceProperties deliveryServiceProperties;
     private final ConcurrentHashMap<UUID, HubEnabledCache> hubEnabledCache = new ConcurrentHashMap<>();
 
@@ -37,7 +38,7 @@ public class DeliveryClient {
             return cached.enabled();
         }
         try {
-            RestClient client = restClientBuilder.baseUrl(deliveryServiceProperties.getBaseUrl()).build();
+            RestClient client = restClients.forBaseUrl(deliveryServiceProperties.getBaseUrl());
             ApiResponse<Map<String, Object>> response = client.get()
                     .uri("/api/v1/internal/towns/{townId}/hub-enabled", townId)
                     .retrieve()
@@ -54,7 +55,7 @@ public class DeliveryClient {
     }
 
     public HubAdminContext getHubAdminContext(UUID userId) {
-        RestClient client = restClientBuilder.baseUrl(deliveryServiceProperties.getBaseUrl()).build();
+        RestClient client = restClients.forBaseUrl(deliveryServiceProperties.getBaseUrl());
         ApiResponse<HubAdminContext> response = client.get()
                 .uri("/api/v1/internal/hub-admins/{userId}/context", userId)
                 .retrieve()
@@ -70,7 +71,7 @@ public class DeliveryClient {
             return List.of();
         }
         try {
-            RestClient client = restClientBuilder.baseUrl(deliveryServiceProperties.getBaseUrl()).build();
+            RestClient client = restClients.forBaseUrl(deliveryServiceProperties.getBaseUrl());
             ApiResponse<List<UUID>> response = client.get()
                     .uri(uriBuilder -> uriBuilder
                             .path("/api/v1/internal/agents/{agentId}/completed-delivery-order-ids")
@@ -94,7 +95,7 @@ public class DeliveryClient {
             return List.of();
         }
         try {
-            RestClient client = restClientBuilder.baseUrl(deliveryServiceProperties.getBaseUrl()).build();
+            RestClient client = restClients.forBaseUrl(deliveryServiceProperties.getBaseUrl());
             ApiResponse<List<OrderLegs>> response = client.post()
                     .uri("/api/v1/internal/orders/delivery-legs/resolve")
                     .body(List.copyOf(orderIds))
@@ -112,7 +113,7 @@ public class DeliveryClient {
 
     public List<OrderAssignment> getAssignmentsForOrder(UUID orderId) {
         try {
-            RestClient client = restClientBuilder.baseUrl(deliveryServiceProperties.getBaseUrl()).build();
+            RestClient client = restClients.forBaseUrl(deliveryServiceProperties.getBaseUrl());
             ApiResponse<List<OrderAssignment>> response = client.get()
                     .uri("/api/v1/internal/orders/{orderId}/assignments", orderId)
                     .retrieve()
@@ -129,7 +130,7 @@ public class DeliveryClient {
 
     public List<HubContact> listHubContactsForTown(UUID townId) {
         try {
-            RestClient client = restClientBuilder.baseUrl(deliveryServiceProperties.getBaseUrl()).build();
+            RestClient client = restClients.forBaseUrl(deliveryServiceProperties.getBaseUrl());
             ApiResponse<List<HubContact>> response = client.get()
                     .uri("/api/v1/internal/towns/{townId}/hub-contacts", townId)
                     .retrieve()
@@ -145,7 +146,7 @@ public class DeliveryClient {
     }
 
     public void assignVendorDirectDelivery(UUID vendorId, UUID vendorSubOrderId, UUID agentId, UUID actorUserId) {
-        RestClient client = restClientBuilder.baseUrl(deliveryServiceProperties.getBaseUrl()).build();
+        RestClient client = restClients.forBaseUrl(deliveryServiceProperties.getBaseUrl());
         Map<String, UUID> body = Map.of(
                 "vendorId", vendorId,
                 "agentId", agentId,
@@ -158,7 +159,7 @@ public class DeliveryClient {
     }
 
     public AgentAlertCreated notifyVendorAgent(UUID vendorId, UUID vendorSubOrderId, UUID actorUserId) {
-        RestClient client = restClientBuilder.baseUrl(deliveryServiceProperties.getBaseUrl()).build();
+        RestClient client = restClients.forBaseUrl(deliveryServiceProperties.getBaseUrl());
         Map<String, UUID> body = Map.of(
                 "vendorId", vendorId,
                 "actorUserId", actorUserId);
@@ -174,7 +175,7 @@ public class DeliveryClient {
     }
 
     public AgentAlertCreated notifyHubAgent(UUID townId, UUID vendorSubOrderId, UUID actorUserId) {
-        RestClient client = restClientBuilder.baseUrl(deliveryServiceProperties.getBaseUrl()).build();
+        RestClient client = restClients.forBaseUrl(deliveryServiceProperties.getBaseUrl());
         Map<String, UUID> body = Map.of(
                 "townId", townId,
                 "actorUserId", actorUserId);
@@ -194,7 +195,7 @@ public class DeliveryClient {
             return List.of();
         }
         try {
-            RestClient client = restClientBuilder.baseUrl(deliveryServiceProperties.getBaseUrl()).build();
+            RestClient client = restClients.forBaseUrl(deliveryServiceProperties.getBaseUrl());
             ApiResponse<List<AgentAlertSummary>> response = client.post()
                     .uri("/api/v1/internal/vendor-sub-orders/agent-alert-summaries")
                     .body(vendorSubOrderIds)
@@ -215,7 +216,7 @@ public class DeliveryClient {
             return List.of();
         }
         try {
-            RestClient client = restClientBuilder.baseUrl(deliveryServiceProperties.getBaseUrl()).build();
+            RestClient client = restClients.forBaseUrl(deliveryServiceProperties.getBaseUrl());
             ApiResponse<List<Map<String, Object>>> response = client.get()
                     .uri("/api/v1/internal/vendors/{vendorId}/agents", vendorId)
                     .retrieve()
@@ -276,7 +277,7 @@ public class DeliveryClient {
             String tripKind,
             String paymentMethod,
             java.math.BigDecimal collectCashAmount) {
-        RestClient client = restClientBuilder.baseUrl(deliveryServiceProperties.getBaseUrl()).build();
+        RestClient client = restClients.forBaseUrl(deliveryServiceProperties.getBaseUrl());
         java.util.Map<String, Object> body = new java.util.HashMap<>();
         body.put("laundryOrderId", laundryOrderId);
         body.put("orderNumber", orderNumber);

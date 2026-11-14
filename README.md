@@ -13,6 +13,7 @@ Town-based hyperlocal marketplace for Tier-2/3 India. Monorepo with Java 21 micr
 | [docs/08_GO_LIVE_PLAN.md](docs/08_GO_LIVE_PLAN.md) | Narsaraopet 12-week go-live plan |
 | [docs/09_LEGAL_COMPLIANCE_MATRIX.md](docs/09_LEGAL_COMPLIANCE_MATRIX.md) | Legal/compliance checklist vs product |
 | [docs/11_AWS_PILOT_HOSTING.md](docs/11_AWS_PILOT_HOSTING.md) | AWS pilot hosting (4 towns, Single-AZ RDS) |
+| [docs/12_HOSTINGER_VPS_HOSTING.md](docs/12_HOSTINGER_VPS_HOSTING.md) | Hostinger VPS (Docker Compose early prod / shared QA) |
 
 ## Prerequisites
 

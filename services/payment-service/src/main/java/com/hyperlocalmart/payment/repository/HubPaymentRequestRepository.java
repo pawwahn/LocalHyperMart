@@ -104,4 +104,16 @@ public interface HubPaymentRequestRepository extends JpaRepository<HubPaymentReq
               AND r.requestType = com.hyperlocalmart.payment.entity.HubPaymentRequestType.FRANCHISE
             """)
     LocalDate findEarliestFranchiseBillStart(@Param("hubId") UUID hubId);
+
+    @Query("""
+            SELECT r FROM HubPaymentRequest r
+            WHERE r.hubId = :hubId
+              AND r.requestType = com.hyperlocalmart.payment.entity.HubPaymentRequestType.FRANCHISE
+              AND r.periodStart = :periodStart
+              AND r.status IN :statuses
+            """)
+    List<HubPaymentRequest> findFranchiseForPeriod(
+            @Param("hubId") UUID hubId,
+            @Param("periodStart") LocalDate periodStart,
+            @Param("statuses") List<HubPaymentRequestStatus> statuses);
 }

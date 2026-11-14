@@ -22,10 +22,12 @@ Thumbs.db
 *.log
 logs/
 
-# Env
+# Env (keep *.example committed; real secrets never in git)
 .env
 .env.local
 .env.qa
+.env.prod
+.env.staging
 *.local.yml
 
 # Flutter (future apps/)
@@ -39,3 +41,4 @@ web/**/dist/
 
 # Docker volumes
 data/
+backups/

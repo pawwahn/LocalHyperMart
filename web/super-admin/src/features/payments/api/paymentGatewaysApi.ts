@@ -8,10 +8,13 @@ export type GatewayAdminRow = {
   enabled: boolean;
   clientId: string;
   clientSecret: string;
+  clientSecretConfigured?: boolean;
   clientVersion: string;
   webhookSecret: string;
+  webhookSecretConfigured?: boolean;
   webhookUsername: string;
   webhookPassword: string;
+  webhookPasswordConfigured?: boolean;
   environment: string;
 };
 

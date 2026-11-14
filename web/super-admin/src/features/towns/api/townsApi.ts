@@ -290,6 +290,12 @@ export type TownConfigVm = {
   beautyParlourPaymentFee: number;
   buyerCancelOrderEnabled: boolean;
   buyerCancelItemsEnabled: boolean;
+  diagnosticsEnabled: boolean;
+  foodDeliveryEnabled: boolean;
+  groceryEnabled: boolean;
+  diagnosticsPlatformFeeFlat: number;
+  diagnosticsCodEnabled: boolean;
+  diagnosticsCodSurchargeAmount: number;
 };
 
 export type UpdateTownConfigInput = {
@@ -317,6 +323,12 @@ export type UpdateTownConfigInput = {
   beautyParlourPaymentFee?: number;
   buyerCancelOrderEnabled: boolean;
   buyerCancelItemsEnabled: boolean;
+  diagnosticsEnabled?: boolean;
+  foodDeliveryEnabled?: boolean;
+  groceryEnabled?: boolean;
+  diagnosticsPlatformFeeFlat?: number;
+  diagnosticsCodEnabled?: boolean;
+  diagnosticsCodSurchargeAmount?: number;
 };
 
 function asWindow(v: unknown, fallback: string): string {
@@ -385,6 +397,12 @@ export async function getTownConfig(token: string, townId: string): Promise<Town
     beautyParlourPaymentFee: Math.max(0, asNum(data?.beautyParlourPaymentFee, 0)),
     buyerCancelOrderEnabled: data?.buyerCancelOrderEnabled !== false,
     buyerCancelItemsEnabled: data?.buyerCancelItemsEnabled !== false,
+    diagnosticsEnabled: data?.diagnosticsEnabled === true,
+    foodDeliveryEnabled: data?.foodDeliveryEnabled === true,
+    groceryEnabled: data?.groceryEnabled !== false,
+    diagnosticsPlatformFeeFlat: Math.max(0, asNum(data?.diagnosticsPlatformFeeFlat, 0)),
+    diagnosticsCodEnabled: data?.diagnosticsCodEnabled !== false,
+    diagnosticsCodSurchargeAmount: Math.max(0, asNum(data?.diagnosticsCodSurchargeAmount, 0)),
   };
 }
 
@@ -441,6 +459,12 @@ export function townConfigToUpdateInput(cfg: TownConfigVm): UpdateTownConfigInpu
     beautyParlourPaymentFee: cfg.beautyParlourPaymentFee,
     buyerCancelOrderEnabled: cfg.buyerCancelOrderEnabled,
     buyerCancelItemsEnabled: cfg.buyerCancelItemsEnabled,
+    diagnosticsEnabled: cfg.diagnosticsEnabled,
+    foodDeliveryEnabled: cfg.foodDeliveryEnabled,
+    groceryEnabled: cfg.groceryEnabled,
+    diagnosticsPlatformFeeFlat: cfg.diagnosticsPlatformFeeFlat,
+    diagnosticsCodEnabled: cfg.diagnosticsCodEnabled,
+    diagnosticsCodSurchargeAmount: cfg.diagnosticsCodSurchargeAmount,
   };
 }
 
@@ -457,6 +481,25 @@ export async function saveTownBeautyPaymentRules(
   });
 }
 
+export async function patchTownServiceFlags(
+  token: string,
+  townId: string,
+  flags: {
+    groceryEnabled: boolean;
+    laundryEnabled: boolean;
+    beautyEnabled: boolean;
+    diagnosticsEnabled: boolean;
+    foodDeliveryEnabled: boolean;
+  },
+): Promise<TownConfigVm> {
+  await apiRequest(`/api/v1/towns/${townId}/config/features`, {
+    method: 'PATCH',
+    token,
+    body: flags,
+  });
+  return getTownConfig(token, townId);
+}
+
 export async function setTownLaundryEnabled(
   token: string,
   townId: string,
@@ -468,4 +511,36 @@ export async function setTownLaundryEnabled(
     body: { laundryEnabled },
   });
   return getTownConfig(token, townId);
+}
+
+export async function setTownDiagnosticsEnabled(
+  token: string,
+  townId: string,
+  diagnosticsEnabled: boolean,
+): Promise<TownConfigVm> {
+  await apiRequest(`/api/v1/towns/${townId}/config/features`, {
+    method: 'PATCH',
+    token,
+    body: { diagnosticsEnabled },
+  });
+  return getTownConfig(token, townId);
+}
+
+export async function saveTownDiagnosticsFees(
+  token: string,
+  townId: string,
+  fees: {
+    diagnosticsPlatformFeeFlat: number;
+    diagnosticsCodEnabled: boolean;
+    diagnosticsCodSurchargeAmount: number;
+  },
+): Promise<TownConfigVm> {
+  const current = await getTownConfig(token, townId);
+  return updateTownConfig(token, townId, {
+    ...townConfigToUpdateInput(current),
+    diagnosticsEnabled: current.diagnosticsEnabled,
+    diagnosticsPlatformFeeFlat: Math.max(0, fees.diagnosticsPlatformFeeFlat),
+    diagnosticsCodEnabled: fees.diagnosticsCodEnabled,
+    diagnosticsCodSurchargeAmount: Math.max(0, fees.diagnosticsCodSurchargeAmount),
+  });
 }

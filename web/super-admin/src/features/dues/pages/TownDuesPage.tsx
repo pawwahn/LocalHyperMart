@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { PortalShell } from '@/shared/layout/PortalShell';
 import { useAuth } from '@/shared/auth/AuthContext';
+import { usePlatformAdminAccess } from '@/shared/auth/usePlatformAdminAccess';
 import { ApiError } from '@/shared/api/http';
 import { Banner, Button, Card, ConfirmDialog } from '@/shared/ui';
 import {
@@ -19,6 +21,7 @@ import {
 import {
   createHubCodPaymentRequest,
   createHubFranchisePaymentRequest,
+  waiveHubFranchiseMonth,
 } from '@/features/settlements/api/hubPaymentRequestApi';
 import { rejectHubPaymentSubmission, verifyHubPaymentSubmission } from '@/features/settlements/api/hubPaymentApi';
 import { listTowns, type TownVm } from '@/features/towns/api/townsApi';
@@ -36,6 +39,7 @@ import { mergeTownDuesReports } from '../api/mergeTownDues';
 import { TownDuesCalendar, type DuesCalendarItem } from '../components/TownDuesCalendar';
 import { BankPaidOnField } from '@/features/settlements/BankPaidOnField';
 import { defaultBankPaidOn, todayIstDate, validateBankPaidOn } from '@/features/settlements/bankPaidOnUtils';
+import { settlementsVendorCollectUrl } from '../accountsDeepLinks';
 
 type Preset = 'open' | ReportDatePreset;
 type LedgerTab = 'dues' | 'pay';
@@ -74,6 +78,38 @@ function money(value?: number | null): string {
 function feeCell(value?: number | null): string {
   if (value == null) return '—';
   return money(value);
+}
+
+function orderCountCell(line: TownDueLine): string {
+  if (!line.itemCount) return '—';
+  if (line.upiOrderCount != null && line.upiOrderCount > 0 && line.upiOrderCount !== line.itemCount) {
+    return `${line.itemCount} (${line.upiOrderCount} UPI)`;
+  }
+  return String(line.itemCount);
+}
+
+function shopCodCell(line: TownDueLine): string {
+  return feeCell(line.shopCodCash);
+}
+
+type LedgerAmtKind = 'upi' | 'cod' | 'count' | 'fee' | 'total';
+
+function ledgerNumTd(display: string, kind: LedgerAmtKind, moneyStart?: boolean) {
+  const empty = display === '—' || display === '…';
+  const classes = [
+    'dues-td-num',
+    `dues-amt-${kind}`,
+    empty ? 'is-empty' : '',
+    moneyStart ? 'dues-money-start' : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+  return <td className={classes}>{display}</td>;
+}
+
+function ledgerMoneyTd(value?: number | null, kind: LedgerAmtKind = 'fee') {
+  const empty = value == null;
+  return ledgerNumTd(empty ? '—' : money(value), kind, kind === 'upi');
 }
 
 /** A blank total is not ₹0. Show the figure only after the report has arrived. */
@@ -196,7 +232,7 @@ function whatHeadline(line: TownDueLine): string {
   }
   if (line.party === 'VENDOR' && line.action === 'PAY') {
     return Number(line.commission ?? 0) > 0
-      ? 'Shop does not send this commission. It is cut from the payout KoyaKart still has to send.'
+      ? 'KoyaKart payout to shop (commission already withheld).'
       : 'KoyaKart pays the shop. No commission on these bags.';
   }
   return line.what;
@@ -204,6 +240,10 @@ function whatHeadline(line: TownDueLine): string {
 
 export function TownDuesPage() {
   const { session } = useAuth();
+  const { canMoveMoney, canIssueBills } = usePlatformAdminAccess();
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const deepLinkApplied = useRef(false);
   const token = session?.accessToken ?? '';
   const [preset, setPreset] = useState<Preset>('open');
   const [layout, setLayout] = useState<'list' | 'week' | 'month'>('list');
@@ -211,6 +251,7 @@ export function TownDuesPage() {
   const [tab, setTab] = useState<LedgerTab>('dues');
   const [townId, setTownId] = useState('');
   const [party, setParty] = useState<DueParty | ''>('');
+  const [partyId, setPartyId] = useState('');
   const [action, setAction] = useState<DueAction | ''>('');
   const [towns, setTowns] = useState<TownVm[]>([]);
   const [hubNames, setHubNames] = useState<Map<string, string>>(new Map());
@@ -229,6 +270,11 @@ export function TownDuesPage() {
   const [payRef, setPayRef] = useState('');
   const [payNotes, setPayNotes] = useState('');
   const [billSend, setBillSend] = useState<{ line: TownDueLine; who: string; townId: string } | null>(null);
+  const [franchiseRemove, setFranchiseRemove] = useState<{
+    line: TownDueLine;
+    who: string;
+    townId: string;
+  } | null>(null);
 
   const range = preset === 'open' ? undefined : rangeForReportPreset(preset);
   const loadDirectory = useCallback(async () => {
@@ -262,12 +308,24 @@ export function TownDuesPage() {
     setScanningOpen(false);
     setError(null);
     try {
-      const ledger = await fetchTownDues(token, range, townId || undefined, false);
-      setReport(ledger);
+      const town = townId || undefined;
+      const [ledger, payOpen] = await Promise.all([
+        fetchTownDues(token, range, town, false),
+        fetchTownDues(token, range, town, true, true, 'PAY'),
+      ]);
+      setReport(mergeTownDuesReports(ledger, payOpen));
       setLoading(false);
       setScanningOpen(true);
-      const open = await fetchTownDues(token, range, townId || undefined, true, true);
-      setReport(mergeTownDuesReports(ledger, open));
+      const receiveOpen = await fetchTownDues(
+        token,
+        range,
+        town,
+        true,
+        true,
+        'SEND_BILL,COLLECT,CONFIRM',
+      );
+      const openWork = mergeTownDuesReports(payOpen, receiveOpen);
+      setReport(mergeTownDuesReports(ledger, openWork));
     } catch (err) {
       setReport(null);
       setError(err instanceof ApiError || err instanceof Error ? err.message : 'Could not load accounts');
@@ -280,6 +338,29 @@ export function TownDuesPage() {
   useEffect(() => {
     void loadDirectory();
   }, [loadDirectory]);
+
+  useEffect(() => {
+    if (deepLinkApplied.current) return;
+    const qTown = searchParams.get('townId') ?? '';
+    const qParty = (searchParams.get('party') ?? '') as DueParty | '';
+    const qPartyId = searchParams.get('partyId') ?? '';
+    const qAction = (searchParams.get('action') ?? '') as DueAction | '';
+    if (!qTown && !qParty && !qPartyId && !qAction) return;
+    deepLinkApplied.current = true;
+    if (qTown) setTownId(qTown);
+    if (qParty === 'HUB' || qParty === 'VENDOR' || qParty === 'AGENT') setParty(qParty);
+    if (qPartyId) setPartyId(qPartyId);
+    if (qAction === 'SEND_BILL' || qAction === 'COLLECT' || qAction === 'CONFIRM') {
+      setTab('dues');
+      setAction(qAction);
+    }
+    const next = new URLSearchParams(searchParams);
+    next.delete('townId');
+    next.delete('party');
+    next.delete('partyId');
+    next.delete('action');
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   useEffect(() => {
     void loadDues();
@@ -309,10 +390,14 @@ export function TownDuesPage() {
       .filter((town) => !townId || town.townId === townId)
       .map((town) => ({
         ...town,
-        lines: town.lines.filter((line) => !party || line.party === party),
+        lines: town.lines.filter((line) => {
+          if (party && line.party !== party) return false;
+          if (partyId && (line.partyId ?? '') !== partyId) return false;
+          return true;
+        }),
       }))
       .filter((town) => town.lines.length > 0);
-  }, [report, townId, party]);
+  }, [report, townId, party, partyId]);
 
   const ready = report != null;
 
@@ -361,6 +446,33 @@ export function TownDuesPage() {
     return line.party === 'VENDOR' || line.party === 'HUB';
   }
 
+  function canCollect(line: TownDueLine): boolean {
+    if (line.action !== 'COLLECT') return false;
+    if (!line.partyId) return false;
+    return line.party === 'VENDOR' || line.party === 'HUB';
+  }
+
+  function openCollectWorkspace(line: TownDueLine, townIdForLine: string) {
+    if (line.party === 'VENDOR') {
+      navigate(
+        settlementsVendorCollectUrl({
+          townId: townIdForLine,
+          vendorId: line.partyId!,
+          paysSubTab: line.settlementId ? 'records' : 'collect',
+        }),
+      );
+      return;
+    }
+    if (line.party === 'HUB') {
+      navigate(`/settlements?townId=${encodeURIComponent(townIdForLine)}&tab=HUB`);
+    }
+  }
+
+  function canRemoveHubFranchise(line: TownDueLine): boolean {
+    if (line.party !== 'HUB' || !isHubFranchiseSend(line) || !line.partyId || !line.periodStart) return false;
+    return line.action === 'SEND_BILL' || line.action === 'COLLECT';
+  }
+
   function openPay(line: TownDueLine, who: string, townIdForLine: string) {
     setPayMethod('UPI');
     setPayRef('');
@@ -373,6 +485,31 @@ export function TownDuesPage() {
     if (party === 'HUB') return 'hub';
     if (party === 'AGENT') return 'agent';
     return 'vendor';
+  }
+
+  async function submitFranchiseRemove() {
+    if (!franchiseRemove || !token) return;
+    const { line, who, townId: tid } = franchiseRemove;
+    const start = line.periodStart!.slice(0, 10);
+    const [y, m] = start.split('-').map(Number);
+    setSaving(true);
+    setError(null);
+    try {
+      await waiveHubFranchiseMonth(token, {
+        townId: tid,
+        hubId: line.partyId!,
+        billingYear: y,
+        billingMonth: m,
+        reason: 'Removed from Accounts by admin',
+      });
+      setNotice(`Franchise ${period(line)} removed for ${who}. This month will not show on Accounts.`);
+      setFranchiseRemove(null);
+      await loadDues();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Could not remove franchise bill');
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function submitSendBill() {
@@ -756,12 +893,14 @@ export function TownDuesPage() {
 
       {layout === 'list'
         ? view.map((town) => (
-        <section key={town.townId} style={styles.town}>
-          <header style={styles.townHead}>
-            <h2 style={styles.townTitle}>{townName(town.townId)}</h2>
-            <span style={styles.townMeta}>{town.lines.length} item{town.lines.length === 1 ? '' : 's'}</span>
+        <section key={town.townId} className="dues-town-block">
+          <header className="dues-town-head">
+            <h2 className="dues-town-title">{townName(town.townId)}</h2>
+            <span className="dues-town-badge">
+              {town.lines.length} item{town.lines.length === 1 ? '' : 's'}
+            </span>
           </header>
-          <div className="dues-ledger-wrap" style={styles.tableWrap}>
+          <div className="dues-ledger-wrap">
             <table className="dues-ledger" style={styles.table}>
               <thead>
                 <tr>
@@ -769,17 +908,23 @@ export function TownDuesPage() {
                   <th className="dues-th dues-col-do">Do</th>
                   <th className="dues-th dues-col-what">What</th>
                   <th className="dues-th dues-col-period">Period</th>
+                  <th
+                    className="dues-th-num dues-col-fee dues-money-start"
+                    title="Buyer UPI collected by KoyaKart on this row"
+                  >
+                    App UPI
+                  </th>
+                  <th className="dues-th-num dues-col-fee" title="Goods COD cash with the shop or vendor">
+                    Vendor COD
+                  </th>
+                  <th className="dues-th-num dues-col-count" title="Bags or orders on this row">
+                    Orders
+                  </th>
                   <th className="dues-th-num dues-col-fee" title="Commission">
                     Comm
                   </th>
                   <th className="dues-th-num dues-col-fee" title="Platform fee">
                     Plat
-                  </th>
-                  <th className="dues-th-num dues-col-fee" title="COD charge">
-                    COD
-                  </th>
-                  <th className="dues-th-num dues-col-fee" title="Delivery / membership plan">
-                    Plan
                   </th>
                   <th className="dues-th-num dues-col-fee" title="Penalty">
                     Pen
@@ -795,55 +940,93 @@ export function TownDuesPage() {
                       {partyPhone(line) ? <div className="dues-who-phone">{partyPhone(line)}</div> : null}
                     </td>
                     <td className="dues-td dues-col-do">
-                      {canConfirm(line) ? (
-                        <button
-                          type="button"
-                          className="dues-action CONFIRM"
-                          disabled={saving}
-                          onClick={() => {
-                            setComment('');
-                            setConfirmBankPaidOn(defaultBankPaidOn({}));
-                            setAsk({ line, who: partyName(line) });
-                          }}
-                        >
-                          Confirm payment
-                        </button>
-                      ) : canPay(line) ? (
-                        <button
-                          type="button"
-                          className="dues-action PAY"
-                          disabled={saving}
-                          onClick={() => openPay(line, partyName(line), town.townId)}
-                        >
-                          KoyaKart pays
-                        </button>
-                      ) : canSendBill(line) ? (
-                        <button
-                          type="button"
-                          className="dues-action SEND_BILL"
-                          disabled={saving}
-                          onClick={() => {
-                            setError(null);
-                            setBillSend({ line, who: partyName(line), townId: town.townId });
-                          }}
-                        >
-                          {sendBillButtonLabel(line)}
-                        </button>
-                      ) : (
-                        <span className={`dues-action ${line.action}`}>{actionLabel(line)}</span>
-                      )}
+                      <div className="dues-do-stack">
+                        {canConfirm(line) ? (
+                          <button
+                            type="button"
+                            className="dues-action CONFIRM"
+                            disabled={saving || !canMoveMoney}
+                            title={canMoveMoney ? undefined : 'Super admin only'}
+                            onClick={() => {
+                              setComment('');
+                              setConfirmBankPaidOn(defaultBankPaidOn({}));
+                              setAsk({ line, who: partyName(line) });
+                            }}
+                          >
+                            Confirm payment
+                          </button>
+                        ) : canPay(line) ? (
+                          <button
+                            type="button"
+                            className="dues-action PAY"
+                            disabled={saving || !canMoveMoney}
+                            title={canMoveMoney ? undefined : 'Super admin only'}
+                            onClick={() => openPay(line, partyName(line), town.townId)}
+                          >
+                            KoyaKart pays
+                          </button>
+                        ) : canSendBill(line) ? (
+                          <button
+                            type="button"
+                            className="dues-action SEND_BILL"
+                            disabled={saving || !canIssueBills}
+                            onClick={() => {
+                              setError(null);
+                              setBillSend({ line, who: partyName(line), townId: town.townId });
+                            }}
+                          >
+                            {sendBillButtonLabel(line)}
+                          </button>
+                        ) : canCollect(line) ? (
+                          <button
+                            type="button"
+                            className="dues-action COLLECT"
+                            disabled={saving || !canMoveMoney}
+                            title={canMoveMoney ? 'Open Payouts to collect or confirm this bill' : 'Super admin only'}
+                            onClick={() => openCollectWorkspace(line, town.townId)}
+                          >
+                            Collect
+                          </button>
+                        ) : (
+                          <span className={`dues-action ${line.action}`}>{actionLabel(line)}</span>
+                        )}
+                        {canRemoveHubFranchise(line) ? (
+                          <button
+                            type="button"
+                            className="dues-action REMOVE"
+                            disabled={saving || !canMoveMoney}
+                            title={
+                              canMoveMoney
+                                ? 'Skip this franchise month — cancels an open bill if one was already sent'
+                                : 'Super admin only'
+                            }
+                            onClick={() => {
+                              setError(null);
+                              setFranchiseRemove({ line, who: partyName(line), townId: town.townId });
+                            }}
+                          >
+                            Remove
+                          </button>
+                        ) : null}
+                      </div>
                     </td>
                     <td className="dues-td dues-col-what">
                       <div className="dues-what-head">{whatHeadline(line)}</div>
                       {compactDetail(line) ? <div className="dues-what-detail">{compactDetail(line)}</div> : null}
+                      {line.paymentNotes?.trim() ? (
+                        <div className="dues-what-detail">Vendor note: {line.paymentNotes.trim()}</div>
+                      ) : null}
                     </td>
-                    <td className="dues-td dues-col-period">{period(line)}</td>
-                    <td className="dues-td-num">{feeCell(line.commission)}</td>
-                    <td className="dues-td-num">{feeCell(line.platformFee)}</td>
-                    <td className="dues-td-num">{feeCell(line.codFee)}</td>
-                    <td className="dues-td-num">{feeCell(line.membershipFee)}</td>
-                    <td className="dues-td-num">{feeCell(line.penalty)}</td>
-                    <td className="dues-td-num dues-total">{money(line.amount)}</td>
+                    <td className="dues-td dues-col-period">
+                      <span className="dues-period-pill">{period(line)}</span>
+                    </td>
+                    {ledgerMoneyTd(line.upiAppReceived, 'upi')}
+                    {ledgerNumTd(shopCodCell(line), 'cod')}
+                    {ledgerNumTd(orderCountCell(line), 'count')}
+                    {ledgerMoneyTd(line.commission, 'fee')}
+                    {ledgerMoneyTd(line.platformFee, 'fee')}
+                    {ledgerMoneyTd(line.penalty, 'fee')}
+                    {ledgerNumTd(money(line.amount), 'total')}
                   </tr>
                 ))}
               </tbody>
@@ -869,6 +1052,12 @@ export function TownDuesPage() {
                   {[ask.line.paymentMethod, ask.line.paymentReference].filter(Boolean).join(' · ') || '—'}
                 </strong>
               </div>
+              {ask.line.paymentNotes?.trim() ? (
+                <div style={styles.dlgRow}>
+                  <span>Vendor note</span>
+                  <strong>{ask.line.paymentNotes.trim()}</strong>
+                </div>
+              ) : null}
               <div style={styles.dlgRow}>
                 <span>Period</span>
                 <strong>{period(ask.line)}</strong>
@@ -958,6 +1147,39 @@ export function TownDuesPage() {
         onConfirm={() => void submitSendBill()}
       />
       <ConfirmDialog
+        open={franchiseRemove != null}
+        title="Remove franchise from Accounts?"
+        description={
+          franchiseRemove ? (
+            <div style={styles.dlgBody}>
+              <div style={styles.dlgHero}>
+                <span style={styles.dlgHeroLabel}>{whatHeadline(franchiseRemove.line)}</span>
+                <strong style={styles.dlgHeroValue}>{money(franchiseRemove.line.amount)}</strong>
+                <span>{franchiseRemove.who}</span>
+              </div>
+              <div style={styles.dlgRow}>
+                <span>Period</span>
+                <strong>{period(franchiseRemove.line)}</strong>
+              </div>
+              <p style={styles.dlgNote}>
+                Skips franchise rent for this month. If a bill was already issued to the hub, it is cancelled. Use Town
+                Incentives to turn franchise billing off for future months.
+              </p>
+            </div>
+          ) : (
+            ''
+          )
+        }
+        confirmLabel="Remove"
+        cancelLabel="Keep"
+        danger
+        busy={saving}
+        onClose={() => {
+          if (!saving) setFranchiseRemove(null);
+        }}
+        onConfirm={() => void submitFranchiseRemove()}
+      />
+      <ConfirmDialog
         open={pay != null}
         title="Pay from KoyaKart?"
         description={
@@ -1028,76 +1250,159 @@ export function TownDuesPage() {
 }
 
 const DUES_CSS = `
-.dues-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 0.35rem; }
+.dues-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 0.4rem; }
 .dues-tab {
-  display: grid; gap: 0.02rem; text-align: left; min-height: 44px;
-  border: 1px solid var(--border); border-radius: 10px; background: var(--bg);
-  padding: 0.35rem 0.55rem; cursor: pointer; font-family: inherit; color: var(--text);
+  display: grid; gap: 0.04rem; text-align: left; min-height: 46px;
+  border: 1px solid var(--border); border-radius: 12px; background: var(--bg);
+  padding: 0.4rem 0.6rem; cursor: pointer; font-family: inherit; color: var(--text);
+  transition: border-color 0.15s, box-shadow 0.15s, transform 0.12s;
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--text) 4%, transparent);
 }
-.dues-tab span { font-size: 0.78rem; font-weight: 800; }
-.dues-tab strong { font-size: 1.05rem; font-variant-numeric: tabular-nums; min-width: 5.5rem; display: inline-block; }
+.dues-tab:hover:not(.on) { border-color: color-mix(in srgb, var(--accent) 35%, var(--border)); }
+.dues-tab span { font-size: 0.78rem; font-weight: 800; letter-spacing: -0.01em; }
+.dues-tab strong { font-size: 1.08rem; font-variant-numeric: tabular-nums; min-width: 5.5rem; display: inline-block; }
 .dues-tab em { font-style: normal; font-size: 0.68rem; font-weight: 650; color: var(--text-muted); }
 .dues-tab.dues strong { color: #15803d; }
 .dues-tab.pay strong { color: #b91c1c; }
-.dues-tab.on { border-color: var(--accent); background: var(--accent-soft); }
+.dues-tab.on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent), 0 2px 8px color-mix(in srgb, var(--accent) 12%, transparent);
+}
 .dues-chip.SEND_BILL { color: #c2410c; }
 .dues-chip.COLLECT { color: #15803d; }
 .dues-chip.CONFIRM { color: #1d4ed8; }
-.dues-ledger-wrap { overflow: hidden; }
+
+.dues-town-block {
+  margin-bottom: 0.85rem;
+  border-radius: 14px;
+  border: 1px solid color-mix(in srgb, var(--border) 88%, var(--text-muted));
+  background: var(--bg-elevated);
+  box-shadow: 0 2px 10px color-mix(in srgb, #0f172a 5%, transparent);
+  overflow: hidden;
+}
+.dues-town-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  background: linear-gradient(
+    92deg,
+    color-mix(in srgb, var(--accent, #009111) 10%, var(--bg-elevated)) 0%,
+    var(--bg-elevated) 55%
+  );
+  border-bottom: 1px solid var(--border);
+}
+.dues-town-title {
+  margin: 0; font-size: 0.92rem; font-weight: 850; letter-spacing: -0.02em; color: var(--text);
+}
+.dues-town-badge {
+  flex-shrink: 0;
+  font-size: 0.66rem; font-weight: 750; color: var(--text-muted);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.14rem 0.55rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.dues-ledger-wrap { overflow-x: auto; overflow-y: visible; }
 .dues-ledger {
   table-layout: fixed;
   width: 100%;
-  font-size: 0.68rem;
-  line-height: 1.2;
-  border-collapse: collapse;
+  font-size: 0.71rem;
+  line-height: 1.25;
+  border-collapse: separate;
+  border-spacing: 0;
 }
+.dues-ledger thead { position: sticky; top: 0; z-index: 2; }
 .dues-th, .dues-th-num {
-  padding: 0.2rem 0.22rem;
+  padding: 0.32rem 0.28rem;
   border-bottom: 1px solid var(--border);
-  color: var(--text-muted);
+  color: color-mix(in srgb, var(--text-muted) 92%, var(--text));
   font-weight: 800;
-  background: var(--bg);
+  background: color-mix(in srgb, var(--text-muted) 7%, var(--bg-elevated));
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .dues-th { text-align: left; }
-.dues-th-num { text-align: right; font-size: 0.62rem; letter-spacing: -0.02em; }
+.dues-th-num {
+  text-align: right;
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 850;
+}
 .dues-td, .dues-td-num {
-  padding: 0.22rem 0.22rem;
-  border-bottom: 1px solid var(--border);
+  padding: 0.3rem 0.28rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 92%, transparent);
   vertical-align: top;
+  transition: background 0.12s;
+}
+.dues-ledger tbody tr:nth-child(even) .dues-td,
+.dues-ledger tbody tr:nth-child(even) .dues-td-num {
+  background: color-mix(in srgb, var(--text) 2.2%, var(--bg-elevated));
+}
+.dues-ledger tbody tr:hover .dues-td,
+.dues-ledger tbody tr:hover .dues-td-num {
+  background: color-mix(in srgb, var(--accent, #009111) 7%, var(--bg-elevated)) !important;
 }
 .dues-td-num {
   text-align: right;
-  font-weight: 750;
+  font-weight: 760;
   font-variant-numeric: tabular-nums;
-  font-size: 0.65rem;
+  font-size: 0.68rem;
   white-space: nowrap;
 }
-.dues-total { font-weight: 800; }
+.dues-money-start { border-left: 2px solid color-mix(in srgb, var(--accent) 35%, var(--border)); }
+.dues-th-num.dues-money-start { background: color-mix(in srgb, var(--text-muted) 9%, var(--bg-elevated)); }
+.dues-amt-upi:not(.is-empty) { color: #0369a1; font-weight: 800; }
+.dues-amt-cod:not(.is-empty) { color: #b45309; font-weight: 800; }
+.dues-amt-total { font-weight: 900; font-size: 0.74rem; color: var(--text); }
+.dues-amt-count:not(.is-empty) { font-weight: 800; color: color-mix(in srgb, var(--text) 88%, var(--text-muted)); }
+.dues-td-num.is-empty { color: color-mix(in srgb, var(--text-muted) 45%, transparent); font-weight: 550; }
+
 .dues-col-who { width: 10%; }
-.dues-col-do { width: 6.5%; }
-.dues-col-what { width: 19%; }
-.dues-col-period { width: 7.5%; }
-.dues-col-fee { width: 5.6%; }
-.dues-col-total { width: 6.5%; }
+.dues-col-do { width: 7%; }
+.dues-col-what { width: 20%; }
+.dues-col-period { width: 8%; }
+.dues-col-count { width: 4.8%; }
+.dues-col-fee { width: 5.4%; }
+.dues-col-total { width: 6.8%; }
+
+.dues-period-pill {
+  display: inline-block;
+  max-width: 100%;
+  padding: 0.12rem 0.35rem;
+  border-radius: 6px;
+  font-size: 0.64rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  background: color-mix(in srgb, var(--text-muted) 6%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border) 90%, transparent);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .dues-who-name {
-  font-weight: 800;
+  font-weight: 850;
+  font-size: 0.72rem;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  letter-spacing: -0.01em;
 }
 .dues-who-phone {
-  font-size: 0.6rem;
+  font-size: 0.61rem;
   font-weight: 650;
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
 }
-.dues-what-head { font-weight: 700; font-size: 0.65rem; }
+.dues-what-head { font-weight: 780; font-size: 0.68rem; line-height: 1.22; color: var(--text); }
 .dues-what-detail {
-  margin-top: 0.08rem;
-  font-size: 0.6rem;
+  margin-top: 0.12rem;
+  font-size: 0.62rem;
+  line-height: 1.3;
   color: var(--text-muted);
   overflow: hidden;
   display: -webkit-box;
@@ -1106,6 +1411,7 @@ const DUES_CSS = `
   line-clamp: 2;
   word-break: break-word;
 }
+
 .dues-filters { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: end; }
 .dues-field { display: grid; gap: 0.12rem; font-size: 0.68rem; font-weight: 700; color: var(--text-muted); }
 .dues-field select {
@@ -1118,20 +1424,32 @@ const DUES_CSS = `
 .dues-presets { display: flex; flex-wrap: wrap; gap: 0.28rem; align-items: center; }
 .dues-chip, .dues-action {
   border: 1px solid var(--border); background: var(--bg); color: var(--text-muted);
-  border-radius: 999px; min-height: 1.7rem; padding: 0.15rem 0.55rem;
-  font-size: 0.72rem; font-weight: 700; font-family: inherit; cursor: pointer;
+  border-radius: 999px; min-height: 1.75rem; padding: 0.16rem 0.58rem;
+  font-size: 0.72rem; font-weight: 750; font-family: inherit; cursor: pointer;
+  transition: transform 0.1s, box-shadow 0.12s, border-color 0.12s;
 }
-.dues-chip.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 800; }
-.dues-action { cursor: default; font-size: 0.58rem; padding: 0.1rem 0.22rem; max-width: 100%; }
-.dues-td .dues-action { display: inline-block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-button.dues-action.CONFIRM, button.dues-action.PAY, button.dues-action.SEND_BILL { cursor: pointer; }
-button.dues-action.CONFIRM:disabled, button.dues-action.PAY:disabled, button.dues-action.SEND_BILL:disabled { opacity: 0.6; cursor: wait; }
-.dues-action.SEND_BILL { color: #c2410c; border-color: #fdba74; background: #fff7ed; }
-.dues-action.COLLECT { color: #15803d; border-color: #86efac; background: #f0fdf4; }
-.dues-action.PAY { color: #b91c1c; border-color: #fecaca; background: #fef2f2; }
-.dues-action.CONFIRM { color: #1d4ed8; border-color: #bfdbfe; background: #eff6ff; }
+.dues-chip.on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 850;
+  box-shadow: 0 1px 4px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+.dues-action { cursor: default; font-size: 0.6rem; padding: 0.18rem 0.38rem; max-width: 100%; border-radius: 8px; }
+.dues-td .dues-action { display: inline-block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; width: 100%; text-align: center; }
+.dues-do-stack { display: flex; flex-direction: column; gap: 0.14rem; align-items: stretch; }
+button.dues-action.CONFIRM, button.dues-action.PAY, button.dues-action.SEND_BILL, button.dues-action.REMOVE { cursor: pointer; }
+button.dues-action:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 2px 6px color-mix(in srgb, #0f172a 8%, transparent); }
+button.dues-action.CONFIRM:disabled, button.dues-action.PAY:disabled, button.dues-action.SEND_BILL:disabled, button.dues-action.REMOVE:disabled { opacity: 0.55; cursor: wait; transform: none; box-shadow: none; }
+.dues-action.REMOVE { color: #991b1b; border-color: #fecaca; background: linear-gradient(180deg, #fff, #fef2f2); }
+.dues-action.SEND_BILL { color: #c2410c; border-color: #fdba74; background: linear-gradient(180deg, #fff, #fff7ed); }
+.dues-action.COLLECT { color: #15803d; border-color: #86efac; background: linear-gradient(180deg, #fff, #f0fdf4); }
+.dues-action.PAY { color: #b91c1c; border-color: #fecaca; background: linear-gradient(180deg, #fff, #fef2f2); }
+.dues-action.CONFIRM { color: #1d4ed8; border-color: #bfdbfe; background: linear-gradient(180deg, #fff, #eff6ff); }
+
 @media (max-width: 640px) {
   .dues-tabs { grid-template-columns: 1fr; }
+  .dues-ledger { font-size: 0.66rem; }
 }
 `;
 

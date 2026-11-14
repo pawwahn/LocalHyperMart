@@ -51,6 +51,7 @@ public interface VendorListingRepository extends JpaRepository<VendorListing, UU
                     JOIN FETCH mi.unit u
                     WHERE vl.townId = :townId
                       AND vl.active = true
+                      AND (vl.listingKind IS NULL OR vl.listingKind = com.hyperlocalmart.catalog.entity.ListingKind.GROCERY)
                       AND mi.status = com.hyperlocalmart.catalog.entity.CatalogItemStatus.ACTIVE
                       AND (
                             (
@@ -76,6 +77,7 @@ public interface VendorListingRepository extends JpaRepository<VendorListing, UU
                     JOIN mi.category cat
                     WHERE vl.townId = :townId
                       AND vl.active = true
+                      AND (vl.listingKind IS NULL OR vl.listingKind = com.hyperlocalmart.catalog.entity.ListingKind.GROCERY)
                       AND mi.status = com.hyperlocalmart.catalog.entity.CatalogItemStatus.ACTIVE
                       AND (
                             (
@@ -108,6 +110,7 @@ public interface VendorListingRepository extends JpaRepository<VendorListing, UU
                     JOIN FETCH mi.unit u
                     WHERE vl.townId = :townId
                       AND vl.active = true
+                      AND (vl.listingKind IS NULL OR vl.listingKind = com.hyperlocalmart.catalog.entity.ListingKind.GROCERY)
                       AND mi.status = com.hyperlocalmart.catalog.entity.CatalogItemStatus.ACTIVE
                       AND (
                             (
@@ -138,6 +141,7 @@ public interface VendorListingRepository extends JpaRepository<VendorListing, UU
                     JOIN mi.category cat
                     WHERE vl.townId = :townId
                       AND vl.active = true
+                      AND (vl.listingKind IS NULL OR vl.listingKind = com.hyperlocalmart.catalog.entity.ListingKind.GROCERY)
                       AND mi.status = com.hyperlocalmart.catalog.entity.CatalogItemStatus.ACTIVE
                       AND (
                             (
@@ -215,6 +219,7 @@ public interface VendorListingRepository extends JpaRepository<VendorListing, UU
                     JOIN FETCH mi.unit u
                     WHERE vl.townId = :townId
                       AND vl.active = true
+                      AND (vl.listingKind IS NULL OR vl.listingKind = com.hyperlocalmart.catalog.entity.ListingKind.GROCERY)
                       AND mi.status = com.hyperlocalmart.catalog.entity.CatalogItemStatus.ACTIVE
                       AND (
                             (
@@ -248,6 +253,7 @@ public interface VendorListingRepository extends JpaRepository<VendorListing, UU
                     JOIN mi.category cat
                     WHERE vl.townId = :townId
                       AND vl.active = true
+                      AND (vl.listingKind IS NULL OR vl.listingKind = com.hyperlocalmart.catalog.entity.ListingKind.GROCERY)
                       AND mi.status = com.hyperlocalmart.catalog.entity.CatalogItemStatus.ACTIVE
                       AND (
                             (
@@ -289,6 +295,7 @@ public interface VendorListingRepository extends JpaRepository<VendorListing, UU
                     JOIN FETCH mi.unit u
                     WHERE vl.townId = :townId
                       AND vl.active = true
+                      AND (vl.listingKind IS NULL OR vl.listingKind = com.hyperlocalmart.catalog.entity.ListingKind.GROCERY)
                       AND mi.status = com.hyperlocalmart.catalog.entity.CatalogItemStatus.ACTIVE
                       AND (
                             (
@@ -315,6 +322,7 @@ public interface VendorListingRepository extends JpaRepository<VendorListing, UU
                     JOIN mi.category cat
                     WHERE vl.townId = :townId
                       AND vl.active = true
+                      AND (vl.listingKind IS NULL OR vl.listingKind = com.hyperlocalmart.catalog.entity.ListingKind.GROCERY)
                       AND mi.status = com.hyperlocalmart.catalog.entity.CatalogItemStatus.ACTIVE
                       AND (
                             (
@@ -347,6 +355,7 @@ public interface VendorListingRepository extends JpaRepository<VendorListing, UU
                     JOIN FETCH mi.unit u
                     WHERE vl.townId = :townId
                       AND vl.active = true
+                      AND (vl.listingKind IS NULL OR vl.listingKind = com.hyperlocalmart.catalog.entity.ListingKind.GROCERY)
                       AND mi.status = com.hyperlocalmart.catalog.entity.CatalogItemStatus.ACTIVE
                       AND (
                             (
@@ -373,6 +382,7 @@ public interface VendorListingRepository extends JpaRepository<VendorListing, UU
                     JOIN mi.category cat
                     WHERE vl.townId = :townId
                       AND vl.active = true
+                      AND (vl.listingKind IS NULL OR vl.listingKind = com.hyperlocalmart.catalog.entity.ListingKind.GROCERY)
                       AND mi.status = com.hyperlocalmart.catalog.entity.CatalogItemStatus.ACTIVE
                       AND (
                             (
@@ -435,6 +445,7 @@ public interface VendorListingRepository extends JpaRepository<VendorListing, UU
                     JOIN FETCH mi.unit u
                     WHERE vl.townId = :townId
                       AND vl.active = true
+                      AND (vl.listingKind IS NULL OR vl.listingKind = com.hyperlocalmart.catalog.entity.ListingKind.GROCERY)
                       AND mi.status = com.hyperlocalmart.catalog.entity.CatalogItemStatus.ACTIVE
                       AND mi.id IN :masterIds
                       AND (

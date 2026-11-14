@@ -37,4 +37,13 @@ public class VendorClient {
             String phone
     ) {
     }
+
+    public void syncDiagnosticsFieldAgent(SyncFieldAgentRequest request) {
+        RestClient client = restClientBuilder.baseUrl(vendorServiceProperties.getBaseUrl()).build();
+        client.post()
+                .uri("/api/v1/internal/vendors/diagnostics/field-agents/sync")
+                .body(request)
+                .retrieve()
+                .toBodilessEntity();
+    }
 }

@@ -8,11 +8,10 @@ import com.hyperlocalmart.catalog.dto.response.BulkCategoryVisibilityResponse;
 import com.hyperlocalmart.catalog.dto.response.CategoryResponse;
 import com.hyperlocalmart.catalog.dto.response.CategoryTownVisibilityResponse;
 import com.hyperlocalmart.catalog.security.AuthUserPrincipal;
+import com.hyperlocalmart.catalog.security.PlatformAdminPrincipalAuth;
 import com.hyperlocalmart.catalog.service.CategoryVisibilityService;
 import com.hyperlocalmart.catalog.service.VendorListingService;
 import com.hyperlocalmart.common.api.ApiResponse;
-import com.hyperlocalmart.common.exception.BusinessException;
-import com.hyperlocalmart.common.exception.ErrorCode;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -50,7 +49,7 @@ public class CategoryController {
         List<CategoryResponse> items;
         if (townId != null) {
             items = categoryVisibilityService.listVisibleInTown(townId);
-        } else if (isSuperAdmin(principal)) {
+        } else if (PlatformAdminPrincipalAuth.isPlatformStaff(principal)) {
             items = categoryVisibilityService.listForAdmin();
         } else {
             items = vendorListingService.listCategories();
@@ -63,7 +62,7 @@ public class CategoryController {
             @AuthenticationPrincipal AuthUserPrincipal principal,
             @Valid @RequestBody CreateCategoryRequest request,
             HttpServletRequest httpRequest) {
-        requireSuperAdmin(principal);
+        PlatformAdminPrincipalAuth.requireWrite(principal);
         CategoryResponse created = vendorListingService.createCategory(request, principal.getUserId());
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponses.ok(httpRequest, created));
     }
@@ -74,7 +73,7 @@ public class CategoryController {
             @PathVariable UUID categoryId,
             @Valid @RequestBody CreateCategoryRequest request,
             HttpServletRequest httpRequest) {
-        requireSuperAdmin(principal);
+        PlatformAdminPrincipalAuth.requireWrite(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
                 vendorListingService.updateCategory(categoryId, request, principal.getUserId())));
     }
@@ -85,7 +84,7 @@ public class CategoryController {
             @PathVariable UUID categoryId,
             @Valid @RequestBody SetCategoryImageRequest request,
             HttpServletRequest httpRequest) {
-        requireSuperAdmin(principal);
+        PlatformAdminPrincipalAuth.requireWrite(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
                 vendorListingService.setCategoryImage(categoryId, request)));
     }
@@ -95,7 +94,7 @@ public class CategoryController {
             @AuthenticationPrincipal AuthUserPrincipal principal,
             @Valid @RequestBody SetCategoryPauseRequest request,
             HttpServletRequest httpRequest) {
-        requireSuperAdmin(principal);
+        PlatformAdminPrincipalAuth.requireWrite(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
                 categoryVisibilityService.setAllPaused(request.getPaused(), principal.getUserId())));
     }
@@ -106,7 +105,7 @@ public class CategoryController {
             @PathVariable UUID categoryId,
             @Valid @RequestBody SetCategoryPauseRequest request,
             HttpServletRequest httpRequest) {
-        requireSuperAdmin(principal);
+        PlatformAdminPrincipalAuth.requireWrite(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
                 categoryVisibilityService.setPaused(categoryId, request.getPaused(), principal.getUserId())));
     }
@@ -116,7 +115,7 @@ public class CategoryController {
             @AuthenticationPrincipal AuthUserPrincipal principal,
             @PathVariable UUID categoryId,
             HttpServletRequest httpRequest) {
-        requireSuperAdmin(principal);
+        PlatformAdminPrincipalAuth.requireStaff(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, categoryVisibilityService.getTownVisibility(categoryId)));
     }
 
@@ -126,7 +125,7 @@ public class CategoryController {
             @PathVariable UUID categoryId,
             @Valid @RequestBody SetCategoryTownVisibilityRequest request,
             HttpServletRequest httpRequest) {
-        requireSuperAdmin(principal);
+        PlatformAdminPrincipalAuth.requireWrite(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
                 categoryVisibilityService.applyTownVisibility(categoryId, request, principal.getUserId())));
     }
@@ -136,18 +135,8 @@ public class CategoryController {
             @AuthenticationPrincipal AuthUserPrincipal principal,
             @PathVariable UUID categoryId,
             HttpServletRequest httpRequest) {
-        requireSuperAdmin(principal);
+        PlatformAdminPrincipalAuth.requireWrite(principal);
         vendorListingService.deleteCategory(categoryId, principal.getUserId());
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, Map.of("deleted", true)));
-    }
-
-    private static boolean isSuperAdmin(AuthUserPrincipal principal) {
-        return principal != null && principal.getRoles().contains("SUPER_ADMIN");
-    }
-
-    private void requireSuperAdmin(AuthUserPrincipal principal) {
-        if (!isSuperAdmin(principal)) {
-            throw new BusinessException(ErrorCode.FORBIDDEN, "Super admin role required");
-        }
     }
 }

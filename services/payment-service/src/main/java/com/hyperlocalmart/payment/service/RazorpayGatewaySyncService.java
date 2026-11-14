@@ -37,8 +37,13 @@ public class RazorpayGatewaySyncService {
     private final PhonePeClient phonePeClient;
     private final OrderClient orderClient;
     private final TransactionTemplate transactionTemplate;
+    private final PspOutboundLimiterService pspOutboundLimiter;
 
     public void ensureOrderPaymentGateway(UUID paymentId) {
+        pspOutboundLimiter.runWithPermit(() -> ensureOrderPaymentGatewayInternal(paymentId));
+    }
+
+    private void ensureOrderPaymentGatewayInternal(UUID paymentId) {
         Payment payment = paymentRepository.findById(paymentId).orElse(null);
         if (payment == null || payment.getStatus() != PaymentStatus.PENDING) {
             return;
@@ -87,6 +92,10 @@ public class RazorpayGatewaySyncService {
     }
 
     public void ensureMembershipGateway(UUID purchaseId) {
+        pspOutboundLimiter.runWithPermit(() -> ensureMembershipGatewayInternal(purchaseId));
+    }
+
+    private void ensureMembershipGatewayInternal(UUID purchaseId) {
         BuyerMembershipPurchase purchase = purchaseRepository.findById(purchaseId).orElse(null);
         if (purchase == null || purchase.getStatus() != MembershipPurchaseStatus.PENDING_PAYMENT) {
             return;
@@ -136,6 +145,9 @@ public class RazorpayGatewaySyncService {
         notes.put("hlm_kind", "ORDER");
         notes.put("hlm_order_id", payment.getOrderId().toString());
         notes.put("hlm_payment_id", payment.getId().toString());
+        if (payment.getOrderNumber() != null && !payment.getOrderNumber().isBlank()) {
+            notes.put("hlm_order_number", payment.getOrderNumber());
+        }
         return razorpayClient.createOrder(paise, payment.getId().toString().replace("-", ""), notes);
     }
 }

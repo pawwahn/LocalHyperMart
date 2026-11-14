@@ -37,4 +37,9 @@ public class CreateVendorAgentRequest {
 
     @Pattern(regexp = "^$|^[6-9]\\d{9}$", message = "Invalid reference 2 mobile number")
     private String reference2Phone;
+
+    @Size(max = 30)
+    private String labTitle;
+
+    private Boolean collectionCapable;
 }

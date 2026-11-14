@@ -4,14 +4,16 @@ type Props = {
   children: ReactNode;
   padding?: 'sm' | 'md' | 'lg';
   elevated?: boolean;
+  className?: string;
   style?: CSSProperties;
 };
 
 const pads = { sm: '0.75rem', md: '1rem', lg: '1.25rem' } as const;
 
-export function Card({ children, padding = 'md', elevated, style }: Props) {
+export function Card({ children, padding = 'md', elevated, className, style }: Props) {
   return (
     <div
+      className={className}
       style={{
         background: 'var(--bg-elevated)',
         border: '1px solid var(--border)',

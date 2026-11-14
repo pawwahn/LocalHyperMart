@@ -6,6 +6,7 @@ Use before promoting a build to shared QA or production. See also `docs/06_SECUR
 
 - [ ] `JWT_SECRET` — unique, ≥32 random characters; same value on gateway and all Java services
 - [ ] `HLM_INTERNAL_SERVICE_SECRET` — unique random string; **same on all services** in QA/prod (required when `hlm-secure` profile is active)
+- [ ] `HLM_SECRETS_ENCRYPTION_KEY` — **payment-service only**; 32-byte key as Base64 (`openssl rand -base64 32`). Encrypts Razorpay/Cashfree/PhonePe secrets in Postgres. **Back up securely** — loss prevents decrypting stored gateway keys.
 - [ ] `POSTGRES_PASSWORD`, `REDIS_PASSWORD` — strong; not defaults from dev
 - [ ] `RAZORPAY_*` / Cashfree / PhonePe — test keys in QA, live keys only in prod; never in git
 - [ ] `PAYMENT_DEV_WEBHOOK_BYPASS` — **unset** in QA/prod (local dev may use `dev-bypass` via `.env.local`)
@@ -16,6 +17,7 @@ Use before promoting a build to shared QA or production. See also `docs/06_SECUR
 
 - [ ] `SPRING_PROFILES_ACTIVE=hlm-secure` (default in `docker-compose.qa.yml`)
 - [ ] `HLM_GATEWAY_RATE_LIMIT=true` and Redis reachable from api-gateway
+- [ ] Payment peak: `REDIS_HOST` on payment-service, `HLM_PAYMENT_ADMISSION_ENABLED=true`, `HLM_PAYMENT_ADMISSION_RPS=50`, `HLM_PAYMENT_WEBHOOK_ASYNC=true` for load tests
 - [ ] `HLM_CORS_ALLOWED_ORIGIN_PATTERN` set to your QA site origin (not `*` on public hosts)
 - [ ] Only port **80** (web) exposed; service ports **not** published to the internet
 

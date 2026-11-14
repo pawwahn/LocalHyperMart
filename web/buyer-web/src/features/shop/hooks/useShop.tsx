@@ -45,6 +45,12 @@ import {
 } from '../api/shopApi';
 import { resolveOnlineCheckout } from '../lib/loadOnlineCheckout';
 import type { GatewayCheckout } from '../lib/razorpayCheckout';
+import {
+  parseCartServiceMixConflict,
+  type CartListingKind,
+  type CartServiceMixConflict,
+} from '../lib/cartServiceMix';
+import { CartServiceConflictDialog } from '../components/CartServiceConflictDialog';
 
 export type CheckoutOutcome =
   | { ok: false }
@@ -178,6 +184,9 @@ function useShopState() {
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [cartServiceConflict, setCartServiceConflict] = useState<CartServiceMixConflict | null>(
+    null,
+  );
   const [storeCreditBalance, setStoreCreditBalance] = useState(0);
   const hasLoadedOnce = useRef(false);
   const cartRef = useRef<CartView | null>(null);
@@ -188,6 +197,19 @@ function useShopState() {
   const desiredQtyRef = useRef<Map<string, number>>(new Map());
   const syncChainRef = useRef<Map<string, Promise<void>>>(new Map());
   const basketGuardRef = useRef(0);
+  /** Sticky until cart clears — `foodCart` from API can lag on mixed/legacy lines. */
+  const foodBasketRef = useRef(false);
+  const [foodBasketActive, setFoodBasketActive] = useState(false);
+
+  function markFoodBasketActive() {
+    foodBasketRef.current = true;
+    setFoodBasketActive(true);
+  }
+
+  function clearFoodBasketActive() {
+    foodBasketRef.current = false;
+    setFoodBasketActive(false);
+  }
 
   useEffect(() => {
     cartRef.current = cart;
@@ -240,6 +262,8 @@ function useShopState() {
       minOrderMet: false,
       items: [],
       membershipAddon: null,
+      foodCart: false,
+      foodVendorId: null,
     };
   }
 
@@ -280,6 +304,18 @@ function useShopState() {
       ...merged,
       items: orderCartItems(previousItems, merged.items),
     };
+    if (merged.items.length === 0) {
+      clearFoodBasketActive();
+    } else if (merged.foodCart || next.foodCart) {
+      markFoodBasketActive();
+      if (!merged.foodCart) {
+        merged = {
+          ...merged,
+          foodCart: true,
+          foodVendorId: merged.foodVendorId ?? next.foodVendorId,
+        };
+      }
+    }
     cartRef.current = merged;
     setCart(merged);
     persistCartDraft(merged);
@@ -342,6 +378,7 @@ function useShopState() {
     serverCartRef.current = null;
     cartRef.current = null;
     desiredQtyRef.current.clear();
+    clearFoodBasketActive();
     setCart(null);
   }
 
@@ -465,10 +502,17 @@ function useShopState() {
     return view;
   }
 
-  function patchLocalQuantity(listingId: string, nextQty: number) {
+  function patchLocalQuantity(listingId: string, nextQty: number, opts?: { foodMenu?: boolean }) {
     setDesiredQty(listingId, nextQty);
     setCart((prev) => {
-      const next = cartViewWithLineQuantity(prev ?? emptyCartView(), listingId, nextQty);
+      let next = cartViewWithLineQuantity(prev ?? emptyCartView(), listingId, nextQty);
+      if (opts?.foodMenu && nextQty > 0) {
+        next = {
+          ...next,
+          foodCart: true,
+          foodVendorId: next.foodVendorId ?? prev?.foodVendorId ?? null,
+        };
+      }
       cartRef.current = next;
       persistCartDraft(next);
       return next;
@@ -542,7 +586,15 @@ function useShopState() {
       }
 
       clearDesiredQty(listingId);
-      if (isListingUnavailableError(err)) {
+      const mix = parseCartServiceMixConflict(err);
+      if (mix) {
+        const serverQty =
+          serverCartRef.current?.items.find((i) => sameListingId(i.listingId, listingId))
+            ?.quantity ?? 0;
+        patchLocalQuantity(listingId, serverQty);
+        setCartServiceConflict(mix);
+        setError(null);
+      } else if (isListingUnavailableError(err)) {
         const serverQty =
           serverCartRef.current?.items.find((i) => sameListingId(i.listingId, listingId))
             ?.quantity ?? 0;
@@ -778,26 +830,66 @@ function useShopState() {
     }
   }
 
-  async function doAdd(listingId: string) {
+  function blockServiceMix(listingId: string, kind: CartListingKind): boolean {
+    const current = cartRef.current;
+    if (!current?.items.length) return false;
+    const onLine = current.items.find((i) => sameListingId(i.listingId, listingId));
+    if (onLine && onLine.quantity > 0) return false;
+
+    const basketFood = Boolean(current.foodCart || foodBasketRef.current);
+    const singleShop = current.items[0]?.shopName?.trim() ?? '';
+    const allowMoreFromSameHotel =
+      kind === 'FOOD_MENU' &&
+      singleShop.length > 0 &&
+      current.items.every((i) => i.shopName?.trim() === singleShop);
+
+    if (basketFood && kind !== 'FOOD_MENU') {
+      setCartServiceConflict('food_blocks_other');
+      return true;
+    }
+    if (!basketFood && kind === 'FOOD_MENU' && !allowMoreFromSameHotel) {
+      setCartServiceConflict('grocery_blocks_food');
+      return true;
+    }
+    return false;
+  }
+
+  async function doAdd(listingId: string, opts?: { listingKind?: CartListingKind }) {
     if (!requireCartSession()) return;
+    if (blockIfOutOfStock(listingId)) return;
+    const kind = opts?.listingKind ?? 'GROCERY';
+    if (blockServiceMix(listingId, kind)) return;
+    if (kind === 'FOOD_MENU') markFoodBasketActive();
     setError(null);
-    patchLocalQuantity(listingId, quantityFor(listingId) + 1);
+    patchLocalQuantity(listingId, quantityFor(listingId) + 1, {
+      foodMenu: kind === 'FOOD_MENU',
+    });
     enqueueListingSync(listingId);
   }
 
-  async function doIncrease(listingId: string) {
+  function blockIfOutOfStock(listingId: string): boolean {
+    const catalogHit = itemsRef.current.find((i) => i.listingId === listingId);
+    if (catalogHit?.outOfStock && quantityFor(listingId) <= 0) {
+      setError('This item is out of stock at this shop.');
+      return true;
+    }
+    return false;
+  }
+
+  async function doIncrease(listingId: string, opts?: { listingKind?: CartListingKind }) {
     if (!requireCartSession()) return;
     if (isPlaceholderListingId(listingId)) {
       setError('This preview item cannot be added yet. Pick a live product from the shop.');
       return;
     }
-    const catalogHit = itemsRef.current.find((i) => i.listingId === listingId);
-    if (catalogHit?.outOfStock) {
-      setError('This item is out of stock at this shop.');
-      return;
-    }
+    if (blockIfOutOfStock(listingId)) return;
+    const kind = opts?.listingKind ?? 'GROCERY';
+    if (blockServiceMix(listingId, kind)) return;
+    if (kind === 'FOOD_MENU') markFoodBasketActive();
     setError(null);
-    patchLocalQuantity(listingId, quantityFor(listingId) + 1);
+    patchLocalQuantity(listingId, quantityFor(listingId) + 1, {
+      foodMenu: kind === 'FOOD_MENU',
+    });
     enqueueListingSync(listingId);
   }
 
@@ -1104,6 +1196,11 @@ function useShopState() {
           : await updateCartItem(session.accessToken, onServer.itemId, line.quantity);
         applyServerCart(latest);
       } catch (err) {
+        const mix = parseCartServiceMixConflict(err);
+        if (mix) {
+          setCartServiceConflict(mix);
+          return { cart: cartRef.current, error: null };
+        }
         return {
           cart: cartRef.current,
           error: friendlyCartError(err, `Could not save ${line.name} to your basket`),
@@ -1131,7 +1228,12 @@ function useShopState() {
     return { ok: true };
   }
 
-  async function doCheckout(opts?: { useStoreCredit?: boolean; paymentMethod?: 'COD' | 'ONLINE'; paymentGateway?: string }): Promise<CheckoutOutcome> {
+  async function doCheckout(opts?: {
+    useStoreCredit?: boolean;
+    paymentMethod?: 'COD' | 'ONLINE';
+    paymentGateway?: string;
+    vendorAgentDelivery?: boolean;
+  }): Promise<CheckoutOutcome> {
     if (!session) {
       setError('Sign in to place an order');
       return { ok: false };
@@ -1175,6 +1277,7 @@ function useShopState() {
         useStoreCredit: Boolean(opts?.useStoreCredit),
         paymentMethod: opts?.paymentMethod ?? 'COD',
         paymentGateway: opts?.paymentGateway,
+        vendorAgentDelivery: opts?.vendorAgentDelivery,
       });
       if (order.status === 'PAYMENT_PENDING') {
         const paymentId = order.payment?.paymentId;
@@ -1293,13 +1396,25 @@ function useShopState() {
     doUpdateAddress,
     doDeleteAddress,
     doCheckout,
+    cartServiceConflict,
+    dismissCartServiceConflict: () => setCartServiceConflict(null),
+    foodBasketActive,
   };
 }
 
 /** Shared shop/cart/orders state so tab switches stay instant (no remount refetch flash). */
 export function ShopProvider({ children }: { children: ReactNode }) {
   const value = useShopState();
-  return <ShopContext.Provider value={value}>{children}</ShopContext.Provider>;
+  return (
+    <ShopContext.Provider value={value}>
+      {children}
+      <CartServiceConflictDialog
+        conflict={value.cartServiceConflict}
+        cart={value.cart}
+        onClose={value.dismissCartServiceConflict}
+      />
+    </ShopContext.Provider>
+  );
 }
 
 export function useShop(): ShopContextValue {

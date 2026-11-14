@@ -1,11 +1,10 @@
 package com.hyperlocalmart.payment.web;
 
 import com.hyperlocalmart.common.api.ApiResponse;
-import com.hyperlocalmart.common.exception.BusinessException;
-import com.hyperlocalmart.common.exception.ErrorCode;
 import com.hyperlocalmart.payment.dto.request.GatewayAdminRequest;
 import com.hyperlocalmart.payment.dto.response.GatewayAdminResponse;
 import com.hyperlocalmart.payment.security.AuthUserPrincipal;
+import com.hyperlocalmart.payment.security.PlatformAdminPrincipalAuth;
 import com.hyperlocalmart.payment.service.PaymentGatewayConfigService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -31,7 +30,7 @@ public class PaymentGatewayAdminController {
     public ResponseEntity<ApiResponse<List<GatewayAdminResponse>>> list(
             @AuthenticationPrincipal AuthUserPrincipal principal,
             HttpServletRequest httpRequest) {
-        requireSuperAdmin(principal);
+        PlatformAdminPrincipalAuth.requireStaff(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, paymentGatewayConfigService.current()));
     }
 
@@ -40,14 +39,8 @@ public class PaymentGatewayAdminController {
             @AuthenticationPrincipal AuthUserPrincipal principal,
             @Valid @RequestBody List<@Valid GatewayAdminRequest> body,
             HttpServletRequest httpRequest) {
-        requireSuperAdmin(principal);
+        PlatformAdminPrincipalAuth.requireSuperAdmin(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
                 paymentGatewayConfigService.save(body, principal.getUserId())));
-    }
-
-    private static void requireSuperAdmin(AuthUserPrincipal principal) {
-        if (principal == null || principal.getRoles() == null || !principal.getRoles().contains("SUPER_ADMIN")) {
-            throw new BusinessException(ErrorCode.FORBIDDEN, "Super admin role required");
-        }
     }
 }

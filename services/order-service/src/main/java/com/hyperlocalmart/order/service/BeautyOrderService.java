@@ -16,6 +16,7 @@ import com.hyperlocalmart.order.beauty.BeautyPaymentStatus;
 import com.hyperlocalmart.order.beauty.BeautyVenue;
 import com.hyperlocalmart.order.client.AddressClient;
 import com.hyperlocalmart.order.client.MediaClient;
+import com.hyperlocalmart.order.client.NotificationClient;
 import com.hyperlocalmart.order.client.PaymentClient;
 import com.hyperlocalmart.order.client.TownClient;
 import com.hyperlocalmart.order.client.VendorBeautyClient;
@@ -42,6 +43,7 @@ import com.hyperlocalmart.order.repository.BeautyDaySeqRepository;
 import com.hyperlocalmart.order.repository.BeautyOrderEventRepository;
 import com.hyperlocalmart.order.repository.BeautyOrderRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -69,6 +71,7 @@ import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class BeautyOrderService {
 
     private static final ZoneId IST = ZoneId.of("Asia/Kolkata");
@@ -83,6 +86,7 @@ public class BeautyOrderService {
     private final VendorBeautyClient vendorBeautyClient;
     private final AddressClient addressClient;
     private final MediaClient mediaClient;
+    private final NotificationClient notificationClient;
     private final ScratchCardService scratchCardService;
 
     @Transactional(readOnly = true)
@@ -373,6 +377,52 @@ public class BeautyOrderService {
         return orderRepository.findByBuyerIdAndTownIdOrderByPlacedAtDesc(buyerId, townId).stream()
                 .map(this::toResponse)
                 .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public Optional<OrderInternalSnapshotResponse> internalLookupSnapshot(UUID orderId) {
+        return orderRepository.findById(orderId).map(this::internalLookupSnapshot);
+    }
+
+    @Transactional(readOnly = true)
+    public Optional<OrderInternalSnapshotResponse> internalLookupSnapshotByNumber(String orderNumber) {
+        if (orderNumber == null || orderNumber.isBlank()) {
+            return Optional.empty();
+        }
+        return orderRepository.findByOrderNumber(orderNumber.trim()).map(this::internalLookupSnapshot);
+    }
+
+    private OrderInternalSnapshotResponse internalLookupSnapshot(BeautyOrder order) {
+        BigDecimal charge;
+        if (order.getStatus() == BeautyOrderStatus.AWAITING_PAYMENT && isPartialPrepayPlan(order)) {
+            BigDecimal prepay = moneyOrZero(order.getPrepayAmount());
+            charge = prepay.signum() > 0 ? prepay : balanceDue(order);
+        } else {
+            charge = balanceDue(order);
+        }
+        if (charge.signum() <= 0) {
+            charge = orderTotal(order);
+        }
+        OrderStatus status = order.getStatus() == BeautyOrderStatus.AWAITING_PAYMENT
+                ? OrderStatus.PAYMENT_PENDING
+                : OrderStatus.PLACED;
+        PaymentStatus paymentStatus = order.getStatus() == BeautyOrderStatus.AWAITING_PAYMENT
+                ? PaymentStatus.PENDING
+                : PaymentStatus.PAID;
+        PaymentMethod method = order.getPaymentMethod() == BeautyPaymentMethod.UPI
+                ? PaymentMethod.ONLINE
+                : PaymentMethod.COD;
+        return OrderInternalSnapshotResponse.builder()
+                .orderId(order.getId())
+                .buyerId(order.getBuyerId())
+                .townId(order.getTownId())
+                .orderNumber(order.getOrderNumber())
+                .status(status)
+                .paymentStatus(paymentStatus)
+                .paymentMethod(method)
+                .totalAmount(charge)
+                .buyerPhone(order.getContactPhone())
+                .build();
     }
 
     @Transactional(readOnly = true)
@@ -704,18 +754,23 @@ public class BeautyOrderService {
         if (vendorIds == null || vendorIds.isEmpty() || perVendor <= 0) {
             return Map.of();
         }
-        Map<UUID, List<BeautyCustomerReview>> out = new HashMap<>();
-        for (BeautyOrderRating row : ratingRepository.findByVendorIdInAndCommentIsNotNullOrderByCreatedAtDesc(vendorIds)) {
-            if (row.getComment() == null || row.getComment().isBlank()) {
-                continue;
+        try {
+            Map<UUID, List<BeautyCustomerReview>> out = new HashMap<>();
+            for (BeautyOrderRating row : ratingRepository.findByVendorIdInAndCommentIsNotNullOrderByCreatedAtDesc(vendorIds)) {
+                if (row.getComment() == null || row.getComment().isBlank()) {
+                    continue;
+                }
+                List<BeautyCustomerReview> bucket = out.computeIfAbsent(row.getVendorId(), ignored -> new ArrayList<>());
+                if (bucket.size() >= perVendor) {
+                    continue;
+                }
+                bucket.add(toPublicReview(row));
             }
-            List<BeautyCustomerReview> bucket = out.computeIfAbsent(row.getVendorId(), ignored -> new ArrayList<>());
-            if (bucket.size() >= perVendor) {
-                continue;
-            }
-            bucket.add(toPublicReview(row));
+            return out;
+        } catch (RuntimeException ex) {
+            log.warn("Could not load glam public reviews for {} vendors — listing artists without review snippets", vendorIds.size(), ex);
+            return Map.of();
         }
-        return out;
     }
 
     private BeautyOrderResponse move(BeautyOrder order, UUID actorId, BeautyMove move, BeautyActionRequest request) {
@@ -755,6 +810,7 @@ public class BeautyOrderService {
         order.setUpdatedBy(actorId);
         orderRepository.save(order);
         event(order, actorId, move.name(), from.name(), to.name(), note);
+        notifyBeautyBuyer(order, to.label());
         if (to == BeautyOrderStatus.COMPLETED) {
             try {
                 scratchCardService.issueIfEligibleAfterBeautyComplete(order);
@@ -1128,5 +1184,16 @@ public class BeautyOrderService {
         return String.join(", ", java.util.stream.Stream.of(line1, line2, city, pin)
                 .filter(part -> part != null && !part.isBlank())
                 .toList());
+    }
+
+    private void notifyBeautyBuyer(BeautyOrder order, String statusLabel) {
+        notificationClient.notifyOrderStatusUpdated(
+                order.getTownId(),
+                order.getId(),
+                order.getBuyerId(),
+                order.getContactPhone(),
+                order.getOrderNumber(),
+                statusLabel,
+                "Beauty");
     }
 }

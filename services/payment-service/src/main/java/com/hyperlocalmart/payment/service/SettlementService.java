@@ -139,7 +139,7 @@ public class SettlementService {
                             .codDeliveringAgentName(agent != null ? agent.name() : null)
                             .codDeliveringAgentPhone(agent != null ? agent.phone() : null)
                             .subtotal(item.subtotal())
-                            .pieceCount(item.pieceCount())
+                            .pieceCount(com.hyperlocalmart.payment.settlement.SettlementPieceCount.forOrderItem(item))
                             .platformFee(item.platformFee())
                             .codFee(item.codFee())
                             .membershipFee(item.membershipFee())
@@ -239,7 +239,7 @@ public class SettlementService {
                 .map(item -> new VendorClient.OrderLine(
                         item.subtotal() == null ? BigDecimal.ZERO : item.subtotal(),
                         item.placedAt(),
-                        item.pieceCount()))
+                        com.hyperlocalmart.payment.settlement.SettlementPieceCount.forOrderItem(item)))
                 .toList();
         VendorClient.CommercialTermsQuote feeQuote = vendorClient.quoteCommercialTerms(
                 request.getVendorId(),

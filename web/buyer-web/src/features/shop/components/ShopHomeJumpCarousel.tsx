@@ -208,6 +208,7 @@ const CAROUSEL_CSS = `
 
 type Props = {
   cards: ShopHomeJumpCard[];
+  onNavigate?: (path: string) => void;
 };
 
 function jumpCardSurface(accent: string): CSSProperties {
@@ -218,7 +219,7 @@ function jumpCardSurface(accent: string): CSSProperties {
   };
 }
 
-export function ShopHomeJumpCarousel({ cards }: Props) {
+export function ShopHomeJumpCarousel({ cards, onNavigate }: Props) {
   if (cards.length === 0) return null;
 
   return (
@@ -231,7 +232,13 @@ export function ShopHomeJumpCarousel({ cards }: Props) {
             type="button"
             className="hlm-jump-card"
             style={jumpCardSurface(card.accent)}
-            onClick={() => scrollToHomeRailSection(card.sectionId)}
+            onClick={() => {
+              if (card.route) {
+                onNavigate?.(card.route);
+                return;
+              }
+              if (card.sectionId) scrollToHomeRailSection(card.sectionId);
+            }}
           >
             <span className="hlm-jump-card-glow" aria-hidden />
             {card.brandTag ? (

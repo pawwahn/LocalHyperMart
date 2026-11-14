@@ -17,6 +17,7 @@ import {
   retryLaundryPayment,
   type LaundryOrder,
 } from '../api/laundryApi';
+import { useBuyerAlerts } from '@/features/shop/hooks/useBuyerAlerts';
 
 function money(value: number): string {
   const amount = Number(value) || 0;
@@ -36,6 +37,7 @@ function customerNote(order: LaundryOrder): string | null {
 
 export function LaundryOrderPage() {
   const { orderId = '' } = useParams();
+  const { markOrderSeen } = useBuyerAlerts();
   const location = useLocation();
   const openedWith = (location.state as { payError?: string } | null)?.payError ?? null;
   const { session } = useAuth();
@@ -47,6 +49,10 @@ export function LaundryOrderPage() {
   const [confirmPay, setConfirmPay] = useState(false);
 
   useEffect(() => {
+    if (orderId) markOrderSeen(orderId);
+  }, [orderId, markOrderSeen]);
+
+  useEffect(() => {
     if (!token || !orderId) {
       setLoading(false);
       return;
@@ -55,7 +61,10 @@ export function LaundryOrderPage() {
     setLoading(true);
     void fetchLaundryOrder(token, orderId)
       .then((row) => {
-        if (!cancelled) setOrder(row);
+        if (!cancelled) {
+          setError(null);
+          setOrder(row);
+        }
       })
       .catch((err) => {
         if (!cancelled) setError(err instanceof ApiError || err instanceof Error ? err.message : 'Could not load this order');

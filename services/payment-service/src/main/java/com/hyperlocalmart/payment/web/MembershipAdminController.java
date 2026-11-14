@@ -1,14 +1,13 @@
 package com.hyperlocalmart.payment.web;
 
 import com.hyperlocalmart.common.api.ApiResponse;
-import com.hyperlocalmart.common.exception.BusinessException;
-import com.hyperlocalmart.common.exception.ErrorCode;
 import com.hyperlocalmart.payment.dto.request.ConfirmMembershipCashRequest;
 import com.hyperlocalmart.payment.dto.request.GiftMembershipRequest;
 import com.hyperlocalmart.payment.dto.response.MembershipMemberRow;
 import com.hyperlocalmart.payment.dto.response.MembershipPurchaseResponse;
 import com.hyperlocalmart.payment.dto.response.MembershipReportResponse;
 import com.hyperlocalmart.payment.security.AuthUserPrincipal;
+import com.hyperlocalmart.payment.security.PlatformAdminPrincipalAuth;
 import com.hyperlocalmart.payment.service.MembershipService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -41,7 +40,7 @@ public class MembershipAdminController {
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
             HttpServletRequest httpRequest) {
-        requireSuperAdmin(principal);
+        PlatformAdminPrincipalAuth.requireStaff(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, membershipService.report(from, to)));
     }
 
@@ -49,7 +48,7 @@ public class MembershipAdminController {
     public ResponseEntity<ApiResponse<List<MembershipMemberRow>>> members(
             @AuthenticationPrincipal AuthUserPrincipal principal,
             HttpServletRequest httpRequest) {
-        requireSuperAdmin(principal);
+        PlatformAdminPrincipalAuth.requireStaff(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, membershipService.listMembers()));
     }
 
@@ -57,7 +56,7 @@ public class MembershipAdminController {
     public ResponseEntity<ApiResponse<List<MembershipPurchaseResponse>>> purchases(
             @AuthenticationPrincipal AuthUserPrincipal principal,
             HttpServletRequest httpRequest) {
-        requireSuperAdmin(principal);
+        PlatformAdminPrincipalAuth.requireStaff(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, membershipService.listPurchases()));
     }
 
@@ -65,7 +64,7 @@ public class MembershipAdminController {
     public ResponseEntity<ApiResponse<List<MembershipPurchaseResponse>>> pendingCash(
             @AuthenticationPrincipal AuthUserPrincipal principal,
             HttpServletRequest httpRequest) {
-        requireSuperAdmin(principal);
+        PlatformAdminPrincipalAuth.requireStaff(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, membershipService.listPendingCash()));
     }
 
@@ -74,7 +73,7 @@ public class MembershipAdminController {
             @AuthenticationPrincipal AuthUserPrincipal principal,
             @Valid @RequestBody GiftMembershipRequest request,
             HttpServletRequest httpRequest) {
-        requireSuperAdmin(principal);
+        PlatformAdminPrincipalAuth.requireMoveMoney(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, membershipService.gift(principal.getUserId(), request)));
     }
 
@@ -83,7 +82,7 @@ public class MembershipAdminController {
             @AuthenticationPrincipal AuthUserPrincipal principal,
             @RequestBody ConfirmMembershipCashRequest request,
             HttpServletRequest httpRequest) {
-        requireSuperAdmin(principal);
+        PlatformAdminPrincipalAuth.requireMoveMoney(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
                 membershipService.confirmCash(principal.getUserId(), principal.getPhone(), request)));
     }
@@ -93,14 +92,8 @@ public class MembershipAdminController {
             @AuthenticationPrincipal AuthUserPrincipal principal,
             @PathVariable UUID purchaseId,
             HttpServletRequest httpRequest) {
-        requireSuperAdmin(principal);
+        PlatformAdminPrincipalAuth.requireMoveMoney(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
                 membershipService.cancelCashRequest(principal.getUserId(), purchaseId)));
-    }
-
-    private static void requireSuperAdmin(AuthUserPrincipal principal) {
-        if (principal == null || principal.getRoles() == null || !principal.getRoles().contains("SUPER_ADMIN")) {
-            throw new BusinessException(ErrorCode.FORBIDDEN, "Super admin role required");
-        }
     }
 }

@@ -65,4 +65,12 @@ public class DeliveryAgent extends BaseAuditEntity {
 
     @Column(name = "reference2_phone", length = 15)
     private String reference2Phone;
+
+    /** MANAGER, COLLECTION_AGENT, LAB_TECHNICIAN — diagnostics field staff */
+    @Column(name = "lab_title", length = 30)
+    private String labTitle;
+
+    @Column(name = "collection_capable", nullable = false)
+    @Builder.Default
+    private boolean collectionCapable = false;
 }

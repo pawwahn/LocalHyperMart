@@ -1,4 +1,7 @@
+import { resolveApiBaseUrl } from '@hlm-native';
 import { apiRequest, type PageData } from '@/shared/api/http';
+
+const API_BASE = resolveApiBaseUrl(import.meta.env.VITE_API_BASE_URL);
 
 export type ListingDto = {
   listingId: string;
@@ -350,6 +353,21 @@ export async function updateListingActive(
   return toListingView(data);
 }
 
+export async function updateListingBuyerOutOfStock(
+  token: string,
+  vendorId: string,
+  listingId: string,
+  buyerOutOfStock: boolean,
+): Promise<ListingView> {
+  const data = await apiRequest<ListingDto>(`/api/v1/catalog/vendors/me/listings/${listingId}`, {
+    method: 'PATCH',
+    token,
+    vendorId,
+    body: { buyerOutOfStock },
+  });
+  return toListingView(data);
+}
+
 export async function updateListingPricing(
   token: string,
   vendorId: string,
@@ -385,11 +403,47 @@ export type UploadedMedia = {
   url: string;
 };
 
+const MEDIA_UUID_IN_URL =
+  /\/media\/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\/content\/?$/i;
+
+/** Parse media id from stored `/api/v1/media/{id}/content` URLs. */
+export function mediaFromPublicUrl(url: string): UploadedMedia | null {
+  const trimmed = url.trim();
+  if (!trimmed) return null;
+  const matched = trimmed.match(MEDIA_UUID_IN_URL);
+  if (matched?.[1]) {
+    return { mediaId: matched[1], url: trimmed };
+  }
+  const mediaId = trimmed.split('/').filter(Boolean).at(-2) ?? '';
+  if (!mediaId || mediaId === 'content' || mediaId === 'media') return null;
+  if (!/^[0-9a-fA-F-]{36}$/i.test(mediaId)) return null;
+  return { mediaId, url: trimmed };
+}
+
+export async function listListingImages(
+  token: string,
+  vendorId: string,
+  listingId: string,
+): Promise<string[]> {
+  const data = await apiRequest<{ items: string[] }>(
+    `/api/v1/catalog/vendors/me/listings/${listingId}/images`,
+    { token, vendorId },
+  );
+  return data.items ?? [];
+}
+
+/** Prefix gateway host for native builds so thumbnails and uploads reach the API. */
+export function resolveMediaContentUrl(url: string): string {
+  if (!url) return url;
+  if (/^https?:\/\//i.test(url)) return url;
+  return `${API_BASE}${url.startsWith('/') ? url : `/${url}`}`;
+}
+
 export async function uploadListingImage(token: string, file: File): Promise<UploadedMedia> {
   const form = new FormData();
   form.append('file', file);
   form.append('context', 'VENDOR_LISTING');
-  const response = await fetch('/api/v1/media/upload', {
+  const response = await fetch(`${API_BASE}/api/v1/media/upload`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
     body: form,
@@ -397,12 +451,15 @@ export async function uploadListingImage(token: string, file: File): Promise<Upl
   const payload = (await response.json()) as {
     success?: boolean;
     message?: string;
-    data?: UploadedMedia;
+    data?: Record<string, unknown>;
   };
-  if (!response.ok || !payload.data?.mediaId || !payload.data?.url) {
+  const row = payload.data;
+  const mediaId = String(row?.mediaId ?? row?.media_id ?? '').trim();
+  const url = String(row?.url ?? row?.publicUrl ?? row?.public_url ?? '').trim();
+  if (!response.ok || !mediaId || !url) {
     throw new Error(payload.message || 'Image upload failed');
   }
-  return payload.data;
+  return { mediaId, url };
 }
 
 export async function setListingImages(

@@ -65,8 +65,8 @@ public class PaymentService {
     private final MembershipService membershipService;
     private final ObjectMapper objectMapper;
     private final TransactionTemplate transactionTemplate;
-    private final RazorpayGatewayQueueService razorpayGatewayQueue;
     private final RazorpayGatewaySyncService razorpayGatewaySync;
+    private final PaymentAdmissionService paymentAdmissionService;
 
     public PaymentResponse initiate(UUID buyerId, InitiatePaymentRequest request, String idempotencyKey) {
         if (idempotencyKey != null && !idempotencyKey.isBlank()) {
@@ -80,10 +80,10 @@ public class PaymentService {
                 return buildInitiateResponse(buyerId, payment, request);
             }
         }
+        paymentAdmissionService.awaitInitiateSlot();
         return createPayment(buyerId, request, idempotencyKey);
     }
 
-    @Transactional(readOnly = true)
     public PaymentResponse getPaymentCheckout(UUID buyerId, UUID paymentId) {
         Payment payment = paymentRepository.findByIdAndBuyerId(paymentId, buyerId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Payment not found"));
@@ -543,6 +543,7 @@ public class PaymentService {
     private PaymentResponse createPayment(UUID buyerId, InitiatePaymentRequest request, String idempotencyKey) {
         OrderClient.OrderSnapshot order = resolveOrder(buyerId, request);
         String buyerPhone = IndianMobilePhones.firstTenDigit(request.getBuyerPhone(), order.buyerPhone());
+        String orderNumber = order.orderNumber();
 
         UUID paymentId = transactionTemplate.execute(status -> {
             validateOrderForPayment(order, request.getTownId(), buyerId);
@@ -566,12 +567,16 @@ public class PaymentService {
                 if (buyerPhone != null) {
                     existingPending.setBuyerPhone(buyerPhone);
                 }
+                if (orderNumber != null && !orderNumber.isBlank()) {
+                    existingPending.setOrderNumber(orderNumber);
+                }
                 paymentRepository.save(existingPending);
                 return existingPending.getId();
             }
             requireConfigured(request.getGateway());
             Payment payment = Payment.builder()
                     .orderId(request.getOrderId())
+                    .orderNumber(orderNumber)
                     .townId(request.getTownId())
                     .buyerId(buyerId)
                     .amount(chargeAmount)
@@ -599,17 +604,9 @@ public class PaymentService {
         if (!isConfigured(gateway)) {
             return;
         }
-        // Session / redirect URLs must exist before checkout opens — never queue Cashfree or PhonePe.
-        if (gateway == PaymentGateway.CASHFREE || gateway == PaymentGateway.PHONEPE) {
-            razorpayGatewaySync.ensureOrderPaymentGateway(paymentId);
-            return;
-        }
-        if (razorpayGatewayQueue.isEnabled()) {
-            razorpayGatewayQueue.enqueueOrderPayment(
-                    paymentId, () -> razorpayGatewaySync.ensureOrderPaymentGateway(paymentId));
-        } else {
-            razorpayGatewaySync.ensureOrderPaymentGateway(paymentId);
-        }
+        // The buyer is waiting on this call. Create the gateway order here so checkout
+        // comes back in the same response instead of a background queue plus client poll.
+        razorpayGatewaySync.ensureOrderPaymentGateway(paymentId);
     }
 
     private boolean isConfigured(PaymentGateway gateway) {

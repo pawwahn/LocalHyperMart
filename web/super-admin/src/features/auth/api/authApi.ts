@@ -1,4 +1,5 @@
 import { apiRequest } from '@/shared/api/http';
+import { isPlatformAdminLoginRole, resolvePlatformAdminAccess } from '@/shared/auth/platformAdminAccess';
 import type { AuthSession } from '@/shared/auth/session';
 
 type LoginApiResponse = {
@@ -25,9 +26,11 @@ export async function login(phone: string, password: string): Promise<AuthSessio
   });
 
   const roles = data.roles ?? [];
-  if (!roles.includes('SUPER_ADMIN')) {
-    throw new Error('This portal is for platform super admins only.');
+  if (!isPlatformAdminLoginRole(roles)) {
+    throw new Error('This portal is for KoyaKart app admins only.');
   }
+
+  const access = resolvePlatformAdminAccess(roles);
 
   return {
     accessToken: data.accessToken,
@@ -36,6 +39,6 @@ export async function login(phone: string, password: string): Promise<AuthSessio
     userId: data.userId,
     roles,
     phone,
-    displayName: 'Super Admin',
+    displayName: access.roleLabel,
   };
 }

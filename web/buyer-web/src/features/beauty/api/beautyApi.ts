@@ -303,11 +303,18 @@ export function cancelBeautyOrder(token: string, orderId: string): Promise<Beaut
   return apiRequest<BeautyOrder>(`/api/v1/orders/beauty/${orderId}/cancel`, { method: 'POST', token, body: {} });
 }
 
-export function retryBeautyPayment(token: string, orderId: string, gateway?: string) {
+export function retryBeautyPayment(
+  token: string,
+  orderId: string,
+  gateway?: string,
+): Promise<NonNullable<BeautyOrder['payment']>> {
   const query = gateway ? `?gateway=${encodeURIComponent(gateway)}` : '';
-  return apiRequest(`/api/v1/orders/beauty/${orderId}/payments/retry${query}`, {
-    method: 'POST',
-    token,
-    headers: { 'Idempotency-Key': `beauty-retry-${orderId}-${Date.now()}` },
-  });
+  return apiRequest<NonNullable<BeautyOrder['payment']>>(
+    `/api/v1/orders/beauty/${orderId}/payments/retry${query}`,
+    {
+      method: 'POST',
+      token,
+      headers: { 'Idempotency-Key': `beauty-retry-${orderId}-${Date.now()}` },
+    },
+  );
 }

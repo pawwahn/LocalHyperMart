@@ -88,6 +88,7 @@ public class CartService {
                 catalogListingClient.getListing(request.getListingId(), request.getTownId());
 
         Cart cart = getOrCreateCart(userId, request.getTownId());
+        ensureFoodCartCompatibility(cart, listing);
         CartItem existing = cart.getItems().stream()
                 .filter(item -> item.getListingId().equals(listing.listingId()))
                 .findFirst()
@@ -109,6 +110,7 @@ public class CartService {
                     .itemName(listing.name())
                     .unitCode(listing.unit())
                     .shopId(listing.shopId())
+                    .listingKind(normalizeListingKind(listing.listingKind()))
                     .quantity(request.getQuantity())
                     .unitPrice(listing.price())
                     .discountPrice(cartDiscount)
@@ -399,6 +401,8 @@ public class CartService {
                 .membershipFee(cart.getMembershipPriceSnapshot() == null
                         ? BigDecimal.ZERO
                         : cart.getMembershipPriceSnapshot())
+                .foodCart(response.isFoodCart())
+                .foodVendorId(response.getFoodVendorId())
                 .build();
     }
 
@@ -574,6 +578,9 @@ public class CartService {
                     .orElse(null);
         }
 
+        boolean foodCart = isFoodCart(cart);
+        UUID foodVendorId = foodCart && !cart.getItems().isEmpty() ? cart.getItems().get(0).getVendorId() : null;
+
         return CartResponse.builder()
                 .cartId(cart.getId())
                 .townId(cart.getTownId())
@@ -587,6 +594,8 @@ public class CartService {
                 .minOrderValue(BigDecimal.ZERO)
                 .minOrderMet(itemCount > 0)
                 .membershipAddon(membershipAddon(cart))
+                .foodCart(foodCart)
+                .foodVendorId(foodVendorId)
                 .build();
     }
 
@@ -638,5 +647,46 @@ public class CartService {
 
     private BigDecimal calculateLineTotal(int quantity, BigDecimal unitPrice, BigDecimal discountPrice) {
         return effectiveUnitPrice(unitPrice, discountPrice).multiply(BigDecimal.valueOf(quantity));
+    }
+
+    private void ensureFoodCartCompatibility(Cart cart, CatalogListingClient.ListingSnapshot incoming) {
+        if (cart.getItems() == null || cart.getItems().isEmpty()) {
+            return;
+        }
+        boolean incomingFood = isFoodListing(incoming);
+        CartItem anchor = cart.getItems().get(0);
+        CatalogListingClient.ListingSnapshot existing =
+                catalogListingClient.getListing(anchor.getListingId(), cart.getTownId());
+        boolean cartFood = isFoodListing(existing);
+        if (incomingFood && !cartFood) {
+            throw new BusinessException(
+                    ErrorCode.CONFLICT,
+                    "Clear your grocery cart before adding food from a hotel");
+        }
+        if (!incomingFood && cartFood) {
+            throw new BusinessException(
+                    ErrorCode.CONFLICT,
+                    "Clear your food cart before adding grocery items");
+        }
+        if (incomingFood && cartFood && !incoming.vendorId().equals(existing.vendorId())) {
+            throw new BusinessException(
+                    ErrorCode.CONFLICT,
+                    "You can order from one hotel at a time. Clear the cart or finish the current hotel order.");
+        }
+    }
+
+    private static boolean isFoodListing(CatalogListingClient.ListingSnapshot listing) {
+        return listing != null && "FOOD_MENU".equalsIgnoreCase(listing.listingKind());
+    }
+
+    private static String normalizeListingKind(String raw) {
+        return "FOOD_MENU".equalsIgnoreCase(raw) ? "FOOD_MENU" : "GROCERY";
+    }
+
+    private static boolean isFoodCart(Cart cart) {
+        if (cart.getItems() == null || cart.getItems().isEmpty()) {
+            return false;
+        }
+        return cart.getItems().stream().allMatch(item -> "FOOD_MENU".equalsIgnoreCase(item.getListingKind()));
     }
 }

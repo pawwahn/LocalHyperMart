@@ -6,6 +6,7 @@ import com.hyperlocalmart.common.exception.ErrorCode;
 import com.hyperlocalmart.media.dto.MediaContent;
 import com.hyperlocalmart.media.dto.MediaUploadResponse;
 import com.hyperlocalmart.media.security.AuthUserPrincipal;
+import com.hyperlocalmart.common.security.PlatformAdminRoles;
 import com.hyperlocalmart.media.service.MediaService;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
@@ -42,7 +43,7 @@ public class MediaController {
         requireUploader(principal, context);
         if (principal.getRoles().contains("BUYER")
                 && !principal.getRoles().contains("VENDOR")
-                && !principal.getRoles().contains("SUPER_ADMIN")
+                && !PlatformAdminRoles.isPlatformStaff(principal.getRoles())
                 && !"LAUNDRY_ITEM".equalsIgnoreCase(context)
                 && !"BEAUTY_REFERENCE".equalsIgnoreCase(context)
                 && !"BEAUTY_WORK".equalsIgnoreCase(context)) {
@@ -65,7 +66,7 @@ public class MediaController {
         if (principal == null || principal.getRoles() == null) {
             throw new BusinessException(ErrorCode.FORBIDDEN, "Authentication required");
         }
-        boolean staff = principal.getRoles().contains("SUPER_ADMIN")
+        boolean staff = PlatformAdminRoles.isPlatformStaff(principal.getRoles())
                 || principal.getRoles().contains("VENDOR");
         String ctx = context == null ? "" : context;
         boolean buyerUpload = ("LAUNDRY_ITEM".equalsIgnoreCase(ctx) || "BEAUTY_REFERENCE".equalsIgnoreCase(ctx))

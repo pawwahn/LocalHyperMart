@@ -39,7 +39,7 @@ function artistServiceFor(artist: Pick<BeautyArtist, 'serviceFor'>): VendorServi
 }
 
 function artistDisplayName(artist: Pick<BeautyArtist, 'businessName' | 'serviceFor'>): string {
-  return vendorNameWithServiceFor(artist.businessName, artistServiceFor(artist));
+  return vendorNameWithServiceFor(artist.businessName, artistServiceFor(artist), 'Makeup & Beauty');
 }
 
 function artistCardName(artist: Pick<BeautyArtist, 'businessName'>): string {
@@ -1268,6 +1268,13 @@ select.hlm-glam-field {
   display: grid;
   gap: 0.35rem;
 }
+.hlm-glam-dock-fee-hint {
+  margin: 0.15rem 0 0;
+  font-size: 0.58rem;
+  font-weight: 600;
+  color: #9d174d;
+  line-height: 1.3;
+}
 .hlm-glam-dock-lines {
   display: grid;
   gap: 0.2rem;
@@ -1714,13 +1721,14 @@ export function BeautyPage() {
 
   function PriceBreakdown({ sheet }: { sheet?: boolean }) {
     const wrapClass = sheet ? 'hlm-glam-sheet-receipt' : 'hlm-glam-dock-lines';
+    const browseSubtotal = servicePrice + travel + parlourFee;
     return (
       <div className={wrapClass} aria-label="Price breakdown">
         <div className="hlm-glam-price-row">
           <span>Services</span>
           <span>{money(servicePrice)}</span>
         </div>
-        {platformFee > 0 ? (
+        {sheet && platformFee > 0 ? (
           <div className="hlm-glam-price-row hlm-glam-price-row--fee">
             <span>Platform fee</span>
             <span>{money(platformFee)}</span>
@@ -1739,9 +1747,12 @@ export function BeautyPage() {
           </div>
         ) : null}
         <div className="hlm-glam-price-total-row">
-          <span className="hlm-glam-price-total-label">Total</span>
-          <span className="hlm-glam-price-total-value">{money(total)}</span>
+          <span className="hlm-glam-price-total-label">{sheet ? 'Total' : 'Subtotal'}</span>
+          <span className="hlm-glam-price-total-value">{money(sheet ? total : browseSubtotal)}</span>
         </div>
+        {!sheet && platformFee > 0 ? (
+          <p className="hlm-glam-dock-fee-hint">Platform fee shown before you pay</p>
+        ) : null}
       </div>
     );
   }

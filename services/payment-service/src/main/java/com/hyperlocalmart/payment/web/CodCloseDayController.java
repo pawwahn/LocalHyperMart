@@ -8,6 +8,8 @@ import com.hyperlocalmart.payment.dto.response.CodCandidateResponse;
 import com.hyperlocalmart.payment.dto.response.CodCloseDayResponse;
 import com.hyperlocalmart.payment.dto.response.CodSummaryResponse;
 import com.hyperlocalmart.payment.security.AuthUserPrincipal;
+import com.hyperlocalmart.payment.security.PlatformAdminPrincipalAuth;
+import com.hyperlocalmart.common.security.PlatformAdminRoles;
 import com.hyperlocalmart.payment.service.CodCloseDayService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -38,9 +40,9 @@ public class CodCloseDayController {
             @AuthenticationPrincipal AuthUserPrincipal principal,
             @Valid @RequestBody CreateCodCloseDayRequest request,
             HttpServletRequest httpRequest) {
-        requireHubOrSuperAdmin(principal);
+        requireHubAdminOrSuper(principal);
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponses.ok(httpRequest,
-                codCloseDayService.closeDay(request, principal.getUserId(), isSuperAdmin(principal))));
+                codCloseDayService.closeDay(request, principal.getUserId(), PlatformAdminPrincipalAuth.isSuperAdmin(principal))));
     }
 
     @GetMapping("/candidates")
@@ -54,7 +56,7 @@ public class CodCloseDayController {
         requireHubOrSuperAdmin(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
                 codCloseDayService.listCandidates(
-                        townId, hubId, agentId, date, principal.getUserId(), isSuperAdmin(principal))));
+                        townId, hubId, agentId, date, principal.getUserId(), isPlatformStaff(principal))));
     }
 
     @GetMapping("/summary")
@@ -67,7 +69,7 @@ public class CodCloseDayController {
         requireHubOrSuperAdmin(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
                 codCloseDayService.summary(
-                        townId, hubId, date, principal.getUserId(), isSuperAdmin(principal))));
+                        townId, hubId, date, principal.getUserId(), isPlatformStaff(principal))));
     }
 
     @GetMapping("/closes")
@@ -83,18 +85,32 @@ public class CodCloseDayController {
         LocalDate rangeFrom = from != null ? from : rangeTo;
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, Map.of(
                 "items", codCloseDayService.listCloses(
-                        townId, hubId, rangeFrom, rangeTo, principal.getUserId(), isSuperAdmin(principal)))));
+                        townId, hubId, rangeFrom, rangeTo, principal.getUserId(), isPlatformStaff(principal)))));
     }
 
     private void requireHubOrSuperAdmin(AuthUserPrincipal principal) {
-        if (principal == null
-                || (!principal.getRoles().contains("HUB_ADMIN")
-                && !principal.getRoles().contains("SUPER_ADMIN"))) {
-            throw new BusinessException(ErrorCode.FORBIDDEN, "Hub admin or super admin role required");
+        if (principal == null || principal.getRoles() == null) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "Hub admin or app admin role required");
         }
+        if (principal.getRoles().contains("HUB_ADMIN")
+                || PlatformAdminRoles.isPlatformStaff(principal.getRoles())) {
+            return;
+        }
+        throw new BusinessException(ErrorCode.FORBIDDEN, "Hub admin or app admin role required");
     }
 
-    private static boolean isSuperAdmin(AuthUserPrincipal principal) {
-        return principal != null && principal.getRoles().contains("SUPER_ADMIN");
+    private void requireHubAdminOrSuper(AuthUserPrincipal principal) {
+        if (principal == null || principal.getRoles() == null) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "Hub admin or super admin role required");
+        }
+        if (principal.getRoles().contains("HUB_ADMIN")
+                || PlatformAdminRoles.isSuperAdmin(principal.getRoles())) {
+            return;
+        }
+        throw new BusinessException(ErrorCode.FORBIDDEN, "Hub admin or super admin role required");
+    }
+
+    private static boolean isPlatformStaff(AuthUserPrincipal principal) {
+        return PlatformAdminPrincipalAuth.isPlatformStaff(principal);
     }
 }

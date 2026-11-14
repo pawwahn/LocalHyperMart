@@ -5,9 +5,11 @@ import { ListingsPage } from '@/features/listings/pages/ListingsPage';
 import { ReportsPage } from '@/features/reports/pages/ReportsPage';
 import { PayoutAckReminder } from '@/features/payouts/components/PayoutAckReminder';
 import { VendorBillReminder } from '@/features/payouts/components/VendorBillReminder';
-import { useHidesListings } from '@/features/shop/hooks/useHidesListings';
+import { isDiagnosticsVendor, isFoodVendor, useHidesListings } from '@/features/shop/hooks/useHidesListings';
+import { useDiagnosticsStaffSession } from '@/features/diagnostics/hooks/useDiagnosticsStaffSession';
 import { PortalShell } from './PortalShell';
 import { PortalChromeProvider, usePortalChromeState } from './PortalChromeContext';
+import { useAuth } from '@/shared/auth/AuthContext';
 
 /**
  * Persistent chrome + keep-alive for Home/Listings/Reports so tab switches
@@ -24,8 +26,10 @@ export function VendorChromeLayout() {
 function VendorChromeLayoutInner() {
   const location = useLocation();
   const navigate = useNavigate();
+  const { session } = useAuth();
   const chrome = usePortalChromeState();
   const hidesListings = useHidesListings();
+  const { collectionAgentOnly } = useDiagnosticsStaffSession();
   const path = location.pathname;
   const onHome = path === '/dashboard';
   const onListings = path === '/listings' && !hidesListings;
@@ -37,10 +41,31 @@ function VendorChromeLayoutInner() {
   const [reportsVisited, setReportsVisited] = useState(onReports);
 
   useEffect(() => {
+    const blockedForCollector = [
+      '/delivery-agents',
+      '/reports',
+      '/payouts',
+      '/diagnostics',
+      '/settings',
+      '/sellers',
+      '/listings',
+    ];
+    if (collectionAgentOnly && blockedForCollector.includes(location.pathname)) {
+      navigate('/dashboard', { replace: true });
+      return;
+    }
+    if (location.pathname === '/sellers' && isDiagnosticsVendor(session?.serviceName)) {
+      navigate('/diagnostics', { replace: true });
+      return;
+    }
+    if (location.pathname === '/sellers' && isFoodVendor(session?.serviceName)) {
+      navigate('/food', { replace: true });
+      return;
+    }
     if (hidesListings && (location.pathname === '/listings' || location.pathname === '/sellers')) {
       navigate('/dashboard', { replace: true });
     }
-  }, [hidesListings, location.pathname, navigate]);
+  }, [collectionAgentOnly, hidesListings, location.pathname, navigate, session?.serviceName]);
 
   useEffect(() => {
     if (onHome) setHomeVisited(true);
@@ -70,8 +95,8 @@ function VendorChromeLayoutInner() {
         </KeepAlivePane>
       ) : null}
       {!keepAliveRoute ? <Outlet /> : null}
-      <PayoutAckReminder />
-      <VendorBillReminder />
+      {collectionAgentOnly ? null : <PayoutAckReminder />}
+      {collectionAgentOnly ? null : <VendorBillReminder />}
     </PortalShell>
   );
 }

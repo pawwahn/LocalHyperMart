@@ -31,7 +31,7 @@ public class TownAdController {
     public ResponseEntity<ApiResponse<TownAdsResponse>> listAdminAds(
             @PathVariable UUID townId,
             HttpServletRequest httpRequest) {
-        AdminAuth.requireSuperAdmin(httpRequest);
+        AdminAuth.requirePlatformStaff(httpRequest);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, townAdService.listAdminAds(townId)));
     }
 
@@ -40,7 +40,7 @@ public class TownAdController {
             @PathVariable UUID townId,
             @Valid @RequestBody UpsertTownAdsRequest request,
             HttpServletRequest httpRequest) {
-        AdminAuth.requireSuperAdmin(httpRequest);
+        AdminAuth.requirePlatformWrite(httpRequest);
         UUID actorId = AdminAuth.requireUserId(httpRequest);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, townAdService.upsertAds(townId, request, actorId)));
     }

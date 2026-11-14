@@ -41,7 +41,7 @@ public class AdBillingController {
 
     @GetMapping("/api/v1/platform/ads/rates")
     public ResponseEntity<ApiResponse<AdRateCardResponse>> getRates(HttpServletRequest httpRequest) {
-        AdminAuth.requireSuperAdmin(httpRequest);
+        AdminAuth.requirePlatformStaff(httpRequest);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, adBillingService.getRateCard()));
     }
 
@@ -49,7 +49,7 @@ public class AdBillingController {
     public ResponseEntity<ApiResponse<AdRateCardResponse>> saveRates(
             @Valid @RequestBody UpsertAdRateCardRequest request,
             HttpServletRequest httpRequest) {
-        AdminAuth.requireSuperAdmin(httpRequest);
+        AdminAuth.requirePlatformWrite(httpRequest);
         UUID actorId = AdminAuth.requireUserId(httpRequest);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, adBillingService.saveRateCard(request, actorId)));
     }
@@ -58,7 +58,7 @@ public class AdBillingController {
     public ResponseEntity<ApiResponse<AdQuoteResponse>> quote(
             @Valid @RequestBody AdQuoteRequest request,
             HttpServletRequest httpRequest) {
-        AdminAuth.requireSuperAdmin(httpRequest);
+        AdminAuth.requirePlatformStaff(httpRequest);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, adBillingService.quote(request)));
     }
 
@@ -68,7 +68,7 @@ public class AdBillingController {
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
             @RequestParam(required = false) UUID townId,
             HttpServletRequest httpRequest) {
-        AdminAuth.requireSuperAdmin(httpRequest);
+        AdminAuth.requirePlatformStaff(httpRequest);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, adBillingService.revenueReport(from, to, townId)));
     }
 
@@ -79,7 +79,7 @@ public class AdBillingController {
             @RequestParam(required = false) UUID townId,
             @RequestParam(required = false) TownAdSlot slot,
             HttpServletRequest httpRequest) {
-        AdminAuth.requireSuperAdmin(httpRequest);
+        AdminAuth.requirePlatformStaff(httpRequest);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, adBillingService.occupancy(from, to, townId, slot)));
     }
 
@@ -93,7 +93,7 @@ public class AdBillingController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "25") int size,
             HttpServletRequest httpRequest) {
-        AdminAuth.requireSuperAdmin(httpRequest);
+        AdminAuth.requirePlatformStaff(httpRequest);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
                 adBillingService.listInvoices(status, slot, q, from, to, page, size)));
     }
@@ -102,7 +102,7 @@ public class AdBillingController {
     public ResponseEntity<ApiResponse<AdInvoiceResponse>> getInvoice(
             @PathVariable UUID id,
             HttpServletRequest httpRequest) {
-        AdminAuth.requireSuperAdmin(httpRequest);
+        AdminAuth.requirePlatformStaff(httpRequest);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, adBillingService.getInvoice(id)));
     }
 
@@ -110,7 +110,7 @@ public class AdBillingController {
     public ResponseEntity<ApiResponse<AdInvoiceResponse>> createInvoice(
             @Valid @RequestBody CreateAdInvoiceRequest request,
             HttpServletRequest httpRequest) {
-        AdminAuth.requireSuperAdmin(httpRequest);
+        AdminAuth.requireIssueBills(httpRequest);
         UUID actorId = AdminAuth.requireUserId(httpRequest);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponses.ok(httpRequest, adBillingService.createInvoice(request, actorId)));
@@ -121,7 +121,7 @@ public class AdBillingController {
             @PathVariable UUID id,
             @Valid @RequestBody UpdateAdInvoiceDatesRequest request,
             HttpServletRequest httpRequest) {
-        AdminAuth.requireSuperAdmin(httpRequest);
+        AdminAuth.requirePlatformWrite(httpRequest);
         UUID actorId = AdminAuth.requireUserId(httpRequest);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
                 adBillingService.updateDates(id, request.getFromDate(), request.getToDate(), actorId)));
@@ -132,7 +132,7 @@ public class AdBillingController {
             @PathVariable UUID id,
             @Valid @RequestBody PayAdInvoiceRequest request,
             HttpServletRequest httpRequest) {
-        AdminAuth.requireSuperAdmin(httpRequest);
+        AdminAuth.requireMoveMoney(httpRequest);
         UUID actorId = AdminAuth.requireUserId(httpRequest);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, adBillingService.markPaid(id, request, actorId)));
     }

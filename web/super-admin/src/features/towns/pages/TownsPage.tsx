@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { PortalShell } from '@/shared/layout/PortalShell';
 import { useAuth } from '@/shared/auth/AuthContext';
+import { ConfigWriteBanner } from '@/shared/auth/ConfigWriteBanner';
+import { usePlatformAdminAccess } from '@/shared/auth/usePlatformAdminAccess';
 import { ApiError } from '@/shared/api/http';
 import { Banner, Button, Card, ConfirmDialog, SearchSelect, TextField } from '@/shared/ui';
 import {
@@ -29,6 +31,7 @@ function matchesQuery(haystack: string, query: string): boolean {
 
 export function TownsPage() {
   const { session } = useAuth();
+  const { canWriteConfig } = usePlatformAdminAccess();
   const token = session?.accessToken ?? '';
   const [towns, setTowns] = useState<TownVm[]>([]);
   const [countries, setCountries] = useState<GeoCountryVm[]>([]);
@@ -252,6 +255,7 @@ export function TownsPage() {
     >
       {error ? <Banner tone="danger">{error}</Banner> : null}
       {notice ? <Banner tone="success">{notice}</Banner> : null}
+      <ConfigWriteBanner noun="towns" />
 
       <Card elevated style={styles.toolbar}>
         <div style={styles.toolbarRow}>
@@ -300,7 +304,13 @@ export function TownsPage() {
                   placeholder="Search towns…"
                   aria-label="Search towns"
                 />
-                <Button size="sm" variant={showAdd ? 'secondary' : 'primary'} onClick={() => setShowAdd((v) => !v)}>
+                <Button
+                  size="sm"
+                  variant={showAdd ? 'secondary' : 'primary'}
+                  disabled={!canWriteConfig}
+                  title={canWriteConfig ? undefined : 'Write access required'}
+                  onClick={() => setShowAdd((v) => !v)}
+                >
                   {showAdd ? 'Close' : 'Add town'}
                 </Button>
               </>
@@ -405,7 +415,15 @@ export function TownsPage() {
           </div>
           <div style={styles.formActions}>
             <Button
-              disabled={busy || !name.trim() || !townCode.trim() || !pincodes.trim() || !countryCode || !stateCode}
+              disabled={
+                !canWriteConfig ||
+                busy ||
+                !name.trim() ||
+                !townCode.trim() ||
+                !pincodes.trim() ||
+                !countryCode ||
+                !stateCode
+              }
               onClick={() => void onCreate()}
             >
               {busy ? 'Creating…' : 'Create'}
@@ -543,6 +561,7 @@ export function TownsPage() {
         <TownAreaDialog
           town={areaTown}
           token={token}
+          readOnly={!canWriteConfig}
           onClose={() => setAreaTown(null)}
           onSaved={(message) => {
             setNotice(message);
@@ -557,6 +576,7 @@ export function TownsPage() {
           town={configTown}
           token={token}
           platformDeliveryFee={platformDeliveryFee}
+          readOnly={!canWriteConfig}
           onClose={() => setConfigTown(null)}
           onSaved={(message) => {
             setNotice(message);

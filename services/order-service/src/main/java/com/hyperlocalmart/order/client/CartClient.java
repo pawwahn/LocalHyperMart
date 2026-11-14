@@ -3,6 +3,7 @@ package com.hyperlocalmart.order.client;
 import com.hyperlocalmart.common.api.ApiResponse;
 import com.hyperlocalmart.common.exception.BusinessException;
 import com.hyperlocalmart.common.exception.ErrorCode;
+import com.hyperlocalmart.order.config.RestClientFactory;
 import com.hyperlocalmart.order.config.CartServiceProperties;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.ParameterizedTypeReference;
@@ -19,12 +20,12 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class CartClient {
 
-    private final RestClient.Builder restClientBuilder;
+    private final RestClientFactory restClients;
     private final CartServiceProperties cartServiceProperties;
 
     public CartSnapshot getCart(UUID cartId, UUID userId, UUID townId) {
         try {
-            RestClient client = restClientBuilder.baseUrl(cartServiceProperties.getBaseUrl()).build();
+            RestClient client = restClients.forBaseUrl(cartServiceProperties.getBaseUrl());
             ApiResponse<CartSnapshot> response = client.get()
                     .uri(uriBuilder -> uriBuilder
                             .path("/api/v1/internal/carts/{cartId}")
@@ -49,7 +50,7 @@ public class CartClient {
     }
 
     public void convertCart(UUID cartId, UUID userId, UUID townId) {
-        RestClient client = restClientBuilder.baseUrl(cartServiceProperties.getBaseUrl()).build();
+        RestClient client = restClients.forBaseUrl(cartServiceProperties.getBaseUrl());
         client.post()
                 .uri(uriBuilder -> uriBuilder
                         .path("/api/v1/internal/carts/{cartId}/convert")
@@ -61,7 +62,7 @@ public class CartClient {
     }
 
     public ReorderCartResult replaceCartItems(UUID userId, UUID townId, java.util.List<ReorderLine> items) {
-        RestClient client = restClientBuilder.baseUrl(cartServiceProperties.getBaseUrl()).build();
+        RestClient client = restClients.forBaseUrl(cartServiceProperties.getBaseUrl());
         java.util.List<java.util.Map<String, Object>> bodyItems = items.stream()
                 .map(line -> java.util.Map.<String, Object>of(
                         "listingId", line.listingId(),
@@ -112,7 +113,9 @@ public class CartClient {
             boolean minOrderMet,
             List<CartItemSnapshot> items,
             String membershipSlab,
-            BigDecimal membershipFee
+            BigDecimal membershipFee,
+            boolean foodCart,
+            UUID foodVendorId
     ) {
     }
 

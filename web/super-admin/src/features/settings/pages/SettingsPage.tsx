@@ -17,9 +17,11 @@ import {
   uploadPlatformBrandLogo,
   type PlatformSettingsVm,
 } from '../api/settingsApi';
+import { AppAdminsPanel } from '../components/AppAdminsPanel';
+import { usePlatformAdminAccess } from '@/shared/auth/usePlatformAdminAccess';
 
 type LegalTab = 'termsText' | 'privacyText' | 'refundText';
-type PageView = 'settings' | 'history';
+type PageView = 'settings' | 'history' | 'appAdmins';
 
 const EMPTY: PlatformSettingsVm = {
   mapsEnabled: false,
@@ -55,6 +57,7 @@ const EMPTY: PlatformSettingsVm = {
 
 export function SettingsPage() {
   const { session } = useAuth();
+  const { isSuperAdmin } = usePlatformAdminAccess();
   const { preference, setMode } = useTheme();
   const { refresh: refreshBrand } = usePlatformBrand();
   const token = session?.accessToken ?? '';
@@ -193,6 +196,17 @@ export function SettingsPage() {
               >
                 Change history
               </button>
+              {isSuperAdmin ? (
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={pageView === 'appAdmins'}
+                  style={pageView === 'appAdmins' ? styles.viewTabActive : styles.viewTab}
+                  onClick={() => setPageView('appAdmins')}
+                >
+                  App admins
+                </button>
+              ) : null}
             </div>
             {pageView === 'settings' ? (
               <Button disabled={busy} onClick={() => void onSave()}>
@@ -202,6 +216,7 @@ export function SettingsPage() {
           </div>
         </Card>
 
+        {pageView === 'appAdmins' && isSuperAdmin && token ? <AppAdminsPanel token={token} /> : null}
         {pageView === 'history' ? (
           token ? (
             <AdminHistoryPanel
@@ -212,7 +227,7 @@ export function SettingsPage() {
               emptyHint="Each save lists every field that changed (previous → new). Referral rewards, delivery fee, and legal version appear here."
             />
           ) : null
-        ) : (
+        ) : pageView === 'settings' ? (
           <>
         <Card padding="sm" style={styles.card}>
           <div style={styles.sectionHead}>
@@ -705,7 +720,7 @@ export function SettingsPage() {
           </div>
         </Card>
           </>
-        )}
+        ) : null}
       </div>
       <ConfirmDialog
         open={mapSwitchTo != null}

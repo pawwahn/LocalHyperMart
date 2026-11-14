@@ -24,6 +24,10 @@ public class Payment extends BaseAuditEntity {
     @Column(name = "order_id", nullable = false)
     private UUID orderId;
 
+    /** Snapshot of buyer-facing order number at payment initiate (shop / glam / laundry). */
+    @Column(name = "order_number", length = 50)
+    private String orderNumber;
+
     @Column(name = "town_id", nullable = false)
     private UUID townId;
 

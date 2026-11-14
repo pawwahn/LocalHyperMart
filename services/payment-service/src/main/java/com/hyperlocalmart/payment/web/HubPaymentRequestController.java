@@ -4,8 +4,10 @@ import com.hyperlocalmart.common.api.ApiResponse;
 import com.hyperlocalmart.common.api.PageResponse;
 import com.hyperlocalmart.common.exception.BusinessException;
 import com.hyperlocalmart.common.exception.ErrorCode;
+import com.hyperlocalmart.common.security.PlatformAdminRoles;
 import com.hyperlocalmart.payment.dto.request.CreateHubCodPaymentRequest;
 import com.hyperlocalmart.payment.dto.request.CreateHubFranchisePaymentRequest;
+import com.hyperlocalmart.payment.dto.request.WaiveHubFranchiseRequest;
 import com.hyperlocalmart.payment.dto.request.PreviewHubCodForMeRequest;
 import com.hyperlocalmart.payment.dto.request.SubmitHubPaymentForRequest;
 import com.hyperlocalmart.payment.dto.response.HubCodPaymentPreviewResponse;
@@ -14,6 +16,7 @@ import com.hyperlocalmart.payment.dto.response.HubPaymentRequestResponse;
 import com.hyperlocalmart.payment.dto.response.HubPlatformPaymentSubmissionResponse;
 import com.hyperlocalmart.payment.entity.HubPaymentRequestType;
 import com.hyperlocalmart.payment.security.AuthUserPrincipal;
+import com.hyperlocalmart.payment.security.PlatformAdminPrincipalAuth;
 import com.hyperlocalmart.payment.service.HubPaymentRequestService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -89,7 +92,7 @@ public class HubPaymentRequestController {
             @RequestParam(required = false) UUID hubId,
             @RequestParam(required = false) String type,
             HttpServletRequest httpRequest) {
-        requireSuperAdmin(principal);
+        PlatformAdminPrincipalAuth.requireStaff(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
                 requestService.listForAdmin(townId, hubId, type, principal.getUserId())));
     }
@@ -101,7 +104,7 @@ public class HubPaymentRequestController {
             @RequestParam(required = false) Integer page,
             @RequestParam(required = false) Integer size,
             HttpServletRequest httpRequest) {
-        requireSuperAdmin(principal);
+        PlatformAdminPrincipalAuth.requireStaff(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
                 requestService.previewCod(body, principal.getUserId(), page, size)));
     }
@@ -113,7 +116,7 @@ public class HubPaymentRequestController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "50") int size,
             HttpServletRequest httpRequest) {
-        requireSuperAdmin(principal);
+        PlatformAdminPrincipalAuth.requireStaff(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, requestService.listLines(requestId, page, size)));
     }
 
@@ -122,7 +125,7 @@ public class HubPaymentRequestController {
             @AuthenticationPrincipal AuthUserPrincipal principal,
             @Valid @RequestBody CreateHubCodPaymentRequest body,
             HttpServletRequest httpRequest) {
-        requireSuperAdmin(principal);
+        PlatformAdminPrincipalAuth.requireIssueBills(principal);
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponses.ok(httpRequest,
                 requestService.createCod(body, principal.getUserId())));
     }
@@ -132,7 +135,7 @@ public class HubPaymentRequestController {
             @AuthenticationPrincipal AuthUserPrincipal principal,
             @Valid @RequestBody CreateHubFranchisePaymentRequest body,
             HttpServletRequest httpRequest) {
-        requireSuperAdmin(principal);
+        PlatformAdminPrincipalAuth.requireIssueBills(principal);
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponses.ok(httpRequest,
                 requestService.createFranchise(body, principal.getUserId())));
     }
@@ -142,8 +145,18 @@ public class HubPaymentRequestController {
             @AuthenticationPrincipal AuthUserPrincipal principal,
             @PathVariable UUID requestId,
             HttpServletRequest httpRequest) {
-        requireSuperAdmin(principal);
+        PlatformAdminPrincipalAuth.requireMoveMoney(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, requestService.cancel(requestId, principal.getUserId())));
+    }
+
+    @PostMapping("/api/v1/payments/hub/payment-requests/franchise/waive")
+    public ResponseEntity<ApiResponse<Void>> waiveFranchise(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @Valid @RequestBody WaiveHubFranchiseRequest body,
+            HttpServletRequest httpRequest) {
+        PlatformAdminPrincipalAuth.requireMoveMoney(principal);
+        requestService.waiveFranchiseMonth(body, principal.getUserId());
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest, null));
     }
 
     private static HubPaymentRequestType parseTypeOptional(String raw) {
@@ -158,17 +171,13 @@ public class HubPaymentRequestController {
     }
 
     private static void requireHubAdmin(AuthUserPrincipal principal) {
-        if (principal == null
-                || principal.getRoles() == null
-                || (!principal.getRoles().contains("HUB_ADMIN")
-                && !principal.getRoles().contains("SUPER_ADMIN"))) {
+        if (principal == null || principal.getRoles() == null) {
             throw new BusinessException(ErrorCode.FORBIDDEN, "Hub admin role required");
         }
-    }
-
-    private static void requireSuperAdmin(AuthUserPrincipal principal) {
-        if (principal == null || principal.getRoles() == null || !principal.getRoles().contains("SUPER_ADMIN")) {
-            throw new BusinessException(ErrorCode.FORBIDDEN, "Super admin role required");
+        if (principal.getRoles().contains("HUB_ADMIN")
+                || PlatformAdminRoles.isPlatformStaff(principal.getRoles())) {
+            return;
         }
+        throw new BusinessException(ErrorCode.FORBIDDEN, "Hub admin role required");
     }
 }

@@ -4,11 +4,10 @@ import com.hyperlocalmart.catalog.dto.request.UpsertRecipeRequest;
 import com.hyperlocalmart.catalog.dto.response.AdminRecipeDetailResponse;
 import com.hyperlocalmart.catalog.dto.response.AdminRecipeSummaryResponse;
 import com.hyperlocalmart.catalog.security.AuthUserPrincipal;
+import com.hyperlocalmart.catalog.security.PlatformAdminPrincipalAuth;
 import com.hyperlocalmart.catalog.service.RecipeAdminService;
 import com.hyperlocalmart.common.api.ApiResponse;
 import com.hyperlocalmart.common.api.PageResponse;
-import com.hyperlocalmart.common.exception.BusinessException;
-import com.hyperlocalmart.common.exception.ErrorCode;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
@@ -38,7 +37,7 @@ public class RecipeAdminController {
             @RequestParam(defaultValue = "0") @Min(0) int page,
             @RequestParam(defaultValue = "50") @Min(1) @Max(100) int size,
             HttpServletRequest httpRequest) {
-        requireSuperAdmin(principal);
+        PlatformAdminPrincipalAuth.requireStaff(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, recipeAdminService.list(q, page, size)));
     }
 
@@ -47,7 +46,7 @@ public class RecipeAdminController {
             @AuthenticationPrincipal AuthUserPrincipal principal,
             @PathVariable UUID recipeId,
             HttpServletRequest httpRequest) {
-        requireSuperAdmin(principal);
+        PlatformAdminPrincipalAuth.requireStaff(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, recipeAdminService.get(recipeId)));
     }
 
@@ -56,7 +55,7 @@ public class RecipeAdminController {
             @AuthenticationPrincipal AuthUserPrincipal principal,
             @Valid @RequestBody UpsertRecipeRequest request,
             HttpServletRequest httpRequest) {
-        requireSuperAdmin(principal);
+        PlatformAdminPrincipalAuth.requireWrite(principal);
         AdminRecipeDetailResponse created = recipeAdminService.create(request, principal.getUserId());
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponses.ok(httpRequest, created));
     }
@@ -67,7 +66,7 @@ public class RecipeAdminController {
             @PathVariable UUID recipeId,
             @Valid @RequestBody UpsertRecipeRequest request,
             HttpServletRequest httpRequest) {
-        requireSuperAdmin(principal);
+        PlatformAdminPrincipalAuth.requireWrite(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, recipeAdminService.update(recipeId, request, principal.getUserId())));
     }
 
@@ -76,14 +75,9 @@ public class RecipeAdminController {
             @AuthenticationPrincipal AuthUserPrincipal principal,
             @PathVariable UUID recipeId,
             HttpServletRequest httpRequest) {
-        requireSuperAdmin(principal);
+        PlatformAdminPrincipalAuth.requireWrite(principal);
         recipeAdminService.delete(recipeId, principal.getUserId());
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, Map.of("deleted", true)));
     }
 
-    private void requireSuperAdmin(AuthUserPrincipal principal) {
-        if (principal == null || !principal.getRoles().contains("SUPER_ADMIN")) {
-            throw new BusinessException(ErrorCode.FORBIDDEN, "Super admin role required");
-        }
-    }
 }

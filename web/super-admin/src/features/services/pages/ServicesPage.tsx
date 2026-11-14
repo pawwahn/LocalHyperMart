@@ -1,10 +1,17 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { CSSProperties } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type CSSProperties,
+  type InputHTMLAttributes,
+  type ReactNode,
+} from 'react';
 import { Link } from 'react-router-dom';
 import { PortalShell } from '@/shared/layout/PortalShell';
 import { useAuth } from '@/shared/auth/AuthContext';
 import { ApiError } from '@/shared/api/http';
-import { Banner, Button, Card, ConfirmDialog, TextField } from '@/shared/ui';
+import { Banner, Button, ConfirmDialog, KpiCard } from '@/shared/ui';
 import {
   createService,
   deleteService,
@@ -13,14 +20,6 @@ import {
   type ServiceOffering,
 } from '../api/servicesApi';
 
-function serviceEmoji(name: string): string {
-  const lower = name.toLowerCase();
-  if (lower.includes('laundry')) return '🧺';
-  if (lower.includes('beauty') || lower.includes('makeup') || lower.includes('glam')) return '💄';
-  if (lower.includes('groc')) return '🛒';
-  return '✨';
-}
-
 /** Laundry & glam always skip the grocery product catalog in the vendor portal. */
 function catalogHiddenLocked(name: string): boolean {
   return /laundry|beauty|makeup|glam/i.test(name);
@@ -28,6 +27,24 @@ function catalogHiddenLocked(name: string): boolean {
 
 function catalogHiddenEffective(name: string, hidesListings: boolean): boolean {
   return hidesListings || catalogHiddenLocked(name);
+}
+
+function serviceMonogram(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) return `${parts[0]![0]}${parts[1]![0]}`.toUpperCase();
+  const t = name.trim();
+  return (t.length >= 2 ? t.slice(0, 2) : t || '?').toUpperCase();
+}
+
+function monogramStyle(name: string): CSSProperties {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) | 0;
+  const hue = Math.abs(hash) % 360;
+  return {
+    background: `color-mix(in srgb, hsl(${hue} 52% 42%) 18%, var(--bg-elevated))`,
+    color: `hsl(${hue} 48% 32%)`,
+    border: `1px solid color-mix(in srgb, hsl(${hue} 52% 42%) 28%, var(--border))`,
+  };
 }
 
 export function ServicesPage() {
@@ -139,173 +156,208 @@ export function ServicesPage() {
     return (row.vendorCount ?? 0) === 0 && (row.pendingRegistrationCount ?? 0) === 0;
   }
 
-  function usageBadge(row: ServiceOffering): { label: string; tone: 'ok' | 'busy' | 'warn' } {
-    const vendors = row.vendorCount ?? 0;
-    const pending = row.pendingRegistrationCount ?? 0;
-    if (vendors === 0 && pending === 0) return { label: 'Unused', tone: 'ok' };
-    const parts: string[] = [];
-    if (vendors > 0) parts.push(`${vendors} vendor${vendors === 1 ? '' : 's'}`);
-    if (pending > 0) parts.push(`${pending} pending`);
-    return { label: parts.join(' · '), tone: vendors > 0 ? 'busy' : 'warn' };
-  }
-
   const sorted = useMemo(
     () => [...services].sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name)),
     [services],
   );
 
+  const stats = useMemo(() => {
+    let grocery = 0;
+    let serviceOnly = 0;
+    let vendors = 0;
+    let pending = 0;
+    for (const row of services) {
+      const so = catalogHiddenEffective(row.name, row.hidesListings);
+      if (so) serviceOnly += 1;
+      else grocery += 1;
+      vendors += row.vendorCount ?? 0;
+      pending += row.pendingRegistrationCount ?? 0;
+    }
+    return { total: services.length, grocery, serviceOnly, vendors, pending };
+  }, [services]);
+
   return (
-    <PortalShell title="Vendor services" onRefresh={() => void reload()}>
+    <PortalShell
+      title="Vendor services"
+      subtitle="Define service types, portal experience, and how vendors appear to buyers."
+      onRefresh={() => void reload()}
+    >
       {error ? <Banner tone="danger">{error}</Banner> : null}
       {notice ? <Banner tone="success">{notice}</Banner> : null}
 
-      <div style={styles.hero}>
-        <div>
-          <h2 style={styles.heroTitle}>What is a service?</h2>
-          <p style={styles.heroText}>
-            Each vendor belongs to one <strong>service type</strong> — Groceries, Laundry, Makeup &amp; Beauty, and so
-            on. That choice drives which tools they see in the vendor portal and what buyers can book.
-          </p>
-          <p style={styles.heroText}>
-            <Link to="/vendors" style={styles.link}>
-              Assign services when adding or editing vendors →
-            </Link>
-          </p>
+      <div style={styles.page}>
+        <div style={styles.kpiRow}>
+          <KpiCard label="Service types" value={String(stats.total)} hint="On this platform" />
+          <KpiCard
+            label="Catalog mode"
+            value={String(stats.grocery)}
+            hint="Product listings enabled"
+            tip="Vendors get Listings, pricing, and kirana-style catalog tools."
+          />
+          <KpiCard
+            label="Operations mode"
+            value={String(stats.serviceOnly)}
+            hint="Bookings & desk flows"
+            tip="Hides grocery Listings — laundry, glam, diagnostics-style workflows."
+          />
+          <KpiCard
+            label="Active vendors"
+            value={String(stats.vendors)}
+            hint={stats.pending > 0 ? `${stats.pending} pending signup` : 'Across all types'}
+          />
         </div>
-        <div style={styles.legend}>
-          <div style={styles.legendRow}>
-            <span style={styles.legendIcon}>🛒</span>
-            <div>
-              <strong style={styles.legendHead}>Grocery shop</strong>
-              <span style={styles.legendSub}>Vendor manages product Listings &amp; prices</span>
+
+        <div style={styles.workspace}>
+          <header style={styles.workspaceHead}>
+            <div style={styles.workspaceTitleBlock}>
+              <h2 style={styles.workspaceTitle}>Service directory</h2>
+              <p style={styles.workspaceSub}>
+                Names save on blur. Portal mode saves immediately.{' '}
+                <Link to="/vendors" style={styles.inlineLink}>
+                  Assign on vendors
+                </Link>
+              </p>
             </div>
+            <details style={styles.help}>
+              <summary style={styles.helpSummary}>Portal modes</summary>
+              <div style={styles.helpBody}>
+                <p style={styles.helpPara}>
+                  <strong>Product catalog</strong> — vendors manage SKUs, stock, and cart checkout.
+                </p>
+                <p style={styles.helpPara}>
+                  <strong>Operations</strong> — job-based portals (laundry desk, glam calendar, lab orders) without a
+                  grocery catalog. Laundry and glam names lock to this mode.
+                </p>
+              </div>
+            </details>
+          </header>
+
+          <div style={styles.composer}>
+            <label style={styles.composerField}>
+              <span style={styles.composerLabel}>New service</span>
+              <InlineNameInput
+                framed
+                id="new-service-name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Display name, e.g. Groceries"
+                maxLength={80}
+                disabled={busy}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && name.trim() && !busy) void onAdd();
+                }}
+              />
+            </label>
+            <div style={styles.composerMode}>
+              <span style={styles.composerLabel}>Portal experience</span>
+              <PortalModeSwitch
+                serviceOnly={serviceOnlyNew || newNameLocked}
+                locked={newNameLocked}
+                disabled={busy}
+                onChange={setServiceOnlyNew}
+              />
+            </div>
+            <Button disabled={busy || !name.trim()} onClick={() => void onAdd()} style={styles.composerBtn}>
+              {busy ? 'Saving…' : 'Create'}
+            </Button>
           </div>
-          <div style={styles.legendRow}>
-            <span style={styles.legendIcon}>🧺</span>
-            <div>
-              <strong style={styles.legendHead}>Service-only</strong>
-              <span style={styles.legendSub}>No product catalog — laundry desk or glam bookings instead</span>
-            </div>
+
+          <div style={styles.tableScroll}>
+            <table style={styles.table}>
+              <thead>
+                <tr>
+                  <th style={styles.thName}>Service</th>
+                  <th style={styles.thMode}>Portal experience</th>
+                  <th style={styles.thAdopt}>Adoption</th>
+                  <th style={styles.thActions} aria-label="Actions" />
+                </tr>
+              </thead>
+              <tbody>
+                {loading && services.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} style={styles.emptyCell}>
+                      <span style={styles.skeleton}>Loading directory…</span>
+                    </td>
+                  </tr>
+                ) : services.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} style={styles.emptyCell}>
+                      <div style={styles.emptyBlock}>
+                        <p style={styles.emptyTitle}>No services configured</p>
+                        <p style={styles.emptySub}>Create Groceries and Laundry above to onboard your first vendors.</p>
+                      </div>
+                    </td>
+                  </tr>
+                ) : (
+                  sorted.map((row, index) => {
+                    const displayName = names[row.id] ?? row.name;
+                    const locked = catalogHiddenLocked(displayName);
+                    const serviceOnly = catalogHiddenEffective(displayName, row.hidesListings);
+                    const vendors = row.vendorCount ?? 0;
+                    const pending = row.pendingRegistrationCount ?? 0;
+                    const removable = canRemove(row);
+                    return (
+                      <tr key={row.id} style={index % 2 === 1 ? styles.rowAlt : undefined}>
+                        <td style={styles.tdName}>
+                          <div style={styles.nameCell}>
+                            <span style={{ ...styles.monogram, ...monogramStyle(displayName) }} aria-hidden>
+                              {serviceMonogram(displayName)}
+                            </span>
+                            <InlineNameInput
+                              id={`service-name-${row.id}`}
+                              value={displayName}
+                              maxLength={80}
+                              placeholder="Service name"
+                              aria-label={`Name for ${row.name}`}
+                              disabled={busy}
+                              onChange={(e) => setNames((prev) => ({ ...prev, [row.id]: e.target.value }))}
+                              onBlur={() => void saveRow(row, displayName, locked || row.hidesListings)}
+                            />
+                          </div>
+                        </td>
+                        <td style={styles.tdMode}>
+                          <PortalModeSwitch
+                            serviceOnly={serviceOnly}
+                            locked={locked}
+                            disabled={busy}
+                            onChange={(next) => void saveRow(row, displayName, next)}
+                          />
+                          {locked ? <p style={styles.lockedHint}>Locked for laundry / glam naming</p> : null}
+                        </td>
+                        <td style={styles.tdAdopt}>
+                          <AdoptionCell vendors={vendors} pending={pending} />
+                        </td>
+                        <td style={styles.tdActions}>
+                          <button
+                            type="button"
+                            style={removable && !busy ? styles.removeBtn : styles.removeBtnDisabled}
+                            disabled={busy || !removable}
+                            title={
+                              removable
+                                ? 'Delete service'
+                                : 'Reassign vendors or clear pending registrations first'
+                            }
+                            onClick={() => setRemoveId(row.id)}
+                          >
+                            Remove
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
           </div>
         </div>
       </div>
-
-      <Card style={styles.addCard}>
-        <h3 style={styles.sectionTitle}>Add a service</h3>
-        <div style={styles.addRow}>
-          <TextField
-            id="new-service-name"
-            label="Display name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="e.g. Groceries"
-            maxLength={80}
-            style={styles.nameField}
-          />
-          <CatalogModeToggle
-            serviceOnly={serviceOnlyNew || newNameLocked}
-            locked={newNameLocked}
-            disabled={busy}
-            onChange={setServiceOnlyNew}
-          />
-          <Button disabled={busy || !name.trim()} onClick={() => void onAdd()}>
-            {busy ? 'Saving…' : 'Add service'}
-          </Button>
-        </div>
-      </Card>
-
-      <Card style={styles.listCard}>
-        <div style={styles.listHead}>
-          <h3 style={styles.sectionTitle}>Your services</h3>
-          <span style={styles.listMeta}>{sorted.length} total</span>
-        </div>
-        {loading && services.length === 0 ? (
-          <p style={styles.muted}>Loading…</p>
-        ) : services.length === 0 ? (
-          <p style={styles.muted}>No services yet. Start with Groceries and Laundry.</p>
-        ) : (
-          <div style={styles.list}>
-            {sorted.map((row) => {
-              const displayName = names[row.id] ?? row.name;
-              const locked = catalogHiddenLocked(displayName);
-              const serviceOnly = catalogHiddenEffective(displayName, row.hidesListings);
-              const badge = usageBadge(row);
-              return (
-                <article key={row.id} style={styles.serviceCard}>
-                  <div style={styles.serviceTop}>
-                    <span style={styles.emoji} aria-hidden>
-                      {serviceEmoji(displayName)}
-                    </span>
-                    <TextField
-                      id={`service-name-${row.id}`}
-                      label="Name"
-                      value={displayName}
-                      maxLength={80}
-                      style={styles.nameFieldGrow}
-                      onChange={(e) => setNames((prev) => ({ ...prev, [row.id]: e.target.value }))}
-                      onBlur={() => void saveRow(row, displayName, locked || row.hidesListings)}
-                    />
-                    <span
-                      style={
-                        badge.tone === 'ok'
-                          ? styles.badgeOk
-                          : badge.tone === 'busy'
-                            ? styles.badgeBusy
-                            : styles.badgeWarn
-                      }
-                    >
-                      {badge.label}
-                    </span>
-                  </div>
-                  <div style={styles.serviceMid}>
-                    <CatalogModeToggle
-                      serviceOnly={serviceOnly}
-                      locked={locked}
-                      disabled={busy}
-                      onChange={(next) => void saveRow(row, displayName, next)}
-                    />
-                    <p style={styles.modeHint}>
-                      {serviceOnly ? (
-                        <>
-                          <strong>Service-only</strong> — vendor portal hides grocery Listings. Use laundry, glam, or
-                          other job-based flows.
-                        </>
-                      ) : (
-                        <>
-                          <strong>Grocery mode</strong> — vendor can list products and sell from catalog (kirana /
-                          general store).
-                        </>
-                      )}
-                    </p>
-                  </div>
-                  <div style={styles.serviceActions}>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      disabled={busy || !canRemove(row)}
-                      title={
-                        canRemove(row)
-                          ? 'Delete this service'
-                          : 'Reassign vendors or clear pending registrations first'
-                      }
-                      onClick={() => setRemoveId(row.id)}
-                    >
-                      Delete
-                    </Button>
-                  </div>
-                </article>
-              );
-            })}
-          </div>
-        )}
-      </Card>
 
       <ConfirmDialog
         open={Boolean(removeId)}
         title={`Delete ${removing?.name ?? 'service'}?`}
         description={
           removing && !canRemove(removing)
-            ? usageBadge(removing).label
+            ? `${removing.vendorCount ?? 0} vendors · ${removing.pendingRegistrationCount ?? 0} pending`
             : 'No vendors use this service. This cannot be undone.'
         }
         confirmLabel="Delete"
@@ -320,7 +372,63 @@ export function ServicesPage() {
   );
 }
 
-function CatalogModeToggle({
+function InlineNameInput({
+  framed,
+  style,
+  onFocus,
+  onBlur,
+  ...rest
+}: InputHTMLAttributes<HTMLInputElement> & { framed?: boolean }) {
+  const [focused, setFocused] = useState(false);
+  return (
+    <input
+      {...rest}
+      onFocus={(e) => {
+        setFocused(true);
+        onFocus?.(e);
+      }}
+      onBlur={(e) => {
+        setFocused(false);
+        onBlur?.(e);
+      }}
+      style={{
+        ...styles.inlineInput,
+        ...(framed ? styles.inlineInputFramed : null),
+        ...(focused ? styles.inlineInputFocus : null),
+        ...style,
+      }}
+    />
+  );
+}
+
+function AdoptionColumn({ children }: { children: ReactNode }) {
+  return <div style={styles.adoptCol}>{children}</div>;
+}
+
+function AdoptionCell({ vendors, pending }: { vendors: number; pending: number }) {
+  if (vendors === 0 && pending === 0) {
+    return (
+      <AdoptionColumn>
+        <span style={styles.adoptUnused}>Unused</span>
+        <span style={styles.adoptMeta}>No vendors yet</span>
+      </AdoptionColumn>
+    );
+  }
+  return (
+    <AdoptionColumn>
+      <span style={styles.adoptPrimary}>
+        {vendors} <span style={styles.adoptUnit}>vendor{vendors === 1 ? '' : 's'}</span>
+      </span>
+      {pending > 0 ? (
+        <span style={styles.adoptMeta}>
+          {pending} pending registration{pending === 1 ? '' : 's'}
+        </span>
+      ) : null}
+    </AdoptionColumn>
+  );
+}
+
+function PortalModeSwitch({
   serviceOnly,
   locked,
   disabled,
@@ -332,144 +440,276 @@ function CatalogModeToggle({
   onChange: (serviceOnly: boolean) => void;
 }) {
   return (
-    <div style={styles.toggleWrap}>
-      <span style={styles.toggleLabel}>Vendor portal</span>
-      <div style={styles.toggleRow} role="group" aria-label="Vendor portal mode">
-        <button
-          type="button"
-          disabled={disabled || locked}
-          style={!serviceOnly ? styles.toggleOn : styles.toggleOff}
-          onClick={() => onChange(false)}
-        >
-          🛒 Grocery catalog
-        </button>
-        <button
-          type="button"
-          disabled={disabled}
-          style={serviceOnly ? styles.toggleOn : styles.toggleOff}
-          onClick={() => onChange(true)}
-        >
-          ✨ Service-only
-        </button>
-      </div>
-      {locked ? (
-        <span style={styles.lockedNote}>Required for laundry &amp; glam names — cannot show product Listings.</span>
-      ) : null}
+    <div style={styles.switch} role="group" aria-label="Portal experience">
+      <button
+        type="button"
+        disabled={disabled || locked}
+        aria-pressed={!serviceOnly}
+        style={{
+          ...styles.switchOpt,
+          ...(!serviceOnly ? styles.switchOptOn : styles.switchOptOff),
+        }}
+        onClick={() => onChange(false)}
+      >
+        Product catalog
+      </button>
+      <button
+        type="button"
+        disabled={disabled}
+        aria-pressed={serviceOnly}
+        style={{
+          ...styles.switchOpt,
+          ...(serviceOnly ? styles.switchOptOn : styles.switchOptOff),
+        }}
+        onClick={() => onChange(true)}
+      >
+        Operations
+      </button>
     </div>
   );
 }
 
 const styles: Record<string, CSSProperties> = {
-  hero: {
+  page: { display: 'grid', gap: '1rem', maxWidth: 1040 },
+  kpiRow: {
     display: 'grid',
-    gap: '0.75rem',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
-    padding: '0.85rem 1rem',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(9.5rem, 1fr))',
+    gap: '0.65rem',
+  },
+  workspace: {
+    background: 'var(--bg-elevated)',
+    border: '1px solid var(--border)',
     borderRadius: 16,
-    background:
-      'linear-gradient(135deg, rgba(22, 101, 52, 0.08) 0%, rgba(255,255,255,0.95) 45%, rgba(219, 39, 119, 0.06) 100%)',
-    border: '1px solid var(--border, #e5e7eb)',
-    marginBottom: '0.5rem',
+    boxShadow: 'var(--shadow-card)',
+    overflow: 'hidden',
   },
-  heroTitle: { margin: '0 0 0.35rem', fontSize: '1.05rem', fontWeight: 900 },
-  heroText: { margin: '0 0 0.35rem', fontSize: '0.82rem', lineHeight: 1.45, color: 'var(--text-muted, #4b5563)' },
-  link: { color: 'var(--accent, #166534)', fontWeight: 800, textDecoration: 'none' },
-  legend: { display: 'grid', gap: '0.5rem', alignContent: 'start' },
-  legendRow: { display: 'flex', gap: '0.5rem', alignItems: 'flex-start' },
-  legendIcon: { fontSize: '1.35rem', lineHeight: 1 },
-  legendHead: { display: 'block', fontSize: '0.78rem', fontWeight: 800 },
-  legendSub: { display: 'block', fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 600, lineHeight: 1.35 },
-  addCard: { display: 'grid', gap: '0.5rem', padding: '0.75rem 0.85rem' },
-  listCard: { display: 'grid', gap: '0.55rem', padding: '0.75rem 0.85rem' },
-  sectionTitle: { margin: 0, fontSize: '0.92rem', fontWeight: 900 },
-  listHead: { display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: '0.5rem' },
-  listMeta: { fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)' },
-  addRow: {
+  workspaceHead: {
     display: 'flex',
     flexWrap: 'wrap',
-    gap: '0.55rem',
-    alignItems: 'flex-end',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: '0.75rem 1.25rem',
+    padding: '1rem 1.15rem 0.85rem',
+    borderBottom: '1px solid var(--border)',
+    background: 'linear-gradient(180deg, var(--bg-muted) 0%, var(--bg-elevated) 100%)',
   },
-  nameField: { flex: '1 1 200px', minWidth: 160, maxWidth: 320 },
-  nameFieldGrow: { flex: '1 1 12rem', minWidth: 140 },
-  list: { display: 'grid', gap: '0.55rem' },
-  serviceCard: {
-    display: 'grid',
-    gap: '0.45rem',
-    padding: '0.65rem 0.7rem',
-    borderRadius: 14,
-    border: '1px solid var(--border, #e5e7eb)',
-    background: 'var(--bg-elevated, #fff)',
-    boxShadow: '0 1px 3px rgba(15, 23, 42, 0.04)',
-  },
-  serviceTop: {
-    display: 'flex',
-    flexWrap: 'wrap',
-    gap: '0.45rem',
-    alignItems: 'flex-end',
-  },
-  emoji: { fontSize: '1.5rem', lineHeight: 1, paddingBottom: 6 },
-  badgeOk: {
-    marginLeft: 'auto',
-    fontSize: '0.68rem',
+  workspaceTitleBlock: { minWidth: 0, flex: '1 1 16rem' },
+  workspaceTitle: {
+    margin: 0,
+    fontFamily: 'var(--font-display)',
+    fontSize: '1.12rem',
     fontWeight: 800,
-    padding: '0.2rem 0.55rem',
-    borderRadius: 999,
-    background: '#ecfdf5',
-    color: '#047857',
-    border: '1px solid #a7f3d0',
-    alignSelf: 'center',
+    letterSpacing: '-0.02em',
   },
-  badgeBusy: {
-    marginLeft: 'auto',
-    fontSize: '0.68rem',
-    fontWeight: 800,
-    padding: '0.2rem 0.55rem',
-    borderRadius: 999,
-    background: '#eff6ff',
-    color: '#1d4ed8',
-    border: '1px solid #bfdbfe',
-    alignSelf: 'center',
+  workspaceSub: { margin: '0.25rem 0 0', fontSize: '0.82rem', color: 'var(--text-muted)', fontWeight: 600, lineHeight: 1.45 },
+  inlineLink: { color: 'var(--accent)', fontWeight: 800, textDecoration: 'none' },
+  help: {
+    flex: '0 1 auto',
+    minWidth: 'min(100%, 14rem)',
+    border: '1px solid var(--border)',
+    borderRadius: 12,
+    background: 'var(--bg-elevated)',
+    padding: '0.35rem 0.65rem',
   },
-  badgeWarn: {
-    marginLeft: 'auto',
-    fontSize: '0.68rem',
-    fontWeight: 800,
-    padding: '0.2rem 0.55rem',
-    borderRadius: 999,
-    background: '#fffbeb',
-    color: '#b45309',
-    border: '1px solid #fde68a',
-    alignSelf: 'center',
-  },
-  serviceMid: { display: 'grid', gap: '0.35rem' },
-  modeHint: { margin: 0, fontSize: '0.72rem', lineHeight: 1.4, color: 'var(--text-muted)', fontWeight: 600 },
-  serviceActions: { display: 'flex', justifyContent: 'flex-end' },
-  muted: { margin: 0, color: 'var(--text-muted)', fontSize: '0.82rem', fontWeight: 600 },
-  toggleWrap: { display: 'grid', gap: '0.25rem', minWidth: 0 },
-  toggleLabel: { fontSize: '0.68rem', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' },
-  toggleRow: { display: 'flex', flexWrap: 'wrap', gap: '0.35rem' },
-  toggleOff: {
-    minHeight: 36,
-    padding: '0 0.65rem',
-    borderRadius: 999,
-    border: '1px solid var(--border, #d1d5db)',
-    background: 'transparent',
-    fontSize: '0.72rem',
-    fontWeight: 700,
+  helpSummary: {
     cursor: 'pointer',
+    fontSize: '0.78rem',
+    fontWeight: 800,
+    color: 'var(--text)',
+    listStyle: 'none',
+    userSelect: 'none',
+  },
+  helpBody: { padding: '0.5rem 0 0.15rem', display: 'grid', gap: '0.35rem' },
+  helpPara: { margin: 0, fontSize: '0.76rem', lineHeight: 1.45, color: 'var(--text-muted)', fontWeight: 600 },
+  composer: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: '0.75rem',
+    alignItems: 'flex-end',
+    padding: '0.85rem 1.15rem',
+    borderBottom: '1px solid var(--border)',
+    background: 'var(--bg-elevated)',
+  },
+  composerField: { display: 'grid', gap: '0.35rem', minWidth: 0, flex: '1 1 14rem' },
+  composerMode: { display: 'grid', gap: '0.35rem', minWidth: 0, flex: '1 1 16rem', maxWidth: 340 },
+  composerLabel: {
+    fontSize: '0.68rem',
+    fontWeight: 800,
+    color: 'var(--text-muted)',
+    textTransform: 'uppercase',
+    letterSpacing: '0.05em',
+  },
+  composerBtn: { alignSelf: 'end', minWidth: 96 },
+  tableScroll: { overflowX: 'auto', WebkitOverflowScrolling: 'touch' },
+  table: { width: '100%', borderCollapse: 'collapse' },
+  thName: {
+    textAlign: 'left',
+    padding: '0.65rem 1.15rem',
+    fontSize: '0.68rem',
+    fontWeight: 800,
+    color: 'var(--text-muted)',
+    textTransform: 'uppercase',
+    letterSpacing: '0.05em',
+    borderBottom: '1px solid var(--border)',
+    background: 'var(--bg-muted)',
+    width: '34%',
+  },
+  thMode: {
+    textAlign: 'left',
+    padding: '0.65rem 1rem',
+    fontSize: '0.68rem',
+    fontWeight: 800,
+    color: 'var(--text-muted)',
+    textTransform: 'uppercase',
+    letterSpacing: '0.05em',
+    borderBottom: '1px solid var(--border)',
+    background: 'var(--bg-muted)',
+    width: '36%',
+  },
+  thAdopt: {
+    textAlign: 'left',
+    padding: '0.65rem 1rem',
+    fontSize: '0.68rem',
+    fontWeight: 800,
+    color: 'var(--text-muted)',
+    textTransform: 'uppercase',
+    letterSpacing: '0.05em',
+    borderBottom: '1px solid var(--border)',
+    background: 'var(--bg-muted)',
+    width: '18%',
+  },
+  thActions: {
+    padding: '0.65rem 1.15rem',
+    borderBottom: '1px solid var(--border)',
+    background: 'var(--bg-muted)',
+    width: '12%',
+  },
+  rowAlt: { background: 'color-mix(in srgb, var(--bg-muted) 35%, transparent)' },
+  tdName: { padding: '0.7rem 1.15rem', borderBottom: '1px solid var(--border)', verticalAlign: 'middle' },
+  tdMode: { padding: '0.7rem 1rem', borderBottom: '1px solid var(--border)', verticalAlign: 'middle' },
+  tdAdopt: { padding: '0.7rem 1rem', borderBottom: '1px solid var(--border)', verticalAlign: 'middle' },
+  tdActions: { padding: '0.7rem 1.15rem', borderBottom: '1px solid var(--border)', verticalAlign: 'middle', textAlign: 'right' },
+  nameCell: { display: 'flex', alignItems: 'center', gap: '0.65rem', minWidth: 0 },
+  monogram: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    display: 'grid',
+    placeItems: 'center',
+    fontFamily: 'var(--font-display)',
+    fontSize: '0.72rem',
+    fontWeight: 800,
+    letterSpacing: '0.02em',
+    flexShrink: 0,
+  },
+  inlineInput: {
+    width: '100%',
+    minWidth: 0,
+    boxSizing: 'border-box',
+    border: '1px solid transparent',
+    borderRadius: 10,
+    background: 'transparent',
+    padding: '0.5rem 0.55rem',
+    fontSize: '0.92rem',
+    fontWeight: 700,
+    color: 'var(--text)',
+    fontFamily: 'inherit',
+    outline: 'none',
+    transition: 'border-color 120ms ease, background 120ms ease, box-shadow 120ms ease',
+  },
+  inlineInputFramed: {
+    border: '1px solid var(--border)',
+    background: 'var(--bg-muted)',
+  },
+  inlineInputFocus: {
+    border: '1px solid color-mix(in srgb, var(--accent) 40%, var(--border))',
+    background: 'var(--bg-elevated)',
+    boxShadow: '0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent)',
+  },
+  switch: {
+    display: 'grid',
+    gridTemplateColumns: '1fr 1fr',
+    gap: 2,
+    padding: 3,
+    borderRadius: 12,
+    background: 'var(--bg-muted)',
+    border: '1px solid var(--border)',
+    maxWidth: 320,
+  },
+  switchOpt: {
+    minHeight: 38,
+    padding: '0 0.65rem',
+    borderRadius: 9,
+    border: '1px solid transparent',
+    fontSize: '0.78rem',
+    fontWeight: 800,
+    cursor: 'pointer',
+    lineHeight: 1.2,
+    transition: 'background 120ms ease, color 120ms ease, box-shadow 120ms ease',
+  },
+  switchOptOff: {
+    background: 'transparent',
     color: 'var(--text-muted)',
   },
-  toggleOn: {
-    minHeight: 36,
-    padding: '0 0.65rem',
-    borderRadius: 999,
-    border: '1px solid #166534',
-    background: 'linear-gradient(135deg, #ecfdf5, #d1fae5)',
-    fontSize: '0.72rem',
-    fontWeight: 900,
-    cursor: 'pointer',
-    color: '#14532d',
+  switchOptOn: {
+    background: 'var(--bg-elevated)',
+    color: 'var(--accent-hover)',
+    border: '1px solid color-mix(in srgb, var(--accent) 30%, var(--border))',
+    boxShadow: '0 1px 4px color-mix(in srgb, var(--accent) 12%, transparent)',
   },
-  lockedNote: { fontSize: '0.68rem', fontWeight: 600, color: '#9d174d', maxWidth: 280, lineHeight: 1.35 },
+  lockedHint: {
+    margin: '0.35rem 0 0',
+    fontSize: '0.7rem',
+    fontWeight: 700,
+    color: 'var(--text-muted)',
+  },
+  adoptCol: { display: 'grid', gap: '0.1rem' },
+  adoptPrimary: {
+    fontFamily: 'var(--font-display)',
+    fontSize: '1rem',
+    fontWeight: 800,
+    letterSpacing: '-0.02em',
+    color: 'var(--text)',
+  },
+  adoptUnit: { fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-muted)' },
+  adoptMeta: { fontSize: '0.74rem', fontWeight: 600, color: 'var(--text-muted)' },
+  adoptUnused: {
+    fontSize: '0.82rem',
+    fontWeight: 800,
+    color: 'var(--text-muted)',
+  },
+  removeBtn: {
+    border: 'none',
+    background: 'transparent',
+    color: 'var(--danger)',
+    fontSize: '0.78rem',
+    fontWeight: 800,
+    cursor: 'pointer',
+    padding: '0.35rem 0.5rem',
+    borderRadius: 8,
+  },
+  removeBtnDisabled: {
+    border: 'none',
+    background: 'transparent',
+    color: 'var(--text-muted)',
+    fontSize: '0.78rem',
+    fontWeight: 700,
+    cursor: 'not-allowed',
+    padding: '0.35rem 0.5rem',
+    opacity: 0.55,
+  },
+  emptyCell: {
+    padding: '2.5rem 1.15rem',
+    textAlign: 'center',
+    borderBottom: 'none',
+  },
+  emptyBlock: { maxWidth: '28rem', margin: '0 auto' },
+  emptyTitle: {
+    margin: 0,
+    fontFamily: 'var(--font-display)',
+    fontSize: '1.05rem',
+    fontWeight: 800,
+  },
+  emptySub: { margin: '0.35rem 0 0', fontSize: '0.86rem', color: 'var(--text-muted)', fontWeight: 600, lineHeight: 1.45 },
+  skeleton: { fontSize: '0.88rem', fontWeight: 600, color: 'var(--text-muted)' },
 };

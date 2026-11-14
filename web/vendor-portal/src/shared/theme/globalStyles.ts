@@ -39,6 +39,8 @@ export function injectGlobalStyles(): void {
       --shell-max: 1120px;
       --tabbar-h: 64px;
       --touch-min: 44px;
+      --hlm-row-stripe-a: #ffffff;
+      --hlm-row-stripe-b: color-mix(in srgb, var(--bg-muted) 48%, var(--bg-elevated) 52%);
     }
     *, *::before, *::after { box-sizing: border-box; }
     html, body, #root { min-height: 100%; }
@@ -68,6 +70,12 @@ export function injectGlobalStyles(): void {
       from { opacity: 0; transform: translateY(6px); }
       to { opacity: 1; transform: translateY(0); }
     }
+  .hlm-row-stripe-list > .hlm-row-stripe:nth-child(odd) {
+    background: var(--hlm-row-stripe-a) !important;
+  }
+  .hlm-row-stripe-list > .hlm-row-stripe:nth-child(even) {
+    background: var(--hlm-row-stripe-b) !important;
+  }
   `;
   document.head.appendChild(style);
 }

@@ -3,7 +3,15 @@ import { useLocation } from 'react-router-dom';
 import { usePortalChrome } from '@/shared/layout/PortalChromeContext';
 import { useAuth } from '@/shared/auth/AuthContext';
 import { Banner, Button } from '@/shared/ui';
-import { isGlamVendor, isLaundryVendor, useHidesListings } from '@/features/shop/hooks/useHidesListings';
+import {
+  isDiagnosticsVendor,
+  isGlamVendor,
+  isLaundryVendor,
+  useHidesListings,
+} from '@/features/shop/hooks/useHidesListings';
+import { DiagnosticsDispatchAssignSection } from '@/features/diagnostics/components/DiagnosticsDispatchAssignSection';
+import { DiagnosticsMyVisitsSection } from '@/features/diagnostics/components/DiagnosticsMyVisitsSection';
+import { useDiagnosticsStaffSession } from '@/features/diagnostics/hooks/useDiagnosticsStaffSession';
 import { LaundryRequests } from '@/features/laundry/components/LaundryRequests';
 import { BeautyBookings } from '@/features/beauty/components/BeautyBookings';
 import { useVendorOrders } from '../hooks/useVendorOrders';
@@ -72,6 +80,7 @@ export function DashboardPage({ active = true }: { active?: boolean }) {
     busy: shopBusy,
     error: shopError,
     setAcceptingOrders,
+    reload: reloadShop,
   } = useVendorShop();
   const [prompt, setPrompt] = useState<PromptState>(null);
   const [laundryTick, setLaundryTick] = useState(0);
@@ -80,6 +89,8 @@ export function DashboardPage({ active = true }: { active?: boolean }) {
   const hidesListings = useHidesListings();
   const glamVendor = isGlamVendor(session?.serviceName);
   const laundryVendor = isLaundryVendor(session?.serviceName);
+  const diagnosticsVendor = isDiagnosticsVendor(session?.serviceName);
+  const { collectionAgentOnly } = useDiagnosticsStaffSession();
   const agentPendingCount = ordersNeedingAgent.length;
 
   useEffect(() => {
@@ -100,15 +111,22 @@ export function DashboardPage({ active = true }: { active?: boolean }) {
 
   usePortalChrome(
     {
-      title: 'Seller home',
-      onRefresh: hidesListings
-        ? () => setLaundryTick((n) => n + 1)
-        : () => void reload(),
-      shopPause: {
-        acceptingOrders,
-        busy: shopBusy,
-        onToggle: () => void setAcceptingOrders(!acceptingOrders),
+      title: collectionAgentOnly ? 'My visits' : 'Seller home',
+      onRefresh: () => {
+        void reloadShop();
+        if (hidesListings) {
+          setLaundryTick((n) => n + 1);
+        } else {
+          void reload();
+        }
       },
+      shopPause: collectionAgentOnly
+        ? undefined
+        : {
+            acceptingOrders,
+            busy: shopBusy,
+            onToggle: () => void setAcceptingOrders(!acceptingOrders),
+          },
     },
     active,
   );
@@ -136,15 +154,35 @@ export function DashboardPage({ active = true }: { active?: boolean }) {
     <div style={styles.page}>
       {hidesListings ? (
         <>
-          {!acceptingOrders ? (
+          {!acceptingOrders && !collectionAgentOnly ? (
             <Banner tone="warning">
-              Shop is paused — buyers cannot book{glamVendor && !laundryVendor ? ' glam' : laundryVendor && !glamVendor ? ' laundry' : ''} right now.
+              Shop is paused — buyers cannot book
+              {glamVendor && !laundryVendor && !diagnosticsVendor
+                ? ' glam'
+                : laundryVendor && !glamVendor && !diagnosticsVendor
+                  ? ' laundry'
+                  : diagnosticsVendor && !glamVendor && !laundryVendor
+                    ? ' diagnostics'
+                    : ''}{' '}
+              right now.
             </Banner>
           ) : null}
           {shopError ? <Banner tone="danger">{shopError}</Banner> : null}
           {glamVendor ? <BeautyBookings active={active} reloadToken={laundryTick} /> : null}
-          {laundryVendor || (!glamVendor && !laundryVendor) ? (
-            <LaundryRequests active={active && (laundryVendor || !glamVendor)} reloadToken={laundryTick} />
+          {laundryVendor || (!glamVendor && !laundryVendor && !diagnosticsVendor) ? (
+            <LaundryRequests
+              active={
+                active &&
+                (laundryVendor || (!glamVendor && !laundryVendor && !diagnosticsVendor))
+              }
+              reloadToken={laundryTick}
+            />
+          ) : null}
+          {diagnosticsVendor && collectionAgentOnly ? (
+            <DiagnosticsMyVisitsSection active={active} reloadToken={laundryTick} />
+          ) : null}
+          {diagnosticsVendor && !collectionAgentOnly ? (
+            <DiagnosticsDispatchAssignSection active={active} reloadToken={laundryTick} />
           ) : null}
         </>
       ) : (

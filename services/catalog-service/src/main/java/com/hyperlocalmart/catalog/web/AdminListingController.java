@@ -2,11 +2,10 @@ package com.hyperlocalmart.catalog.web;
 
 import com.hyperlocalmart.catalog.dto.response.AdminListingResponse;
 import com.hyperlocalmart.catalog.security.AuthUserPrincipal;
+import com.hyperlocalmart.catalog.security.PlatformAdminPrincipalAuth;
 import com.hyperlocalmart.catalog.service.VendorListingService;
 import com.hyperlocalmart.common.api.ApiResponse;
 import com.hyperlocalmart.common.api.PageResponse;
-import com.hyperlocalmart.common.exception.BusinessException;
-import com.hyperlocalmart.common.exception.ErrorCode;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
@@ -39,14 +38,9 @@ public class AdminListingController {
             @RequestParam(defaultValue = "0") @Min(0) int page,
             @RequestParam(defaultValue = "50") @Min(1) @Max(100) int size,
             HttpServletRequest httpRequest) {
-        requireSuperAdmin(principal);
+        PlatformAdminPrincipalAuth.requireStaff(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
                 vendorListingService.listAdminListings(townId, vendorId, shopName, active, page, size)));
     }
 
-    private void requireSuperAdmin(AuthUserPrincipal principal) {
-        if (principal == null || !principal.getRoles().contains("SUPER_ADMIN")) {
-            throw new BusinessException(ErrorCode.FORBIDDEN, "Super admin role required");
-        }
-    }
 }

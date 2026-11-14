@@ -52,6 +52,16 @@ type TownContextValue = {
   beautyScratchPartialRewardMin: number;
   beautyScratchPartialMinPrepayAmount: number;
   beautyScratchPartialRewardDisplayMax: number;
+  diagnosticsEnabled: boolean;
+  diagnosticsReady: boolean;
+  foodDeliveryEnabled: boolean;
+  foodDeliveryReady: boolean;
+  groceryEnabled: boolean;
+  groceryReady: boolean;
+  vendorAgentDeliveryEnabled: boolean;
+  diagnosticsPlatformFeeFlat: number;
+  diagnosticsCodEnabled: boolean;
+  diagnosticsCodSurchargeAmount: number;
   deliveryWindowLabel: string;
   loading: boolean;
   error: string | null;
@@ -114,6 +124,16 @@ export function TownProvider({ children }: { children: ReactNode }) {
   const [beautyScratchPartialRewardMin, setBeautyScratchPartialRewardMin] = useState(0);
   const [beautyScratchPartialMinPrepayAmount, setBeautyScratchPartialMinPrepayAmount] = useState(0);
   const [beautyScratchPartialRewardDisplayMax, setBeautyScratchPartialRewardDisplayMax] = useState(0);
+  const [diagnosticsEnabled, setDiagnosticsEnabled] = useState(false);
+  const [diagnosticsReady, setDiagnosticsReady] = useState(false);
+  const [foodDeliveryEnabled, setFoodDeliveryEnabled] = useState(false);
+  const [foodDeliveryReady, setFoodDeliveryReady] = useState(false);
+  const [groceryEnabled, setGroceryEnabled] = useState(true);
+  const [groceryReady, setGroceryReady] = useState(false);
+  const [vendorAgentDeliveryEnabled, setVendorAgentDeliveryEnabled] = useState(false);
+  const [diagnosticsPlatformFeeFlat, setDiagnosticsPlatformFeeFlat] = useState(0);
+  const [diagnosticsCodEnabled, setDiagnosticsCodEnabled] = useState(true);
+  const [diagnosticsCodSurchargeAmount, setDiagnosticsCodSurchargeAmount] = useState(0);
   const [windowStart, setWindowStart] = useState('17:00');
   const [windowEnd, setWindowEnd] = useState('19:00');
   const [clock, setClock] = useState(() => Date.now());
@@ -179,16 +199,24 @@ export function TownProvider({ children }: { children: ReactNode }) {
       setWindowEnd('19:00');
       setLaundryEnabled(false);
       setBeautyEnabled(false);
+      setDiagnosticsEnabled(false);
       setLaundryReady(true);
       setBeautyReady(true);
+      setDiagnosticsReady(true);
       applyTownTheme(DEFAULT_TOWN_THEME);
       return;
     }
     let cancelled = false;
     setLaundryEnabled(false);
     setBeautyEnabled(false);
+    setDiagnosticsEnabled(false);
+    setFoodDeliveryEnabled(false);
+    setGroceryEnabled(true);
     setLaundryReady(false);
     setBeautyReady(false);
+    setDiagnosticsReady(false);
+    setFoodDeliveryReady(false);
+    setGroceryReady(false);
     void apiRequest<{
       themeColor?: string;
       bestDealsEnabled?: boolean;
@@ -214,6 +242,13 @@ export function TownProvider({ children }: { children: ReactNode }) {
       beautyScratchPartialMinPrepayAmount?: number;
       beautyScratchPartialRewardDisplayMax?: number;
       platformFee?: number;
+      diagnosticsEnabled?: boolean;
+      foodDeliveryEnabled?: boolean;
+      groceryEnabled?: boolean;
+      vendorAgentDeliveryEnabled?: boolean;
+      diagnosticsPlatformFeeFlat?: number;
+      diagnosticsCodEnabled?: boolean;
+      diagnosticsCodSurchargeAmount?: number;
     }>(
       `/api/v1/towns/${townId}/shop-settings`,
       { timeoutMs: 8_000 },
@@ -266,8 +301,20 @@ export function TownProvider({ children }: { children: ReactNode }) {
         setBeautyScratchPartialRewardDisplayMax(
           Number.isFinite(partialDisplayMax) && partialDisplayMax > 0 ? partialDisplayMax : 0,
         );
+        setDiagnosticsEnabled(data?.diagnosticsEnabled === true);
+        setFoodDeliveryEnabled(data?.foodDeliveryEnabled === true);
+        setGroceryEnabled(data?.groceryEnabled !== false);
+        setVendorAgentDeliveryEnabled(data?.vendorAgentDeliveryEnabled === true);
+        const diagFee = Number(data?.diagnosticsPlatformFeeFlat);
+        setDiagnosticsPlatformFeeFlat(Number.isFinite(diagFee) && diagFee >= 0 ? diagFee : 0);
+        setDiagnosticsCodEnabled(data?.diagnosticsCodEnabled !== false);
+        const diagCod = Number(data?.diagnosticsCodSurchargeAmount);
+        setDiagnosticsCodSurchargeAmount(Number.isFinite(diagCod) && diagCod >= 0 ? diagCod : 0);
         setLaundryReady(true);
         setBeautyReady(true);
+        setDiagnosticsReady(true);
+        setFoodDeliveryReady(true);
+        setGroceryReady(true);
         applyTownTheme(color);
       })
       .catch(() => {
@@ -290,8 +337,18 @@ export function TownProvider({ children }: { children: ReactNode }) {
         setBeautyScratchRewardMax(0);
         setBeautyScratchRewardMin(0);
         setBeautyScratchMinOrderAmount(0);
+        setDiagnosticsEnabled(false);
+        setFoodDeliveryEnabled(false);
+        setGroceryEnabled(true);
+        setVendorAgentDeliveryEnabled(false);
+        setDiagnosticsPlatformFeeFlat(0);
+        setDiagnosticsCodEnabled(true);
+        setDiagnosticsCodSurchargeAmount(0);
         setLaundryReady(true);
         setBeautyReady(true);
+        setDiagnosticsReady(true);
+        setFoodDeliveryReady(true);
+        setGroceryReady(true);
         applyTownTheme(DEFAULT_TOWN_THEME);
       });
     return () => {
@@ -378,6 +435,16 @@ export function TownProvider({ children }: { children: ReactNode }) {
       beautyScratchPartialRewardMax,
       beautyScratchPartialRewardMin,
       beautyScratchPartialMinPrepayAmount,
+      diagnosticsEnabled,
+      diagnosticsReady,
+      foodDeliveryEnabled,
+      foodDeliveryReady,
+      groceryEnabled,
+      groceryReady,
+      vendorAgentDeliveryEnabled,
+      diagnosticsPlatformFeeFlat,
+      diagnosticsCodEnabled,
+      diagnosticsCodSurchargeAmount,
       deliveryWindowLabel,
       loading,
       error,
@@ -422,6 +489,16 @@ export function TownProvider({ children }: { children: ReactNode }) {
       beautyScratchPartialRewardMax,
       beautyScratchPartialRewardMin,
       beautyScratchPartialMinPrepayAmount,
+      diagnosticsEnabled,
+      diagnosticsReady,
+      foodDeliveryEnabled,
+      foodDeliveryReady,
+      groceryEnabled,
+      groceryReady,
+      vendorAgentDeliveryEnabled,
+      diagnosticsPlatformFeeFlat,
+      diagnosticsCodEnabled,
+      diagnosticsCodSurchargeAmount,
       deliveryWindowLabel,
       loading,
       error,

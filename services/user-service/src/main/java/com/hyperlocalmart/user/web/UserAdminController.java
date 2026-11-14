@@ -1,28 +1,40 @@
 package com.hyperlocalmart.user.web;
 
 import com.hyperlocalmart.common.api.ApiResponse;
-import com.hyperlocalmart.common.exception.BusinessException;
-import com.hyperlocalmart.common.exception.ErrorCode;
+import com.hyperlocalmart.common.security.PlatformAdminAuth;
+import com.hyperlocalmart.user.dto.request.InviteAppAdminRequest;
+import com.hyperlocalmart.user.dto.request.PatchAppAdminRoleRequest;
+import com.hyperlocalmart.user.dto.request.ResetAppAdminPasswordRequest;
 import com.hyperlocalmart.user.dto.response.AddressResponse;
+import com.hyperlocalmart.user.dto.response.AppAdminUserResponse;
 import com.hyperlocalmart.user.dto.response.ReferralReportResponse;
 import com.hyperlocalmart.user.dto.response.UserProfileResponse;
 import com.hyperlocalmart.user.security.AuthUserPrincipal;
 import com.hyperlocalmart.user.service.AddressService;
+import com.hyperlocalmart.user.service.AppAdminUserService;
 import com.hyperlocalmart.user.service.ReferralReportService;
 import com.hyperlocalmart.user.service.UserService;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @RestController
@@ -31,8 +43,58 @@ import java.util.UUID;
 public class UserAdminController {
 
     private final UserService userService;
+    private final AppAdminUserService appAdminUserService;
     private final AddressService addressService;
     private final ReferralReportService referralReportService;
+
+    @GetMapping("/app-admins")
+    public ResponseEntity<ApiResponse<Map<String, List<AppAdminUserResponse>>>> listAppAdmins(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            HttpServletRequest httpRequest) {
+        requireSuperAdmin(principal);
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest, Map.of("items", appAdminUserService.listAppAdmins())));
+    }
+
+    @PostMapping("/app-admins")
+    public ResponseEntity<ApiResponse<AppAdminUserResponse>> inviteAppAdmin(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @Valid @RequestBody InviteAppAdminRequest request,
+            HttpServletRequest httpRequest) {
+        requireSuperAdmin(principal);
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(ApiResponses.ok(httpRequest, appAdminUserService.invite(request)));
+    }
+
+    @PatchMapping("/app-admins/{userId}/role")
+    public ResponseEntity<ApiResponse<AppAdminUserResponse>> patchAppAdminRole(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @PathVariable UUID userId,
+            @Valid @RequestBody PatchAppAdminRoleRequest request,
+            HttpServletRequest httpRequest) {
+        requireSuperAdmin(principal);
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest, appAdminUserService.updateRole(userId, request)));
+    }
+
+    @PutMapping("/app-admins/{userId}/password")
+    public ResponseEntity<ApiResponse<Map<String, Boolean>>> resetAppAdminPassword(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @PathVariable UUID userId,
+            @Valid @RequestBody ResetAppAdminPasswordRequest request,
+            HttpServletRequest httpRequest) {
+        requireSuperAdmin(principal);
+        appAdminUserService.resetPassword(userId, request.getPassword());
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest, Map.of("reset", true)));
+    }
+
+    @DeleteMapping("/app-admins/{userId}")
+    public ResponseEntity<ApiResponse<Map<String, Boolean>>> revokeAppAdmin(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @PathVariable UUID userId,
+            HttpServletRequest httpRequest) {
+        requireSuperAdmin(principal);
+        appAdminUserService.revokeAppAdminAccess(userId);
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest, Map.of("revoked", true)));
+    }
 
     @GetMapping("/referrals/report")
     public ResponseEntity<ApiResponse<ReferralReportResponse>> referralReport(
@@ -40,7 +102,7 @@ public class UserAdminController {
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
             HttpServletRequest httpRequest) {
-        requireSuperAdmin(principal);
+        requirePlatformStaff(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, referralReportService.getReport(from, to)));
     }
 
@@ -49,7 +111,7 @@ public class UserAdminController {
             @AuthenticationPrincipal AuthUserPrincipal principal,
             @RequestParam String phone,
             HttpServletRequest httpRequest) {
-        requireSuperAdmin(principal);
+        requirePlatformStaff(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, userService.findByPhone(phone)));
     }
 
@@ -58,7 +120,7 @@ public class UserAdminController {
             @AuthenticationPrincipal AuthUserPrincipal principal,
             @PathVariable UUID userId,
             HttpServletRequest httpRequest) {
-        requireSuperAdmin(principal);
+        requirePlatformStaff(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, userService.getProfile(userId)));
     }
 
@@ -67,13 +129,15 @@ public class UserAdminController {
             @AuthenticationPrincipal AuthUserPrincipal principal,
             @PathVariable UUID userId,
             HttpServletRequest httpRequest) {
-        requireSuperAdmin(principal);
+        requirePlatformStaff(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, addressService.listAddresses(userId)));
     }
 
+    private void requirePlatformStaff(AuthUserPrincipal principal) {
+        PlatformAdminAuth.requireStaff(principal == null ? null : principal.getRoles());
+    }
+
     private void requireSuperAdmin(AuthUserPrincipal principal) {
-        if (principal == null || principal.getRoles() == null || !principal.getRoles().contains("SUPER_ADMIN")) {
-            throw new BusinessException(ErrorCode.FORBIDDEN, "Super admin role required");
-        }
+        PlatformAdminAuth.requireSuperAdmin(principal == null ? null : principal.getRoles());
     }
 }

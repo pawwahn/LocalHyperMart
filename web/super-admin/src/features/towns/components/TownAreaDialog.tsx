@@ -8,6 +8,7 @@ type Props = {
   token: string;
   onClose: () => void;
   onSaved: (message: string) => void;
+  readOnly?: boolean;
 };
 
 function parseCoord(raw: string): number | null {
@@ -17,7 +18,7 @@ function parseCoord(raw: string): number | null {
   return Number.isFinite(n) ? n : Number.NaN;
 }
 
-export function TownAreaDialog({ town, token, onClose, onSaved }: Props) {
+export function TownAreaDialog({ town, token, onClose, onSaved, readOnly = false }: Props) {
   const [radius, setRadius] = useState('10');
   const [latitude, setLatitude] = useState('');
   const [longitude, setLongitude] = useState('');
@@ -119,7 +120,7 @@ export function TownAreaDialog({ town, token, onClose, onSaved }: Props) {
             onChange={(e) => setLatitude(e.target.value)}
             inputMode="decimal"
             placeholder="15.823"
-            disabled={loading || busy}
+            disabled={loading || busy || readOnly}
           />
           <TextField
             label="Longitude"
@@ -127,14 +128,14 @@ export function TownAreaDialog({ town, token, onClose, onSaved }: Props) {
             onChange={(e) => setLongitude(e.target.value)}
             inputMode="decimal"
             placeholder="80.352"
-            disabled={loading || busy}
+            disabled={loading || busy || readOnly}
           />
           <TextField
             label="Radius km"
             value={radius}
             onChange={(e) => setRadius(e.target.value)}
             inputMode="decimal"
-            disabled={loading || busy}
+            disabled={loading || busy || readOnly}
           />
         </div>
         <TextField
@@ -142,10 +143,10 @@ export function TownAreaDialog({ town, token, onClose, onSaved }: Props) {
           value={pincodes}
           onChange={(e) => setPincodes(e.target.value)}
           placeholder="523155, 523187"
-          disabled={loading || busy}
+          disabled={loading || busy || readOnly}
         />
         <div style={styles.actions}>
-          <Button disabled={loading || busy} onClick={() => void save()}>
+          <Button disabled={loading || busy || readOnly} onClick={() => void save()}>
             {busy ? 'Saving…' : 'Save area'}
           </Button>
           <Button variant="ghost" disabled={busy} onClick={onClose}>

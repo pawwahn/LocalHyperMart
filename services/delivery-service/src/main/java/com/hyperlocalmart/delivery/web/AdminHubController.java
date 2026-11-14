@@ -1,12 +1,11 @@
 package com.hyperlocalmart.delivery.web;
 
 import com.hyperlocalmart.common.api.ApiResponse;
-import com.hyperlocalmart.common.exception.BusinessException;
-import com.hyperlocalmart.common.exception.ErrorCode;
 import com.hyperlocalmart.delivery.dto.request.CreateHubRequest;
 import com.hyperlocalmart.delivery.dto.request.UpdateHubRequest;
 import com.hyperlocalmart.delivery.dto.response.AdminHubResponse;
 import com.hyperlocalmart.delivery.security.AuthUserPrincipal;
+import com.hyperlocalmart.delivery.security.PlatformAdminPrincipalAuth;
 import com.hyperlocalmart.delivery.service.HubOnboardingService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -36,7 +35,7 @@ public class AdminHubController {
     public ResponseEntity<ApiResponse<List<AdminHubResponse>>> listHubs(
             @AuthenticationPrincipal AuthUserPrincipal principal,
             HttpServletRequest httpRequest) {
-        requireSuperAdmin(principal);
+        PlatformAdminPrincipalAuth.requireStaff(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, hubOnboardingService.listHubs()));
     }
 
@@ -45,7 +44,7 @@ public class AdminHubController {
             @AuthenticationPrincipal AuthUserPrincipal principal,
             @Valid @RequestBody CreateHubRequest request,
             HttpServletRequest httpRequest) {
-        requireSuperAdmin(principal);
+        PlatformAdminPrincipalAuth.requireWrite(principal);
         AdminHubResponse response = hubOnboardingService.createHub(principal.getUserId(), request);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponses.ok(httpRequest, "Hub created", response));
@@ -56,7 +55,7 @@ public class AdminHubController {
             @AuthenticationPrincipal AuthUserPrincipal principal,
             @PathVariable UUID hubId,
             HttpServletRequest httpRequest) {
-        requireSuperAdmin(principal);
+        PlatformAdminPrincipalAuth.requireStaff(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, hubOnboardingService.getHub(hubId)));
     }
 
@@ -66,14 +65,8 @@ public class AdminHubController {
             @PathVariable UUID hubId,
             @Valid @RequestBody UpdateHubRequest request,
             HttpServletRequest httpRequest) {
-        requireSuperAdmin(principal);
+        PlatformAdminPrincipalAuth.requireWrite(principal);
         AdminHubResponse response = hubOnboardingService.updateHub(principal.getUserId(), hubId, request);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, "Hub updated", response));
-    }
-
-    private void requireSuperAdmin(AuthUserPrincipal principal) {
-        if (principal == null || !principal.getRoles().contains("SUPER_ADMIN")) {
-            throw new BusinessException(ErrorCode.FORBIDDEN, "Super admin role required");
-        }
     }
 }

@@ -18,6 +18,7 @@ export default defineConfig({
       '@hlm-brand': fileURLToPath(new URL('../shared/brand/index.ts', import.meta.url)),
       '@hlm-laundry': fileURLToPath(new URL('../shared/laundry/index.ts', import.meta.url)),
       '@hlm-beauty': fileURLToPath(new URL('../shared/beauty/index.ts', import.meta.url)),
+      '@hlm-diagnostics': fileURLToPath(new URL('../shared/diagnostics/index.ts', import.meta.url)),
       '@hlm-dates': fileURLToPath(new URL('../shared/dates', import.meta.url)),
       '@hlm-native': fileURLToPath(new URL('../shared/native', import.meta.url)),
       '@hlm-vendor': fileURLToPath(new URL('../shared/vendor/index.ts', import.meta.url)),

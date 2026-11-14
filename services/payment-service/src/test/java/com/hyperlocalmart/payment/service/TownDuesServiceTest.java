@@ -5,6 +5,7 @@ import com.hyperlocalmart.payment.dto.response.TownDuesResponse;
 import com.hyperlocalmart.payment.repository.CodCloseDayLineItemRepository;
 import com.hyperlocalmart.payment.repository.CodCloseDayRepository;
 import com.hyperlocalmart.payment.repository.CodHubPlatformRemittanceRepository;
+import com.hyperlocalmart.payment.repository.HubFranchiseWaiverRepository;
 import com.hyperlocalmart.payment.repository.HubPaymentRequestRepository;
 import com.hyperlocalmart.payment.repository.HubPlatformPaymentSubmissionLineRepository;
 import com.hyperlocalmart.payment.repository.SettlementRepository;
@@ -37,6 +38,7 @@ class TownDuesServiceTest {
     @Mock private CodCloseDayRepository closeDayRepository;
     @Mock private CodHubPlatformRemittanceRepository remittanceRepository;
     @Mock private HubPaymentRequestRepository requestRepository;
+    @Mock private HubFranchiseWaiverRepository franchiseWaiverRepository;
     @Mock private HubPlatformPaymentSubmissionLineRepository submissionLineRepository;
     @Mock private SettlementRepository settlementRepository;
     @Mock private TownClient townClient;
@@ -61,6 +63,7 @@ class TownDuesServiceTest {
         when(remittanceRepository.sumAmountGroupedByHub()).thenReturn(List.of());
         when(openAccountsService.scan(nullable(LocalDate.class), nullable(LocalDate.class), nullable(UUID.class)))
                 .thenReturn(List.of());
+        when(franchiseWaiverRepository.findKeysBetween(any(), any())).thenReturn(List.of());
     }
 
     @Test
@@ -141,6 +144,20 @@ class TownDuesServiceTest {
     }
 
     @Test
+    void franchise_hidesMonthWhenWaivedByAdmin() {
+        LocalDate from = LocalDate.of(2026, 11, 1);
+        LocalDate to = LocalDate.of(2026, 11, 30);
+        when(closeLineRepository.unbilledHubCodBetween(from, to)).thenReturn(List.of());
+        when(closeLineRepository.distinctHubTowns()).thenReturn(rows(townId, hubId));
+        when(townClient.deliveryPayoutConfig(townId)).thenReturn(franchiseConfig());
+        when(franchiseWaiverRepository.findKeysBetween(from, to)).thenReturn(rows(hubId, from));
+
+        TownDuesResponse dues = townDuesService.dues(from, to);
+
+        assertThat(dues.getTowns()).isEmpty();
+    }
+
+    @Test
     void franchise_stillAsksToSendBillWhenNothingWasCollected() {
         LocalDate from = LocalDate.of(2026, 10, 1);
         LocalDate to = LocalDate.of(2026, 10, 31);
@@ -152,6 +169,14 @@ class TownDuesServiceTest {
 
         assertThat(dues.getSendBill()).isEqualByComparingTo("1000.00");
         assertThat(dues.getTowns().get(0).getLines().get(0).getWhat()).contains("send the bill");
+    }
+
+    @Test
+    void parseOpenWorkScope_recognizesPayAndReceiveFilters() {
+        assertThat(TownDuesService.parseOpenWorkScope(null)).isEqualTo(OpenAccountsService.OpenWorkScope.ALL);
+        assertThat(TownDuesService.parseOpenWorkScope("PAY")).isEqualTo(OpenAccountsService.OpenWorkScope.PAY_ONLY);
+        assertThat(TownDuesService.parseOpenWorkScope("SEND_BILL,COLLECT"))
+                .isEqualTo(OpenAccountsService.OpenWorkScope.RECEIVE_ONLY);
     }
 
     private static List<Object[]> rows(Object... values) {

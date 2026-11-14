@@ -91,6 +91,13 @@ public class OrderInternalController {
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, orderService.getOrderSnapshot(orderId, buyerId)));
     }
 
+    @GetMapping("/api/v1/internal/orders/resolve")
+    public ResponseEntity<ApiResponse<OrderInternalSnapshotResponse>> resolveOrder(
+            @RequestParam("q") String query,
+            HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest, orderService.resolveForInternalLookup(query)));
+    }
+
     @GetMapping("/api/v1/internal/orders/sub-orders/{subOrderId}")
     public ResponseEntity<ApiResponse<SubOrderInternalSnapshotResponse>> getSubOrderSnapshot(
             @PathVariable UUID subOrderId,

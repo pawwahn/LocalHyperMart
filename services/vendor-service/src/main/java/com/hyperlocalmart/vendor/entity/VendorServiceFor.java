@@ -7,7 +7,9 @@ import java.util.Locale;
 public enum VendorServiceFor {
     MALE,
     FEMALE,
-    UNISEX;
+    UNISEX,
+    PRIVATE_LAB,
+    HOSPITAL_LAB;
 
     @JsonCreator
     public static VendorServiceFor parse(String raw) {
@@ -19,7 +21,15 @@ public enum VendorServiceFor {
             case "M", "MALE" -> MALE;
             case "F", "FEMALE" -> FEMALE;
             case "UNI", "UNISEX", "ALL" -> UNISEX;
-            default -> VendorServiceFor.valueOf(key);
+            case "PRIVATE", "PRIVATE_LAB", "PRIV_LAB" -> PRIVATE_LAB;
+            case "HOSPITAL", "HOSPITAL_LAB", "HOSP_LAB" -> HOSPITAL_LAB;
+            default -> {
+                try {
+                    yield VendorServiceFor.valueOf(key);
+                } catch (IllegalArgumentException ex) {
+                    yield null;
+                }
+            }
         };
     }
 
@@ -28,6 +38,8 @@ public enum VendorServiceFor {
             case MALE -> "Male";
             case FEMALE -> "Female";
             case UNISEX -> "Unisex";
+            case PRIVATE_LAB -> "Private Lab";
+            case HOSPITAL_LAB -> "Hospital Lab";
         };
     }
 }

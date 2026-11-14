@@ -96,15 +96,15 @@ public class DeliveryAgentRatingService {
         if (agentId == null) {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, "agentId is required");
         }
-        boolean superAdmin = roles != null && roles.contains("SUPER_ADMIN");
+        boolean platformStaff = roles != null && com.hyperlocalmart.common.security.PlatformAdminRoles.isPlatformStaff(roles);
         boolean hubAdmin = roles != null && roles.contains("HUB_ADMIN");
-        if (!superAdmin && !hubAdmin) {
-            throw new BusinessException(ErrorCode.FORBIDDEN, "Hub admin or super admin role required");
+        if (!platformStaff && !hubAdmin) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "Hub admin or app admin role required");
         }
 
         boolean visibleToHub = townClient.hubAdminCanSeeAgentRatings();
         UUID hubTownId = null;
-        if (hubAdmin && !superAdmin) {
+        if (hubAdmin && !platformStaff) {
             if (!visibleToHub) {
                 throw new BusinessException(
                         ErrorCode.FORBIDDEN, "Platform has hidden delivery ratings from hub admins");

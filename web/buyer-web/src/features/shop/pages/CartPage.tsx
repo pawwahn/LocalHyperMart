@@ -27,6 +27,13 @@ import { MembershipPlansSheet } from '../components/MembershipPlansSheet';
 import { applyReferralCode, getReferralMe, type ReferralMeVm } from '../api/referralApi';
 import { ApiError } from '@/shared/api/http';
 import { APP_NAME } from '@/shared/brand';
+import { fetchFoodMenu } from '@/features/food/api/foodApi';
+import { foodCartLandingPath } from '@/features/food/lib/foodCartLanding';
+import { foodMenuToCatalogItems } from '@/features/food/lib/foodMenuCatalog';
+import {
+  resolveFoodVendorIdForCart,
+  shouldShowHotelMenuUpsell,
+} from '@/features/food/lib/foodCartSignals';
 
 function formatDeliverAddress(a: {
   label?: string;
@@ -82,7 +89,16 @@ export function CartPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const { session } = useAuth();
-  const { townId, bestDealsEnabled, codEnabled, upiEnabled, codCharge, deliveryWindowLabel, themeColor } = useTown();
+  const {
+    townId,
+    bestDealsEnabled,
+    codEnabled,
+    upiEnabled,
+    codCharge,
+    deliveryWindowLabel,
+    themeColor,
+    vendorAgentDeliveryEnabled,
+  } = useTown();
   const {
     cart,
     addresses,
@@ -114,6 +130,7 @@ export function CartPage() {
     prepareCartForCheckout,
     setError,
     setNotice,
+    foodBasketActive,
   } = useShop();
   const [pickerOpen, setPickerOpen] = useState(false);
   const [checkoutPreparing, setCheckoutPreparing] = useState(false);
@@ -138,6 +155,7 @@ export function CartPage() {
   const [membershipCatalog, setMembershipCatalog] = useState<MembershipCatalog | null>(null);
   const [plansOpen, setPlansOpen] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<'COD' | 'ONLINE'>('COD');
+  const [foodDeliveryChoice, setFoodDeliveryChoice] = useState<'HUB' | 'HOTEL_STAFF' | null>(null);
   const {
     options: paymentGateways,
     gateway: paymentGateway,
@@ -153,6 +171,9 @@ export function CartPage() {
   rememberItemsRef.current = rememberItems;
 
   const hasCartItems = Boolean(cart && cart.items.length > 0);
+  const foodCart = Boolean(cart?.foodCart);
+  const hotelMenuUpsell = shouldShowHotelMenuUpsell(cart, foodBasketActive);
+  const mealPlannerAllowed = !foodCart && !hotelMenuUpsell;
 
   useEffect(() => {
     const token = session?.accessToken;
@@ -181,10 +202,10 @@ export function CartPage() {
 
   useEffect(() => {
     const state = location.state as { mealPlanner?: boolean } | null;
-    if (!state?.mealPlanner || !mealPlannerOn) return;
+    if (!state?.mealPlanner || !mealPlannerOn || !mealPlannerAllowed) return;
     setMealPlannerOpen(true);
     navigate(location.pathname, { replace: true, state: null });
-  }, [location.pathname, location.state, mealPlannerOn, navigate]);
+  }, [location.pathname, location.state, mealPlannerOn, mealPlannerAllowed, navigate]);
 
   async function handleApplyCode() {
     const code = promoInput.trim();
@@ -257,11 +278,12 @@ export function CartPage() {
   const membershipPlanFee = cartMembership?.price ?? 0;
   const { deliveryFee, platformFee, nudge: deliveryNudge, progress: unlockProgress } = useDeliveryQuote(
     itemsPayable,
-    hasCartItems,
+    hasCartItems && !foodCart,
   );
   const starterPlan = cheapestPurchasable(membershipCatalog);
   const showMembershipOffer =
     hasCartItems &&
+    !foodCart &&
     Boolean(membershipCatalog?.platformEnabled) &&
     memberCredits <= 0 &&
     Boolean(starterPlan);
@@ -281,8 +303,20 @@ export function CartPage() {
   const showCodOption = codEnabled && payOnDelivery > 0;
   const showUpiOption = upiEnabled && payOnDelivery > 0;
   const showPayMethods = showCodOption || showUpiOption;
+  const showFoodDeliveryChoice = foodCart && vendorAgentDeliveryEnabled;
+  const foodDeliveryChoiceMissing = showFoodDeliveryChoice && foodDeliveryChoice == null;
+  const vendorAgentDeliveryForCheckout =
+    !foodCart ? undefined : foodDeliveryChoice === 'HOTEL_STAFF';
   const showStickyMembershipOffer =
     showMembershipOffer && !membershipCatalog?.mine?.active && !cartMembership;
+
+  useEffect(() => {
+    if (!foodCart || !vendorAgentDeliveryEnabled) {
+      setFoodDeliveryChoice('HUB');
+      return;
+    }
+    setFoodDeliveryChoice(null);
+  }, [foodCart, vendorAgentDeliveryEnabled, cart?.cartId]);
 
   useEffect(() => {
     if (!hasCartItems || payOnDelivery <= 0) return;
@@ -328,6 +362,13 @@ export function CartPage() {
     };
   }, [session?.accessToken, townId]);
 
+  const foodBrowsePath = foodCartLandingPath(cart, foodBasketActive) ?? '/food';
+  const foodHotelTitle = useMemo(() => {
+    if (!hotelMenuUpsell) return undefined;
+    const name = cart?.items[0]?.shopName?.trim();
+    return name ? `More from ${name}` : 'More from this hotel';
+  }, [hotelMenuUpsell, cart?.items]);
+
   const loadSuggestions = useCallback(
     async (opts?: { keepPrevious?: boolean }) => {
       if (!session?.accessToken || !townId || !hasCartItems) {
@@ -340,6 +381,22 @@ export function CartPage() {
       const requestId = ++suggestionsRequestRef.current;
       setSuggestionsLoading(true);
       try {
+        if (hotelMenuUpsell && cart) {
+          const vendorId = await resolveFoodVendorIdForCart(cart, townId, session.accessToken);
+          if (requestId !== suggestionsRequestRef.current) return;
+          if (!vendorId) {
+            setSuggestions([]);
+            return;
+          }
+          const menu = await fetchFoodMenu(vendorId, townId, session.accessToken);
+          if (requestId !== suggestionsRequestRef.current) return;
+          const items = foodMenuToCatalogItems(menu);
+          setSuggestions(items);
+          if (items.length > 0) {
+            rememberItemsRef.current(items, 'append');
+          }
+          return;
+        }
         const items = await fetchCartSuggestions(session.accessToken, townId, 10);
         if (requestId !== suggestionsRequestRef.current) return;
         setSuggestions(items);
@@ -357,7 +414,7 @@ export function CartPage() {
         }
       }
     },
-    [session?.accessToken, townId, hasCartItems],
+    [hotelMenuUpsell, cart, session?.accessToken, townId, hasCartItems],
   );
 
   async function handleRefresh() {
@@ -377,7 +434,7 @@ export function CartPage() {
   }, [bestDealsEnabled]);
 
   useEffect(() => {
-    if (!townId || !bestDealsEnabled) {
+    if (foodCart || !townId || !bestDealsEnabled) {
       setDealCatalog([]);
       return;
     }
@@ -394,10 +451,10 @@ export function CartPage() {
     return () => {
       cancelled = true;
     };
-  }, [townId, bestDealsEnabled, rememberItems]);
+  }, [foodCart, townId, bestDealsEnabled, rememberItems]);
 
   const blockedLine = cart?.items.some((item) => !item.available) ?? false;
-  const showDeliveryNudge = Boolean(deliveryNudge) && !membershipWaives;
+  const showDeliveryNudge = !foodCart && Boolean(deliveryNudge) && !membershipWaives;
 
   async function handleCheckout() {
     if (!hasCartItems || checkoutPreparing || checkoutBusy) return;
@@ -414,6 +471,11 @@ export function CartPage() {
 
     if (needsAddress) {
       setPickerOpen(true);
+      return;
+    }
+
+    if (foodDeliveryChoiceMissing) {
+      setError('Choose hub delivery or hotel staff delivery before placing your food order.');
       return;
     }
 
@@ -453,7 +515,12 @@ export function CartPage() {
       }
       const checkoutWaitMs = online ? 75_000 : 25_000;
       result = await Promise.race([
-        doCheckout({ useStoreCredit, paymentMethod: online ? 'ONLINE' : 'COD', paymentGateway }),
+        doCheckout({
+          useStoreCredit,
+          paymentMethod: online ? 'ONLINE' : 'COD',
+          paymentGateway,
+          vendorAgentDelivery: vendorAgentDeliveryForCheckout,
+        }),
         new Promise<never>((_, reject) => {
           window.setTimeout(() => {
             reject(
@@ -513,7 +580,7 @@ export function CartPage() {
 
   return (
     <PortalShell
-      title="Basket"
+      title={foodCart ? 'Food order' : 'Basket'}
       cartCount={cart?.itemCount ?? 0}
       onRefresh={() => void handleRefresh()}
       showDeliveryBanner={false}
@@ -638,7 +705,7 @@ export function CartPage() {
         onClose={() => setDealsOpen(false)}
       />
       <MealPlannerSheet
-        open={mealPlannerOpen && mealPlannerOn}
+        open={mealPlannerOpen && mealPlannerOn && mealPlannerAllowed}
         townId={townId ?? ''}
         busyKey={busyKey}
         quantityFor={quantityFor}
@@ -672,11 +739,15 @@ export function CartPage() {
 
       {!cart || cart.items.length === 0 ? (
         <EmptyState
-          icon="🧺"
-          title="Your basket is empty"
-          description="Browse local shops and tap ADD on items you want delivered today."
-          actionLabel="Go to shop"
-          onAction={() => navigate('/shop')}
+          icon={foodCart ? '🍽️' : '🧺'}
+          title={foodCart ? 'Your food order is empty' : 'Your basket is empty'}
+          description={
+            foodCart
+              ? 'Pick a hotel in your town and add dishes from the menu.'
+              : 'Browse local shops and tap ADD on items you want delivered today.'
+          }
+          actionLabel={foodCart ? 'Browse restaurants' : 'Go to shop'}
+          onAction={() => navigate(foodBrowsePath)}
         />
       ) : (
         <div style={styles.page}>
@@ -704,12 +775,12 @@ export function CartPage() {
             </div>
           ) : null}
 
-          <div style={styles.list}>
+          <div style={styles.list} className="hlm-row-stripe-list">
             {cart.items.map((item) => {
               const visual = productVisual(item.name);
               const canSwitch = !item.available && item.alternateListingId;
               return (
-                <Card key={item.itemId} padding="sm" style={styles.row}>
+                <Card key={item.itemId} padding="sm" className="hlm-row-stripe" style={styles.row}>
                   <div style={{ ...styles.thumb, background: visual.tint }} aria-hidden>
                     {visual.emoji}
                   </div>
@@ -755,7 +826,7 @@ export function CartPage() {
               );
             })}
             {cartMembership ? (
-              <Card key="membership-addon" padding="sm" style={styles.row}>
+              <Card key="membership-addon" padding="sm" className="hlm-row-stripe" style={styles.row}>
                 <div style={{ ...styles.thumb, background: '#E7F6EC' }} aria-hidden>
                   🚚
                 </div>
@@ -788,13 +859,16 @@ export function CartPage() {
 
           {hasCartItems ? (
             <CartSuggestionStrip
+              title={hotelMenuUpsell ? foodHotelTitle : undefined}
               items={suggestions}
               loading={suggestionsLoading}
               busyKey={busyKey}
               quantityFor={quantityFor}
-              onIncrease={(listingId) => void doIncrease(listingId)}
+              onIncrease={(listingId) =>
+                void doIncrease(listingId, hotelMenuUpsell ? { listingKind: 'FOOD_MENU' } : undefined)
+              }
               onDecrease={(listingId) => void doDecrease(listingId)}
-              onBrowseMore={() => navigate('/shop')}
+              onBrowseMore={() => navigate(hotelMenuUpsell ? foodBrowsePath : '/shop')}
             />
           ) : null}
 
@@ -954,18 +1028,72 @@ export function CartPage() {
                   </button>
                 </span>
               </div>
-            ) : showMembershipOffer ? (
+            ) : !foodCart && showMembershipOffer ? (
               <button type="button" style={styles.memberOffer} onClick={() => setPlansOpen(true)}>
                 <span style={styles.memberOfferCopy}>
                   Make delivery free · from ₹{Number(starterPlan?.price ?? 0).toFixed(0)}
                 </span>
                 <strong style={styles.memberOfferCta}>Plans</strong>
               </button>
-            ) : memberCredits > 0 ? (
+            ) : !foodCart && memberCredits > 0 ? (
               <button type="button" style={styles.memberOffer} onClick={() => setPlansOpen(true)}>
                 <span style={styles.memberOfferCopy}>{memberCredits} free deliveries left</span>
                 <strong style={styles.memberOfferCta}>View</strong>
               </button>
+            ) : null}
+            {showFoodDeliveryChoice ? (
+              <>
+                <p style={styles.foodDeliveryHeading}>Who delivers your food?</p>
+                <div
+                  style={styles.payMethodGrid}
+                  role="radiogroup"
+                  aria-label="Food delivery method"
+                >
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked={foodDeliveryChoice === 'HUB'}
+                    style={{
+                      ...styles.payMethodCard,
+                      ...(foodDeliveryChoice === 'HUB' ? styles.payMethodCardOn : null),
+                    }}
+                    onClick={() => setFoodDeliveryChoice('HUB')}
+                  >
+                    <span style={styles.payMethodTitle}>Hub delivery</span>
+                    <span
+                      style={{
+                        ...styles.payMethodMeta,
+                        ...(foodDeliveryChoice === 'HUB' ? styles.payMethodMetaOn : null),
+                      }}
+                    >
+                      Town hub rider to your address
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked={foodDeliveryChoice === 'HOTEL_STAFF'}
+                    style={{
+                      ...styles.payMethodCard,
+                      ...(foodDeliveryChoice === 'HOTEL_STAFF' ? styles.payMethodCardOn : null),
+                    }}
+                    onClick={() => setFoodDeliveryChoice('HOTEL_STAFF')}
+                  >
+                    <span style={styles.payMethodTitle}>Hotel staff delivery</span>
+                    <span
+                      style={{
+                        ...styles.payMethodMeta,
+                        ...(foodDeliveryChoice === 'HOTEL_STAFF' ? styles.payMethodMetaOn : null),
+                      }}
+                    >
+                      Delivered by the hotel team
+                    </span>
+                  </button>
+                </div>
+                {foodDeliveryChoiceMissing ? (
+                  <p style={styles.foodDeliveryHint}>Pick a delivery option to continue.</p>
+                ) : null}
+              </>
             ) : null}
             {showPayMethods ? (
               <>
@@ -1027,7 +1155,9 @@ export function CartPage() {
                 type="button"
                 className="cart-place-btn"
                 style={styles.billPlaceBtn}
-                disabled={busy || blockedLine || checkoutPreparing || checkoutBusy}
+                disabled={
+                  busy || blockedLine || checkoutPreparing || checkoutBusy || foodDeliveryChoiceMissing
+                }
                 onClick={() => void handleCheckout()}
               >
                 {checkoutPreparing
@@ -1041,7 +1171,7 @@ export function CartPage() {
             ) : null}
           </Card>
 
-          {bestDealsEnabled ? (
+          {!foodCart && bestDealsEnabled ? (
           <CartSuggestionStrip
             title="Best deals in your town"
             items={bestDeals}
@@ -1340,6 +1470,19 @@ const styles: Record<string, CSSProperties> = {
     fontSize: '0.72rem',
     fontWeight: 500,
     color: '#667085',
+    lineHeight: 1.35,
+  },
+  foodDeliveryHeading: {
+    margin: '0.55rem 0 0',
+    fontSize: '0.78rem',
+    fontWeight: 800,
+    color: 'var(--text)',
+  },
+  foodDeliveryHint: {
+    margin: '0.35rem 0 0',
+    fontSize: '0.72rem',
+    fontWeight: 600,
+    color: '#9a3412',
     lineHeight: 1.35,
   },
   total: {

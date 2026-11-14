@@ -40,6 +40,13 @@ class PublicRouteMatcherTest {
     }
 
     @Test
+    void buyerFoodMenu_isPublic() {
+        assertThat(PublicRouteMatcher.isPublic(
+                HttpMethod.GET,
+                "/api/v1/catalog/food/vendors/a1111111-1111-4111-8111-111111111111/menu")).isTrue();
+    }
+
+    @Test
     void geoCountries_isPublic() {
         assertThat(PublicRouteMatcher.isPublic(HttpMethod.GET, "/api/v1/geo/countries")).isTrue();
     }

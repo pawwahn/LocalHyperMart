@@ -35,7 +35,39 @@ type RequestOptions = {
   townId?: string | null;
   headers?: Record<string, string>;
   timeoutMs?: number;
+  /** Internal: do not attempt refresh retry (auth endpoints). */
+  skipAuthRetry?: boolean;
+  /** Internal: set when retrying after refresh. */
+  authRetried?: boolean;
 };
+
+/** Fired when refresh fails or a protected call is rejected as unauthorized. */
+export const AUTH_UNAUTHORIZED_EVENT = 'hlm:vendor:unauthorized';
+
+type TokenRefreshHandler = () => Promise<string | null>;
+
+let tokenRefreshHandler: TokenRefreshHandler | null = null;
+let refreshInFlight: Promise<string | null> | null = null;
+
+export function setTokenRefreshHandler(handler: TokenRefreshHandler | null): void {
+  tokenRefreshHandler = handler;
+}
+
+async function refreshAccessTokenOnce(): Promise<string | null> {
+  if (!tokenRefreshHandler) return null;
+  if (!refreshInFlight) {
+    refreshInFlight = tokenRefreshHandler().finally(() => {
+      refreshInFlight = null;
+    });
+  }
+  return refreshInFlight;
+}
+
+function notifyUnauthorized(): void {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent(AUTH_UNAUTHORIZED_EVENT));
+  }
+}
 
 const API_BASE = resolveApiBaseUrl(import.meta.env.VITE_API_BASE_URL);
 const DEFAULT_TIMEOUT_MS = 45_000;
@@ -102,6 +134,21 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   }
 
   if (!response.ok) {
+    if (
+      response.status === 401 &&
+      options.token &&
+      !options.skipAuthRetry &&
+      !options.authRetried &&
+      tokenRefreshHandler
+    ) {
+      const nextToken = await refreshAccessTokenOnce();
+      if (nextToken) {
+        return apiRequest<T>(path, { ...options, token: nextToken, authRetried: true });
+      }
+    }
+    if (response.status === 401 && options.token) {
+      notifyUnauthorized();
+    }
     const body = payload as (ApiEnvelope<T> & { error?: string }) | null;
     let message = body?.message?.trim() || body?.error?.trim() || response.statusText || 'Request failed';
     if (response.status >= 502 && response.status <= 504) {

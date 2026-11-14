@@ -1,4 +1,4 @@
-import { ApiError, apiRequest, type PageData } from '@/shared/api/http';
+import { ApiError, apiRequest, apiRequestWithRateLimitRetry, type PageData } from '@/shared/api/http';
 import { vendorNameWithServiceFor } from '@hlm-vendor';
 
 export type CatalogItemDto = {
@@ -56,6 +56,8 @@ export type CartDto = {
     credits: number;
     price: number;
   } | null;
+  foodCart?: boolean;
+  foodVendorId?: string | null;
 };
 
 export type AddressDto = {
@@ -294,6 +296,8 @@ export type CartView = {
   minOrderMet: boolean;
   items: CartLineView[];
   membershipAddon: CartMembershipAddonView | null;
+  foodCart: boolean;
+  foodVendorId: string | null;
 };
 
 function money(v: number | null | undefined): string {
@@ -370,6 +374,8 @@ export function toCartView(dto: CartDto): CartView {
       alternateShopName: i.alternateShopName ?? null,
       alternateUnitPrice: i.alternateUnitPrice == null ? null : Number(i.alternateUnitPrice),
     })),
+    foodCart: dto.foodCart === true,
+    foodVendorId: dto.foodVendorId?.trim() || null,
   };
 }
 
@@ -787,23 +793,32 @@ export async function placeOrder(
     useStoreCredit?: boolean;
     paymentMethod?: 'COD' | 'ONLINE';
     paymentGateway?: string;
+    vendorAgentDelivery?: boolean;
   },
 ): Promise<CreateOrderDto> {
   const paymentMethod = input.paymentMethod ?? 'COD';
-  return apiRequest<CreateOrderDto>('/api/v1/orders', {
-    method: 'POST',
-    token,
-    headers: { 'Idempotency-Key': `web-${Date.now()}` },
-    timeoutMs: 30_000,
-    body: {
-      townId: input.townId,
-      cartId: input.cartId,
-      addressId: input.addressId,
-      paymentMethod,
-      paymentGateway: paymentMethod === 'ONLINE' ? input.paymentGateway || 'RAZORPAY' : undefined,
-      useStoreCredit: Boolean(input.useStoreCredit),
+  const idempotencyKey = `web-${Date.now()}`;
+  return apiRequestWithRateLimitRetry<CreateOrderDto>(
+    '/api/v1/orders',
+    {
+      method: 'POST',
+      token,
+      headers: { 'Idempotency-Key': idempotencyKey },
+      timeoutMs: 45_000,
+      body: {
+        townId: input.townId,
+        cartId: input.cartId,
+        addressId: input.addressId,
+        paymentMethod,
+        paymentGateway: paymentMethod === 'ONLINE' ? input.paymentGateway || 'RAZORPAY' : undefined,
+        useStoreCredit: Boolean(input.useStoreCredit),
+        ...(input.vendorAgentDelivery != null
+          ? { vendorAgentDelivery: Boolean(input.vendorAgentDelivery) }
+          : {}),
+      },
     },
-  });
+    6,
+  );
 }
 
 export async function placeCodOrder(

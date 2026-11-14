@@ -29,6 +29,8 @@
       "@hlm-laundry/*": ["../shared/laundry/*"],
       "@hlm-beauty": ["../shared/beauty/index.ts"],
       "@hlm-beauty/*": ["../shared/beauty/*"],
+      "@hlm-diagnostics": ["../shared/diagnostics/index.ts"],
+      "@hlm-diagnostics/*": ["../shared/diagnostics/*"],
       "@hlm-native": ["../shared/native"],
       "@hlm-native/*": ["../shared/native/*"],
       "@hlm-dates": ["../shared/dates"],
@@ -43,5 +45,5 @@
       "react/jsx-dev-runtime": ["./node_modules/@types/react/jsx-dev-runtime.d.ts"]
     }
   },
-  "include": ["src", "../shared/import-meta.d.ts", "../shared/theme/**/*.ts", "../shared/theme/**/*.tsx", "../shared/legal/**/*.ts", "../shared/legal/**/*.tsx", "../shared/brand/**/*.ts", "../shared/brand/**/*.tsx", "../shared/laundry/**/*.ts", "../shared/beauty/**/*.ts", "../shared/dates/**/*.ts", "../shared/dates/**/*.tsx", "../shared/native/**/*.ts", "../shared/native/**/*.tsx", "../shared/vendor/**/*.ts"]
+  "include": ["src", "../shared/import-meta.d.ts", "../shared/theme/**/*.ts", "../shared/theme/**/*.tsx", "../shared/legal/**/*.ts", "../shared/legal/**/*.tsx", "../shared/brand/**/*.ts", "../shared/brand/**/*.tsx", "../shared/laundry/**/*.ts", "../shared/beauty/**/*.ts", "../shared/diagnostics/**/*.ts", "../shared/diagnostics/**/*.tsx", "../shared/dates/**/*.ts", "../shared/dates/**/*.tsx", "../shared/native/**/*.ts", "../shared/native/**/*.tsx", "../shared/vendor/**/*.ts"]
 }

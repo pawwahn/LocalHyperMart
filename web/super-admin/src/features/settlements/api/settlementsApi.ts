@@ -60,6 +60,20 @@ export type SettlementLine = {
   description?: string | null;
 };
 
+function normalizeSettlement(raw: SettlementVm & Record<string, unknown>): SettlementVm {
+  const snake = raw as Record<string, unknown>;
+  return {
+    ...raw,
+    vendorPaymentNotes: (raw.vendorPaymentNotes ??
+      snake.vendor_payment_notes) as SettlementVm['vendorPaymentNotes'],
+    vendorPaymentReference: (raw.vendorPaymentReference ??
+      snake.vendor_payment_reference) as SettlementVm['vendorPaymentReference'],
+    vendorPaymentMethod: (raw.vendorPaymentMethod ??
+      snake.vendor_payment_method) as SettlementVm['vendorPaymentMethod'],
+    vendorPaidAt: (raw.vendorPaidAt ?? snake.vendor_paid_at) as SettlementVm['vendorPaidAt'],
+  };
+}
+
 export type SettlementVm = {
   id: string;
   townId: string;
@@ -250,7 +264,7 @@ export async function listSettlements(
     `/api/v1/payments/settlements?${q.toString()}`,
     { token },
   );
-  return data.items ?? [];
+  return (data.items ?? []).map((item) => normalizeSettlement(item as SettlementVm & Record<string, unknown>));
 }
 
 export async function createSettlement(

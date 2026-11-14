@@ -43,14 +43,17 @@ function summaryFromSteps(steps: TimelineStep[], fallbackStatus?: string | null)
 
 type Props = {
   steps: TimelineStep[];
-  /** Raw order status — used to decide default collapsed vs expanded. */
+  /** Raw order status — used to decide default collapsed vs expanded when defaultExpanded is omitted. */
   orderStatus?: string | null;
   displayStatus?: string | null;
+  defaultExpanded?: boolean;
 };
 
-export function OrderStatusTimeline({ steps, orderStatus, displayStatus }: Props) {
+export function OrderStatusTimeline({ steps, orderStatus, displayStatus, defaultExpanded }: Props) {
   const terminal = isTerminalStatus(orderStatus) || isTerminalStatus(displayStatus);
-  const [expanded, setExpanded] = useState(!terminal);
+  const [expanded, setExpanded] = useState(
+    defaultExpanded !== undefined ? defaultExpanded : !terminal,
+  );
 
   const summary = useMemo(
     () => summaryFromSteps(steps, displayStatus || orderStatus),

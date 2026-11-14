@@ -23,4 +23,10 @@ public class CartResponse {
     private BigDecimal minOrderValue;
     private boolean minOrderMet;
     private CartMembershipAddonResponse membershipAddon;
+
+    /** True when every line is a hotel / food-menu listing. */
+    private boolean foodCart;
+
+    /** Set when {@link #foodCart} — single hotel vendor id. */
+    private UUID foodVendorId;
 }

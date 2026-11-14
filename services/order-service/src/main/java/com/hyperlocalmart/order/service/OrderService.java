@@ -71,7 +71,9 @@ public class OrderService {
     private final PlatformTransactionManager transactionManager;
     private final LaundryOrderService laundryOrderService;
     private final BeautyOrderService beautyOrderService;
+    private final DiagnosticsOrderService diagnosticsOrderService;
     private final LaundryOrderRepository laundryOrderRepository;
+    private final com.hyperlocalmart.order.repository.DiagnosticsOrderRepository diagnosticsOrderRepository;
 
     @Transactional(readOnly = true)
     public boolean buyerHasDeliveredOrder(UUID buyerId) {
@@ -140,7 +142,52 @@ public class OrderService {
         }
         return beautyOrderService.paymentOrderSnapshot(orderId, buyerId)
                 .or(() -> laundryOrderService.paymentOrderSnapshot(orderId, buyerId))
+                .or(() -> diagnosticsOrderService.paymentOrderSnapshot(orderId, buyerId))
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Order not found"));
+    }
+
+    /** Service-to-service lookup by buyer order number or order UUID (grocery, laundry, glam). */
+    @Transactional(readOnly = true)
+    public OrderInternalSnapshotResponse resolveForInternalLookup(String raw) {
+        String q = raw == null ? "" : raw.trim();
+        if (q.isEmpty()) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Order number or id is required");
+        }
+        UUID id = tryParseUuid(q);
+        if (id != null) {
+            return orderRepository.findById(id).map(this::groceryInternalSnapshot)
+                    .or(() -> laundryOrderService.internalLookupSnapshot(id))
+                    .or(() -> beautyOrderService.internalLookupSnapshot(id))
+                    .or(() -> diagnosticsOrderService.internalLookupSnapshot(id))
+                    .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Order not found"));
+        }
+        return orderRepository.findByOrderNumber(q).map(this::groceryInternalSnapshot)
+                .or(() -> laundryOrderService.internalLookupSnapshotByNumber(q))
+                .or(() -> beautyOrderService.internalLookupSnapshotByNumber(q))
+                .or(() -> diagnosticsOrderService.internalLookupSnapshotByNumber(q))
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Order not found"));
+    }
+
+    private OrderInternalSnapshotResponse groceryInternalSnapshot(Order order) {
+        return OrderInternalSnapshotResponse.builder()
+                .orderId(order.getId())
+                .buyerId(order.getBuyerId())
+                .townId(order.getTownId())
+                .orderNumber(order.getOrderNumber())
+                .status(order.getStatus())
+                .paymentStatus(order.getPaymentStatus())
+                .paymentMethod(order.getPaymentMethod())
+                .totalAmount(buyerPayableTotal(order))
+                .buyerPhone(order.getBuyerPhoneSnapshot())
+                .build();
+    }
+
+    private static UUID tryParseUuid(String value) {
+        try {
+            return UUID.fromString(value);
+        } catch (IllegalArgumentException ex) {
+            return null;
+        }
     }
 
     @Transactional(readOnly = true)
@@ -497,6 +544,10 @@ public class OrderService {
                 laundryOrderService.markOnlinePaid(orderId, request.getBuyerId());
                 return;
             }
+            if (diagnosticsOrderRepository.existsById(orderId)) {
+                diagnosticsOrderService.markOnlinePaid(orderId, request.getBuyerId(), request.getAmount());
+                return;
+            }
             beautyOrderService.markOnlinePaid(orderId, request.getBuyerId(), request.getAmount());
             return;
         }
@@ -527,6 +578,10 @@ public class OrderService {
         if (grocery.isEmpty()) {
             if (laundryOrderRepository.existsById(orderId)) {
                 laundryOrderService.markOnlineFailed(orderId, request.getBuyerId());
+                return;
+            }
+            if (diagnosticsOrderRepository.existsById(orderId)) {
+                diagnosticsOrderService.markOnlineFailed(orderId, request.getBuyerId());
                 return;
             }
             beautyOrderService.markOnlineFailed(orderId, request.getBuyerId());
@@ -610,6 +665,28 @@ public class OrderService {
             membershipSlab = null;
             membershipFee = BigDecimal.ZERO;
         }
+        boolean foodCart = cart.foodCart();
+        String orderLineKind = foodCart ? "FOOD" : "GROCERY";
+        boolean vendorAgentDelivery = false;
+        if (foodCart) {
+            TownClient.VendorAgentDeliverySettings vad = townClient.getVendorAgentDeliverySettings(request.getTownId());
+            Boolean reqVendorAgent = request.getVendorAgentDelivery();
+            if (reqVendorAgent == null) {
+                if (vad.enabled()) {
+                    throw new BusinessException(ErrorCode.VALIDATION_ERROR,
+                            "Choose hub delivery or hotel staff delivery for food orders");
+                }
+            } else {
+                vendorAgentDelivery = reqVendorAgent;
+                if (vendorAgentDelivery && !vad.enabled()) {
+                    throw new BusinessException(ErrorCode.VALIDATION_ERROR,
+                            "Hotel staff delivery is not available in this town");
+                }
+            }
+        } else if (Boolean.TRUE.equals(request.getVendorAgentDelivery())) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR,
+                    "Hotel staff delivery applies only to food orders");
+        }
         boolean membershipCreditUsed = false;
         UUID persistedOrderId = null;
         UUID membershipPurchaseId = null;
@@ -625,6 +702,8 @@ public class OrderService {
                 .status(totals.orderStatus(isCod))
                 .paymentMethod(request.getPaymentMethod())
                 .paymentStatus(totals.paymentStatus())
+                .vendorAgentDelivery(vendorAgentDelivery)
+                .orderLineKind(orderLineKind)
                 .itemsSubtotal(cart.itemsSubtotal())
                 .promoCode(cart.promoCode())
                 .promoDiscount(promoDiscount)

@@ -17,6 +17,8 @@ type Props = {
   paysSubTab: VendorPaysSubTab;
   onPaysSubTab: (t: VendorPaysSubTab) => void;
   onCheckRecords?: () => void;
+  /** When a bill is already sent, Collect fees opens Accounts for this vendor. */
+  onOpenAccountsCollect?: () => void;
   remindingBills?: boolean;
   awaitingBillCount?: number;
   paidBillCount?: number;
@@ -58,6 +60,7 @@ export function VendorPayoutWorkspace({
   paysSubTab,
   onPaysSubTab,
   onCheckRecords,
+  onOpenAccountsCollect,
   remindingBills,
   awaitingBillCount = 0,
   paidBillCount = 0,
@@ -208,6 +211,7 @@ export function VendorPayoutWorkspace({
                 onSubmit={onSubmit}
                 onSendBill={onSendBill}
                 onCheckRecords={onCheckRecords}
+                onOpenAccountsCollect={onOpenAccountsCollect}
                 remindingBills={remindingBills}
                 awaitingBillCount={awaitingBillCount}
                 paidBillCount={paidBillCount}
@@ -240,6 +244,7 @@ export function CollectFeesCard({
   onSubmit,
   onSendBill,
   onCheckRecords,
+  onOpenAccountsCollect,
   remindingBills,
   awaitingBillCount = 0,
   paidBillCount = 0,
@@ -263,6 +268,7 @@ export function CollectFeesCard({
   onSubmit: () => void;
   onSendBill: () => void;
   onCheckRecords?: () => void;
+  onOpenAccountsCollect?: () => void;
   remindingBills?: boolean;
   awaitingBillCount?: number;
   paidBillCount?: number;
@@ -303,13 +309,23 @@ export function CollectFeesCard({
             Confirm received
           </Button>
         ) : billedOnly ? (
-          <Button
-            size="sm"
-            disabled={remindingBills}
-            onClick={() => (onCheckRecords ? onCheckRecords() : onPaysSubTab('records'))}
-          >
-            {remindingBills ? 'Reminding…' : 'Check payment in Records'}
-          </Button>
+          <>
+            <Button
+              size="sm"
+              disabled={!onOpenAccountsCollect}
+              onClick={() => onOpenAccountsCollect?.()}
+            >
+              Collect
+            </Button>
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={remindingBills}
+              onClick={() => (onCheckRecords ? onCheckRecords() : onPaysSubTab('records'))}
+            >
+              {remindingBills ? 'Reminding…' : 'Check payment in Records'}
+            </Button>
+          </>
         ) : (
           <>
             <Button size="sm" disabled={!canSendBill || saving} onClick={onSendBill}>
@@ -324,7 +340,7 @@ export function CollectFeesCard({
           {vendorPaidWaiting
             ? 'Check the UTR, then confirm. Reject from Records if the details are wrong.'
             : billedOnly
-            ? 'Vendor pays this bill in their portal. Confirm or reject it in Records.'
+            ? 'Collect opens Accounts for this shop. Records confirms payment after they pay in their portal.'
             : 'Send bill first. Already received is only if they paid outside the portal.'}
         </span>
       </div>
@@ -335,7 +351,13 @@ export function CollectFeesCard({
           role="tab"
           aria-selected={paysSubTab === 'collect'}
           style={paysSubTab === 'collect' ? styles.subTabOn : styles.subTabOff}
-          onClick={() => onPaysSubTab('collect')}
+          onClick={() => {
+            if (billedOnly && onOpenAccountsCollect) {
+              onOpenAccountsCollect();
+              return;
+            }
+            onPaysSubTab('collect');
+          }}
         >
           Collect fees
         </button>

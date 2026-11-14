@@ -46,12 +46,13 @@ final class VendorAuditFormat {
 
     private VendorAuditFormat() {}
 
-    static Map<String, Object> profile(Vendor vendor, Shop shop) {
+    static Map<String, Object> profile(Vendor vendor, Shop shop, String serviceOfferingName) {
         Map<String, Object> snap = new LinkedHashMap<>();
         snap.put("status", vendor.getStatus() == null ? null : vendor.getStatus().name());
         snap.put("shopName", shop == null ? null : shop.getShopName());
         snap.put("businessName", vendor.getBusinessName());
-        snap.put("serviceFor", vendor.getServiceFor() == null ? null : vendor.getServiceFor().displayLabel());
+        String audience = CatalogListingPolicy.serviceForAudienceLabel(serviceOfferingName, vendor.getServiceFor());
+        snap.put("serviceFor", audience == null || audience.isBlank() ? null : audience);
         snap.put("ownerName", vendor.getOwnerName());
         snap.put("phone", vendor.getPhone());
         snap.put("address", shop == null ? null : shop.getAddress());

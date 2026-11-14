@@ -5,5 +5,7 @@ public enum RoleName {
     VENDOR,
     HUB_ADMIN,
     DELIVERY_AGENT,
-    SUPER_ADMIN
+    SUPER_ADMIN,
+    APP_ADMIN_WRITE,
+    APP_ADMIN_READ
 }

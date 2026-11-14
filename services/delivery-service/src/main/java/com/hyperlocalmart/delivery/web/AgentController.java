@@ -8,6 +8,8 @@ import com.hyperlocalmart.delivery.dto.request.UpdateAgentStatusRequest;
 import com.hyperlocalmart.delivery.dto.response.AdminAgentAssignmentPage;
 import com.hyperlocalmart.delivery.dto.response.AgentResponse;
 import com.hyperlocalmart.delivery.security.AuthUserPrincipal;
+import com.hyperlocalmart.delivery.security.PlatformAdminPrincipalAuth;
+import com.hyperlocalmart.common.security.PlatformAdminRoles;
 import com.hyperlocalmart.delivery.service.AgentService;
 import com.hyperlocalmart.delivery.service.AssignmentService;
 import jakarta.servlet.http.HttpServletRequest;
@@ -53,7 +55,7 @@ public class AgentController {
     public ResponseEntity<ApiResponse<List<AgentResponse>>> listAllAgents(
             @AuthenticationPrincipal AuthUserPrincipal principal,
             HttpServletRequest httpRequest) {
-        requireSuperAdmin(principal);
+        PlatformAdminPrincipalAuth.requireStaff(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, agentService.listAllAgentsForSuperAdmin()));
     }
 
@@ -66,7 +68,7 @@ public class AgentController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "25") int size,
             HttpServletRequest httpRequest) {
-        requireSuperAdmin(principal);
+        PlatformAdminPrincipalAuth.requireStaff(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
                 assignmentService.listAssignmentsForAdmin(agentId, from, to, page, size)));
     }
@@ -89,7 +91,7 @@ public class AgentController {
             @AuthenticationPrincipal AuthUserPrincipal principal,
             @PathVariable UUID agentId,
             HttpServletRequest httpRequest) {
-        requireSuperAdmin(principal);
+        PlatformAdminPrincipalAuth.requireSuperAdmin(principal);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
                 agentService.permanentlyDisableAgent(principal.getUserId(), agentId)));
     }
@@ -100,16 +102,14 @@ public class AgentController {
         }
     }
 
-    private void requireSuperAdmin(AuthUserPrincipal principal) {
-        if (principal == null || !principal.getRoles().contains("SUPER_ADMIN")) {
-            throw new BusinessException(ErrorCode.FORBIDDEN, "Super admin role required");
-        }
-    }
-
     private void requireHubOrSuperAdmin(AuthUserPrincipal principal) {
-        if (principal == null || (!principal.getRoles().contains("HUB_ADMIN")
-                && !principal.getRoles().contains("SUPER_ADMIN"))) {
-            throw new BusinessException(ErrorCode.FORBIDDEN, "Hub admin or super admin role required");
+        if (principal == null || principal.getRoles() == null) {
+            throw new BusinessException(ErrorCode.FORBIDDEN, "Hub admin or app admin role required");
         }
+        if (principal.getRoles().contains("HUB_ADMIN")
+                || PlatformAdminRoles.isPlatformStaff(principal.getRoles())) {
+            return;
+        }
+        throw new BusinessException(ErrorCode.FORBIDDEN, "Hub admin or app admin role required");
     }
 }

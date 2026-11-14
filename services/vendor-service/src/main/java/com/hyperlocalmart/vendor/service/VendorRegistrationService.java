@@ -20,6 +20,7 @@ import com.hyperlocalmart.vendor.entity.ServiceOffering;
 import com.hyperlocalmart.vendor.entity.VendorRegistrationRequest;
 import com.hyperlocalmart.vendor.entity.VendorServiceFor;
 import com.hyperlocalmart.vendor.entity.VendorStatus;
+import com.hyperlocalmart.vendor.repository.DiagnosticsStaffRepository;
 import com.hyperlocalmart.vendor.repository.LaundryProfileRepository;
 import com.hyperlocalmart.vendor.repository.ServiceOfferingRepository;
 import com.hyperlocalmart.vendor.repository.ShopRepository;
@@ -50,6 +51,7 @@ public class VendorRegistrationService {
 
     private final VendorRegistrationRequestRepository registrationRequestRepository;
     private final VendorRepository vendorRepository;
+    private final DiagnosticsStaffRepository diagnosticsStaffRepository;
     private final ShopRepository shopRepository;
     private final ServiceOfferingRepository offeringRepository;
     private final LaundryProfileRepository laundryProfileRepository;
@@ -69,7 +71,7 @@ public class VendorRegistrationService {
         String bankAccount = blankToNull(request.getBankAccount());
         String ifsc = blankToNull(request.getIfsc());
         ServiceOffering service = requireOffering(request.getServiceId());
-        VendorServiceFor serviceFor = requireServiceFor(request.getServiceFor());
+        VendorServiceFor serviceFor = resolveServiceFor(service, request.getServiceFor());
 
         if (gstNumber != null) {
             if (bankAccount == null || ifsc == null) {
@@ -120,7 +122,7 @@ public class VendorRegistrationService {
     }
 
     @Transactional
-    public VendorRegistrationResponse approve(UUID id, UUID reviewerId) {
+    public VendorRegistrationResponse approve(UUID id, UUID reviewerId, String customPassword) {
         VendorRegistrationRequest request = registrationRequestRepository.findById(id)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Registration request not found"));
 
@@ -131,7 +133,7 @@ public class VendorRegistrationService {
             throw new BusinessException(ErrorCode.CONFLICT, "Vendor already exists for this phone");
         }
 
-        String temporaryPassword = TEMP_PASSWORD_PREFIX + request.getPhone().substring(request.getPhone().length() - 4);
+        String temporaryPassword = resolveInitialVendorPassword(request.getPhone(), customPassword);
         String firstName = request.getOwnerName() != null && !request.getOwnerName().isBlank()
                 ? request.getOwnerName().trim()
                 : request.getBusinessName();
@@ -263,7 +265,7 @@ public class VendorRegistrationService {
         String bankAccount = blankToNull(request.getBankAccount());
         String ifsc = blankToNull(request.getIfsc());
         ServiceOffering service = requireOffering(request.getServiceId());
-        VendorServiceFor serviceFor = requireServiceFor(request.getServiceFor());
+        VendorServiceFor serviceFor = resolveServiceFor(service, request.getServiceFor());
         if (gstNumber != null && (bankAccount == null || ifsc == null)) {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR,
                     "Bank account and IFSC are required when GST number is provided");
@@ -272,7 +274,7 @@ public class VendorRegistrationService {
         List<Shop> shops = shopRepository.findByVendorIdOrderByCreatedAtAsc(vendorId);
         Shop shop = shops.isEmpty() ? null : shops.getFirst();
         String beforeService = serviceName(vendor.getServiceId());
-        Map<String, Object> beforeProfile = VendorAuditFormat.profile(vendor, shop);
+        Map<String, Object> beforeProfile = VendorAuditFormat.profile(vendor, shop, beforeService);
         beforeProfile.put("serviceName", beforeService);
 
         vendor.setBusinessName(businessName);
@@ -304,7 +306,7 @@ public class VendorRegistrationService {
             shopRepository.save(shop);
         }
 
-        Map<String, Object> afterProfile = VendorAuditFormat.profile(vendor, shop);
+        Map<String, Object> afterProfile = VendorAuditFormat.profile(vendor, shop, service.getName());
         afterProfile.put("serviceName", service.getName());
         List<String> profileLines = VendorAuditFormat.changeLines(beforeProfile, afterProfile);
         if (!profileLines.isEmpty()) {
@@ -335,7 +337,8 @@ public class VendorRegistrationService {
 
         List<Shop> statusShops = shopRepository.findByVendorIdOrderByCreatedAtAsc(vendorId);
         Shop statusShop = statusShops.isEmpty() ? null : statusShops.getFirst();
-        Map<String, Object> beforeStatus = VendorAuditFormat.profile(vendor, statusShop);
+        String statusServiceName = serviceName(vendor.getServiceId());
+        Map<String, Object> beforeStatus = VendorAuditFormat.profile(vendor, statusShop, statusServiceName);
 
         if (next == VendorStatus.DISABLED) {
             if (vendor.getStatus() == VendorStatus.DISABLED) {
@@ -360,7 +363,7 @@ public class VendorRegistrationService {
         vendor.setUpdatedBy(actorUserId);
         vendor = vendorRepository.save(vendor);
         syncLoginStatus(vendor);
-        Map<String, Object> afterStatus = VendorAuditFormat.profile(vendor, statusShop);
+        Map<String, Object> afterStatus = VendorAuditFormat.profile(vendor, statusShop, statusServiceName);
         List<String> statusLines = VendorAuditFormat.changeLines(beforeStatus, afterStatus);
         if (!statusLines.isEmpty()) {
             String statusShopName = statusShop != null && statusShop.getShopName() != null
@@ -424,8 +427,7 @@ public class VendorRegistrationService {
 
     @Transactional(readOnly = true)
     public VendorMeResponse getMe(UUID userId) {
-        Vendor vendor = vendorRepository.findByUserId(userId)
-                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Vendor not found for user"));
+        Vendor vendor = resolveVendorForLogin(userId);
 
         List<Shop> shops = shopRepository.findByVendorIdOrderByCreatedAtAsc(vendor.getId());
         Shop shop = shops.isEmpty() ? null : shops.getFirst();
@@ -494,6 +496,23 @@ public class VendorRegistrationService {
                 .build();
     }
 
+    /**
+     * Owner login is {@code vendors.user_id}. Lab staff (e.g. collectors) are linked via
+     * {@code diagnostics_staff.user_id} and must still reach /vendors/me to enter the portal.
+     */
+    private Vendor resolveVendorForLogin(UUID userId) {
+        return vendorRepository.findByUserId(userId)
+                .or(() -> diagnosticsStaffRepository.findByUserId(userId)
+                        .map(staff -> {
+                            if (!staff.isActive()) {
+                                throw new BusinessException(ErrorCode.FORBIDDEN, "Staff login is disabled");
+                            }
+                            return staff;
+                        })
+                        .flatMap(staff -> vendorRepository.findById(staff.getVendorId())))
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Vendor not found for user"));
+    }
+
     private boolean listingHidden(ServiceOffering service, UUID vendorId) {
         return CatalogListingPolicy.hidesListings(
                 service,
@@ -501,9 +520,27 @@ public class VendorRegistrationService {
                 beautyProfileRepository.existsById(vendorId));
     }
 
+    private static VendorServiceFor resolveServiceFor(ServiceOffering service, VendorServiceFor value) {
+        if (CatalogListingPolicy.isBeautyService(service.getName())) {
+            return requireServiceFor(value);
+        }
+        if (CatalogListingPolicy.isDiagnosticsService(service.getName())) {
+            return requireDiagnosticsLabType(value);
+        }
+        return VendorServiceFor.UNISEX;
+    }
+
     private static VendorServiceFor requireServiceFor(VendorServiceFor value) {
         if (value == null) {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Service for is required (Male, Female, or Unisex)");
+        }
+        return value;
+    }
+
+    private static VendorServiceFor requireDiagnosticsLabType(VendorServiceFor value) {
+        if (value != VendorServiceFor.PRIVATE_LAB && value != VendorServiceFor.HOSPITAL_LAB) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR,
+                    "Lab type is required (Private Lab or Hospital Lab)");
         }
         return value;
     }
@@ -565,5 +602,110 @@ public class VendorRegistrationService {
 
     private static String blankToNull(String value) {
         return value == null || value.isBlank() ? null : value.trim();
+    }
+
+    @Transactional
+    public void resetVendorLoginPassword(UUID vendorId, String newPassword, UUID actorId) {
+        Vendor vendor = vendorRepository.findById(vendorId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Vendor not found"));
+        String normalized = newPassword == null ? "" : newPassword.trim();
+        validateVendorLoginPassword(normalized);
+        UUID linkedUserId = ensureVendorLoginUser(vendor, normalized);
+        if (!linkedUserId.equals(vendor.getUserId())) {
+            vendor.setUserId(linkedUserId);
+            vendor.setUpdatedBy(actorId);
+            vendorRepository.save(vendor);
+        }
+        adminAuditClient.record(
+                "vendors",
+                "RESET_VENDOR_LOGIN",
+                "Reset vendor portal login for " + vendor.getPhone(),
+                actorId,
+                vendor.getTownId(),
+                vendor.getId(),
+                Map.of(),
+                Map.of("loginReset", true),
+                List.of("loginReset: false → true"));
+    }
+
+    /**
+     * Sets portal password, repairing a stale {@code vendors.user_id} or creating the login when missing.
+     */
+    private UUID ensureVendorLoginUser(Vendor vendor, String password) {
+        if (vendor.getUserId() != null) {
+            try {
+                userClient.setUserPassword(vendor.getUserId(), password);
+                return vendor.getUserId();
+            } catch (BusinessException ex) {
+                if (!isMissingUserLogin(ex)) {
+                    throw ex;
+                }
+            }
+        }
+        UUID byPhone = lookupVendorUserId(vendor.getPhone());
+        if (byPhone != null) {
+            userClient.setUserPassword(byPhone, password);
+            userClient.bindVendorContext(byPhone, vendor.getTownId(), vendor.getId());
+            return byPhone;
+        }
+        String firstName = vendor.getOwnerName() != null && !vendor.getOwnerName().isBlank()
+                ? vendor.getOwnerName().trim()
+                : vendor.getBusinessName();
+        try {
+            UUID created = userClient.createVendorUser(vendor.getPhone(), password, firstName, vendor.getTownId());
+            userClient.bindVendorContext(created, vendor.getTownId(), vendor.getId());
+            return created;
+        } catch (BusinessException ex) {
+            if (ex.getErrorCode() == ErrorCode.CONFLICT) {
+                UUID existing = lookupVendorUserId(vendor.getPhone());
+                if (existing == null) {
+                    throw ex;
+                }
+                userClient.setUserPassword(existing, password);
+                userClient.bindVendorContext(existing, vendor.getTownId(), vendor.getId());
+                return existing;
+            }
+            throw ex;
+        }
+    }
+
+    private UUID lookupVendorUserId(String phone) {
+        try {
+            return userClient.findUserIdByPhone(phone);
+        } catch (BusinessException ex) {
+            if (ex.getErrorCode() == ErrorCode.NOT_FOUND || isMissingUserLogin(ex)) {
+                return null;
+            }
+            throw ex;
+        }
+    }
+
+    private static boolean isMissingUserLogin(BusinessException ex) {
+        if (ex.getErrorCode() == ErrorCode.NOT_FOUND) {
+            return true;
+        }
+        String msg = ex.getMessage() == null ? "" : ex.getMessage().toLowerCase(Locale.ROOT);
+        return msg.contains("user not found") || msg.contains("not found for phone");
+    }
+
+    private static String resolveInitialVendorPassword(String phone, String customPassword) {
+        if (customPassword != null && !customPassword.isBlank()) {
+            String normalized = customPassword.trim();
+            validateVendorLoginPassword(normalized);
+            return normalized;
+        }
+        if (phone == null || phone.length() < 4) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Vendor phone is invalid");
+        }
+        return TEMP_PASSWORD_PREFIX + phone.substring(phone.length() - 4);
+    }
+
+    private static void validateVendorLoginPassword(String password) {
+        if (password == null || password.length() < 8) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Password must be at least 8 characters");
+        }
+        if (password.length() > 72) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Password must be at most 72 characters");
+        }
     }
 }

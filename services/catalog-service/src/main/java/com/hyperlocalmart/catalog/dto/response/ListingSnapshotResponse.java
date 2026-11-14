@@ -26,4 +26,9 @@ public class ListingSnapshotResponse {
     private BigDecimal discountPrice;
     private BigDecimal effectivePrice;
     private boolean active;
+
+    /** GROCERY or FOOD_MENU — cart uses FOOD_MENU for one-hotel rules. */
+    private String listingKind;
+
+    private String vendorNote;
 }

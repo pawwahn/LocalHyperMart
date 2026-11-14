@@ -1,5 +1,5 @@
 # QA stack: one VM, Docker Compose (not ECS).
-# Copy .env.qa.example → .env.qa and run from repo root:
+# Copy .env.qa.example → .env.qa (see docs/QA_HOSTING_RUNBOOK.md) and run from repo root:
 #   docker compose -f docker-compose.qa.yml --env-file .env.qa up -d --build
 
 name: hlm-qa
@@ -156,6 +156,7 @@ services:
         JAR_PATH: services/payment-service/target/payment-service-1.0.0-SNAPSHOT.jar
     environment:
       <<: *java-env
+      HLM_SECRETS_ENCRYPTION_KEY: ${HLM_SECRETS_ENCRYPTION_KEY}
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/hyperlocalmart_payment
       RAZORPAY_KEY_ID: ${RAZORPAY_KEY_ID:-}
       RAZORPAY_KEY_SECRET: ${RAZORPAY_KEY_SECRET:-}
@@ -172,9 +173,21 @@ services:
       PHONEPE_WEBHOOK_PASSWORD: ${PHONEPE_WEBHOOK_PASSWORD:-}
       PAYMENT_RETURN_URL: ${PAYMENT_RETURN_URL:-http://localhost:5175/shop}
       PAYMENT_DEV_WEBHOOK_BYPASS: ${PAYMENT_DEV_WEBHOOK_BYPASS:-}
-      RAZORPAY_KEY_ID: ${RAZORPAY_KEY_ID:-}
-      RAZORPAY_KEY_SECRET: ${RAZORPAY_KEY_SECRET:-}
-      RAZORPAY_WEBHOOK_SECRET: ${RAZORPAY_WEBHOOK_SECRET:-}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      HLM_PAYMENT_ADMISSION_ENABLED: ${HLM_PAYMENT_ADMISSION_ENABLED:-true}
+      HLM_PAYMENT_ADMISSION_RPS: ${HLM_PAYMENT_ADMISSION_RPS:-50}
+      HLM_PAYMENT_WEBHOOK_ASYNC: ${HLM_PAYMENT_WEBHOOK_ASYNC:-true}
+      HLM_RAZORPAY_QUEUE_WORKERS: ${HLM_RAZORPAY_QUEUE_WORKERS:-16}
+      HLM_PAYMENT_PSP_MAX_CONCURRENT: ${HLM_PAYMENT_PSP_MAX_CONCURRENT:-50}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+      redis:
+        condition: service_started
 
   delivery-service:
     <<: *java-svc

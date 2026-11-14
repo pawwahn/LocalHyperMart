@@ -73,6 +73,7 @@ public class MembershipService {
     private final PaymentProperties paymentProperties;
     private final TransactionTemplate transactionTemplate;
     private final RazorpayGatewayQueueService razorpayGatewayQueue;
+    private final PaymentAdmissionService paymentAdmissionService;
     private final RazorpayGatewaySyncService razorpayGatewaySync;
 
     @Transactional(readOnly = true)
@@ -191,6 +192,10 @@ public class MembershipService {
             throw new BusinessException(ErrorCode.CONFLICT, "Membership is not sold in this town");
         }
         TownClient.Slab offer = requireSellableSlab(config, slab);
+
+        if (channel == MembershipPaymentChannel.ONLINE) {
+            paymentAdmissionService.awaitInitiateSlot();
+        }
 
         String normalizedIdempotencyKey = StringUtils.hasText(idempotencyKey) ? idempotencyKey.trim() : null;
         UUID purchaseId;

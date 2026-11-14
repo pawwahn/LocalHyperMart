@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { PortalShell } from '@/shared/layout/PortalShell';
 import { useAuth } from '@/shared/auth/AuthContext';
+import { ConfigWriteBanner } from '@/shared/auth/ConfigWriteBanner';
+import { usePlatformAdminAccess } from '@/shared/auth/usePlatformAdminAccess';
 import { ApiError } from '@/shared/api/http';
 import { Banner, Button, Card, SearchSelect, TextField } from '@/shared/ui';
 import { AdminHistoryPanel } from '@/shared/audit/AdminHistoryPanel';
@@ -24,6 +26,7 @@ function matchesQuery(haystack: string, query: string): boolean {
 
 export function HubsPage() {
   const { session } = useAuth();
+  const { canWriteConfig } = usePlatformAdminAccess();
   const token = session?.accessToken ?? '';
   const [hubs, setHubs] = useState<AdminHubVm[]>([]);
   const [towns, setTowns] = useState<TownVm[]>([]);
@@ -253,6 +256,7 @@ export function HubsPage() {
     >
       {error ? <Banner tone="danger">{error}</Banner> : null}
       {notice ? <Banner tone="success">{notice}</Banner> : null}
+      <ConfigWriteBanner noun="hubs" />
 
       <Card elevated style={styles.toolbar}>
         <div style={styles.toolbarRow}>
@@ -304,7 +308,8 @@ export function HubsPage() {
                 <Button
                   size="sm"
                   variant={showAdd ? 'secondary' : 'primary'}
-                  disabled={busy || townsWithoutHub.length === 0}
+                  disabled={!canWriteConfig || busy || townsWithoutHub.length === 0}
+                  title={canWriteConfig ? undefined : 'Write access required'}
                   onClick={() => {
                     setShowAdd((v) => !v);
                     setError(null);
@@ -450,7 +455,7 @@ export function HubsPage() {
             />
           </div>
           <div>
-            <Button disabled={busy || !canSubmit} onClick={() => void onCreate()}>
+            <Button disabled={!canWriteConfig || busy || !canSubmit} onClick={() => void onCreate()}>
               {busy ? 'Creating…' : 'Create hub + admin'}
             </Button>
           </div>
@@ -545,6 +550,7 @@ export function HubsPage() {
           stateName={townById.get(openHub.townId)?.state}
           stateCode={townById.get(openHub.townId)?.stateCode}
           token={token}
+          readOnly={!canWriteConfig}
           onClose={() => setOpenHub(null)}
           onSaved={(saved, message) => {
             setHubs((prev) => prev.map((h) => (h.hubId === saved.hubId ? saved : h)));

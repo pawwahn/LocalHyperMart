@@ -47,7 +47,7 @@ public class TownController {
             @RequestParam(required = false) Integer size,
             @RequestParam(required = false) List<UUID> ids,
             HttpServletRequest httpRequest) {
-        boolean adminAll = includeDisabled && AdminAuth.isSuperAdmin(httpRequest);
+        boolean adminAll = includeDisabled && AdminAuth.isPlatformStaff(httpRequest);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
                 townService.listTowns(status, adminAll, q, page, size, ids)));
     }
@@ -63,7 +63,7 @@ public class TownController {
     public ResponseEntity<ApiResponse<TownDetailResponse>> createTown(
             @Valid @RequestBody CreateTownRequest request,
             HttpServletRequest httpRequest) {
-        AdminAuth.requireSuperAdmin(httpRequest);
+        AdminAuth.requirePlatformWrite(httpRequest);
         UUID actorId = AdminAuth.requireUserId(httpRequest);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponses.ok(httpRequest, townService.createTown(request, actorId)));
@@ -74,7 +74,7 @@ public class TownController {
             @PathVariable UUID townId,
             @Valid @RequestBody UpdateTownCoverageRequest request,
             HttpServletRequest httpRequest) {
-        AdminAuth.requireSuperAdmin(httpRequest);
+        AdminAuth.requirePlatformWrite(httpRequest);
         UUID actorId = AdminAuth.requireUserId(httpRequest);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
                 townService.updateCoverage(townId, request, actorId)));
@@ -85,7 +85,7 @@ public class TownController {
             @PathVariable UUID townId,
             @Valid @RequestBody UpdateTownStatusRequest request,
             HttpServletRequest httpRequest) {
-        AdminAuth.requireSuperAdmin(httpRequest);
+        AdminAuth.requirePlatformWrite(httpRequest);
         UUID actorId = AdminAuth.requireUserId(httpRequest);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
                 townService.updateStatus(townId, request, actorId)));
@@ -95,7 +95,7 @@ public class TownController {
     public ResponseEntity<ApiResponse<TownOperationalConfigResponse>> getTownConfig(
             @PathVariable UUID townId,
             HttpServletRequest httpRequest) {
-        AdminAuth.requireSuperAdmin(httpRequest);
+        AdminAuth.requirePlatformStaff(httpRequest);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, townConfigService.getOperationalConfig(townId)));
     }
 
@@ -104,7 +104,7 @@ public class TownController {
             @PathVariable UUID townId,
             @RequestBody UpdateTownConfigRequest request,
             HttpServletRequest httpRequest) {
-        AdminAuth.requireSuperAdmin(httpRequest);
+        AdminAuth.requirePlatformWrite(httpRequest);
         UUID actorId = AdminAuth.requireUserId(httpRequest);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
                 townConfigService.updateOperationalConfig(townId, request, actorId)));
@@ -115,7 +115,7 @@ public class TownController {
             @PathVariable UUID townId,
             @RequestBody PatchTownFeatureFlagsRequest request,
             HttpServletRequest httpRequest) {
-        AdminAuth.requireSuperAdmin(httpRequest);
+        AdminAuth.requirePlatformWrite(httpRequest);
         UUID actorId = AdminAuth.requireUserId(httpRequest);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
                 townConfigService.patchFeatureFlags(townId, request, actorId)));
@@ -145,7 +145,7 @@ public class TownController {
 
     @GetMapping("/api/v1/platform/settings")
     public ResponseEntity<ApiResponse<Map<String, Object>>> getPlatformSettings(HttpServletRequest httpRequest) {
-        AdminAuth.requireSuperAdmin(httpRequest);
+        AdminAuth.requirePlatformStaff(httpRequest);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, platformSettingsService.getSettings()));
     }
 
@@ -161,7 +161,7 @@ public class TownController {
     @GetMapping("/api/v1/platform/membership-pack-history")
     public ResponseEntity<ApiResponse<List<MembershipPackRevisionResponse>>> membershipPackHistory(
             HttpServletRequest httpRequest) {
-        AdminAuth.requireSuperAdmin(httpRequest);
+        AdminAuth.requirePlatformStaff(httpRequest);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, platformSettingsService.listPackRevisions()));
     }
 

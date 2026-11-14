@@ -1,4 +1,9 @@
-import { CheckoutDismissedError, openRazorpayCheckout, type GatewayCheckout } from './razorpayCheckout';
+import {
+  CheckoutDismissedError,
+  openRazorpayCheckout,
+  preloadRazorpayCheckout,
+  type GatewayCheckout,
+} from './razorpayCheckout';
 
 export type { GatewayCheckout };
 export { CheckoutDismissedError };
@@ -51,6 +56,16 @@ export function checkoutCanOpen(checkout: GatewayCheckout | null | undefined): c
   if (gateway === 'CASHFREE') return Boolean(checkout.paymentSessionId);
   if (gateway === 'PHONEPE') return Boolean(checkout.redirectUrl);
   return Boolean(checkout.keyId);
+}
+
+export function preloadGatewayCheckout(gateway?: string | null): void {
+  const key = (gateway || 'RAZORPAY').toUpperCase();
+  if (key === 'CASHFREE') {
+    void loadScript('cashfree', 'https://sdk.cashfree.com/js/v3/cashfree.js').catch(() => {});
+    return;
+  }
+  if (key === 'PHONEPE') return;
+  preloadRazorpayCheckout();
 }
 
 export async function openGatewayCheckout(

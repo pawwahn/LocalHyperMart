@@ -1,7 +1,9 @@
 import {
   createContext,
+  useCallback,
   useContext,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -21,7 +23,10 @@ export type PortalChromeConfig = {
 
 type PortalChromeContextValue = {
   config: PortalChromeConfig;
-  setConfig: (next: PortalChromeConfig) => void;
+  /** @internal bound by usePortalChrome */
+  bindRefresh: (handler: (() => void) | undefined) => void;
+  bindShopPause: (pause: ShopPauseControl | undefined) => void;
+  setTitle: (title: string) => void;
 };
 
 const PortalChromeContext = createContext<PortalChromeContextValue | null>(null);
@@ -29,12 +34,70 @@ const PortalChromeContext = createContext<PortalChromeContextValue | null>(null)
 const DEFAULT_CONFIG: PortalChromeConfig = { title: 'Vendor' };
 
 export function PortalChromeProvider({ children }: { children: ReactNode }) {
-  const [config, setConfig] = useState<PortalChromeConfig>(DEFAULT_CONFIG);
-  return (
-    <PortalChromeContext.Provider value={{ config, setConfig }}>
-      {children}
-    </PortalChromeContext.Provider>
+  const refreshHandlerRef = useRef<(() => void) | undefined>();
+  const shopPauseHandlerRef = useRef<(() => void) | undefined>();
+  const shopPauseMetaRef = useRef<{ acceptingOrders: boolean; busy?: boolean } | undefined>();
+
+  const [title, setTitle] = useState(DEFAULT_CONFIG.title);
+  const [hasRefresh, setHasRefresh] = useState(false);
+  const [shopPauseUi, setShopPauseUi] = useState<{
+    acceptingOrders: boolean;
+    busy?: boolean;
+  } | null>(null);
+
+  const invokeRefresh = useCallback(() => {
+    refreshHandlerRef.current?.();
+  }, []);
+
+  const bindRefresh = useCallback((handler: (() => void) | undefined) => {
+    refreshHandlerRef.current = handler;
+    setHasRefresh(Boolean(handler));
+  }, []);
+
+  const bindShopPause = useCallback((pause: ShopPauseControl | undefined) => {
+    if (!pause) {
+      shopPauseHandlerRef.current = undefined;
+      shopPauseMetaRef.current = undefined;
+      setShopPauseUi(null);
+      return;
+    }
+    shopPauseHandlerRef.current = pause.onToggle;
+    shopPauseMetaRef.current = {
+      acceptingOrders: pause.acceptingOrders,
+      busy: pause.busy,
+    };
+    setShopPauseUi({
+      acceptingOrders: pause.acceptingOrders,
+      busy: pause.busy,
+    });
+  }, []);
+
+  const config: PortalChromeConfig = useMemo(
+    () => ({
+      title,
+      onRefresh: hasRefresh ? invokeRefresh : undefined,
+      shopPause: shopPauseUi
+        ? {
+            acceptingOrders: shopPauseUi.acceptingOrders,
+            busy: shopPauseUi.busy,
+            onToggle: () => shopPauseHandlerRef.current?.(),
+          }
+        : undefined,
+    }),
+    [title, hasRefresh, shopPauseUi, invokeRefresh],
   );
+
+  const value = useMemo(
+    () => ({
+      config,
+      bindRefresh,
+      bindShopPause,
+      setTitle,
+    }),
+    [config, bindRefresh, bindShopPause],
+  );
+
+  return <PortalChromeContext.Provider value={value}>{children}</PortalChromeContext.Provider>;
 }
 
 /** Register header title / refresh / pause for the active screen. */
@@ -49,7 +112,7 @@ export function usePortalChrome(config: PortalChromeConfig, active = true) {
   const shopPauseRef = useRef(config.shopPause);
   shopPauseRef.current = config.shopPause;
 
-  const { setConfig } = ctx;
+  const { bindRefresh, bindShopPause, setTitle } = ctx;
   const hasRefresh = Boolean(config.onRefresh);
   const acceptingOrders = config.shopPause?.acceptingOrders;
   const shopBusy = config.shopPause?.busy;
@@ -57,17 +120,21 @@ export function usePortalChrome(config: PortalChromeConfig, active = true) {
 
   useLayoutEffect(() => {
     if (!active) return;
-    setConfig({
-      title: config.title,
-      onRefresh: hasRefresh ? () => onRefreshRef.current?.() : undefined,
-      shopPause: hasShopPause
+    setTitle(config.title);
+    bindRefresh(hasRefresh ? () => onRefreshRef.current?.() : undefined);
+    bindShopPause(
+      hasShopPause
         ? {
             acceptingOrders: acceptingOrders ?? true,
             busy: shopBusy,
             onToggle: () => shopPauseRef.current?.onToggle(),
           }
         : undefined,
-    });
+    );
+    return () => {
+      bindRefresh(undefined);
+      bindShopPause(undefined);
+    };
   }, [
     active,
     config.title,
@@ -75,7 +142,9 @@ export function usePortalChrome(config: PortalChromeConfig, active = true) {
     hasShopPause,
     acceptingOrders,
     shopBusy,
-    setConfig,
+    setTitle,
+    bindRefresh,
+    bindShopPause,
   ]);
 }
 

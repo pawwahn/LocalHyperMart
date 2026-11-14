@@ -64,8 +64,6 @@ public class LaundryVendorOrderController {
     }
 
     private static void requireAdmin(AuthUserPrincipal principal) {
-        if (principal == null || principal.getRoles() == null || !principal.getRoles().contains("SUPER_ADMIN")) {
-            throw new BusinessException(ErrorCode.FORBIDDEN, "Super admin role required");
-        }
+        com.hyperlocalmart.order.security.PlatformAdminPrincipalAuth.requireStaff(principal);
     }
 }

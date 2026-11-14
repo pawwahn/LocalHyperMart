@@ -12,8 +12,14 @@ import com.hyperlocalmart.order.client.SuccessfulOnlineTotalLookup;
 import com.hyperlocalmart.order.dto.response.VendorSalesReportResponse;
 import com.hyperlocalmart.order.dto.response.VendorSalesReportResponse.VendorSalesReportItem;
 import com.hyperlocalmart.order.dto.response.VendorSalesReportResponse.VendorSalesReportRow;
+import com.hyperlocalmart.order.diagnostics.DiagnosticsOrderStatus;
+import com.hyperlocalmart.order.diagnostics.DiagnosticsPaymentMethod;
+import com.hyperlocalmart.order.diagnostics.DiagnosticsPaymentStatus;
+import com.hyperlocalmart.order.diagnostics.DiagnosticsSettlementMoney;
 import com.hyperlocalmart.order.entity.BeautyOrder;
+import com.hyperlocalmart.order.entity.DiagnosticsOrder;
 import com.hyperlocalmart.order.entity.LaundryOrder;
+import com.hyperlocalmart.order.entity.Order;
 import com.hyperlocalmart.order.entity.OrderItem;
 import com.hyperlocalmart.order.entity.OrderItemStatus;
 import com.hyperlocalmart.order.entity.PaymentMethod;
@@ -25,6 +31,7 @@ import com.hyperlocalmart.order.laundry.LaundryPaymentMethod;
 import com.hyperlocalmart.order.laundry.LaundryPaymentStatus;
 import com.hyperlocalmart.order.client.TownClient;
 import com.hyperlocalmart.order.repository.BeautyOrderRepository;
+import com.hyperlocalmart.order.repository.DiagnosticsOrderRepository;
 import com.hyperlocalmart.order.repository.LaundryOrderRepository;
 import com.hyperlocalmart.order.repository.VendorSubOrderRepository;
 import lombok.RequiredArgsConstructor;
@@ -60,6 +67,7 @@ public class VendorSalesReportService {
     private final VendorSubOrderRepository vendorSubOrderRepository;
     private final LaundryOrderRepository laundryOrderRepository;
     private final BeautyOrderRepository beautyOrderRepository;
+    private final DiagnosticsOrderRepository diagnosticsOrderRepository;
     private final TownClient townClient;
     private final SuccessfulOnlineTotalLookup onlinePayments;
 
@@ -186,6 +194,76 @@ public class VendorSalesReportService {
                     .itemCount(itemCount)
                     .platformFeeAmount(platformFee.setScale(2, RoundingMode.HALF_UP))
                     .codFeeAmount(codFee.setScale(2, RoundingMode.HALF_UP))
+                    .membershipFeeAmount(BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP))
+                    .items(items)
+                    .build());
+        }
+
+        for (DiagnosticsOrder diagnosticsOrder : diagnosticsOrderRepository.findSalesReportByVendorId(
+                vendorId, rangeStart, rangeEnd)) {
+            PaymentStatus payStatus = diagnosticsPaymentStatus(diagnosticsOrder.getPaymentStatus());
+            if (paymentStatus != null && payStatus != paymentStatus) {
+                continue;
+            }
+            PaymentMethod payMethod = diagnosticsOrder.getPaymentMethod() == DiagnosticsPaymentMethod.UPI
+                    ? PaymentMethod.ONLINE
+                    : PaymentMethod.COD;
+            boolean completed = DiagnosticsSettlementMoney.settlementEligible(diagnosticsOrder);
+            statusCounts.merge(
+                    completed ? VendorSubOrderStatus.DELIVERED.name() : diagnosticsOrder.getStatus().name(),
+                    1L,
+                    Long::sum);
+            paymentStatusCounts.merge(payStatus.name(), 1L, Long::sum);
+            paymentMethodCounts.merge(payMethod.name(), 1L, Long::sum);
+
+            BigDecimal subtotal = DiagnosticsSettlementMoney.goodsSubtotal(diagnosticsOrder);
+            if (completed) {
+                grossSales = grossSales.add(subtotal);
+                if (payStatus == PaymentStatus.PAID) {
+                    paidAmount = paidAmount.add(subtotal);
+                } else if (payStatus == PaymentStatus.REFUNDED) {
+                    refundedAmount = refundedAmount.add(subtotal);
+                } else {
+                    pendingAmount = pendingAmount.add(subtotal);
+                }
+            }
+
+            List<VendorSalesReportItem> items = null;
+            if (includeItems) {
+                items = List.of(VendorSalesReportItem.builder()
+                        .name("Diagnostics")
+                        .unit("booking")
+                        .quantity(1)
+                        .unitPrice(null)
+                        .discountPrice(null)
+                        .lineTotal(subtotal)
+                        .build());
+            }
+            if (completed) {
+                ItemAgg agg = itemAggs.computeIfAbsent("Diagnostics|booking", k -> new ItemAgg("Diagnostics", "booking"));
+                agg.quantitySold += 1;
+                agg.revenue = agg.revenue.add(subtotal);
+                agg.orderIds.add(diagnosticsOrder.getId());
+            }
+
+            BigDecimal platformFee = DiagnosticsSettlementMoney.buyerPlatformFeeForVendorReport(diagnosticsOrder);
+            BigDecimal codFee = DiagnosticsSettlementMoney.buyerCodFeeForSettlement(diagnosticsOrder);
+            Instant completedAt = DiagnosticsSettlementMoney.settlementInstant(diagnosticsOrder);
+            rows.add(VendorSalesReportRow.builder()
+                    .subOrderId(diagnosticsOrder.getId())
+                    .subOrderNumber(diagnosticsOrder.getOrderNumber())
+                    .orderId(diagnosticsOrder.getId())
+                    .orderNumber(diagnosticsOrder.getOrderNumber())
+                    .placedAt(diagnosticsOrder.getPlacedAt())
+                    .deliveredAt(completedAt)
+                    .status(completed ? VendorSubOrderStatus.DELIVERED : VendorSubOrderStatus.READY_FOR_PICKUP)
+                    .paymentMethod(payMethod)
+                    .paymentStatus(payStatus)
+                    .vendorAgentDelivery(payMethod == PaymentMethod.COD)
+                    .subtotal(subtotal)
+                    .itemCount(1)
+                    .platformFeeAmount(platformFee)
+                    .codFeeAmount(codFee)
                     .membershipFeeAmount(BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP))
                     .items(items)
                     .build());
@@ -324,6 +402,7 @@ public class VendorSalesReportService {
                             codCashCollected == null
                                     ? null
                                     : codCashCollected.setScale(2, RoundingMode.HALF_UP))
+                    .orderLineKind(bagOrderLineKind(subOrder.getOrder()))
                     .items(items)
                     .build());
         }
@@ -424,6 +503,16 @@ public class VendorSalesReportService {
             return PaymentStatus.PAID;
         }
         if (status == LaundryPaymentStatus.REFUNDED || status == LaundryPaymentStatus.REFUND_DUE) {
+            return PaymentStatus.REFUNDED;
+        }
+        return PaymentStatus.PENDING;
+    }
+
+    private static PaymentStatus diagnosticsPaymentStatus(DiagnosticsPaymentStatus status) {
+        if (status == DiagnosticsPaymentStatus.PAID || status == DiagnosticsPaymentStatus.COLLECTED) {
+            return PaymentStatus.PAID;
+        }
+        if (status == DiagnosticsPaymentStatus.FAILED) {
             return PaymentStatus.REFUNDED;
         }
         return PaymentStatus.PENDING;
@@ -553,6 +642,13 @@ public class VendorSalesReportService {
         private BigDecimal pendingAmount = BigDecimal.ZERO;
         private BigDecimal refundedAmount = BigDecimal.ZERO;
         private long itemQuantityTotal;
+    }
+
+    private static String bagOrderLineKind(Order order) {
+        if (order == null || order.getOrderLineKind() == null) {
+            return null;
+        }
+        return "FOOD".equalsIgnoreCase(order.getOrderLineKind()) ? "FOOD" : null;
     }
 
     private static BigDecimal money(BigDecimal value) {

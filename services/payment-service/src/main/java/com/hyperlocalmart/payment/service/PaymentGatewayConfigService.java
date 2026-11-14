@@ -37,9 +37,12 @@ public class PaymentGatewayConfigService {
     private final PaymentProperties properties;
     private final RazorpayClient razorpayClient;
     private final PhonePeClient phonePeClient;
+    private final PaymentGatewaySecretCodec secretCodec;
+    private final PaymentGatewaySecretsMigrator secretsMigrator;
 
     @PostConstruct
     void loadSaved() {
+        secretsMigrator.migratePlaintextSecretsIfNeeded();
         List<PaymentGatewayConfig> rows = repository.findAll();
         for (PaymentGatewayConfig row : rows) {
             apply(row);
@@ -74,11 +77,11 @@ public class PaymentGatewayConfigService {
             });
             entity.setEnabled(row.isEnabled());
             entity.setClientId(trim(row.getClientId()));
-            entity.setClientSecret(trim(row.getClientSecret()));
+            entity.setClientSecret(secretCodec.merge(trim(row.getClientSecret()), entity.getClientSecret()));
             entity.setClientVersion(trim(row.getClientVersion()));
-            entity.setWebhookSecret(trim(row.getWebhookSecret()));
+            entity.setWebhookSecret(secretCodec.merge(trim(row.getWebhookSecret()), entity.getWebhookSecret()));
             entity.setWebhookUsername(trim(row.getWebhookUsername()));
-            entity.setWebhookPassword(trim(row.getWebhookPassword()));
+            entity.setWebhookPassword(secretCodec.merge(trim(row.getWebhookPassword()), entity.getWebhookPassword()));
             entity.setEnvironment(normalizeEnv(row.getEnvironment()));
             entity.setUpdatedBy(actorId);
             apply(repository.save(entity));
@@ -95,8 +98,8 @@ public class PaymentGatewayConfigService {
             }
             properties.setRazorpayAdminDisabled(!row.isEnabled());
             properties.setRazorpayKeyId(empty(row.getClientId()));
-            properties.setRazorpayKeySecret(empty(row.getClientSecret()));
-            properties.setRazorpayWebhookSecret(empty(row.getWebhookSecret()));
+            properties.setRazorpayKeySecret(empty(secretCodec.decryptFromStorage(row.getClientSecret())));
+            properties.setRazorpayWebhookSecret(empty(secretCodec.decryptFromStorage(row.getWebhookSecret())));
             return;
         }
         if (CASHFREE.equals(gateway)) {
@@ -105,7 +108,7 @@ public class PaymentGatewayConfigService {
             }
             properties.setCashfreeAdminDisabled(!row.isEnabled());
             properties.setCashfreeClientId(empty(row.getClientId()));
-            properties.setCashfreeClientSecret(empty(row.getClientSecret()));
+            properties.setCashfreeClientSecret(empty(secretCodec.decryptFromStorage(row.getClientSecret())));
             properties.setCashfreeApiBaseUrl(PRODUCTION.equals(row.getEnvironment()) ? CASHFREE_LIVE : CASHFREE_SANDBOX);
             return;
         }
@@ -115,13 +118,13 @@ public class PaymentGatewayConfigService {
             }
             properties.setPhonepeAdminDisabled(!row.isEnabled());
             properties.setPhonepeClientId(empty(row.getClientId()));
-            properties.setPhonepeClientSecret(empty(row.getClientSecret()));
+            properties.setPhonepeClientSecret(empty(secretCodec.decryptFromStorage(row.getClientSecret())));
             properties.setPhonepeClientVersion(row.getClientVersion() == null || row.getClientVersion().isBlank()
                     ? "1"
                     : row.getClientVersion().trim());
             properties.setPhonepeEnv(PRODUCTION.equals(row.getEnvironment()) ? PRODUCTION : SANDBOX);
             properties.setPhonepeWebhookUsername(empty(row.getWebhookUsername()));
-            properties.setPhonepeWebhookPassword(empty(row.getWebhookPassword()));
+            properties.setPhonepeWebhookPassword(empty(secretCodec.decryptFromStorage(row.getWebhookPassword())));
         }
     }
 
@@ -130,16 +133,29 @@ public class PaymentGatewayConfigService {
                 ? saved.isEnabled()
                 : configured(gateway);
         String environment = environmentOf(gateway, saved);
+        boolean clientSecretConfigured = saved != null && secretCodec.hasStoredSecret(saved.getClientSecret());
+        boolean webhookSecretConfigured =
+                saved != null && secretCodec.hasStoredSecret(saved.getWebhookSecret());
+        boolean webhookPasswordConfigured =
+                saved != null && secretCodec.hasStoredSecret(saved.getWebhookPassword());
+        if (saved == null) {
+            clientSecretConfigured = notBlank(clientSecretOf(gateway));
+            webhookSecretConfigured = RAZORPAY.equals(gateway) && notBlank(properties.getRazorpayWebhookSecret());
+            webhookPasswordConfigured = PHONEPE.equals(gateway) && notBlank(properties.getPhonepeWebhookPassword());
+        }
         return GatewayAdminResponse.builder()
                 .gateway(gateway)
                 .label(label)
                 .enabled(enabled)
-                .clientId(clientIdOf(gateway))
-                .clientSecret(clientSecretOf(gateway))
+                .clientId(saved != null && notBlank(saved.getClientId()) ? empty(saved.getClientId()) : clientIdOf(gateway))
+                .clientSecret("")
+                .clientSecretConfigured(clientSecretConfigured)
                 .clientVersion(PHONEPE.equals(gateway) ? empty(properties.getPhonepeClientVersion()) : "")
-                .webhookSecret(RAZORPAY.equals(gateway) ? empty(properties.getRazorpayWebhookSecret()) : "")
+                .webhookSecret("")
+                .webhookSecretConfigured(webhookSecretConfigured)
                 .webhookUsername(PHONEPE.equals(gateway) ? empty(properties.getPhonepeWebhookUsername()) : "")
-                .webhookPassword(PHONEPE.equals(gateway) ? empty(properties.getPhonepeWebhookPassword()) : "")
+                .webhookPassword("")
+                .webhookPasswordConfigured(webhookPasswordConfigured)
                 .environment(environment)
                 .build();
     }
@@ -217,8 +233,8 @@ public class PaymentGatewayConfigService {
     }
 
     /** Placeholder admin rows (disabled, no keys) must not wipe env-based credentials on startup. */
-    private static boolean hasAdminCredentials(PaymentGatewayConfig row) {
-        return notBlank(row.getClientId()) || notBlank(row.getClientSecret());
+    private boolean hasAdminCredentials(PaymentGatewayConfig row) {
+        return notBlank(row.getClientId()) || secretCodec.hasStoredSecret(row.getClientSecret());
     }
 
     private static boolean notBlank(String value) {

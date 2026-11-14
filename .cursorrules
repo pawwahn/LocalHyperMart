@@ -10,3 +10,6 @@ Token & Context Efficiency Rules:
 2. Omit standard imports, annotations, or boilerplate getters/setters unless specifically asked.
 3. Skip friendly filler text ("Sure, I can help with that..."). Start answers directly with the code solution or architecture step.
 4. When writing APIs, always reuse the shared exceptions and envelope formats defined in 'libs/common-core'.
+
+Buyer notifications:
+- When a vendor/system action updates any service order (grocery milestones, diagnostics, laundry, beauty, …), enqueue buyer notification via NotificationClient (`ORDER_STATUS_UPDATED` or the specific event code). Alerts must appear in the buyer `/api/v1/notifications` inbox (PUSH log row).
