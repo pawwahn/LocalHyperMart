@@ -1002,7 +1002,7 @@ public class OpenAccountsService {
 
     private static String bagsDetail(List<SettlementCandidateView.Item> items, String extra) {
         BigDecimal gross = items.stream()
-                .map(item -> item.getSubtotal() == null ? BigDecimal.ZERO : item.getSubtotal())
+                .map(OpenAccountsService::rowGoodsOrRemittance)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
         String bags = items.size() == 1 ? "1 bag" : items.size() + " bags";
         StringBuilder text = new StringBuilder(bags).append(" · goods ").append(inr(gross));
@@ -1133,7 +1133,21 @@ public class OpenAccountsService {
         return item.getPaymentMethod() != null && "ONLINE".equalsIgnoreCase(item.getPaymentMethod());
     }
 
+    /**
+     * Glam hybrid rows carry {@code onlineRemittanceAmount} = SUCCESS UPI actually held for that slice
+     * (e.g. flat min prepay), which can differ from prorated service+travel on {@code subtotal}.
+     */
+    private static BigDecimal rowGoodsOrRemittance(SettlementCandidateView.Item item) {
+        if (item.getOnlineRemittanceAmount() != null && item.getOnlineRemittanceAmount().signum() > 0) {
+            return money(item.getOnlineRemittanceAmount());
+        }
+        return money(item.getSubtotal());
+    }
+
     private static BigDecimal buyerUpiTotal(SettlementCandidateView.Item item) {
+        if (item.getOnlineRemittanceAmount() != null && item.getOnlineRemittanceAmount().signum() > 0) {
+            return money(item.getOnlineRemittanceAmount());
+        }
         return money(item.getSubtotal())
                 .add(money(item.getPlatformFee()))
                 .add(money(item.getParlourPaymentFee()))

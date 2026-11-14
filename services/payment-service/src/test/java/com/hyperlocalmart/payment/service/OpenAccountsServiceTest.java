@@ -293,7 +293,39 @@ class OpenAccountsServiceTest {
                 .orElseThrow();
         assertThat(pay.itemCount()).isEqualTo(1);
         assertThat(pay.upiOrderCount()).isEqualTo(1);
-        assertThat(pay.upiAppReceived()).isEqualByComparingTo("79.95");
+        assertThat(pay.upiAppReceived()).isEqualByComparingTo("50.00");
+        assertThat(pay.detail()).contains("goods ₹50.00");
+    }
+
+    @Test
+    void glamOnlineRemittanceSlices_appUpiMatchesPayoutTotal() {
+        UUID beautyVendor = UUID.fromString("c96f4110-c577-4c55-a4a6-abf4a79928c4");
+        UUID chirala = UUID.fromString("a8e7366c-2bd8-4376-b18b-7ba110f4d69f");
+        List<SettlementCandidateView.Item> bags = List.of(
+                glamOnlineRemitSlice("G301026-0001", "49.85", "50.00"),
+                glamOnlineRemitSlice("G301026-0002", "49.85", "50.00"),
+                glamOnlineRemitSlice("G301026-0003", "49.85", "50.00"),
+                glamOnlineRemitSlice("G301026-0004", "49.86", "50.00"));
+        when(orderClient.settlementBagKeys(any(), any())).thenReturn(
+                bags.stream().map(b -> new OrderClient.BagKey(beautyVendor, chirala, b.getSubOrderId())).toList());
+        when(vendorClient.getVendorShopDisplayName(beautyVendor)).thenReturn("U V Beauty Parlour");
+        when(settlementService.listCandidates(eq(chirala), eq(beautyVendor), any(), any())).thenReturn(
+                SettlementCandidateView.builder()
+                        .vendorId(beautyVendor)
+                        .townId(chirala)
+                        .pendingClaimChargebacks(BigDecimal.ZERO)
+                        .items(bags)
+                        .build());
+
+        List<OpenAccountsService.Line> lines = openAccountsService.scan(null, null);
+
+        OpenAccountsService.Line pay = lines.stream()
+                .filter(l -> "PAY".equals(l.action()) && "U V Beauty Parlour".equals(l.partyName()))
+                .findFirst()
+                .orElseThrow();
+        assertThat(pay.amount()).isEqualByComparingTo("200.00");
+        assertThat(pay.upiAppReceived()).isEqualByComparingTo("200.00");
+        assertThat(pay.detail()).contains("goods ₹200.00");
     }
 
     @Test
@@ -342,6 +374,24 @@ class OpenAccountsServiceTest {
             builder.onlineRemittanceAmount(new BigDecimal(onlineRemittance));
         }
         return builder.build();
+    }
+
+    private static SettlementCandidateView.Item glamOnlineRemitSlice(String orderNumber, String subtotal, String remit) {
+        UUID sliceId = UUID.randomUUID();
+        return SettlementCandidateView.Item.builder()
+                .subOrderId(sliceId)
+                .orderId(sliceId)
+                .orderNumber(orderNumber + " (UPI with KoyaKart)")
+                .paymentMethod("ONLINE")
+                .vendorAgentDelivery(false)
+                .subtotal(new BigDecimal(subtotal))
+                .platformFee(BigDecimal.ZERO)
+                .parlourPaymentFee(BigDecimal.ZERO)
+                .onlineRemittanceAmount(new BigDecimal(remit))
+                .placedAt(Instant.parse("2026-10-30T10:00:00Z"))
+                .deliveredAt(Instant.parse("2026-10-30T16:00:00Z"))
+                .alreadySettled(false)
+                .build();
     }
 
     private static SettlementCandidateView.Item dxBag(String orderNumber, String subtotal, String platform) {
