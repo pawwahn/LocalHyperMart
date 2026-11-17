@@ -66,10 +66,17 @@ export function mapPublicLegal(data: Record<string, unknown> | null | undefined)
 }
 
 export async function fetchPublicLegal(): Promise<PublicLegal> {
-  const response = await fetch('/api/v1/platform/settings/public', {
-    headers: { Accept: 'application/json' },
-    cache: 'no-store',
-  });
+  let response: Response;
+  try {
+    response = await fetch('/api/v1/platform/settings/public', {
+      headers: { Accept: 'application/json' },
+      cache: 'no-store',
+    });
+  } catch {
+    throw new Error(
+      'Network error reaching /api (is Vite dev server proxying to localhost:8080? Is api-gateway up?).',
+    );
+  }
   const text = await response.text();
   let payload: { data?: Record<string, unknown>; message?: string } | Record<string, unknown> = {};
   if (text) {
@@ -80,10 +87,14 @@ export async function fetchPublicLegal(): Promise<PublicLegal> {
     }
   }
   if (!response.ok) {
-    const msg =
+    const rawMsg =
       payload && typeof payload === 'object' && 'message' in payload
         ? String((payload as { message?: string }).message ?? 'Could not load policies')
         : 'Could not load policies';
+    const msg =
+      response.status >= 500 && rawMsg === 'Internal server error'
+        ? 'Internal server error (town-service or database — restart backend stack)'
+        : rawMsg;
     throw new Error(msg);
   }
   const data: Record<string, unknown> =

@@ -16,7 +16,7 @@ export function MorePage() {
 
   const rows = useMemo(() => {
     const links = [
-      { key: 'orders', to: '/orders' as const, label: 'Orders', hint: 'Grocery, glam & laundry' },
+      { key: 'orders', to: '/orders' as const, label: 'Orders', hint: 'All service orders' },
       { key: 'addresses', to: '/addresses' as const, label: 'Saved addresses', hint: 'Edit or delete delivery addresses' },
       {
         key: 'alerts',

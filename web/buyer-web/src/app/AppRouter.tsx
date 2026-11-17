@@ -1,5 +1,6 @@
 import { routerBasename } from '../../../shared/routerBasename';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
+import { TownServicesIntroHost } from '@/features/towns/components/TownServicesIntroHost';
 import { PlatformBrandProvider } from '@hlm-brand';
 import { ThemeProvider } from '@hlm-theme';
 import { AuthProvider, useAuth } from '@/shared/auth/AuthContext';
@@ -94,6 +95,7 @@ export function AppRouter() {
                   <Route path="*" element={<Navigate to="/shop" replace />} />
                   </Routes>
                   <ScratchCardHost />
+                  <TownServicesIntroHost />
                   <CookieNotice privacyTo="/legal/privacy" />
                 </ShopProvider>
               </BrowserRouter>

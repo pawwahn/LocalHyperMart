@@ -249,7 +249,7 @@ export function settlementOtherChargesAmount(s: VendorSettlement): number {
   return (s.lines ?? [])
     .filter((l) => {
       const t = (l.lineType ?? '').toUpperCase();
-      return t === 'OTHER_CHARGE' || t === 'PENALTY';
+      return t === 'OTHER_CHARGE' || t === 'PENALTY' || t === 'CANCELLATION_PENALTY';
     })
     .reduce((sum, l) => sum + Math.abs(Number(l.amount ?? 0)), 0);
 }

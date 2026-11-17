@@ -319,7 +319,8 @@ public class OrderClient {
             BigDecimal codFee,
             BigDecimal membershipFee,
             BigDecimal parlourPaymentFee,
-            BigDecimal onlineRemittanceAmount
+            BigDecimal onlineRemittanceAmount,
+            BigDecimal storeCreditApplied
     ) {
     }
 

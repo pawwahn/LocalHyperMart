@@ -51,7 +51,6 @@ public class TownVendorAgentDeliveryConfigService {
         if (!townRepository.existsById(townId)) {
             throw new BusinessException(ErrorCode.NOT_FOUND, "Town not found");
         }
-        ensureDefault(townId);
         return townConfigRepository
                 .findFirstByTownIdAndConfigKeyAndEffectiveToIsNullOrderByEffectiveFromDesc(townId, CONFIG_KEY)
                 .map(row -> fromMap(row.getConfigValue()))

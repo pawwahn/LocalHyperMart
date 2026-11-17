@@ -139,6 +139,16 @@ public class DeliveryInternalController {
         return ResponseEntity.ok(ApiResponses.ok(httpRequest, agentService.getAssignmentsForOrder(orderId)));
     }
 
+    @PostMapping("/api/v1/internal/orders/{orderId}/cancel-active-assignments")
+    public ResponseEntity<ApiResponse<java.util.Map<String, Integer>>> cancelActiveAssignments(
+            @PathVariable UUID orderId,
+            @RequestBody(required = false) java.util.Map<String, String> body,
+            HttpServletRequest httpRequest) {
+        String reason = body != null ? body.get("reason") : null;
+        int cancelled = assignmentService.cancelActiveAssignmentsForOrder(orderId, reason);
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest, java.util.Map.of("cancelled", cancelled)));
+    }
+
     @PostMapping("/api/v1/internal/vendor-sub-orders/{subOrderId}/assign-vendor-direct")
     public ResponseEntity<Void> assignVendorDirect(
             @PathVariable UUID subOrderId,

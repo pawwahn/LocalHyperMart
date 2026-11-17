@@ -12,12 +12,14 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -35,6 +37,33 @@ class AssignmentServiceTest {
 
     @InjectMocks
     private AssignmentService assignmentService;
+
+    @Test
+    void cancelActiveAssignmentsForOrder_cancelsAssignedAndInProgress() {
+        UUID orderId = UUID.randomUUID();
+        DeliveryAssignment open = DeliveryAssignment.builder()
+                .id(UUID.randomUUID())
+                .orderId(orderId)
+                .assignmentNumber("CLX/AP-211026-0003-VD")
+                .status(AssignmentStatus.IN_PROGRESS)
+                .assignedAt(Instant.now())
+                .build();
+        DeliveryAssignment done = DeliveryAssignment.builder()
+                .id(UUID.randomUUID())
+                .orderId(orderId)
+                .status(AssignmentStatus.COMPLETED)
+                .build();
+
+        when(deliveryAssignmentRepository.findByOrderIdOrderByAssignedAtDesc(orderId))
+                .thenReturn(List.of(open, done));
+        when(deliveryAssignmentRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        int count = assignmentService.cancelActiveAssignmentsForOrder(orderId, "payment timeout");
+
+        assertThat(count).isEqualTo(1);
+        assertThat(open.getStatus()).isEqualTo(AssignmentStatus.CANCELLED);
+        verify(deliveryAssignmentRepository).save(open);
+    }
 
     @Test
     void assignPickup_createsAssignedPickupAssignment() {

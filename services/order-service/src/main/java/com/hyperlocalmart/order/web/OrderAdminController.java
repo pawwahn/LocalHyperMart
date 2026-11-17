@@ -20,6 +20,10 @@ import com.hyperlocalmart.order.entity.OrderStatus;
 import com.hyperlocalmart.order.security.AuthUserPrincipal;
 import com.hyperlocalmart.order.security.PlatformAdminPrincipalAuth;
 import com.hyperlocalmart.common.security.PlatformAdminRoles;
+import com.hyperlocalmart.order.dto.response.AdminCancellationBuyerRiskResponse;
+import com.hyperlocalmart.order.dto.response.AdminCancellationVendorRiskResponse;
+import com.hyperlocalmart.order.dto.response.AdminCancellationResponses.AdminCancellationRowResponse;
+import com.hyperlocalmart.order.service.AdminCancellationService;
 import com.hyperlocalmart.order.service.OrderAdminService;
 import com.hyperlocalmart.order.service.OrderClaimService;
 import com.hyperlocalmart.order.service.OpsAssuranceReportService;
@@ -36,6 +40,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
+import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -44,6 +49,7 @@ import java.util.UUID;
 public class OrderAdminController {
 
     private final OrderAdminService orderAdminService;
+    private final AdminCancellationService adminCancellationService;
     private final OrderClaimService orderClaimService;
     private final VendorOrderAlertService vendorOrderAlertService;
     private final ScratchCardAdminService scratchCardAdminService;
@@ -51,6 +57,78 @@ public class OrderAdminController {
     private final OpsAssuranceReportService opsAssuranceReportService;
     private final DeliveryAgentRatingService deliveryAgentRatingService;
     private final DeliveryClient deliveryClient;
+
+    @GetMapping("/cancellations")
+    public ResponseEntity<ApiResponse<PageResponse<AdminCancellationRowResponse>>> listCancellations(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @RequestParam UUID townId,
+            @RequestParam String kind,
+            @RequestParam(required = false) String vertical,
+            @RequestParam(required = false) String initiatedBy,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "25") int size,
+            HttpServletRequest httpRequest) {
+        requireHubOrSuperAdmin(principal);
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                adminCancellationService.listCancellations(
+                        principal.getUserId(), principal.getRoles(), townId,
+                        AdminCancellationService.parseKind(kind),
+                        AdminCancellationService.parseVertical(vertical),
+                        AdminCancellationService.parseInitiator(initiatedBy),
+                        from, to, page, size)));
+    }
+
+    @GetMapping("/cancellations/export")
+    public ResponseEntity<ApiResponse<List<AdminCancellationRowResponse>>> exportCancellations(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @RequestParam UUID townId,
+            @RequestParam String kind,
+            @RequestParam(required = false) String vertical,
+            @RequestParam(required = false) String initiatedBy,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            HttpServletRequest httpRequest) {
+        requireHubOrSuperAdmin(principal);
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                adminCancellationService.exportCancellations(
+                        principal.getUserId(), principal.getRoles(), townId,
+                        AdminCancellationService.parseKind(kind),
+                        AdminCancellationService.parseVertical(vertical),
+                        AdminCancellationService.parseInitiator(initiatedBy),
+                        from, to)));
+    }
+
+    @GetMapping("/cancellations/buyer-risk")
+    public ResponseEntity<ApiResponse<PageResponse<AdminCancellationBuyerRiskResponse>>> listBuyerCancelRisks(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @RequestParam UUID townId,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "25") int size,
+            HttpServletRequest httpRequest) {
+        requireHubOrSuperAdmin(principal);
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                adminCancellationService.listBuyerRisks(
+                        principal.getUserId(), principal.getRoles(), townId, from, to, page, size)));
+    }
+
+    @GetMapping("/cancellations/vendor-risk")
+    public ResponseEntity<ApiResponse<PageResponse<AdminCancellationVendorRiskResponse>>> listVendorCancelRisks(
+            @AuthenticationPrincipal AuthUserPrincipal principal,
+            @RequestParam UUID townId,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "25") int size,
+            HttpServletRequest httpRequest) {
+        requireHubOrSuperAdmin(principal);
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                adminCancellationService.listVendorRisks(
+                        principal.getUserId(), principal.getRoles(), townId, from, to, page, size)));
+    }
 
     @GetMapping
     public ResponseEntity<ApiResponse<PageResponse<AdminOrderSummaryResponse>>> listOrders(

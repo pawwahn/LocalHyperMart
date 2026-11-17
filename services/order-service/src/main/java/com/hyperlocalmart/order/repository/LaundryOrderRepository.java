@@ -23,6 +23,12 @@ public interface LaundryOrderRepository extends JpaRepository<LaundryOrder, UUID
 
     List<LaundryOrder> findByTownIdOrderByPlacedAtDesc(UUID townId);
 
+    List<LaundryOrder> findByTownIdAndStatusAndUpdatedAtGreaterThanEqualAndUpdatedAtLessThanOrderByUpdatedAtDesc(
+            UUID townId,
+            LaundryOrderStatus status,
+            Instant updatedAtAfter,
+            Instant updatedAtBefore);
+
     @Query("""
             select distinct o from LaundryOrder o
             left join fetch o.lines

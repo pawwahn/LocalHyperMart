@@ -254,24 +254,34 @@ function shopCodCashCollected(row: SalesReportRow): number | null {
   return null;
 }
 
+function storeCreditOnRow(row: SalesReportRow): number {
+  return Number(row.storeCreditAppliedAmount ?? 0);
+}
+
 /** Full COD the buyer paid for this bag (includes delivery plan — all app fees except commission are pass-through). */
 function shopBuyerPaidTotal(row: SalesReportRow): number {
   if (isGlamPartialPrepayRow(row) && row.amountDueTotal != null) {
     return Math.round(Number(row.amountDueTotal) * 100) / 100;
   }
-  const pool = shopCodCashCollected(row) ?? shopGoodsSubtotal(row);
   const plan = Number(row.membershipFeeAmount ?? 0);
-  return Math.round((pool + plan) * 100) / 100;
+  const codCash = shopCodCashCollected(row);
+  if (codCash != null) {
+    return Math.round((codCash + plan) * 100) / 100;
+  }
+  return Math.round((shopGoodsSubtotal(row) + plan - storeCreditOnRow(row)) * 100) / 100;
 }
 
-/** What the buyer paid KoyaKart online (goods + app fees on the receipt). */
+/** What the buyer paid KoyaKart online (goods + app fees on the receipt, minus store credit). */
 function onlineBuyerReceiptTotal(row: SalesReportRow): number {
+  const remit = Number(row.onlineRemittanceAmount ?? 0);
+  if (remit > 0) return Math.round(remit * 100) / 100;
   return Math.round(
     (shopGoodsSubtotal(row) +
       Number(row.platformFeeAmount ?? 0) +
       Number(row.codFeeAmount ?? 0) +
       Number(row.parlourPaymentFeeAmount ?? 0) +
-      Number(row.membershipFeeAmount ?? 0)) *
+      Number(row.membershipFeeAmount ?? 0) -
+      storeCreditOnRow(row)) *
       100,
   ) / 100;
 }
@@ -2463,7 +2473,7 @@ export function PayoutsPage() {
                       );
                       const otherLines = (s.lines ?? []).filter((l) => {
                         const t = (l.lineType ?? '').toUpperCase();
-                        return t === 'OTHER_CHARGE' || t === 'PENALTY';
+                        return t === 'OTHER_CHARGE' || t === 'PENALTY' || t === 'CANCELLATION_PENALTY';
                       });
                       const orderLines = (s.lines ?? []).filter((l) => {
                         const t = (l.lineType ?? '').toUpperCase();

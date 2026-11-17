@@ -49,6 +49,16 @@ class OrderBuyerFeeShareTest {
     }
 
     @Test
+    void splitsStoreCreditByGoodsShare() {
+        Order order = new Order();
+        order.setStoreCreditApplied(new BigDecimal("9.00"));
+        VendorSubOrder a = bag(order, "488.00");
+        order.setVendorSubOrders(List.of(a));
+
+        assertThat(OrderBuyerFeeShare.storeCreditApplied(a)).isEqualByComparingTo("9.00");
+    }
+
+    @Test
     void splitsPlatformFeeByGoodsShare() {
         Order order = new Order();
         order.setPlatformFee(new BigDecimal("3.00"));

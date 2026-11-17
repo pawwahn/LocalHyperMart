@@ -158,6 +158,16 @@ public class DeliveryClient {
                 .toBodilessEntity();
     }
 
+    public void cancelActiveAssignmentsForOrder(UUID orderId, String reason) {
+        RestClient client = restClients.forBaseUrl(deliveryServiceProperties.getBaseUrl());
+        Map<String, String> body = Map.of("reason", reason == null ? "" : reason);
+        client.post()
+                .uri("/api/v1/internal/orders/{orderId}/cancel-active-assignments", orderId)
+                .body(body)
+                .retrieve()
+                .toBodilessEntity();
+    }
+
     public AgentAlertCreated notifyVendorAgent(UUID vendorId, UUID vendorSubOrderId, UUID actorUserId) {
         RestClient client = restClients.forBaseUrl(deliveryServiceProperties.getBaseUrl());
         Map<String, UUID> body = Map.of(

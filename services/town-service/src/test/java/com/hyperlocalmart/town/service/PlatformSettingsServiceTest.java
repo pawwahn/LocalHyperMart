@@ -39,6 +39,21 @@ class PlatformSettingsServiceTest {
     }
 
     @Test
+    void publicSettings_toleratesNegativeMembershipPriceInDb() {
+        Map<String, Object> stored = new LinkedHashMap<>();
+        stored.put("membershipQuarterlyPrice", -1);
+        when(platformSettingRepository.findBySettingKey(PlatformSettingsService.KEY_PLATFORM))
+                .thenReturn(Optional.of(PlatformSetting.builder()
+                        .settingKey(PlatformSettingsService.KEY_PLATFORM)
+                        .settingValue(stored)
+                        .build()));
+
+        Map<String, Object> pub = service.getPublicSettings();
+
+        assertThat(pub.get("membershipQuarterlyPrice")).isNotNull();
+    }
+
+    @Test
     void publicSettings_includeDefaultLegalCopy() {
         when(platformSettingRepository.findBySettingKey(PlatformSettingsService.KEY_PLATFORM))
                 .thenReturn(Optional.empty());

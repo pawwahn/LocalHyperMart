@@ -20,6 +20,8 @@ export type SettlementCandidate = {
   codDeliveringAgentName?: string | null;
   codDeliveringAgentPhone?: string | null;
   subtotal: number;
+  /** Glam online slice: SUCCESS UPI held by KoyaKart (payout gross; can differ from subtotal). */
+  onlineRemittanceAmount?: number | null;
   /** Laundry: piece count on the order. */
   pieceCount?: number | null;
   /** Buyer platform fee in shop-held COD cash (KoyaKart collects with commission). */
@@ -28,6 +30,8 @@ export type SettlementCandidate = {
   codFee?: number | null;
   /** Bundled delivery / membership plan in buyer COD (app revenue). */
   membershipFee?: number | null;
+  /** Glam pay-at-parlour booking fee on shop-held cash. */
+  parlourPaymentFee?: number | null;
   alreadySettled: boolean;
 };
 
@@ -129,7 +133,7 @@ export function settlementOtherChargesAmount(s: SettlementVm): number {
   return (s.lines ?? [])
     .filter((l) => {
       const t = (l.lineType ?? '').toUpperCase();
-      return t === 'OTHER_CHARGE' || t === 'PENALTY';
+      return t === 'OTHER_CHARGE' || t === 'PENALTY' || t === 'CANCELLATION_PENALTY';
     })
     .reduce((sum, l) => sum + Math.abs(Number(l.amount ?? 0)), 0);
 }
@@ -153,6 +157,7 @@ export type CreateSettlementInput = {
   paidAt?: string;
   otherChargesAmount?: number;
   otherChargesReason?: string;
+  cancellationPenaltyOrderId?: string;
 };
 
 export async function sendVendorCollectionBill(token: string, settlementId: string): Promise<SettlementVm> {

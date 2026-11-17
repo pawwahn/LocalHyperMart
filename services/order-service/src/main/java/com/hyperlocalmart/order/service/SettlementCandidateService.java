@@ -296,6 +296,7 @@ public class SettlementCandidateService {
                 .codFee(OrderBuyerFeeShare.codFee(subOrder))
                 .membershipFee(OrderBuyerFeeShare.membershipFee(subOrder))
                 .parlourPaymentFee(null)
+                .storeCreditApplied(OrderBuyerFeeShare.storeCreditApplied(subOrder))
                 .build();
     }
 

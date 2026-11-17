@@ -29,22 +29,33 @@ export function LegalAcceptGate({ accessToken, children, portalLabel, onSignOut 
     setLoading(true);
     setError(null);
     try {
-      const pub = await fetchPublicLegal();
+      let pub;
+      try {
+        pub = await fetchPublicLegal();
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : 'Could not load policies';
+        throw new Error(`Policies: ${msg}`);
+      }
       setCurrentLegalVersion(pub.legalVersion || 1);
       setLegalVersion(pub.legalVersion || 1);
-      const prof = await fetchLegalUserProfile(accessToken);
-      setProfile(prof);
-    } catch (err: unknown) {
-      if (isSessionExpiredError(err) && onSignOut) {
-        onSignOut();
-        return;
+      try {
+        const prof = await fetchLegalUserProfile(accessToken);
+        setProfile(prof);
+      } catch (err: unknown) {
+        if (isSessionExpiredError(err) && onSignOut) {
+          onSignOut();
+          return;
+        }
+        const msg = err instanceof Error ? err.message : 'Could not load profile';
+        throw new Error(`Profile: ${msg}`);
       }
+    } catch (err: unknown) {
       setProfile(null);
       setError(err instanceof Error ? err.message : 'Could not load legal status');
     } finally {
       setLoading(false);
     }
-  }, [accessToken]);
+  }, [accessToken, onSignOut]);
 
   useEffect(() => {
     void load();
@@ -62,10 +73,16 @@ export function LegalAcceptGate({ accessToken, children, portalLabel, onSignOut 
     const backendHint =
       error.includes('api-gateway') ||
       error.includes('user-service') ||
+      error.includes('town-service') ||
       error.includes('Network error') ||
       error.includes('unreachable') ||
       error.includes('timed out') ||
-      error.includes('Server error');
+      error.includes('Server error') ||
+      error.includes('Internal server error') ||
+      error.includes('Backend error') ||
+      error.includes('Policies:') ||
+      error.includes('Profile:') ||
+      error.includes('database');
     return (
       <div style={styles.center}>
         <div style={styles.card}>
@@ -73,9 +90,10 @@ export function LegalAcceptGate({ accessToken, children, portalLabel, onSignOut 
           <p style={styles.error}>{error}</p>
           {backendHint ? (
             <p style={styles.hint}>
-              Delivery (5174) and Super Admin (5176) need <strong>api-gateway :8080</strong> and{' '}
-              <strong>user-service :8080→8081</strong>. Start backend with{' '}
-              <code style={styles.code}>.\scripts\start-dev.ps1</code> or restart user-service.
+              Vendor and Super Admin both call <strong>/api/v1/platform/settings/public</strong> and{' '}
+              <strong>/api/v1/users/me</strong> before any screen loads. Check api-gateway, town-service, user-service,
+              and Postgres are up (QA: <code style={styles.code}>./scripts/qa-deploy.sh --build</code>). This is not the
+              Cancellations page — login is blocked until these APIs succeed.
             </p>
           ) : (
             <p style={styles.hint}>If this keeps happening, sign out and sign in again.</p>

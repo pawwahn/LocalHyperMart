@@ -34,6 +34,9 @@ const OrderDetailPage = lazy(() =>
 const ClaimsPage = lazy(() =>
   import('@/features/claims/pages/ClaimsPage').then((m) => ({ default: m.ClaimsPage })),
 );
+const CancellationsPage = lazy(() =>
+  import('@/features/cancellations/pages/CancellationsPage').then((m) => ({ default: m.CancellationsPage })),
+);
 const CustomersPage = lazy(() =>
   import('@/features/customers/pages/CustomersPage').then((m) => ({ default: m.CustomersPage })),
 );
@@ -121,6 +124,7 @@ export function AppRouter() {
                 <Route path="/orders" element={<OrdersPage />} />
                 <Route path="/orders/:orderId" element={<OrderDetailPage />} />
                 <Route path="/claims" element={<ClaimsPage />} />
+                <Route path="/cancellations" element={<CancellationsPage />} />
                 <Route path="/customers" element={<CustomersPage />} />
                 <Route path="/vendors" element={<VendorsPage />} />
                 <Route path="/services" element={<ServicesPage />} />

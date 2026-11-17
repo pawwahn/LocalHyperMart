@@ -383,4 +383,61 @@ public interface OrderRepository extends JpaRepository<Order, UUID> {
             """)
     List<Object[]> countCancelReasonsGroupedByTown(
             @Param("townId") UUID townId, @Param("start") Instant start, @Param("end") Instant end);
+
+    @EntityGraph(attributePaths = {"vendorSubOrders"})
+    @Query("""
+            SELECT o FROM Order o
+            WHERE o.townId = :townId
+              AND o.status = com.hyperlocalmart.order.entity.OrderStatus.CANCELLED
+              AND o.cancelledAt IS NOT NULL
+              AND o.cancelledAt >= :start AND o.cancelledAt < :end
+            ORDER BY o.cancelledAt DESC
+            """)
+    List<Order> findGroceryFullyCancelledByTownAndCancelledAtBetween(
+            @Param("townId") UUID townId,
+            @Param("start") Instant start,
+            @Param("end") Instant end);
+
+    @Query(value = """
+            SELECT o.id FROM orders o
+            WHERE o.town_id = CAST(:townId AS uuid)
+              AND o.status <> 'CANCELLED'
+              AND (
+                EXISTS (
+                    SELECT 1 FROM vendor_sub_orders vso
+                    WHERE vso.order_id = o.id
+                      AND vso.status IN ('VENDOR_REJECTED', 'BUYER_CANCELLED')
+                      AND vso.updated_at >= :start AND vso.updated_at < :end
+                )
+                OR EXISTS (
+                    SELECT 1 FROM order_items i
+                    JOIN vendor_sub_orders vso ON vso.id = i.vendor_sub_order_id
+                    WHERE vso.order_id = o.id
+                      AND i.status = 'CANCELLED'
+                      AND i.cancelled_at IS NOT NULL
+                      AND i.cancelled_at >= :start AND i.cancelled_at < :end
+                )
+              )
+            ORDER BY COALESCE(o.placed_at, o.created_at) DESC
+            """, nativeQuery = true)
+    List<UUID> findGroceryPartialCancellationOrderIds(
+            @Param("townId") UUID townId,
+            @Param("start") Instant start,
+            @Param("end") Instant end);
+
+    @EntityGraph(attributePaths = {"vendorSubOrders"})
+    @Query("""
+            SELECT o FROM Order o
+            WHERE o.id IN :orderIds
+            """)
+    List<Order> findAllWithSubOrdersByIdIn(@Param("orderIds") Collection<UUID> orderIds);
+
+    @Query("""
+            SELECT o.id FROM Order o
+            WHERE o.status = com.hyperlocalmart.order.entity.OrderStatus.PAYMENT_PENDING
+              AND o.paymentMethod = com.hyperlocalmart.order.entity.PaymentMethod.ONLINE
+              AND o.createdAt < :cutoff
+            ORDER BY o.createdAt ASC
+            """)
+    List<UUID> findIdsOfStaleUnpaidOnlineOrders(@Param("cutoff") Instant cutoff, Pageable pageable);
 }

@@ -45,6 +45,7 @@ function VendorChromeLayoutInner() {
       '/delivery-agents',
       '/reports',
       '/payouts',
+      '/hotel-images',
       '/diagnostics',
       '/settings',
       '/sellers',
@@ -60,6 +61,10 @@ function VendorChromeLayoutInner() {
     }
     if (location.pathname === '/sellers' && isFoodVendor(session?.serviceName)) {
       navigate('/food', { replace: true });
+      return;
+    }
+    if (location.pathname === '/hotel-images' && !isFoodVendor(session?.serviceName)) {
+      navigate('/dashboard', { replace: true });
       return;
     }
     if (hidesListings && (location.pathname === '/listings' || location.pathname === '/sellers')) {

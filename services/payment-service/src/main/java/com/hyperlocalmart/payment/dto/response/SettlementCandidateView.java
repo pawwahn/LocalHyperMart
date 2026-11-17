@@ -73,6 +73,8 @@ public class SettlementCandidateView {
         BigDecimal parlourPaymentFee;
         /** SUCCESS UPI to remit on KoyaKart pays vendor (glam online slice). */
         BigDecimal onlineRemittanceAmount;
+        /** Store credit on the parent order allocated to this bag. */
+        BigDecimal storeCreditApplied;
         boolean alreadySettled;
     }
 }

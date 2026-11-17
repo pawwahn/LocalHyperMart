@@ -1,15 +1,24 @@
 import type { CSSProperties } from 'react';
 import { Link } from 'react-router-dom';
+import { GLAM_HERO_BANNER_THUMB } from '@hlm-beauty';
 
 export function BeautyGlamBanner() {
   return (
     <Link to="/beauty" style={styles.banner} aria-label="Book makeup and beauty">
-      <span style={styles.emoji} aria-hidden>
-        💄
+      <span style={styles.thumbWrap} aria-hidden>
+        <img
+          src={GLAM_HERO_BANNER_THUMB}
+          alt=""
+          width={44}
+          height={44}
+          style={styles.thumb}
+          loading="lazy"
+          decoding="async"
+        />
       </span>
       <span style={styles.copy}>
         <strong style={styles.title}>Koya Glam</strong>
-        <span style={styles.hint}>Book makeup artists near you · home or studio</span>
+        <span style={styles.hint}>Premium artists · home or studio · curated looks</span>
       </span>
       <span style={styles.cta}>Book</span>
     </Link>
@@ -22,15 +31,26 @@ const styles: Record<string, CSSProperties> = {
     alignItems: 'center',
     gap: '0.45rem',
     margin: '0.35rem 0 0.4rem',
-    padding: '0.42rem 0.5rem',
-    minHeight: 48,
+    padding: '0.38rem 0.48rem',
+    minHeight: 52,
     borderRadius: 14,
     textDecoration: 'none',
     color: '#fff',
     background:
-      'radial-gradient(90% 120% at 100% 0%, rgba(255,255,255,0.25) 0%, transparent 55%), linear-gradient(125deg, #831843 0%, #db2777 55%, #f472b6 100%)',
-    boxShadow: '0 6px 20px rgba(219, 39, 119, 0.25)',
+      'linear-gradient(118deg, rgba(76,5,25,0.94) 0%, rgba(131,24,67,0.92) 58%, rgba(157,23,77,0.85) 100%)',
+    boxShadow: '0 8px 24px rgba(76, 5, 25, 0.22)',
+    border: '1px solid rgba(255,255,255,0.14)',
   },
+  thumbWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 11,
+    overflow: 'hidden',
+    flexShrink: 0,
+    border: '1px solid rgba(255,255,255,0.28)',
+    boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
+  },
+  thumb: { width: '100%', height: '100%', objectFit: 'cover', display: 'block' },
   emoji: {
     width: 36,
     height: 36,

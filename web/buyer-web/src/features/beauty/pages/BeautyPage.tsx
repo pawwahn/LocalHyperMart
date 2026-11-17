@@ -1,5 +1,5 @@
 import { PickerDateField } from '@hlm-dates';
-import { useEffect, useMemo, useState, type CSSProperties } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { PortalShell } from '@/shared/layout/PortalShell';
 import { useAuth } from '@/shared/auth/AuthContext';
@@ -26,11 +26,29 @@ import {
   placeBeautyOrder,
   retryBeautyPayment,
   uploadBeautyReferencePhoto,
+  glamVenuePayEstimate,
+  resolveHomeVisitCharge,
   type BeautyArtist,
   type BeautySlotAvailability,
   type BeautySlotId,
   type BeautySlotRow,
 } from '../api/beautyApi';
+import {
+  BEAUTY_SERVICE_CATEGORIES,
+  GLAM_HERO_IMAGE,
+  GLAM_HERO_SIZES,
+  GLAM_HERO_SRCSET,
+  GLAM_OCCASION_FALLBACK_IMAGE,
+  GLAM_REFERENCE_UPLOAD_BACKDROP,
+  GLAM_SERVICE_FALLBACK_IMAGE,
+  GLAM_VENUE_FALLBACK_IMAGE,
+  artistCoverImage,
+  beautyServicesInCategory,
+  glamOccasionImage,
+  glamServiceImage,
+  glamVenueImage,
+  type BeautyServiceCategoryId,
+} from '@hlm-beauty';
 import { normalizeServiceFor, serviceForLabel, vendorNameWithServiceFor } from '@hlm-vendor';
 import type { VendorServiceFor } from '@hlm-vendor';
 
@@ -133,50 +151,78 @@ const SKIN = `
 }
 .hlm-glam-root {
   display: grid;
-  gap: 0.65rem;
-  padding: 0.25rem 0.1rem 0.45rem;
-  color: #0f172a;
+  gap: 0.55rem;
+  padding: 0.2rem 0.05rem 0.4rem;
+  color: #1c1917;
   background:
-    radial-gradient(circle at 12% 8%, rgba(244, 114, 182, 0.12), transparent 42%),
-    radial-gradient(circle at 88% 18%, rgba(251, 207, 232, 0.35), transparent 38%),
-    radial-gradient(ellipse 130% 55% at 50% -8%, rgba(244, 114, 182, 0.14), transparent 52%),
-    linear-gradient(180deg, #fff5f9 0%, #fafafa 38%, #f4f4f5 100%);
-  border-radius: 22px;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85);
+    radial-gradient(circle at 8% 4%, rgba(212, 165, 116, 0.14), transparent 38%),
+    radial-gradient(circle at 92% 12%, rgba(190, 24, 93, 0.07), transparent 36%),
+    linear-gradient(180deg, #faf6f1 0%, #f3ebe3 42%, #efe6dc 100%);
+  border-radius: 20px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
 }
 .hlm-glam-hero {
   margin-bottom: 0.05rem;
   position: relative;
-  border-radius: 22px;
-  padding: 1.05rem 1rem 1rem;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  border-radius: 20px;
+  min-height: 9.35rem;
+  padding: 0.9rem 0 0.85rem 1rem;
   overflow: hidden;
   color: #fff;
   background:
-    radial-gradient(120% 80% at 100% 0%, rgba(255,255,255,0.26) 0%, transparent 48%),
-    radial-gradient(90% 70% at 0% 100%, rgba(253, 186, 216, 0.4) 0%, transparent 52%),
-    radial-gradient(50% 40% at 78% 62%, rgba(255,255,255,0.12) 0%, transparent 70%),
-    linear-gradient(128deg, #4c0519 0%, #9d174d 36%, #ec4899 70%, #fda4af 100%);
+    radial-gradient(120% 90% at 0% 0%, rgba(255,255,255,0.08) 0%, transparent 45%),
+    linear-gradient(118deg, #3b0412 0%, #5c0a24 38%, #831843 72%, #6b1235 100%);
   box-shadow:
-    0 22px 56px rgba(157, 23, 77, 0.38),
-    0 1px 0 rgba(255,255,255,0.22) inset;
+    0 18px 48px rgba(76, 5, 25, 0.32),
+    0 1px 0 rgba(255,255,255,0.2) inset;
   isolation: isolate;
+}
+.hlm-glam-hero-photo-wrap {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(44%, 10.5rem);
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+  border-radius: 0 20px 20px 0;
+}
+.hlm-glam-hero-photo {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center 12%;
+  display: block;
+}
+.hlm-glam-hero-photo-fade {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, #5c0a24 0%, rgba(92, 10, 36, 0.85) 12%, transparent 38%);
+  pointer-events: none;
+}
+.hlm-glam-hero-scrim {
+  display: none;
 }
 .hlm-glam-hero-deco {
   position: absolute;
   inset: 0;
   pointer-events: none;
-  z-index: 0;
+  z-index: 2;
   background:
-    radial-gradient(circle at 92% 18%, rgba(255,255,255,0.35) 0%, transparent 28%),
-    radial-gradient(circle at 8% 88%, rgba(255,255,255,0.08) 0%, transparent 35%);
-  opacity: 0.9;
+    radial-gradient(circle at 92% 18%, rgba(255,255,255,0.12) 0%, transparent 36%),
+    radial-gradient(circle at 6% 92%, rgba(212, 165, 116, 0.12) 0%, transparent 40%);
+  opacity: 0.75;
 }
 .hlm-glam-hero-body {
   position: relative;
-  z-index: 1;
+  z-index: 3;
   display: grid;
-  gap: 0.35rem;
-  padding-right: 3.25rem;
+  gap: 0.32rem;
+  padding-right: min(46%, 11rem);
+  max-width: 100%;
 }
 .hlm-glam-hero-kicker {
   display: inline-flex;
@@ -215,13 +261,13 @@ const SKIN = `
 }
 .hlm-glam-sparkles {
   position: absolute;
-  right: 0.75rem;
-  top: 0.65rem;
-  z-index: 2;
-  font-size: clamp(1.45rem, 5vw, 1.85rem);
-  opacity: 0.96;
+  right: 0.65rem;
+  top: 0.55rem;
+  z-index: 3;
+  font-size: clamp(1.35rem, 4.5vw, 1.65rem);
+  opacity: 0.92;
   pointer-events: none;
-  filter: drop-shadow(0 6px 16px rgba(0,0,0,0.2));
+  filter: drop-shadow(0 6px 16px rgba(0,0,0,0.25));
 }
 @media (prefers-reduced-motion: no-preference) {
   .hlm-glam-sparkles { animation: hlm-glam-sparkle-float 4.5s ease-in-out infinite; }
@@ -341,9 +387,39 @@ const SKIN = `
   margin: 0;
   line-height: 1.35;
 }
-@media (max-width: 520px) {
+@media (max-width: 720px) {
   .hlm-glam-when-where-row {
     grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 520px) {
+  .hlm-glam-hero {
+    min-height: 6.85rem;
+    padding: 0.6rem 0 0.5rem 0.72rem;
+  }
+  .hlm-glam-hero-body {
+    padding-right: min(40%, 9rem);
+    gap: 0.25rem;
+  }
+  .hlm-glam-hero h2 {
+    font-size: clamp(1.12rem, 5vw, 1.32rem);
+    max-width: 13.5rem;
+  }
+  .hlm-glam-hero p {
+    font-size: 0.7rem;
+    max-width: 14.5rem;
+  }
+  .hlm-glam-trust {
+    margin-top: 0.4rem;
+    gap: 0.28rem;
+  }
+  .hlm-glam-trust span {
+    font-size: 0.58rem;
+    padding: 0.22rem 0.45rem;
+  }
+  .hlm-glam-root {
+    padding: 0.1rem 0 0.35rem;
+    gap: 0.45rem;
   }
 }
 .hlm-glam-panel-head {
@@ -360,18 +436,16 @@ const SKIN = `
 .hlm-glam-step {
   width: 1.85rem;
   height: 1.85rem;
-  border-radius: 12px;
-  background:
-    linear-gradient(145deg, #fff 0%, #fce7f3 55%, #fbcfe8 100%) padding-box,
-    linear-gradient(145deg, #f9a8d4, #db2777, #9d174d) border-box;
-  border: 2px solid transparent;
-  color: #831843;
+  border-radius: 999px;
+  background: linear-gradient(145deg, #5c0a24 0%, #831843 55%, #9d174d 100%);
+  border: 1px solid rgba(255,255,255,0.28);
+  color: #fff;
   font-size: 0.74rem;
   font-weight: 900;
   display: grid;
   place-items: center;
   flex-shrink: 0;
-  box-shadow: 0 4px 14px rgba(190, 24, 93, 0.2);
+  box-shadow: 0 4px 14px rgba(76, 5, 25, 0.28);
   font-family: var(--font-display);
 }
 .hlm-glam-step-pin {
@@ -419,27 +493,55 @@ const SKIN = `
   gap: 0.4rem;
 }
 .hlm-glam-occasion {
-  border: 1.5px solid #e2e8f0;
-  border-radius: 16px;
-  padding: 0.5rem 0.35rem;
-  min-height: 68px;
-  background: #fff;
+  position: relative;
+  border: 1.5px solid rgba(120, 53, 15, 0.12);
+  border-radius: 14px;
+  padding: 0;
+  min-height: 4.85rem;
+  aspect-ratio: 5 / 4;
+  background: #fdf2f8;
   cursor: pointer;
-  text-align: center;
+  text-align: left;
   display: grid;
-  gap: 0.2rem;
-  align-content: center;
+  align-content: end;
   color: #1a1c1a;
+  overflow: hidden;
   transition: border-color 0.15s, box-shadow 0.15s, transform 0.12s;
 }
 .hlm-glam-occasion:active { transform: scale(0.98); }
 .hlm-glam-occasion-on {
-  border-color: #db2777;
-  background: linear-gradient(165deg, #fdf2f8 0%, #fff 100%);
-  box-shadow: 0 0 0 2px rgba(219, 39, 119, 0.15);
+  border-color: #831843;
+  box-shadow: 0 0 0 2px rgba(131, 24, 67, 0.22), 0 8px 22px rgba(76, 5, 25, 0.14);
 }
-.hlm-glam-occasion-emoji { font-size: 1.15rem; line-height: 1; }
-.hlm-glam-occasion-label { font-size: 0.65rem; font-weight: 800; color: #374151; }
+.hlm-glam-occasion-photo {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center 22%;
+  z-index: 0;
+  display: block;
+}
+.hlm-glam-occasion-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.02) 0%, rgba(76, 5, 25, 0.35) 45%, rgba(76, 5, 25, 0.78) 100%);
+  pointer-events: none;
+}
+.hlm-glam-occasion-on .hlm-glam-occasion-scrim {
+  background: linear-gradient(180deg, rgba(131, 24, 67, 0.06) 0%, rgba(76, 5, 25, 0.4) 48%, rgba(76, 5, 25, 0.85) 100%);
+}
+.hlm-glam-occasion-copy {
+  position: relative;
+  z-index: 2;
+  padding: 0.35rem 0.4rem 0.42rem;
+  display: grid;
+  gap: 0.05rem;
+}
+.hlm-glam-occasion-emoji { font-size: 0.85rem; line-height: 1; filter: drop-shadow(0 2px 6px rgba(0,0,0,0.35)); }
+.hlm-glam-occasion-label { font-size: 0.62rem; font-weight: 900; color: #fff; text-shadow: 0 2px 8px rgba(0,0,0,0.45); letter-spacing: 0.01em; }
 .hlm-glam-artists-scroll {
   margin: 0 -0.35rem;
   padding: 0.1rem 0.35rem 0.05rem;
@@ -468,32 +570,64 @@ const SKIN = `
 }
 .hlm-glam-artist {
   position: relative;
-  flex: 0 0 clamp(6.85rem, 42vw, 8.35rem);
-  width: clamp(6.85rem, 42vw, 8.35rem);
+  flex: 0 0 clamp(7.85rem, 46vw, 9.75rem);
+  width: clamp(7.85rem, 46vw, 9.75rem);
   align-self: stretch;
   scroll-snap-align: start;
   scroll-snap-stop: normal;
-  border-radius: 18px;
-  border: 1.5px solid #e2e8f0;
-  padding: 0.48rem 0.5rem 0.52rem;
-  background: linear-gradient(180deg, #fff 0%, #fafafa 100%);
+  border-radius: 16px;
+  border: 1.5px solid rgba(120, 53, 15, 0.14);
+  padding: 0;
+  background: #fff;
   cursor: pointer;
   display: flex;
   flex-direction: column;
-  gap: 0.28rem;
+  gap: 0;
   text-align: left;
   color: #0f172a;
   box-sizing: border-box;
+  overflow: hidden;
   transition: border-color 0.18s, box-shadow 0.18s, transform 0.12s;
-  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.06);
+  box-shadow: 0 6px 20px rgba(76, 5, 25, 0.08);
 }
 .hlm-glam-artist:active { transform: scale(0.98); }
 .hlm-glam-artist-on {
-  border-color: #ec4899;
-  background: linear-gradient(160deg, #fff 0%, #fdf2f8 55%, #fce7f3 100%);
+  border-color: #831843;
   box-shadow:
-    0 0 0 2px rgba(236, 72, 153, 0.22),
-    0 12px 32px rgba(219, 39, 119, 0.24);
+    0 0 0 2px rgba(131, 24, 67, 0.28),
+    0 14px 36px rgba(76, 5, 25, 0.2);
+}
+.hlm-glam-artist-cover {
+  position: relative;
+  height: 4.65rem;
+  flex-shrink: 0;
+  background: #f5ebe0;
+}
+.hlm-glam-artist-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.hlm-glam-artist-cover-badge {
+  position: absolute;
+  left: 0.35rem;
+  bottom: 0.35rem;
+  padding: 0.12rem 0.38rem;
+  border-radius: 999px;
+  font-size: 0.52rem;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+  color: #fff;
+  background: rgba(76, 5, 25, 0.72);
+  border: 1px solid rgba(255,255,255,0.28);
+  backdrop-filter: blur(6px);
+}
+.hlm-glam-artist-body {
+  display: grid;
+  gap: 0.22rem;
+  padding: 0.42rem 0.45rem 0.48rem;
+  flex: 1;
 }
 .hlm-glam-artist-on::after {
   content: '✓';
@@ -513,30 +647,30 @@ const SKIN = `
 }
 .hlm-glam-artist-top {
   display: flex;
-  align-items: flex-start;
-  gap: 0.45rem;
+  align-items: center;
+  gap: 0.35rem;
 }
 .hlm-glam-artist-avatar {
-  width: 34px;
-  height: 34px;
-  border-radius: 11px;
-  background: linear-gradient(135deg, #831843 0%, #db2777 50%, #f472b6 100%);
+  width: 28px;
+  height: 28px;
+  border-radius: 9px;
+  background: linear-gradient(135deg, #4c0519 0%, #831843 100%);
   color: #fff;
-  font-size: 0.62rem;
+  font-size: 0.58rem;
   font-weight: 900;
   display: grid;
   place-items: center;
   flex-shrink: 0;
-  box-shadow: 0 3px 10px rgba(190, 24, 93, 0.3);
+  box-shadow: 0 2px 8px rgba(76, 5, 25, 0.25);
 }
 .hlm-glam-artist-name {
   flex: 1;
   min-width: 0;
-  font-size: 0.72rem;
+  font-size: 0.7rem;
   font-weight: 900;
   margin: 0;
-  color: #111827;
-  line-height: 1.22;
+  color: #1c1917;
+  line-height: 1.2;
   overflow-wrap: anywhere;
   word-break: break-word;
   display: -webkit-box;
@@ -1016,44 +1150,254 @@ const SKIN = `
 .hlm-glam-venues {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.5rem;
+  gap: 0.45rem;
 }
 .hlm-glam-venue {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.35rem;
-  border: 1.5px solid #e2e8f0;
-  border-radius: 16px;
-  padding: 0.65rem 0.45rem;
+  position: relative;
+  display: grid;
+  align-content: end;
+  border: 1.5px solid rgba(120, 53, 15, 0.12);
+  border-radius: 14px;
+  padding: 0;
   background: #fff;
   cursor: pointer;
-  text-align: center;
+  text-align: left;
   color: #0f172a;
-  min-height: 88px;
-  justify-content: center;
+  min-height: 5.65rem;
+  overflow: hidden;
   transition: border-color 0.15s, box-shadow 0.15s, transform 0.12s;
 }
 .hlm-glam-venue:active { transform: scale(0.98); }
 .hlm-glam-venue-on {
-  border-color: #ec4899;
-  background: linear-gradient(165deg, #fff 0%, #fdf2f8 100%);
-  box-shadow: 0 0 0 2px rgba(236, 72, 153, 0.18), 0 8px 24px rgba(219, 39, 119, 0.12);
+  border-color: #831843;
+  box-shadow: 0 0 0 2px rgba(131, 24, 67, 0.22), 0 10px 28px rgba(76, 5, 25, 0.14);
+}
+.hlm-glam-venue-photo {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  z-index: 0;
+}
+.hlm-glam-venue-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.08) 0%, rgba(76, 5, 25, 0.78) 100%);
+}
+.hlm-glam-venue-on .hlm-glam-venue-scrim {
+  background: linear-gradient(180deg, rgba(131, 24, 67, 0.1) 0%, rgba(76, 5, 25, 0.86) 100%);
+}
+.hlm-glam-venue-copy {
+  position: relative;
+  z-index: 2;
+  padding: 0.42rem 0.45rem 0.48rem;
+  display: grid;
+  gap: 0.12rem;
 }
 .hlm-glam-venue-emoji {
-  width: 40px;
-  height: 40px;
-  border-radius: 14px;
-  background: linear-gradient(145deg, #fdf2f8, #fff);
-  border: 1px solid #fce7f3;
+  font-size: 0.95rem;
+  line-height: 1;
+  filter: drop-shadow(0 2px 6px rgba(0,0,0,0.35));
+}
+.hlm-glam-venue-title { font-size: 0.72rem; font-weight: 900; display: block; color: #fff; line-height: 1.22; text-shadow: 0 2px 8px rgba(0,0,0,0.4); }
+.hlm-glam-venue-hint { font-size: 0.58rem; font-weight: 700; color: rgba(255,255,255,0.92); display: block; line-height: 1.3; }
+.hlm-glam-venue-est {
+  display: inline-flex;
+  align-items: center;
+  margin-top: 0.2rem;
+  padding: 0.18rem 0.45rem;
+  border-radius: 999px;
+  font-size: 0.62rem;
+  font-weight: 900;
+  letter-spacing: -0.02em;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.22);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  width: fit-content;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+}
+.hlm-glam-venue-on .hlm-glam-venue-est {
+  background: rgba(255, 255, 255, 0.28);
+  border-color: rgba(255, 255, 255, 0.5);
+}
+.hlm-glam-service-picker {
+  display: grid;
+  grid-template-columns: minmax(4.1rem, 4.75rem) minmax(0, 1fr);
+  gap: 0.45rem;
+  align-items: stretch;
+  min-height: min(42vh, 17.5rem);
+}
+.hlm-glam-service-cats {
+  display: grid;
+  gap: 0.35rem;
+  align-content: start;
+  padding: 0.15rem 0;
+}
+.hlm-glam-service-cat {
+  border: 1px solid #ece5dd;
+  border-radius: 12px;
+  padding: 0.38rem 0.28rem;
+  min-height: 2.85rem;
   display: grid;
   place-items: center;
-  font-size: 1.15rem;
-  flex-shrink: 0;
-  box-shadow: 0 2px 8px rgba(190, 24, 93, 0.08);
+  gap: 0.08rem;
+  background: #fff;
+  cursor: pointer;
+  font-family: inherit;
+  color: #57534e;
+  transition: border-color 0.12s, background 0.12s, box-shadow 0.12s;
 }
-.hlm-glam-venue-title { font-size: 0.76rem; font-weight: 900; display: block; color: #111827; line-height: 1.25; }
-.hlm-glam-venue-hint { font-size: 0.62rem; font-weight: 600; color: #64748b; display: block; margin-top: 0.15rem; line-height: 1.3; }
+.hlm-glam-service-cat-on {
+  border-color: #831843;
+  background: linear-gradient(165deg, #fff7fb 0%, #fff 100%);
+  box-shadow: 0 0 0 1px rgba(131, 24, 67, 0.18);
+  color: #831843;
+}
+.hlm-glam-service-cat-emoji { font-size: 0.95rem; line-height: 1; }
+.hlm-glam-service-cat-label {
+  font-size: 0.5rem;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  text-align: center;
+  line-height: 1.15;
+}
+.hlm-glam-service-list {
+  display: grid;
+  gap: 0.35rem;
+  overflow-y: auto;
+  max-height: min(42vh, 17.5rem);
+  padding: 0.15rem 0.1rem 0.2rem 0;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: auto;
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.hlm-glam-service-list::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+.hlm-glam-service-cats {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.hlm-glam-service-cats::-webkit-scrollbar {
+  display: none;
+}
+.hlm-glam-service-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.42rem 0.45rem;
+  border-radius: 14px;
+  border: 1px solid #ece5dd;
+  background: #fff;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.12s, box-shadow 0.12s, transform 0.1s;
+}
+.hlm-glam-service-card:active { transform: scale(0.995); }
+.hlm-glam-service-card-on {
+  border-color: #831843;
+  background: linear-gradient(90deg, #fff7fb 0%, #fff 80%);
+  box-shadow: 0 0 0 1px rgba(131, 24, 67, 0.2), 0 6px 18px rgba(76, 5, 25, 0.08);
+}
+.hlm-glam-service-thumb {
+  width: 2.65rem;
+  height: 2.65rem;
+  border-radius: 11px;
+  object-fit: cover;
+  flex-shrink: 0;
+  box-shadow: 0 2px 8px rgba(76, 5, 25, 0.12);
+}
+.hlm-glam-service-card-copy {
+  min-width: 0;
+  display: grid;
+  gap: 0.08rem;
+}
+.hlm-glam-service-card-title {
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 900;
+  color: #1c1917;
+  line-height: 1.2;
+}
+.hlm-glam-service-card-detail {
+  margin: 0;
+  font-size: 0.6rem;
+  font-weight: 600;
+  color: #78716c;
+  line-height: 1.3;
+}
+.hlm-glam-service-card-end {
+  display: grid;
+  justify-items: end;
+  gap: 0.22rem;
+}
+.hlm-glam-service-card-price {
+  font-size: 0.76rem;
+  font-weight: 900;
+  color: #9d174d;
+  white-space: nowrap;
+}
+.hlm-glam-service-card input[type='checkbox'] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 1.05rem;
+  height: 1.05rem;
+  margin: 0;
+  cursor: pointer;
+  border: 2px solid #cbd5e1;
+  border-radius: 999px;
+  background: #fff;
+  display: inline-grid;
+  place-content: center;
+}
+.hlm-glam-service-card input[type='checkbox']:checked {
+  background: linear-gradient(145deg, #831843, #4c0519);
+  border-color: #831843;
+}
+.hlm-glam-service-card input[type='checkbox']:checked::after {
+  content: '';
+  width: 0.28rem;
+  height: 0.55rem;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg) translate(-0.5px, -1px);
+}
+@media (max-width: 720px) {
+  .hlm-glam-service-picker {
+    grid-template-columns: 1fr;
+    min-height: 0;
+    gap: 0.5rem;
+  }
+  .hlm-glam-service-cats {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    gap: 0.4rem;
+    overflow-x: auto;
+    overflow-y: hidden;
+    overscroll-behavior-x: contain;
+    scroll-snap-type: x proximity;
+    -webkit-overflow-scrolling: touch;
+    padding: 0.05rem 0 0.15rem;
+  }
+  .hlm-glam-service-cat {
+    flex: 0 0 auto;
+    min-width: 4.5rem;
+    min-height: 2.65rem;
+    scroll-snap-align: start;
+  }
+  .hlm-glam-service-list {
+    max-height: none;
+    overflow: visible;
+  }
+}
 .hlm-glam-field {
   width: 100%;
   min-height: 46px;
@@ -1110,7 +1454,11 @@ select.hlm-glam-field {
   overflow-x: auto;
   padding: 0.15rem 0 0.35rem;
   -webkit-overflow-scrolling: touch;
-  scrollbar-width: thin;
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.hlm-glam-slots::-webkit-scrollbar {
+  display: none;
 }
 .hlm-glam-slot {
   flex: 0 0 auto;
@@ -1170,34 +1518,69 @@ select.hlm-glam-field {
 .hlm-glam-extras-grid {
   display: grid;
   gap: 0.55rem;
-  scroll-margin-bottom: calc(var(--tabbar-h) + var(--glam-dock-h, 9.25rem) + 1rem);
+  scroll-margin-bottom: calc(var(--tabbar-h) + var(--glam-dock-h, 12.5rem) + 1rem);
+}
+.hlm-glam-scroll-end {
+  height: calc(var(--glam-dock-h, 12.5rem) * 0.35);
+  flex-shrink: 0;
+  pointer-events: none;
 }
 @media (min-width: 640px) {
   .hlm-glam-extras-grid { grid-template-columns: 1fr 1fr; align-items: start; }
 }
 .hlm-glam-panel[aria-label='Services'],
 .hlm-glam-panel[aria-label='Occasion'] {
-  scroll-margin-bottom: calc(var(--tabbar-h) + var(--glam-dock-h, 9.25rem) + 1rem);
+  scroll-margin-bottom: calc(var(--tabbar-h) + var(--glam-dock-h, 12.5rem) + 1rem);
 }
 .hlm-glam-photo {
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 52px;
+  min-height: 4.75rem;
   border-radius: 14px;
-  border: 2px dashed #f9a8d4;
-  background: #fdf2f8;
-  color: #9d174d;
-  font-size: 0.75rem;
-  font-weight: 800;
+  border: 2px dashed rgba(131, 24, 67, 0.42);
+  background-image:
+    linear-gradient(135deg, rgba(76, 5, 25, 0.42) 0%, rgba(76, 5, 25, 0.28) 100%),
+    var(--glam-ref-upload-bg);
+  background-size: cover;
+  background-position: center;
+  color: #fff;
+  font-size: 0.74rem;
+  font-weight: 900;
   cursor: pointer;
   text-align: center;
   padding: 0.45rem;
+  text-shadow: 0 2px 10px rgba(76, 5, 25, 0.65);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.25);
 }
 .hlm-glam-photo-on {
+  position: relative;
   border-style: solid;
   border-color: #db2777;
-  background: #fff;
+  background: #1a0510;
+  padding: 0;
+  overflow: hidden;
+  color: #fff;
+}
+.hlm-glam-photo-preview {
+  display: block;
+  width: 100%;
+  min-height: 5.25rem;
+  max-height: 9rem;
+  object-fit: cover;
+  object-position: center;
+}
+.hlm-glam-photo-caption {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 0.35rem 0.5rem;
+  font-size: 0.68rem;
+  font-weight: 800;
+  text-align: center;
+  background: linear-gradient(180deg, transparent 0%, rgba(76, 5, 25, 0.88) 68%);
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.45);
 }
 .hlm-glam-studio {
   margin: 0;
@@ -1243,17 +1626,25 @@ select.hlm-glam-field {
   left: 0;
   right: 0;
   bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px));
-  padding: 0.35rem 0.55rem 0.45rem;
+  padding: 0.35rem var(--shell-pad) 0.45rem;
   z-index: 40;
   pointer-events: none;
+  display: flex;
+  justify-content: center;
+  box-sizing: border-box;
 }
 .hlm-glam-dock-wrap > * { pointer-events: auto; }
 .hlm-glam-dock-card {
+  width: 100%;
+  max-width: var(--shell-max);
+  box-sizing: border-box;
   display: flex;
   align-items: stretch;
   gap: 0.55rem;
   padding: 0.55rem 0.55rem 0.55rem 0.6rem;
   border-radius: 22px;
+  overflow: hidden;
+  min-width: 0;
   background: linear-gradient(145deg, rgba(255,255,255,0.92) 0%, rgba(253,242,248,0.88) 100%);
   backdrop-filter: blur(16px) saturate(1.2);
   border: 1px solid rgba(255,255,255,0.75);
@@ -1275,6 +1666,21 @@ select.hlm-glam-field {
   color: #9d174d;
   line-height: 1.3;
 }
+.hlm-glam-price-waived {
+  font-weight: 800;
+  color: #047857;
+}
+.hlm-glam-venue-price-note {
+  margin: 0.1rem 0 0;
+  padding: 0.4rem 0.55rem;
+  border-radius: 10px;
+  font-size: 0.66rem;
+  font-weight: 700;
+  line-height: 1.35;
+  color: #831843;
+  background: linear-gradient(135deg, #fdf2f8 0%, #fff 100%);
+  border: 1px solid rgba(251, 207, 232, 0.85);
+}
 .hlm-glam-dock-lines {
   display: grid;
   gap: 0.2rem;
@@ -1283,6 +1689,8 @@ select.hlm-glam-field {
   background: rgba(255,255,255,0.72);
   border: 1px solid rgba(252, 231, 243, 0.9);
   box-shadow: 0 1px 0 rgba(255,255,255,0.8) inset;
+  min-width: 0;
+  overflow: hidden;
 }
 .hlm-glam-price-row {
   display: flex;
@@ -1338,6 +1746,9 @@ select.hlm-glam-field {
   background-clip: text;
   color: transparent;
 }
+.hlm-glam-dock-lines .hlm-glam-dock-meta-chip {
+  margin-top: 0.12rem;
+}
 .hlm-glam-dock-meta-chip {
   display: inline-flex;
   align-items: center;
@@ -1383,6 +1794,18 @@ select.hlm-glam-field {
   font-weight: 700;
   opacity: 0.88;
   letter-spacing: 0.04em;
+}
+@media (max-width: 380px) {
+  .hlm-glam-dock-card {
+    gap: 0.4rem;
+    padding: 0.5rem 0.45rem 0.5rem 0.5rem;
+  }
+  .hlm-glam-dock-cta {
+    min-width: 4.85rem;
+    padding: 0 0.75rem;
+    font-size: 0.72rem;
+  }
+  .hlm-glam-price-total-value { font-size: 1rem; }
 }
 .hlm-glam-sheet-receipt {
   padding: 0.55rem 0.6rem;
@@ -1492,11 +1915,15 @@ export function BeautyPage() {
   const [addressId, setAddressId] = useState('');
   const [note, setNote] = useState('');
   const [referencePhotoMediaId, setReferencePhotoMediaId] = useState<string | undefined>();
+  const [referencePhotoPreviewUrl, setReferencePhotoPreviewUrl] = useState<string | null>(null);
+  const referencePreviewObjectUrlRef = useRef<string | null>(null);
   const [photoBusy, setPhotoBusy] = useState(false);
   const [prepayMode, setPrepayMode] = useState<'FULL' | 'PARTIAL'>('FULL');
   const [confirming, setConfirming] = useState(false);
   const [checkoutStep, setCheckoutStep] = useState<'idle' | 'booking' | 'checkout' | 'paying'>('idle');
   const [workGalleryArtistId, setWorkGalleryArtistId] = useState<string | null>(null);
+  const [serviceCategory, setServiceCategory] = useState<'POPULAR' | BeautyServiceCategoryId>('POPULAR');
+  const bookingDockRef = useRef<HTMLDivElement | null>(null);
   const now = useMemo(() => new Date(), [slotDate, slotId]);
   const artist = artists.find((row) => row.vendorId === artistId) ?? null;
   const workGalleryArtist = artists.find((row) => row.vendorId === workGalleryArtistId) ?? null;
@@ -1634,6 +2061,39 @@ export function BeautyPage() {
   }, [artist]);
 
   useEffect(() => {
+    if (!beautyEnabled || !beautyReady) return;
+    const link = document.createElement('link');
+    link.rel = 'preload';
+    link.as = 'image';
+    link.href = GLAM_HERO_IMAGE;
+    link.fetchPriority = 'high';
+    document.head.appendChild(link);
+    return () => {
+      link.remove();
+    };
+  }, [beautyEnabled, beautyReady]);
+
+  useEffect(() => {
+    setServiceCategory('POPULAR');
+  }, [artistId]);
+
+  useEffect(() => {
+    return () => {
+      if (referencePreviewObjectUrlRef.current) {
+        URL.revokeObjectURL(referencePreviewObjectUrlRef.current);
+        referencePreviewObjectUrlRef.current = null;
+      }
+    };
+  }, []);
+
+  const filteredServiceRates = useMemo(() => {
+    if (!offeredRates.length) return [];
+    if (serviceCategory === 'POPULAR') return offeredRates;
+    const allowed = new Set<string>(beautyServicesInCategory(serviceCategory).map((row) => row.id));
+    return offeredRates.filter((row) => allowed.has(row.serviceType));
+  }, [offeredRates, serviceCategory]);
+
+  useEffect(() => {
     if (!offeredRates.length) {
       setSelectedServices([]);
       return;
@@ -1642,10 +2102,11 @@ export function BeautyPage() {
   }, [artistId, offeredRates]);
 
   const chosenRates = offeredRates.filter((row) => selectedServices.includes(row.serviceType));
-  const travel = venue === 'AT_HOME' ? Number(artist?.homeVisitCharge || 0) : 0;
+  const homeVisitFee = resolveHomeVisitCharge(artist);
   const servicePrice = chosenRates.reduce((sum, row) => sum + Number(row.unitPrice || 0), 0);
   const totalMinutes = chosenRates.reduce((sum, row) => sum + Number(row.durationMinutes || 60), 0);
   const platformFee = servicePrice > 0 ? Number(townPlatformFee || 0) : 0;
+  const travel = venue === 'AT_HOME' ? homeVisitFee : 0;
   const baseTotal = servicePrice + travel + platformFee;
   const minPrepay = Math.max(
     0,
@@ -1654,6 +2115,19 @@ export function BeautyPage() {
   const parlourFee =
     prepayMode === 'PARTIAL' && venue === 'AT_STUDIO' ? Math.max(0, townParlourFee) : 0;
   const total = baseTotal + parlourFee;
+  const parlourForVenueCompare = prepayMode === 'PARTIAL' ? parlourFee : 0;
+  const homeVenueTotal = glamVenuePayEstimate('AT_HOME', {
+    servicePrice,
+    homeVisitFee,
+    platformFee,
+    parlourFee: parlourForVenueCompare,
+  });
+  const studioVenueTotal = glamVenuePayEstimate('AT_STUDIO', {
+    servicePrice,
+    homeVisitFee,
+    platformFee,
+    parlourFee: parlourForVenueCompare,
+  });
   const partialAllowed = minPrepay > 0 && minPrepay < total;
   const payNow = prepayMode === 'PARTIAL' && partialAllowed ? minPrepay : total;
   const balanceAfterPrepay = Math.max(0, total - payNow);
@@ -1692,6 +2166,29 @@ export function BeautyPage() {
         studioOk &&
         (!needsAddress || addressId),
     );
+  const showBookingDock = Boolean(artist && chosenRates.length > 0 && servicePrice > 0);
+
+  useLayoutEffect(() => {
+    const root = document.documentElement;
+    if (!showBookingDock) {
+      root.style.removeProperty('--glam-dock-h');
+      return;
+    }
+    const node = bookingDockRef.current;
+    if (!node) return;
+    const syncDockHeight = () => {
+      const height = Math.ceil(node.getBoundingClientRect().height);
+      if (height > 0) root.style.setProperty('--glam-dock-h', `${height}px`);
+    };
+    syncDockHeight();
+    const observer = new ResizeObserver(syncDockHeight);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [showBookingDock, venue, homeVisitFee, travel, platformFee, chosenRates.length, totalMinutes, parlourFee, prepayMode]);
+
+  useEffect(() => {
+    return () => document.documentElement.style.removeProperty('--glam-dock-h');
+  }, []);
 
   useEffect(() => {
     if (!partialAllowed && prepayMode === 'PARTIAL') setPrepayMode('FULL');
@@ -1719,25 +2216,35 @@ export function BeautyPage() {
     );
   }
 
-  function PriceBreakdown({ sheet }: { sheet?: boolean }) {
+  function PriceBreakdown({ sheet, dockMeta }: { sheet?: boolean; dockMeta?: string }) {
     const wrapClass = sheet ? 'hlm-glam-sheet-receipt' : 'hlm-glam-dock-lines';
-    const browseSubtotal = servicePrice + travel + parlourFee;
+    const dockTotal = total;
     return (
       <div className={wrapClass} aria-label="Price breakdown">
-        <div className="hlm-glam-price-row">
-          <span>Services</span>
-          <span>{money(servicePrice)}</span>
-        </div>
-        {sheet && platformFee > 0 ? (
+        {sheet || (!sheet && servicePrice > 0) ? (
+          <div className="hlm-glam-price-row">
+            <span>Services</span>
+            <span>{money(servicePrice)}</span>
+          </div>
+        ) : null}
+        {platformFee > 0 ? (
           <div className="hlm-glam-price-row hlm-glam-price-row--fee">
             <span>Platform fee</span>
             <span>{money(platformFee)}</span>
           </div>
         ) : null}
-        {travel > 0 ? (
+        {sheet && travel > 0 ? (
           <div className="hlm-glam-price-row">
             <span>Home visit</span>
             <span>{money(travel)}</span>
+          </div>
+        ) : null}
+        {!sheet && homeVisitFee > 0 ? (
+          <div className="hlm-glam-price-row">
+            <span>{venue === 'AT_HOME' ? 'Home visit' : 'Travel at studio'}</span>
+            <span className={venue === 'AT_STUDIO' ? 'hlm-glam-price-waived' : undefined}>
+              {venue === 'AT_STUDIO' ? '₹0' : money(homeVisitFee)}
+            </span>
           </div>
         ) : null}
         {parlourFee > 0 ? (
@@ -1747,12 +2254,12 @@ export function BeautyPage() {
           </div>
         ) : null}
         <div className="hlm-glam-price-total-row">
-          <span className="hlm-glam-price-total-label">{sheet ? 'Total' : 'Subtotal'}</span>
-          <span className="hlm-glam-price-total-value">{money(sheet ? total : browseSubtotal)}</span>
+          <span className="hlm-glam-price-total-label">{sheet ? 'Total' : 'Est. total'}</span>
+          <span className="hlm-glam-price-total-value" key={`${venue}-${travel}-${dockTotal}`}>
+            {money(sheet ? total : dockTotal)}
+          </span>
         </div>
-        {!sheet && platformFee > 0 ? (
-          <p className="hlm-glam-dock-fee-hint">Platform fee shown before you pay</p>
-        ) : null}
+        {!sheet && dockMeta ? <span className="hlm-glam-dock-meta-chip">{dockMeta}</span> : null}
       </div>
     );
   }
@@ -1841,19 +2348,18 @@ export function BeautyPage() {
       showDeliveryBanner={false}
       showStickyCart={false}
       footerSlot={
-        canBook ? (
-          <div className="hlm-glam-dock-wrap">
+        showBookingDock ? (
+          <div ref={bookingDockRef} className="hlm-glam-dock-wrap" key={`glam-dock-${venue}-${total}`}>
             <div className="hlm-glam-dock-card">
               <div className="hlm-glam-dock-receipt">
-                <PriceBreakdown />
-                <span className="hlm-glam-dock-meta-chip">
-                  {chosenRates.length} service{chosenRates.length === 1 ? '' : 's'} · {totalMinutes} min
-                </span>
+                <PriceBreakdown
+                  dockMeta={`${chosenRates.length} service${chosenRates.length === 1 ? '' : 's'} · ${totalMinutes} min · ${venue === 'AT_HOME' ? 'At home' : 'At studio'}`}
+                />
               </div>
               <button
                 type="button"
                 className="hlm-glam-dock-cta"
-                disabled={busy}
+                disabled={busy || !canBook}
                 onClick={() => {
                   setError(null);
                   setConfirming(true);
@@ -1883,12 +2389,27 @@ export function BeautyPage() {
       {error ? <p style={styles.error}>{error}</p> : null}
 
       {glamBookingUi ? (
-        <div className="hlm-glam-root">
+        <div
+          className="hlm-glam-root"
+          style={{ ['--glam-ref-upload-bg' as string]: `url("${GLAM_REFERENCE_UPLOAD_BACKDROP}")` }}
+        >
           <div className="hlm-glam-hero">
+            <div className="hlm-glam-hero-photo-wrap" aria-hidden>
+              <img
+                className="hlm-glam-hero-photo"
+                src={GLAM_HERO_IMAGE}
+                srcSet={GLAM_HERO_SRCSET}
+                sizes={GLAM_HERO_SIZES}
+                alt=""
+                width={480}
+                height={640}
+                loading="eager"
+                decoding="async"
+                fetchPriority="high"
+              />
+              <div className="hlm-glam-hero-photo-fade" />
+            </div>
             <div className="hlm-glam-hero-deco" aria-hidden />
-            <span className="hlm-glam-sparkles" aria-hidden>
-              ✨💄
-            </span>
             <div className="hlm-glam-hero-body">
               <span className="hlm-glam-hero-kicker">
                 {hasTown ? `${townLabel} · Koya Glam` : 'Koya Glam'}
@@ -1926,56 +2447,68 @@ export function BeautyPage() {
                   role="group"
                   aria-label="Artists — swipe left or right to compare"
                 >
-                  {artists.map((row) => (
-                    <div
-                      key={row.vendorId}
-                      role="button"
-                      tabIndex={0}
-                      className={`hlm-glam-artist${artistId === row.vendorId ? ' hlm-glam-artist-on' : ''}`}
-                      onClick={() => selectArtist(row.vendorId)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === ' ') {
-                          e.preventDefault();
-                          selectArtist(row.vendorId);
-                        }
-                      }}
-                    >
-                      <div className="hlm-glam-artist-top">
-                        <span className="hlm-glam-artist-avatar" aria-hidden>
-                          {artistInitials(row.businessName)}
-                        </span>
-                        <p className="hlm-glam-artist-name">{artistCardName(row)}</p>
+                  {artists.map((row) => {
+                    const coverSrc = artistCoverImage(row.workPhotos?.[0]?.url, 520);
+                    const livePortfolio = (row.workPhotos?.length ?? 0) > 0;
+                    return (
+                      <div
+                        key={row.vendorId}
+                        role="button"
+                        tabIndex={0}
+                        className={`hlm-glam-artist${artistId === row.vendorId ? ' hlm-glam-artist-on' : ''}`}
+                        onClick={() => selectArtist(row.vendorId)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            selectArtist(row.vendorId);
+                          }
+                        }}
+                      >
+                        <div className="hlm-glam-artist-cover">
+                          <img src={coverSrc} alt="" width={520} height={340} loading="lazy" decoding="async" />
+                          {livePortfolio ? (
+                            <span className="hlm-glam-artist-cover-badge">Live portfolio</span>
+                          ) : null}
+                        </div>
+                        <div className="hlm-glam-artist-body">
+                          <div className="hlm-glam-artist-top">
+                            <span className="hlm-glam-artist-avatar" aria-hidden>
+                              {artistInitials(row.businessName)}
+                            </span>
+                            <p className="hlm-glam-artist-name">{artistCardName(row)}</p>
+                          </div>
+                          <p className="hlm-glam-artist-meta">
+                            <span
+                              className={`hlm-glam-artist-audience hlm-glam-artist-audience--${artistServiceFor(row).toLowerCase()}`}
+                            >
+                              For {serviceForLabel(artistServiceFor(row))}
+                            </span>
+                            <span className="hlm-glam-rating">★ {Number(row.ratingScore ?? 4.8).toFixed(1)}</span>
+                            {row.yearsExperience ? <span>{row.yearsExperience}+ yrs</span> : null}
+                          </p>
+                          <p className={`hlm-glam-artist-tag${row.tagline ? '' : ' hlm-glam-artist-tag--empty'}`}>
+                            {row.tagline || 'Tagline'}
+                          </p>
+                          <div className="hlm-glam-artist-work-slot">
+                            {livePortfolio ? (
+                              <button
+                                type="button"
+                                className="hlm-glam-artist-work"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setWorkGalleryArtistId(row.vendorId);
+                                }}
+                              >
+                                Our work ({row.workPhotos!.length})
+                              </button>
+                            ) : (
+                              <span className="hlm-glam-artist-work hlm-glam-artist-work--placeholder">Our work</span>
+                            )}
+                          </div>
+                        </div>
                       </div>
-                      <p className="hlm-glam-artist-meta">
-                        <span
-                          className={`hlm-glam-artist-audience hlm-glam-artist-audience--${artistServiceFor(row).toLowerCase()}`}
-                        >
-                          For {serviceForLabel(artistServiceFor(row))}
-                        </span>
-                        <span className="hlm-glam-rating">★ {Number(row.ratingScore ?? 4.8).toFixed(1)}</span>
-                        {row.yearsExperience ? <span>{row.yearsExperience}+ yrs exp.</span> : null}
-                      </p>
-                      <p className={`hlm-glam-artist-tag${row.tagline ? '' : ' hlm-glam-artist-tag--empty'}`}>
-                        {row.tagline || 'Tagline'}
-                      </p>
-                      <div className="hlm-glam-artist-work-slot">
-                        {(row.workPhotos?.length ?? 0) > 0 ? (
-                          <button
-                            type="button"
-                            className="hlm-glam-artist-work"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setWorkGalleryArtistId(row.vendorId);
-                            }}
-                          >
-                            Our work ({row.workPhotos!.length})
-                          </button>
-                        ) : (
-                          <span className="hlm-glam-artist-work hlm-glam-artist-work--placeholder">Our work</span>
-                        )}
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                   <div className="hlm-glam-artists-tail" aria-hidden />
                 </div>
               </div>
@@ -2068,21 +2601,57 @@ export function BeautyPage() {
                         className={`hlm-glam-venue${venue === row.id ? ' hlm-glam-venue-on' : ''}`}
                         onClick={() => setVenue(row.id)}
                       >
-                        <span className="hlm-glam-venue-emoji" aria-hidden>
-                          {row.emoji}
-                        </span>
-                        <span>
+                        <img
+                          className="hlm-glam-venue-photo"
+                          src={glamVenueImage(row.id, 520)}
+                          alt=""
+                          width={520}
+                          height={322}
+                          loading="lazy"
+                          decoding="async"
+                          onError={(e) => {
+                            const img = e.currentTarget;
+                            if (img.dataset.fallback === '1') return;
+                            img.dataset.fallback = '1';
+                            img.src = GLAM_VENUE_FALLBACK_IMAGE;
+                          }}
+                        />
+                        <span className="hlm-glam-venue-scrim" aria-hidden />
+                        <span className="hlm-glam-venue-copy">
+                          <span className="hlm-glam-venue-emoji" aria-hidden>
+                            {row.emoji}
+                          </span>
                           <span className="hlm-glam-venue-title">{row.label}</span>
                           <span className="hlm-glam-venue-hint">
                             {row.hint}
-                            {row.id === 'AT_HOME' && Number(artist.homeVisitCharge) > 0
-                              ? ` · +${money(Number(artist.homeVisitCharge))}`
+                            {row.id === 'AT_HOME' && homeVisitFee > 0
+                              ? ` · +${money(homeVisitFee)} travel`
+                              : ''}
+                            {row.id === 'AT_STUDIO' && homeVisitFee > 0
+                              ? ` · Save ${money(homeVisitFee)} vs home`
                               : ''}
                           </span>
+                          {servicePrice > 0 ? (
+                            <span className="hlm-glam-venue-est">
+                              Est.{' '}
+                              {money(
+                                row.id === 'AT_HOME'
+                                  ? homeVenueTotal
+                                  : studioVenueTotal,
+                              )}
+                            </span>
+                          ) : null}
                         </span>
                       </button>
                     ))}
                   </div>
+                  {servicePrice > 0 && homeVisitFee > 0 ? (
+                    <p className="hlm-glam-venue-price-note" role="status">
+                      {venue === 'AT_HOME'
+                        ? `At home est. ${money(homeVenueTotal)} (incl. ${money(homeVisitFee)} travel). Studio est. ${money(studioVenueTotal)}.`
+                        : `At studio est. ${money(studioVenueTotal)}. At home would be ${money(homeVenueTotal)} (${money(homeVisitFee)} travel).`}
+                    </p>
+                  ) : null}
                   {venue === 'AT_STUDIO' ? (
                     artist.studioAddress ? (
                       <p className="hlm-glam-studio">Studio: {artist.studioAddress}</p>
@@ -2142,31 +2711,82 @@ export function BeautyPage() {
                 {offeredRates.length === 0 ? (
                   <p style={styles.muted}>This artist has not listed prices yet. Try another artist.</p>
                 ) : (
-                  <div className="hlm-glam-service-table-wrap">
-                    <table className="hlm-glam-service-table">
-                      <thead>
-                        <tr>
-                          <th scope="col" className="hlm-glam-th-check" aria-label="Select" />
-                          <th scope="col">Service</th>
-                          <th scope="col">Details</th>
-                          <th scope="col" className="hlm-glam-th-price">
-                            Price
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {offeredRates.map((row) => {
+                  <div className="hlm-glam-service-picker">
+                    <div className="hlm-glam-service-cats hlm-hide-scrollbar" role="tablist" aria-label="Service categories">
+                      <button
+                        type="button"
+                        role="tab"
+                        aria-selected={serviceCategory === 'POPULAR'}
+                        className={`hlm-glam-service-cat${serviceCategory === 'POPULAR' ? ' hlm-glam-service-cat-on' : ''}`}
+                        onClick={() => setServiceCategory('POPULAR')}
+                      >
+                        <span className="hlm-glam-service-cat-emoji" aria-hidden>
+                          ⭐
+                        </span>
+                        <span className="hlm-glam-service-cat-label">Popular</span>
+                      </button>
+                      {BEAUTY_SERVICE_CATEGORIES.map((cat) => (
+                        <button
+                          key={cat.id}
+                          type="button"
+                          role="tab"
+                          aria-selected={serviceCategory === cat.id}
+                          className={`hlm-glam-service-cat${serviceCategory === cat.id ? ' hlm-glam-service-cat-on' : ''}`}
+                          onClick={() => setServiceCategory(cat.id)}
+                        >
+                          <span className="hlm-glam-service-cat-emoji" aria-hidden>
+                            {cat.emoji}
+                          </span>
+                          <span className="hlm-glam-service-cat-label">{cat.label}</span>
+                        </button>
+                      ))}
+                    </div>
+                    <div className="hlm-glam-service-list hlm-hide-scrollbar" role="tabpanel">
+                      {filteredServiceRates.length === 0 ? (
+                        <p className="hlm-glam-section-sub" style={{ margin: 0 }}>
+                          No services in this category for this artist. Try another tab.
+                        </p>
+                      ) : (
+                        filteredServiceRates.map((row) => {
                           const on = selectedServices.includes(row.serviceType);
                           const catalog = BEAUTY_SERVICES.find((s) => s.id === row.serviceType);
                           const label = rateLabel(row);
                           const detail = row.hint || catalog?.hint || `${row.durationMinutes} min`;
                           return (
-                            <tr
+                            <div
                               key={row.serviceType}
-                              className={on ? 'hlm-glam-service-row-on' : undefined}
+                              className={`hlm-glam-service-card${on ? ' hlm-glam-service-card-on' : ''}`}
+                              role="button"
+                              tabIndex={0}
                               onClick={() => toggleService(row.serviceType)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' || e.key === ' ') {
+                                  e.preventDefault();
+                                  toggleService(row.serviceType);
+                                }
+                              }}
                             >
-                              <td className="hlm-glam-td-check">
+                              <img
+                                className="hlm-glam-service-thumb"
+                                src={glamServiceImage(row.serviceType, 120)}
+                                alt=""
+                                width={120}
+                                height={120}
+                                loading="lazy"
+                                decoding="async"
+                                onError={(e) => {
+                                  const img = e.currentTarget;
+                                  if (img.dataset.fallback === '1') return;
+                                  img.dataset.fallback = '1';
+                                  img.src = GLAM_SERVICE_FALLBACK_IMAGE;
+                                }}
+                              />
+                              <div className="hlm-glam-service-card-copy">
+                                <p className="hlm-glam-service-card-title">{label}</p>
+                                <p className="hlm-glam-service-card-detail">{detail}</p>
+                              </div>
+                              <div className="hlm-glam-service-card-end">
+                                <span className="hlm-glam-service-card-price">{money(row.unitPrice)}</span>
                                 <input
                                   type="checkbox"
                                   checked={on}
@@ -2174,22 +2794,12 @@ export function BeautyPage() {
                                   onChange={() => toggleService(row.serviceType)}
                                   onClick={(e) => e.stopPropagation()}
                                 />
-                              </td>
-                              <td>
-                                <span className="hlm-glam-service-name">
-                                  <span className="hlm-glam-service-emoji" aria-hidden>
-                                    {row.emoji || catalog?.emoji || '✨'}
-                                  </span>
-                                  {label}
-                                </span>
-                              </td>
-                              <td className="hlm-glam-service-detail">{detail}</td>
-                              <td className="hlm-glam-service-price">{money(row.unitPrice)}</td>
-                            </tr>
+                              </div>
+                            </div>
                           );
-                        })}
-                      </tbody>
-                    </table>
+                        })
+                      )}
+                    </div>
                   </div>
                 )}
               </div>
@@ -2210,11 +2820,31 @@ export function BeautyPage() {
                       key={row.id}
                       type="button"
                       className={`hlm-glam-occasion${occasion === row.id ? ' hlm-glam-occasion-on' : ''}`}
-                      style={occasion === row.id ? { backgroundColor: row.tint } : undefined}
+                      style={{ backgroundColor: row.tint }}
                       onClick={() => setOccasion(row.id)}
                     >
-                      <span className="hlm-glam-occasion-emoji">{row.emoji}</span>
-                      <span className="hlm-glam-occasion-label">{row.label}</span>
+                      <img
+                        className="hlm-glam-occasion-photo"
+                        src={glamOccasionImage(row.id, 360)}
+                        alt=""
+                        width={360}
+                        height={238}
+                        loading="lazy"
+                        decoding="async"
+                        onError={(e) => {
+                          const img = e.currentTarget;
+                          if (img.dataset.fallback === '1') return;
+                          img.dataset.fallback = '1';
+                          img.src = GLAM_OCCASION_FALLBACK_IMAGE;
+                        }}
+                      />
+                      <span className="hlm-glam-occasion-scrim" aria-hidden />
+                      <span className="hlm-glam-occasion-copy">
+                        <span className="hlm-glam-occasion-emoji" aria-hidden>
+                          {row.emoji}
+                        </span>
+                        <span className="hlm-glam-occasion-label">{row.label}</span>
+                      </span>
                     </button>
                   ))}
                 </div>
@@ -2236,8 +2866,27 @@ export function BeautyPage() {
                 <div className="hlm-glam-panel">
                   <p className="hlm-glam-section-title">Reference look</p>
                   <p className="hlm-glam-section-sub">Optional inspiration photo</p>
-                  <label className={referencePhotoMediaId ? 'hlm-glam-photo hlm-glam-photo-on' : 'hlm-glam-photo'}>
-                    {photoBusy ? 'Uploading…' : referencePhotoMediaId ? 'Photo added · tap to replace' : '📷 Add inspiration photo'}
+                  <label
+                    className={
+                      referencePhotoPreviewUrl ? 'hlm-glam-photo hlm-glam-photo-on' : 'hlm-glam-photo'
+                    }
+                  >
+                    {referencePhotoPreviewUrl ? (
+                      <>
+                        <img
+                          className="hlm-glam-photo-preview"
+                          src={referencePhotoPreviewUrl}
+                          alt="Your reference look"
+                        />
+                        <span className="hlm-glam-photo-caption">
+                          {photoBusy ? 'Uploading…' : 'Tap to replace photo'}
+                        </span>
+                      </>
+                    ) : photoBusy ? (
+                      'Uploading…'
+                    ) : (
+                      '📷 Add inspiration photo'
+                    )}
                     <input
                       type="file"
                       accept="image/*"
@@ -2247,17 +2896,40 @@ export function BeautyPage() {
                         const file = e.target.files?.[0];
                         e.target.value = '';
                         if (!file || !token) return;
+                        if (referencePreviewObjectUrlRef.current) {
+                          URL.revokeObjectURL(referencePreviewObjectUrlRef.current);
+                        }
+                        const blobUrl = URL.createObjectURL(file);
+                        referencePreviewObjectUrlRef.current = blobUrl;
+                        setReferencePhotoPreviewUrl(blobUrl);
                         setPhotoBusy(true);
                         setError(null);
                         void uploadBeautyReferencePhoto(token, file)
-                          .then((mediaId) => setReferencePhotoMediaId(mediaId))
-                          .catch((err) => setError(err instanceof Error ? err.message : 'Photo upload failed'))
+                          .then(({ mediaId, url }) => {
+                            setReferencePhotoMediaId(mediaId);
+                            const nextUrl = url?.trim() || blobUrl;
+                            if (url?.trim() && referencePreviewObjectUrlRef.current === blobUrl) {
+                              URL.revokeObjectURL(blobUrl);
+                              referencePreviewObjectUrlRef.current = null;
+                            }
+                            setReferencePhotoPreviewUrl(nextUrl);
+                          })
+                          .catch((err) => {
+                            setReferencePhotoPreviewUrl(null);
+                            setReferencePhotoMediaId(undefined);
+                            if (referencePreviewObjectUrlRef.current) {
+                              URL.revokeObjectURL(referencePreviewObjectUrlRef.current);
+                              referencePreviewObjectUrlRef.current = null;
+                            }
+                            setError(err instanceof Error ? err.message : 'Photo upload failed');
+                          })
                           .finally(() => setPhotoBusy(false));
                       }}
                     />
                   </label>
                 </div>
               </div>
+              {showBookingDock ? <div className="hlm-glam-scroll-end" aria-hidden /> : null}
             </>
           ) : null}
         </div>

@@ -5,6 +5,7 @@ import { useAuth } from '@/shared/auth/AuthContext';
 import { Banner, Button } from '@/shared/ui';
 import {
   isDiagnosticsVendor,
+  isFoodVendor,
   isGlamVendor,
   isLaundryVendor,
   useHidesListings,
@@ -89,7 +90,9 @@ export function DashboardPage({ active = true }: { active?: boolean }) {
   const hidesListings = useHidesListings();
   const glamVendor = isGlamVendor(session?.serviceName);
   const laundryVendor = isLaundryVendor(session?.serviceName);
+  const foodVendor = isFoodVendor(session?.serviceName);
   const diagnosticsVendor = isDiagnosticsVendor(session?.serviceName);
+  const specialtyHome = hidesListings && !foodVendor;
   const { collectionAgentOnly } = useDiagnosticsStaffSession();
   const agentPendingCount = ordersNeedingAgent.length;
 
@@ -114,7 +117,7 @@ export function DashboardPage({ active = true }: { active?: boolean }) {
       title: collectionAgentOnly ? 'My visits' : 'Seller home',
       onRefresh: () => {
         void reloadShop();
-        if (hidesListings) {
+        if (specialtyHome) {
           setLaundryTick((n) => n + 1);
         } else {
           void reload();
@@ -152,7 +155,7 @@ export function DashboardPage({ active = true }: { active?: boolean }) {
 
   return (
     <div style={styles.page}>
-      {hidesListings ? (
+      {specialtyHome ? (
         <>
           {!acceptingOrders && !collectionAgentOnly ? (
             <Banner tone="warning">
@@ -169,14 +172,8 @@ export function DashboardPage({ active = true }: { active?: boolean }) {
           ) : null}
           {shopError ? <Banner tone="danger">{shopError}</Banner> : null}
           {glamVendor ? <BeautyBookings active={active} reloadToken={laundryTick} /> : null}
-          {laundryVendor || (!glamVendor && !laundryVendor && !diagnosticsVendor) ? (
-            <LaundryRequests
-              active={
-                active &&
-                (laundryVendor || (!glamVendor && !laundryVendor && !diagnosticsVendor))
-              }
-              reloadToken={laundryTick}
-            />
+          {laundryVendor ? (
+            <LaundryRequests active={active && laundryVendor} reloadToken={laundryTick} />
           ) : null}
           {diagnosticsVendor && collectionAgentOnly ? (
             <DiagnosticsMyVisitsSection active={active} reloadToken={laundryTick} />

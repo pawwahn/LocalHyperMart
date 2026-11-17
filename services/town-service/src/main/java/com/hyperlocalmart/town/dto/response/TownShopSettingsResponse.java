@@ -53,7 +53,7 @@ public class TownShopSettingsResponse {
     @Builder.Default
     private boolean groceryEnabled = true;
 
-    /** Hotel staff delivery option at food checkout (town hub delivery when false). */
+    /** Hotel may fulfil via own staff (vendor portal); buyers default to hub delivery at checkout. */
     @Builder.Default
     private boolean vendorAgentDeliveryEnabled = false;
 

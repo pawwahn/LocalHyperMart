@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.hyperlocalmart.common.exception.BusinessException;
 import com.hyperlocalmart.common.exception.ErrorCode;
 import com.hyperlocalmart.vendor.client.AdminAuditClient;
+import com.hyperlocalmart.vendor.client.TownClient;
 import com.hyperlocalmart.vendor.dto.request.CommercialTermsQuoteRequest;
 import com.hyperlocalmart.vendor.dto.request.UpsertVendorCommercialTermsRequest;
 import com.hyperlocalmart.vendor.dto.response.CommercialTermsQuoteResponse;
@@ -44,6 +45,7 @@ public class VendorCommercialTermsService {
     private final VendorRepository vendorRepository;
     private final ObjectMapper objectMapper;
     private final AdminAuditClient adminAuditClient;
+    private final TownClient townClient;
 
     @Transactional
     public VendorCommercialTermsResponse ensureDefault(UUID vendorId, UUID actorId) {
@@ -386,6 +388,7 @@ public class VendorCommercialTermsService {
 
         VendorCommercialTerms subTerms = termsForDate(
                 vendorId, request.getPeriodEnd() == null ? LocalDate.now(IST) : request.getPeriodEnd());
+        boolean townOpen = townAcceptingSubscription(vendorId);
         BigDecimal subscription = BigDecimal.ZERO;
         boolean subscriptionIncluded = false;
         if (request.includeSubscription()
@@ -395,12 +398,14 @@ public class VendorCommercialTermsService {
                 || subTerms.getFeeModel() == VendorFeeModel.PER_PIECE_WITH_SUBSCRIPTION
                 || subTerms.getFeeModel() == VendorFeeModel.PER_ORDER_WITH_SUBSCRIPTION)) {
             subscription = subscriptionDue(subTerms, request.getPeriodEnd(), request.isMarkSubscriptionCharged(),
-                    request.ignoreSubscriptionChargedFlag());
+                    request.ignoreSubscriptionChargedFlag(), townOpen);
             subscriptionIncluded = subscription.compareTo(BigDecimal.ZERO) > 0;
             if (subscriptionIncluded) {
                 lines.add("Monthly subscription ₹" + subscription.toPlainString()
                         + " (terms as of " + (request.getPeriodEnd() == null ? LocalDate.now(IST) : request.getPeriodEnd())
                         + ")");
+            } else if (!townOpen && nz(subTerms.getMonthlySubscriptionAmount()).compareTo(BigDecimal.ZERO) > 0) {
+                lines.add("Monthly subscription paused — town is disabled");
             } else if (nz(subTerms.getMonthlySubscriptionAmount()).compareTo(BigDecimal.ZERO) > 0) {
                 lines.add("Monthly subscription already charged for this month (or not due)");
             }
@@ -601,6 +606,7 @@ public class VendorCommercialTermsService {
             return List.of();
         }
         List<VendorCommercialTerms> history = termsRepository.findByVendorIdOrderByEffectiveFromDesc(vendorId);
+        boolean townOpen = townAcceptingSubscription(vendorId);
         List<MonthSubscriptionAmount> out = new ArrayList<>();
         for (LocalDate end : periodEnds) {
             if (end == null) {
@@ -610,7 +616,7 @@ public class VendorCommercialTermsService {
             if (terms == null) {
                 continue;
             }
-            BigDecimal amount = subscriptionDue(terms, end, false, true);
+            BigDecimal amount = subscriptionDue(terms, end, false, true, townOpen);
             if (amount.signum() > 0) {
                 out.add(new MonthSubscriptionAmount(end, amount));
             }
@@ -635,7 +641,11 @@ public class VendorCommercialTermsService {
     }
 
     private BigDecimal subscriptionDue(
-            VendorCommercialTerms terms, LocalDate periodEnd, boolean markCharged, boolean ignoreChargedFlag) {
+            VendorCommercialTerms terms,
+            LocalDate periodEnd,
+            boolean markCharged,
+            boolean ignoreChargedFlag,
+            boolean townAcceptingOrders) {
         BigDecimal amount = nz(terms.getMonthlySubscriptionAmount());
         if (amount.compareTo(BigDecimal.ZERO) <= 0) {
             return BigDecimal.ZERO;
@@ -647,6 +657,9 @@ public class VendorCommercialTermsService {
         int dayInMonth = Math.min(billingDay, ref.lengthOfMonth());
         LocalDate billingDate = LocalDate.of(ref.getYear(), ref.getMonth(), dayInMonth);
         if (ref.isBefore(billingDate)) {
+            return BigDecimal.ZERO;
+        }
+        if (!townAcceptingOrders) {
             return BigDecimal.ZERO;
         }
         if (ignoreChargedFlag) {
@@ -734,6 +747,14 @@ public class VendorCommercialTermsService {
     private Vendor requireVendor(UUID vendorId) {
         return vendorRepository.findById(vendorId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Vendor not found"));
+    }
+
+    private boolean townAcceptingSubscription(UUID vendorId) {
+        Vendor vendor = vendorRepository.findById(vendorId).orElse(null);
+        if (vendor == null || vendor.getTownId() == null) {
+            return false;
+        }
+        return townClient.acceptingOrders(vendor.getTownId());
     }
 
     private VendorCommercialTermsResponse emptyCurrent(UUID vendorId) {

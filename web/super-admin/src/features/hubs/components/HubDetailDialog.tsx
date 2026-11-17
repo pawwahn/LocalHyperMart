@@ -84,6 +84,7 @@ export function HubDetailDialog({ hub, townLabel, stateName, stateCode, token, o
     }
     setBusy(true);
     setError(null);
+    setSavedNotice(null);
     try {
       const saved = await updateHub(token, hub.hubId, {
         name: name.trim(),
@@ -100,7 +101,6 @@ export function HubDetailDialog({ hub, townLabel, stateName, stateCode, token, o
       setGovtIdNumber(saved.govtIdNumber ?? '');
       setSavedNotice('Saved and logged.');
       setHistoryTick((n) => n + 1);
-      setPanel('log');
       onSaved(saved, `Hub updated · ${saved.name}`);
     } catch (err) {
       setError(err instanceof ApiError || err instanceof Error ? err.message : 'Save failed');

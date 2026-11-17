@@ -145,7 +145,7 @@ export function PortalShell({
         paddingBottom: showFloatingCart
           ? 'calc(var(--tabbar-h) + var(--sticky-cart-h) + env(safe-area-inset-bottom, 0px) + 0.4rem)'
           : hasFooter
-            ? 'calc(var(--tabbar-h) + var(--glam-dock-h, 9.25rem) + env(safe-area-inset-bottom, 0px) + 0.5rem)'
+            ? 'calc(var(--tabbar-h) + var(--glam-dock-h, 12.5rem) + env(safe-area-inset-bottom, 0px) + 0.75rem)'
             : 'calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px) + 0.75rem)',
       }}
     >
@@ -156,7 +156,7 @@ export function PortalShell({
         onClose={() => setServicesSheetOpen(false)}
       />
       <header style={shopChrome ? styles.headerShop : styles.header}>
-        {shopChrome ? null : (
+        {shopChrome || onServiceRoute ? null : (
           <div style={styles.brandRow}>
             <div style={styles.brandLockup}>
               <p style={styles.brandMark}>{APP_NAME}</p>
@@ -427,7 +427,7 @@ const styles: Record<string, CSSProperties> = {
     width: '100%',
     margin: '0 auto',
     padding: '0.35rem var(--shell-pad) 0',
-    minHeight: '100vh',
+    minHeight: '100dvh',
     display: 'grid',
     gap: '0.55rem',
     alignContent: 'start',

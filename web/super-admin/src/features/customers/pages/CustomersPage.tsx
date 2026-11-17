@@ -1,5 +1,5 @@
-import { useCallback, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react';
-import { Link } from 'react-router-dom';
+import { useCallback, useEffect, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react';
+import { Link, useLocation } from 'react-router-dom';
 import { PortalShell } from '@/shared/layout/PortalShell';
 import { useAuth } from '@/shared/auth/AuthContext';
 import { ApiError } from '@/shared/api/http';
@@ -141,7 +141,18 @@ export function CustomersPage() {
   const { session } = useAuth();
   const token = session?.accessToken ?? '';
 
-  const [phoneDraft, setPhoneDraft] = useState('');
+  const location = useLocation();
+  const [phoneDraft, setPhoneDraft] = useState(() => {
+    const phone = (location.state as { phone?: string } | null)?.phone;
+    return phone?.trim() ?? '';
+  });
+
+  useEffect(() => {
+    const phone = (location.state as { phone?: string } | null)?.phone?.trim();
+    if (phone) {
+      setPhoneDraft(phone);
+    }
+  }, [location.state]);
   const [tab, setTab] = useState<Tab>('overview');
   const [customer, setCustomer] = useState<CustomerProfile | null>(null);
   const [addresses, setAddresses] = useState<CustomerAddress[]>([]);

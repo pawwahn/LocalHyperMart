@@ -177,10 +177,17 @@ public interface SettlementRepository extends JpaRepository<Settlement, UUID> {
             """)
     List<Settlement> findSubscriptionBills(@Param("vendorId") UUID vendorId);
 
-    List<Settlement> findByStatusNotOrderByPeriodStartAsc(SettlementStatus status);
+    @Query("""
+            SELECT DISTINCT s FROM Settlement s
+            LEFT JOIN FETCH s.lineItems
+            WHERE s.status <> :status
+            ORDER BY s.periodStart
+            """)
+    List<Settlement> findByStatusNotOrderByPeriodStartAsc(@Param("status") SettlementStatus status);
 
     @Query("""
-            SELECT s FROM Settlement s
+            SELECT DISTINCT s FROM Settlement s
+            LEFT JOIN FETCH s.lineItems
             WHERE s.status <> com.hyperlocalmart.payment.entity.SettlementStatus.PAID
               AND s.periodEnd >= :from
               AND s.periodStart <= :to

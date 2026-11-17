@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react';
@@ -185,6 +186,15 @@ export function TownProvider({ children }: { children: ReactNode }) {
   const townId = session?.townId || pref?.townId || '';
   const hasTown = Boolean(townId);
   const townLabel = hasTown ? labelFor(pref, towns, townId) : 'Choose your town';
+
+  const prevTownIdRef = useRef(townId);
+  useEffect(() => {
+    const prev = prevTownIdRef.current;
+    prevTownIdRef.current = townId;
+    if (!prev && townId && pickerOpen) {
+      setPickerOpen(false);
+    }
+  }, [townId, pickerOpen]);
 
   useEffect(() => {
     if (!townId) {

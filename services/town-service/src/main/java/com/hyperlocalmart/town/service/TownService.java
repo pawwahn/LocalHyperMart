@@ -4,6 +4,7 @@ import com.hyperlocalmart.common.exception.BusinessException;
 import com.hyperlocalmart.common.exception.ErrorCode;
 import com.hyperlocalmart.town.dto.request.CreateTownRequest;
 import com.hyperlocalmart.town.dto.request.UpdateTownCoverageRequest;
+import com.hyperlocalmart.town.dto.request.UpdateTownNameRequest;
 import com.hyperlocalmart.town.dto.request.UpdateTownStatusRequest;
 import com.hyperlocalmart.town.dto.response.GeoCountryResponse;
 import com.hyperlocalmart.town.dto.response.GeoStateResponse;
@@ -185,6 +186,45 @@ public class TownService {
                 Map.of("name", town.getName(), "townCode", town.getTownCode(), "status", town.getStatus().name()));
 
         return getTown(town.getId());
+    }
+
+    @Transactional
+    public TownDetailResponse updateName(UUID townId, UpdateTownNameRequest request, UUID actorId) {
+        Town town = townRepository.findById(townId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "Town not found"));
+        String name = request.getName().trim();
+        if (name.isEmpty()) {
+            throw new BusinessException(ErrorCode.VALIDATION_ERROR, "Town name is required");
+        }
+        if (name.equalsIgnoreCase(town.getName())) {
+            return getTown(townId);
+        }
+        if (townRepository.existsByNameIgnoreCaseAndStateIgnoreCaseAndCountryCodeIgnoreCase(
+                name, town.getState(), town.getCountryCode())) {
+            throw new BusinessException(ErrorCode.CONFLICT, "A town with this name already exists in this state/country");
+        }
+        Map<String, Object> before = Map.of(
+                "name", town.getName(),
+                "displayName", town.getDisplayName());
+        town.setName(name);
+        town.setDisplayName(name + ", " + town.getState());
+        town.setUpdatedBy(actorId);
+        townRepository.save(town);
+        Map<String, Object> after = Map.of(
+                "name", town.getName(),
+                "displayName", town.getDisplayName());
+        adminAuditService.record(
+                "towns",
+                "UPDATE_TOWN_NAME",
+                "Renamed town to " + town.getDisplayName(),
+                actorId,
+                "SUPER_ADMIN",
+                townId,
+                "TOWN",
+                townId,
+                before,
+                after);
+        return getTown(townId);
     }
 
     @Transactional

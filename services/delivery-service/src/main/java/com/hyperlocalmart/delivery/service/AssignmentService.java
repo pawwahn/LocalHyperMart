@@ -272,6 +272,31 @@ public class AssignmentService {
     }
 
     @Transactional
+    public int cancelActiveAssignmentsForOrder(UUID orderId, String reason) {
+        if (orderId == null) {
+            return 0;
+        }
+        List<DeliveryAssignment> assignments =
+                deliveryAssignmentRepository.findByOrderIdOrderByAssignedAtDesc(orderId);
+        int cancelled = 0;
+        for (DeliveryAssignment assignment : assignments) {
+            if (!ACTIVE_STATUSES.contains(assignment.getStatus())) {
+                continue;
+            }
+            assignment.setAssignmentNumber(
+                    AssignmentNumberFormatter.releasedUnique(assignment.getAssignmentNumber(), assignment.getId()));
+            assignment.setStatus(AssignmentStatus.CANCELLED);
+            assignment.setCompletedAt(Instant.now());
+            assignment.setUpdatedBy(null);
+            deliveryAssignmentRepository.save(assignment);
+            logEvent(assignment.getId(), "ASSIGNMENT_CANCELLED", null, Map.of(
+                    "reason", reason == null ? "" : reason));
+            cancelled++;
+        }
+        return cancelled;
+    }
+
+    @Transactional
     public AssignmentResponse assignLastMile(UUID hubAdminUserId, AssignLastMileRequest request) {
         HubAdmin hubAdmin = resolveActiveHubAdmin(hubAdminUserId);
         DeliveryAgent agent = resolveActiveAgentLinkedToHub(request.getAgentId(), hubAdmin.getHubId());

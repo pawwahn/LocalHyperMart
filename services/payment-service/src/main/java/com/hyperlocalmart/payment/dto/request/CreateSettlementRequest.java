@@ -76,4 +76,10 @@ public class CreateSettlementRequest {
 
     @Size(max = 500)
     private String otherChargesReason;
+
+    /**
+     * When set with {@link #otherChargesAmount}, records a one-time cancellation penalty tied to this order
+     * (line type CANCELLATION_PENALTY). A second penalty for the same order is rejected.
+     */
+    private UUID cancellationPenaltyOrderId;
 }

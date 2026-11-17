@@ -27,6 +27,7 @@ import { rejectHubPaymentSubmission, verifyHubPaymentSubmission } from '@/featur
 import { listTowns, type TownVm } from '@/features/towns/api/townsApi';
 import { listHubs } from '@/features/hubs/api/hubsApi';
 import { listAllAgents } from '@/features/agents/api/agentsApi';
+import { listVendors } from '@/features/vendors/api/vendorsApi';
 import { rangeForReportPreset, type ReportDatePreset } from '@/shared/dates/istReportPresets';
 import {
   fetchTownDues,
@@ -175,6 +176,23 @@ function isSubscription(line: TownDueLine): boolean {
   return (line.what || '').toLowerCase().includes('subscription');
 }
 
+type TownBillTab = 'business' | 'subscription';
+
+function partitionTownLines(lines: TownDueLine[]): { business: TownDueLine[]; subscription: TownDueLine[] } {
+  const subscription: TownDueLine[] = [];
+  const business: TownDueLine[] = [];
+  for (const line of lines) {
+    if (isSubscription(line)) subscription.push(line);
+    else business.push(line);
+  }
+  return { business, subscription };
+}
+
+function linesForTownTab(lines: TownDueLine[], tab: TownBillTab): TownDueLine[] {
+  const { business, subscription } = partitionTownLines(lines);
+  return tab === 'subscription' ? subscription : business;
+}
+
 function actionLabel(line: TownDueLine): string {
   if (line.action === 'PAY') return 'Pay';
   if (line.action === 'COLLECT') return 'Collect';
@@ -249,6 +267,7 @@ export function TownDuesPage() {
   const [layout, setLayout] = useState<'list' | 'week' | 'month'>('list');
   const [cursor, setCursor] = useState(todayIso);
   const [tab, setTab] = useState<LedgerTab>('dues');
+  const [townBillTab, setTownBillTab] = useState<Record<string, TownBillTab>>({});
   const [townId, setTownId] = useState('');
   const [party, setParty] = useState<DueParty | ''>('');
   const [partyId, setPartyId] = useState('');
@@ -365,6 +384,28 @@ export function TownDuesPage() {
   useEffect(() => {
     void loadDues();
   }, [loadDues]);
+
+  useEffect(() => {
+    if (!token || !report?.towns?.length) return;
+    const townIds = [...new Set(report.towns.map((t) => t.townId))];
+    void (async () => {
+      try {
+        const lists = await Promise.all(townIds.map((id) => listVendors(token, id).catch(() => [])));
+        setLoginPhones((prev) => {
+          const next = new Map(prev);
+          for (const vendors of lists) {
+            for (const vendor of vendors) {
+              const login = vendor.phone?.trim();
+              if (vendor.id && login) next.set(vendor.id, login);
+            }
+          }
+          return next;
+        });
+      } catch {
+        // Phones are optional for hover hints.
+      }
+    })();
+  }, [token, report]);
 
   const townName = useCallback(
     (id: string) => towns.find((town) => town.id === id)?.displayName || 'Town',
@@ -892,13 +933,36 @@ export function TownDuesPage() {
       ) : null}
 
       {layout === 'list'
-        ? view.map((town) => (
+        ? view.map((town) => {
+        const { business, subscription } = partitionTownLines(town.lines);
+        const activeTab = townBillTab[town.townId] ?? 'business';
+        const visibleLines = linesForTownTab(town.lines, activeTab);
+        return (
         <section key={town.townId} className="dues-town-block">
           <header className="dues-town-head">
-            <h2 className="dues-town-title">{townName(town.townId)}</h2>
-            <span className="dues-town-badge">
-              {town.lines.length} item{town.lines.length === 1 ? '' : 's'}
-            </span>
+            <h2 className="dues-town-title">
+              {townName(town.townId)} ({town.lines.length})
+            </h2>
+            <div className="dues-town-tabs" role="tablist" aria-label={`Bill type · ${townName(town.townId)}`}>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeTab === 'business'}
+                className={activeTab === 'business' ? 'dues-town-tab on' : 'dues-town-tab'}
+                onClick={() => setTownBillTab((prev) => ({ ...prev, [town.townId]: 'business' }))}
+              >
+                Shop &amp; trips ({business.length})
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeTab === 'subscription'}
+                className={activeTab === 'subscription' ? 'dues-town-tab on' : 'dues-town-tab'}
+                onClick={() => setTownBillTab((prev) => ({ ...prev, [town.townId]: 'subscription' }))}
+              >
+                Subscription ({subscription.length})
+              </button>
+            </div>
           </header>
           <div className="dues-ledger-wrap">
             <table className="dues-ledger" style={styles.table}>
@@ -933,11 +997,29 @@ export function TownDuesPage() {
                 </tr>
               </thead>
               <tbody>
-                {town.lines.map((line, index) => (
+                {visibleLines.length === 0 ? (
+                  <tr>
+                    <td colSpan={11} className="dues-td dues-tab-empty">
+                      {activeTab === 'subscription'
+                        ? 'No subscription bills in this town for the current filter.'
+                        : 'No shop-held or trip bills in this town for the current filter.'}
+                    </td>
+                  </tr>
+                ) : null}
+                {visibleLines.map((line, index) => (
                   <tr key={`${line.party}-${line.partyId}-${line.action}-${line.periodStart}-${index}`}>
                     <td className="dues-td dues-col-who">
-                      <div className="dues-who-name">{partyName(line)}</div>
-                      {partyPhone(line) ? <div className="dues-who-phone">{partyPhone(line)}</div> : null}
+                      {(() => {
+                        const phone = partyPhone(line);
+                        return (
+                          <div
+                            className={phone ? 'dues-who-name has-phone' : 'dues-who-name'}
+                            title={phone ? `Login mobile · ${phone}` : undefined}
+                          >
+                            {partyName(line)}
+                          </div>
+                        );
+                      })()}
                     </td>
                     <td className="dues-td dues-col-do">
                       <div className="dues-do-stack">
@@ -1033,7 +1115,8 @@ export function TownDuesPage() {
             </table>
           </div>
         </section>
-      ))
+        );
+      })
         : null}
       <ConfirmDialog
         open={ask != null}
@@ -1282,7 +1365,7 @@ const DUES_CSS = `
   overflow: hidden;
 }
 .dues-town-head {
-  display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;
+  display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap;
   padding: 0.5rem 0.75rem;
   background: linear-gradient(
     92deg,
@@ -1293,15 +1376,30 @@ const DUES_CSS = `
 }
 .dues-town-title {
   margin: 0; font-size: 0.92rem; font-weight: 850; letter-spacing: -0.02em; color: var(--text);
+  font-variant-numeric: tabular-nums;
 }
-.dues-town-badge {
-  flex-shrink: 0;
+.dues-town-tabs {
+  display: flex; flex-wrap: wrap; gap: 0.28rem; align-items: center;
+}
+.dues-town-tab {
   font-size: 0.66rem; font-weight: 750; color: var(--text-muted);
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 999px;
-  padding: 0.14rem 0.55rem;
+  padding: 0.18rem 0.55rem;
   font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+.dues-town-tab.on {
+  color: var(--accent, #009111);
+  border-color: color-mix(in srgb, var(--accent, #009111) 45%, var(--border));
+  background: color-mix(in srgb, var(--accent, #009111) 10%, var(--bg));
+}
+.dues-tab-empty {
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  padding: 0.65rem 0.5rem !important;
 }
 
 .dues-ledger-wrap { overflow-x: auto; overflow-y: visible; }
@@ -1384,6 +1482,12 @@ const DUES_CSS = `
   text-overflow: ellipsis;
 }
 
+.dues-who-name.has-phone {
+  cursor: help;
+  text-decoration: underline dotted;
+  text-underline-offset: 0.12em;
+  text-decoration-color: color-mix(in srgb, var(--text-muted) 65%, transparent);
+}
 .dues-who-name {
   font-weight: 850;
   font-size: 0.72rem;

@@ -39,7 +39,7 @@ public class UserService {
 
     @Transactional(readOnly = true)
     public UserProfileResponse getProfile(UUID userId) {
-        User user = userRepository.findById(userId)
+        User user = userRepository.findWithRolesById(userId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.NOT_FOUND, "User not found"));
         return toProfile(user);
     }

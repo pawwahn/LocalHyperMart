@@ -13,6 +13,7 @@ import {
   patchTownServiceFlags,
   SCRATCH_SERVICE_KEYS,
   updateTownConfig,
+  updateTownName,
   type DeliverySlabVm,
   type TownConfigVm,
   type ScratchServiceKey,
@@ -67,6 +68,7 @@ type SettingsSection =
   | 'services'
   | 'hub-pay'
   | 'vendor-delivery'
+  | 'profile'
   | 'status'
   | 'log';
 
@@ -77,9 +79,43 @@ type Props = {
   onClose: () => void;
   onSaved: (message: string) => void;
   onRequestTownStatus: (next: 'ENABLED' | 'DISABLED') => void;
+  onTownUpdated?: (town: TownVm) => void;
   townStatusBusy?: boolean;
   readOnly?: boolean;
 };
+
+function townNameFromVm(town: TownVm): string {
+  const state = town.state?.trim();
+  if (state && town.displayName.endsWith(`, ${state}`)) {
+    return town.displayName.slice(0, -(state.length + 2)).trim();
+  }
+  const comma = town.displayName.indexOf(',');
+  return (comma >= 0 ? town.displayName.slice(0, comma) : town.displayName).trim();
+}
+
+function townVmFromDetail(detail: {
+  id: string;
+  displayName: string;
+  townCode: string;
+  state: string;
+  stateCode: string;
+  country: string;
+  countryCode: string;
+  status: string;
+  acceptingOrders: boolean;
+}): TownVm {
+  return {
+    id: detail.id,
+    displayName: detail.displayName,
+    townCode: detail.townCode,
+    state: detail.state,
+    stateCode: detail.stateCode,
+    country: detail.country,
+    countryCode: detail.countryCode,
+    status: detail.status,
+    acceptingOrders: detail.acceptingOrders,
+  };
+}
 
 const CONFIG_SECTIONS: SettingsSection[] = [
   'shop',
@@ -118,6 +154,7 @@ const NAV_GROUPS: { title: string; items: { id: SettingsSection; label: string }
   {
     title: 'Town',
     items: [
+      { id: 'profile', label: 'Name' },
       { id: 'status', label: 'Enable / disable' },
       { id: 'log', label: 'Change log' },
     ],
@@ -148,11 +185,15 @@ export function TownSettingsDialog({
   onClose,
   onSaved,
   onRequestTownStatus,
+  onTownUpdated,
   townStatusBusy,
   readOnly = false,
 }: Props) {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [nameBusy, setNameBusy] = useState(false);
+  const [headerDisplayName, setHeaderDisplayName] = useState(town.displayName);
+  const [townNameDraft, setTownNameDraft] = useState(() => townNameFromVm(town));
   const [error, setError] = useState<string | null>(null);
   const [minOrderValue, setMinOrderValue] = useState(199);
   const [deliveryMode, setDeliveryMode] = useState<'DEFAULT' | 'SLAB'>('DEFAULT');
@@ -267,12 +308,49 @@ export function TownSettingsDialog({
     if (bodyRef.current) bodyRef.current.scrollTop = 0;
   }, [section]);
 
+  useEffect(() => {
+    setHeaderDisplayName(town.displayName);
+    setTownNameDraft(townNameFromVm(town));
+  }, [town.displayName, town.id, town.state]);
+
   const isConfigSection = CONFIG_SECTIONS.includes(section);
   const sectionHeading =
     NAV_GROUPS.flatMap((g) => g.items).find((i) => i.id === section)?.label ?? 'Settings';
 
   function updateSlab(index: number, patch: Partial<DeliverySlabVm>) {
     setSlabs((prev) => prev.map((s, i) => (i === index ? { ...s, ...patch } : s)));
+  }
+
+  async function onSaveName() {
+    const next = townNameDraft.trim();
+    if (!next) {
+      setError('Enter a town name');
+      return;
+    }
+    if (next.toLowerCase() === townNameFromVm(town).toLowerCase()) {
+      setSavedNotice('No changes to save.');
+      return;
+    }
+    setNameBusy(true);
+    setError(null);
+    setSavedNotice(null);
+    try {
+      const saved = await updateTownName(token, town.id, next);
+      const updated = townVmFromDetail(saved);
+      setHeaderDisplayName(updated.displayName);
+      setTownNameDraft(townNameFromVm(updated));
+      onTownUpdated?.(updated);
+      setSavedNotice('Town name saved.');
+      setToast({ message: 'Name updated', tone: 'success' });
+      setHistoryTick((n) => n + 1);
+      onSaved(`Town renamed to ${updated.displayName}`);
+    } catch (err) {
+      const message = err instanceof ApiError || err instanceof Error ? err.message : 'Save failed';
+      setError(message);
+      setToast({ message, tone: 'danger' });
+    } finally {
+      setNameBusy(false);
+    }
   }
 
   async function onSave() {
@@ -494,7 +572,7 @@ export function TownSettingsDialog({
             <h2 id="town-settings-title" style={styles.title}>
               Town Settings
             </h2>
-            <p style={styles.sub}>{town.displayName}</p>
+            <p style={styles.sub}>{headerDisplayName}</p>
           </div>
           <button type="button" style={styles.close} onClick={onClose} aria-label="Close">
             ✕
@@ -1225,6 +1303,26 @@ export function TownSettingsDialog({
           />
         ) : null}
 
+        {section === 'profile' ? (
+          <section style={styles.card}>
+            <h3 style={styles.sectionTitle}>Display name</h3>
+            <p style={styles.hint}>
+              Shown to buyers, vendors, and in this admin. State stays{' '}
+              <strong>{town.state ?? town.stateCode}</strong>; the label becomes &quot;{townNameDraft.trim() || '…'},{' '}
+              {town.state ?? town.stateCode}&quot;.
+            </p>
+            <TextField
+              label="Town name"
+              value={townNameDraft}
+              disabled={readOnly || nameBusy}
+              onChange={(e) => setTownNameDraft(e.target.value)}
+            />
+            <p style={styles.muted}>
+              Town code <strong>{town.townCode}</strong> does not change when you rename.
+            </p>
+          </section>
+        ) : null}
+
         {section === 'status' ? (
           <section style={styles.card}>
             <h3 style={styles.sectionTitle}>Town on platform</h3>
@@ -1266,8 +1364,13 @@ export function TownSettingsDialog({
         ) : null}
             </div>
 
-            {!loading || !isConfigSection || section === 'vendor-delivery' || section === 'hub-pay' ? (
+            {!loading || !isConfigSection || section === 'vendor-delivery' || section === 'hub-pay' || section === 'profile' || section === 'status' ? (
               <div style={styles.actions}>
+                {section === 'profile' ? (
+                  <Button disabled={nameBusy || readOnly || !townNameDraft.trim()} onClick={() => void onSaveName()}>
+                    {nameBusy ? 'Saving…' : 'Save name'}
+                  </Button>
+                ) : null}
                 {isConfigSection && !loading ? (
                   <Button disabled={busy || readOnly} onClick={() => void onSave()}>
                     {busy ? 'Saving…' : section === 'services' ? 'Save services' : 'Save checkout settings'}
@@ -1319,7 +1422,7 @@ export function TownSettingsDialog({
                 ) : null}
                 <Button
                   variant="ghost"
-                  disabled={busy || vendorDeliveryUi.busy || hubPayUi.busy}
+                  disabled={busy || nameBusy || vendorDeliveryUi.busy || hubPayUi.busy}
                   onClick={onClose}
                 >
                   Close

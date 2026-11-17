@@ -17,6 +17,7 @@ import { LaundryDeskPage } from '@/features/laundry/pages/LaundryDeskPage';
 import { GlamDeskPage } from '@/features/beauty/pages/GlamDeskPage';
 import { DiagnosticsDeskPage } from '@/features/diagnostics/pages/DiagnosticsDeskPage';
 import { FoodDeskPage } from '@/features/food/pages/FoodDeskPage';
+import { HotelImagesPage } from '@/features/food/pages/HotelImagesPage';
 import { NativeAppBridge } from '@hlm-native';
 
 const VENDOR_TAB_ROOTS = [
@@ -26,6 +27,7 @@ const VENDOR_TAB_ROOTS = [
   '/cod-handover',
   '/reports',
   '/payouts',
+  '/hotel-images',
   '/sellers',
   '/settings',
 ] as const;
@@ -64,6 +66,7 @@ export function AppRouter() {
                 <Route path="/listings" element={<KeepAliveRoute />} />
                 <Route path="/reports" element={<KeepAliveRoute />} />
                 <Route path="/payouts" element={<PayoutsPage />} />
+                <Route path="/hotel-images" element={<HotelImagesPage />} />
                 <Route path="/sellers" element={<SellersPage />} />
                 <Route path="/settings" element={<SettingsPage />} />
                 <Route path="/laundry" element={<LaundryDeskPage />} />

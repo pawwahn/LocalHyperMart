@@ -15,6 +15,8 @@ type Props = {
   vendorId: string;
   onToast: (message: string) => void;
   onError: (message: string) => void;
+  /** Full-width page on Hotel Images route; compact card when embedded. */
+  layout?: 'embedded' | 'page';
 };
 
 function slotsFromPhotos(photos: FoodHotelPhoto[]): (FoodHotelPhoto | null)[] {
@@ -36,7 +38,9 @@ function visibleSlotIndexes(slots: (FoodHotelPhoto | null)[]): number[] {
   return Array.from({ length: showThrough + 1 }, (_, i) => i);
 }
 
-export function FoodHotelPhotosCard({ token, vendorId, onToast, onError }: Props) {
+export function FoodHotelPhotosCard({ token, vendorId, onToast, onError, layout = 'embedded' }: Props) {
+  const page = layout === 'page';
+  const thumb = page ? 92 : THUMB;
   const [profile, setProfile] = useState<FoodProfileVm | null>(null);
   const savedPhotos = profile?.hotelPhotos ?? [];
   const [slots, setSlots] = useState<(FoodHotelPhoto | null)[]>(() => slotsFromPhotos(savedPhotos));
@@ -121,12 +125,18 @@ export function FoodHotelPhotosCard({ token, vendorId, onToast, onError }: Props
   const filledCount = slots.filter(Boolean).length;
 
   return (
-    <section style={styles.card} aria-label="Hotel photos">
+    <section
+      style={{ ...styles.card, ...(page ? styles.cardPage : null) }}
+      aria-label={page ? 'Hotel Images' : 'Hotel photos'}
+    >
       <div style={styles.head}>
         <div style={styles.headText}>
-          <p style={styles.title}>Hotel photos</p>
+          <p style={{ ...styles.title, ...(page ? styles.titlePage : null) }}>
+            {page ? 'Hotel Images' : 'Hotel photos'}
+          </p>
           <p style={styles.sub}>
-            Up to {MAX} square thumbnails for buyers ({filledCount}/{MAX}). Use landscape photos — we crop to square here.
+            Up to {MAX} square thumbnails for buyers ({filledCount}/{MAX}). Use landscape photos — we crop to square
+            here.
           </p>
         </div>
         <button
@@ -139,12 +149,13 @@ export function FoodHotelPhotosCard({ token, vendorId, onToast, onError }: Props
         </button>
       </div>
       {loading ? <p style={styles.muted}>Loading…</p> : null}
-      <ThumbGrid>
+      <ThumbGrid page={page}>
         {visible.map((index) => (
           <PhotoSlot
             key={index}
             index={index}
             photo={slots[index]}
+            thumb={thumb}
             busy={busyIndex === index}
             disabled={saving || busyIndex != null}
             onPick={() => openPicker(index)}
@@ -167,13 +178,14 @@ export function FoodHotelPhotosCard({ token, vendorId, onToast, onError }: Props
   );
 }
 
-function ThumbGrid({ children }: { children: ReactNode }) {
-  return <div style={styles.grid}>{children}</div>;
+function ThumbGrid({ children, page }: { children: ReactNode; page?: boolean }) {
+  return <div style={{ ...styles.grid, ...(page ? styles.gridPage : null) }}>{children}</div>;
 }
 
 function PhotoSlot({
   index,
   photo,
+  thumb,
   busy,
   disabled,
   onPick,
@@ -181,15 +193,17 @@ function PhotoSlot({
 }: {
   index: number;
   photo: FoodHotelPhoto | null;
+  thumb: number;
   busy: boolean;
   disabled: boolean;
   onPick: () => void;
   onRemove: () => void;
 }) {
+  const size = { width: thumb, height: thumb, maxWidth: thumb, maxHeight: thumb };
   if (photo) {
     return (
-      <div style={styles.slotFilled}>
-        <img src={photo.url} alt="" style={styles.img} loading="lazy" />
+      <div style={{ ...styles.slotFilled, ...size }}>
+        <img src={photo.url} alt="" style={{ ...styles.img, ...size }} loading="lazy" />
         <span style={styles.indexBadge}>{index + 1}</span>
         <button type="button" style={styles.remove} disabled={disabled} onClick={onRemove} aria-label="Remove photo">
           ×
@@ -198,7 +212,13 @@ function PhotoSlot({
     );
   }
   return (
-    <button type="button" style={styles.slotEmpty} disabled={disabled || busy} onClick={onPick} aria-label={`Add photo ${index + 1}`}>
+    <button
+      type="button"
+      style={{ ...styles.slotEmpty, ...size }}
+      disabled={disabled || busy}
+      onClick={onPick}
+      aria-label={`Add photo ${index + 1}`}
+    >
       {busy ? '…' : '+'}
     </button>
   );
@@ -213,6 +233,18 @@ const styles: Record<string, CSSProperties> = {
     marginBottom: '0.35rem',
     maxWidth: '100%',
     overflow: 'hidden',
+  },
+  cardPage: {
+    padding: '0.75rem 0.85rem',
+    borderRadius: 14,
+    marginBottom: 0,
+    boxShadow: 'var(--shadow-card)',
+  },
+  titlePage: { fontSize: '1.02rem' },
+  gridPage: {
+    gap: '0.5rem',
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fill, minmax(88px, 1fr))',
   },
   head: {
     display: 'flex',

@@ -10,6 +10,7 @@ import { usePayoutActionCount } from '@/features/payouts/hooks/usePayoutActionCo
 import { Banner } from '@/shared/ui';
 import { useIsNarrow } from '@/shared/hooks/useIsNarrow';
 import {
+  isFoodVendor,
   isGlamVendor,
   useHidesListings,
   VENDOR_DESK_ROUTES,
@@ -42,6 +43,7 @@ const NAV = [
   { to: '/cod-handover', label: 'COD cash', icon: '💰', end: false },
   { to: '/reports', label: 'Reports', icon: '📊', end: false },
   { to: '/payouts', label: 'Payouts', icon: '💵', end: false },
+  { to: '/hotel-images', label: 'Hotel Images', icon: '📷', end: false },
   { to: '/sellers', label: 'Sellers', icon: '🏆', end: false },
   { to: '/settings', label: 'Settings', icon: '⚙️', end: false },
 ] as const;
@@ -68,11 +70,15 @@ export function PortalShell({ title, children, onRefresh, shopPause }: Props) {
   if (hidesListings) {
     nav = nav.filter((item) => !deskRoutes.has(item.to) || item.to === deskPath);
   }
+  if (!isFoodVendor(session?.serviceName)) {
+    nav = nav.filter((item) => item.to !== '/hotel-images');
+  }
   if (collectionAgentOnly || (deskPath === '/diagnostics' && staffLoading)) {
     const hidden = new Set([
       '/delivery-agents',
       '/reports',
       '/payouts',
+      '/hotel-images',
       '/diagnostics',
       '/settings',
       '/sellers',

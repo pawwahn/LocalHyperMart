@@ -12,7 +12,7 @@ export type PayableRow = Pick<
   | 'onlineRemittanceAmount'
 >;
 
-/** KoyaKart-held UPI to return to the shop (glam remittance uses this, not prorated goods). */
+/** KoyaKart-held UPI to return to the shop (glam partial prepay: subtotal matches this amount). */
 export function koyaKartPayoutGross(row: PayableRow): number {
   const remit = Number(row.onlineRemittanceAmount ?? 0);
   if (remit > 0) return remit;

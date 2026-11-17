@@ -8,7 +8,6 @@ import { Banner, Button, Card, EmptyState, TextField } from '@/shared/ui';
 import { confirmOnlinePaymentResilient } from '../api/shopApi';
 import { CheckoutDismissedError, checkoutCanOpen, openGatewayCheckout } from '../lib/gatewayCheckout';
 import { PaymentGatewayOptionList, usePaymentGateways } from '../components/PaymentGatewayChoices';
-import { OnlinePaymentSheet } from '../components/OnlinePaymentSheet';
 import { AddressPickerSheet } from '../components/AddressPickerSheet';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { OrderCelebration } from '../components/OrderCelebration';
@@ -97,7 +96,6 @@ export function CartPage() {
     codCharge,
     deliveryWindowLabel,
     themeColor,
-    vendorAgentDeliveryEnabled,
   } = useTown();
   const {
     cart,
@@ -139,7 +137,6 @@ export function CartPage() {
   const [useStoreCredit, setUseStoreCredit] = useState(false);
   const creditChoice = useRef(false);
   const [confirmCheckout, setConfirmCheckout] = useState(false);
-  const [gatewaySheetOpen, setGatewaySheetOpen] = useState(false);
   const [checkoutBusy, setCheckoutBusy] = useState(false);
   const [showCelebration, setShowCelebration] = useState(false);
   const [dealsOpen, setDealsOpen] = useState(false);
@@ -155,7 +152,6 @@ export function CartPage() {
   const [membershipCatalog, setMembershipCatalog] = useState<MembershipCatalog | null>(null);
   const [plansOpen, setPlansOpen] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<'COD' | 'ONLINE'>('COD');
-  const [foodDeliveryChoice, setFoodDeliveryChoice] = useState<'HUB' | 'HOTEL_STAFF' | null>(null);
   const {
     options: paymentGateways,
     gateway: paymentGateway,
@@ -303,20 +299,8 @@ export function CartPage() {
   const showCodOption = codEnabled && payOnDelivery > 0;
   const showUpiOption = upiEnabled && payOnDelivery > 0;
   const showPayMethods = showCodOption || showUpiOption;
-  const showFoodDeliveryChoice = foodCart && vendorAgentDeliveryEnabled;
-  const foodDeliveryChoiceMissing = showFoodDeliveryChoice && foodDeliveryChoice == null;
-  const vendorAgentDeliveryForCheckout =
-    !foodCart ? undefined : foodDeliveryChoice === 'HOTEL_STAFF';
   const showStickyMembershipOffer =
     showMembershipOffer && !membershipCatalog?.mine?.active && !cartMembership;
-
-  useEffect(() => {
-    if (!foodCart || !vendorAgentDeliveryEnabled) {
-      setFoodDeliveryChoice('HUB');
-      return;
-    }
-    setFoodDeliveryChoice(null);
-  }, [foodCart, vendorAgentDeliveryEnabled, cart?.cartId]);
 
   useEffect(() => {
     if (!hasCartItems || payOnDelivery <= 0) return;
@@ -474,11 +458,6 @@ export function CartPage() {
       return;
     }
 
-    if (foodDeliveryChoiceMissing) {
-      setError('Choose hub delivery or hotel staff delivery before placing your food order.');
-      return;
-    }
-
     setCheckoutPreparing(true);
     setError(null);
     try {
@@ -489,10 +468,6 @@ export function CartPage() {
       }
       if (online) {
         const gateways = await refreshGateways();
-        if (gateways.length >= 2) {
-          setGatewaySheetOpen(true);
-          return;
-        }
         if (gateways.length === 0) {
           setError(
             'Online payment is not configured yet. Use cash on delivery, or ask your town admin to enable Razorpay / Cashfree.',
@@ -519,7 +494,6 @@ export function CartPage() {
           useStoreCredit,
           paymentMethod: online ? 'ONLINE' : 'COD',
           paymentGateway,
-          vendorAgentDelivery: vendorAgentDeliveryForCheckout,
         }),
         new Promise<never>((_, reject) => {
           window.setTimeout(() => {
@@ -536,21 +510,18 @@ export function CartPage() {
     } catch (err) {
       setCheckoutBusy(false);
       setConfirmCheckout(false);
-      setGatewaySheetOpen(false);
       setError(err instanceof Error ? err.message : 'Could not place the order. Try again.');
       return;
     }
     setCheckoutBusy(false);
     if (!result.ok) {
       setConfirmCheckout(false);
-      setGatewaySheetOpen(false);
       requestAnimationFrame(() => {
         checkoutErrorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
       });
       return;
     }
     setConfirmCheckout(false);
-    setGatewaySheetOpen(false);
     if (result.kind === 'pay') {
       if (!checkoutCanOpen(result.checkout)) {
         setError('Online payment is not configured yet. Use cash on delivery, or add the gateway keys and restart payment-service.');
@@ -643,19 +614,6 @@ export function CartPage() {
         onSelect={setSelectedAddressId}
         onNeedTown={openTownPicker}
         onCreate={async (values) => Boolean(await doCreateAddress(values))}
-      />
-      <OnlinePaymentSheet
-        open={gatewaySheetOpen}
-        amountLabel={payLabel}
-        options={paymentGateways}
-        value={paymentGateway}
-        onChange={setPaymentGateway}
-        busy={checkoutBusy}
-        onClose={() => !checkoutBusy && setGatewaySheetOpen(false)}
-        onContinue={() => {
-          setGatewaySheetOpen(false);
-          setConfirmCheckout(true);
-        }}
       />
       <ConfirmDialog
         open={confirmCheckout}
@@ -1041,60 +999,6 @@ export function CartPage() {
                 <strong style={styles.memberOfferCta}>View</strong>
               </button>
             ) : null}
-            {showFoodDeliveryChoice ? (
-              <>
-                <p style={styles.foodDeliveryHeading}>Who delivers your food?</p>
-                <div
-                  style={styles.payMethodGrid}
-                  role="radiogroup"
-                  aria-label="Food delivery method"
-                >
-                  <button
-                    type="button"
-                    role="radio"
-                    aria-checked={foodDeliveryChoice === 'HUB'}
-                    style={{
-                      ...styles.payMethodCard,
-                      ...(foodDeliveryChoice === 'HUB' ? styles.payMethodCardOn : null),
-                    }}
-                    onClick={() => setFoodDeliveryChoice('HUB')}
-                  >
-                    <span style={styles.payMethodTitle}>Hub delivery</span>
-                    <span
-                      style={{
-                        ...styles.payMethodMeta,
-                        ...(foodDeliveryChoice === 'HUB' ? styles.payMethodMetaOn : null),
-                      }}
-                    >
-                      Town hub rider to your address
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    role="radio"
-                    aria-checked={foodDeliveryChoice === 'HOTEL_STAFF'}
-                    style={{
-                      ...styles.payMethodCard,
-                      ...(foodDeliveryChoice === 'HOTEL_STAFF' ? styles.payMethodCardOn : null),
-                    }}
-                    onClick={() => setFoodDeliveryChoice('HOTEL_STAFF')}
-                  >
-                    <span style={styles.payMethodTitle}>Hotel staff delivery</span>
-                    <span
-                      style={{
-                        ...styles.payMethodMeta,
-                        ...(foodDeliveryChoice === 'HOTEL_STAFF' ? styles.payMethodMetaOn : null),
-                      }}
-                    >
-                      Delivered by the hotel team
-                    </span>
-                  </button>
-                </div>
-                {foodDeliveryChoiceMissing ? (
-                  <p style={styles.foodDeliveryHint}>Pick a delivery option to continue.</p>
-                ) : null}
-              </>
-            ) : null}
             {showPayMethods ? (
               <>
                 <div
@@ -1156,7 +1060,7 @@ export function CartPage() {
                 className="cart-place-btn"
                 style={styles.billPlaceBtn}
                 disabled={
-                  busy || blockedLine || checkoutPreparing || checkoutBusy || foodDeliveryChoiceMissing
+                  busy || blockedLine || checkoutPreparing || checkoutBusy
                 }
                 onClick={() => void handleCheckout()}
               >
@@ -1470,19 +1374,6 @@ const styles: Record<string, CSSProperties> = {
     fontSize: '0.72rem',
     fontWeight: 500,
     color: '#667085',
-    lineHeight: 1.35,
-  },
-  foodDeliveryHeading: {
-    margin: '0.55rem 0 0',
-    fontSize: '0.78rem',
-    fontWeight: 800,
-    color: 'var(--text)',
-  },
-  foodDeliveryHint: {
-    margin: '0.35rem 0 0',
-    fontSize: '0.72rem',
-    fontWeight: 600,
-    color: '#9a3412',
     lineHeight: 1.35,
   },
   total: {

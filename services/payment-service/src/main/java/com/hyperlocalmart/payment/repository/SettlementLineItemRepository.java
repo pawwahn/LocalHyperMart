@@ -60,4 +60,26 @@ public interface SettlementLineItemRepository extends JpaRepository<SettlementLi
     List<UUID> findSettledSubOrderIds(
             @Param("subOrderIds") Collection<UUID> subOrderIds,
             @Param("statuses") Collection<SettlementStatus> statuses);
+
+    @Query("""
+            SELECT CASE WHEN COUNT(li) > 0 THEN true ELSE false END
+            FROM SettlementLineItem li
+            WHERE li.orderId = :orderId
+              AND li.lineType = 'CANCELLATION_PENALTY'
+            """)
+    boolean existsCancellationPenaltyForOrder(@Param("orderId") UUID orderId);
+
+    @Query("""
+            SELECT DISTINCT li.orderId FROM SettlementLineItem li
+            WHERE li.orderId IN :orderIds
+              AND li.lineType = 'CANCELLATION_PENALTY'
+            """)
+    List<UUID> findCancellationPenaltyOrderIds(@Param("orderIds") Collection<UUID> orderIds);
+
+    @Query("""
+            SELECT DISTINCT li.description FROM SettlementLineItem li
+            WHERE li.lineType = 'OTHER_CHARGE'
+              AND li.description LIKE 'Cancel penalty · %'
+            """)
+    List<String> findLegacyCancellationPenaltyDescriptions();
 }

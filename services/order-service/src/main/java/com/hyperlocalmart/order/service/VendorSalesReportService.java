@@ -348,11 +348,15 @@ public class VendorSalesReportService {
             BigDecimal platformFeeAmount = BigDecimal.ZERO;
             BigDecimal codFeeAmount = BigDecimal.ZERO;
             BigDecimal membershipFeeAmount = BigDecimal.ZERO;
-            if (payMethod == PaymentMethod.COD && !rejected && !buyerCancelled) {
-                deliveryFeeAmount = OrderBuyerFeeShare.deliveryFee(subOrder);
+            BigDecimal storeCreditAppliedAmount = BigDecimal.ZERO;
+            if (!rejected && !buyerCancelled) {
                 platformFeeAmount = OrderBuyerFeeShare.platformFee(subOrder);
                 codFeeAmount = OrderBuyerFeeShare.codFee(subOrder);
                 membershipFeeAmount = OrderBuyerFeeShare.membershipFee(subOrder);
+                storeCreditAppliedAmount = OrderBuyerFeeShare.storeCreditApplied(subOrder);
+                if (payMethod == PaymentMethod.COD) {
+                    deliveryFeeAmount = OrderBuyerFeeShare.deliveryFee(subOrder);
+                }
             }
 
             BigDecimal codCashCollected = null;
@@ -398,6 +402,7 @@ public class VendorSalesReportService {
                     .platformFeeAmount(platformFeeAmount.setScale(2, RoundingMode.HALF_UP))
                     .codFeeAmount(codFeeAmount.setScale(2, RoundingMode.HALF_UP))
                     .membershipFeeAmount(membershipFeeAmount.setScale(2, RoundingMode.HALF_UP))
+                    .storeCreditAppliedAmount(storeCreditAppliedAmount.setScale(2, RoundingMode.HALF_UP))
                     .codCashCollectedAmount(
                             codCashCollected == null
                                     ? null

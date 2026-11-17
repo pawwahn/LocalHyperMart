@@ -16,6 +16,7 @@ import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -271,11 +272,13 @@ class OpenAccountsServiceTest {
                         .townId(chirala)
                         .pendingClaimChargebacks(BigDecimal.ZERO)
                         .items(List.of(
-                                glamBag(onlineBag, "G261026-0001 (UPI with KoyaKart)", "ONLINE", false, "47.95", "50.00"),
-                                glamBag(visitBag, "G261026-0001", "COD", true, "701.05", null)))
+                                glamBag(onlineBag, "G261026-0001 (UPI with KoyaKart)", "ONLINE", false, "50.00", "50.00"),
+                                glamBag(visitBag, "G261026-0001", "COD", true, "699.00", null)))
                         .build());
         when(vendorClient.quoteCommercialTerms(eq(beautyVendor), any(), any(), anyList(), eq(false), eq(true)))
-                .thenReturn(quote("701.05", "50.00", "651.05", "flat"));
+                .thenReturn(quote("699.00", "50.00", "649.00", "flat"));
+        when(vendorClient.quoteCommercialTerms(eq(beautyVendor), any(), any(), anyList(), eq(false), eq(false)))
+                .thenReturn(quote("50.00", "5.00", "45.00", "₹5/order"));
 
         List<OpenAccountsService.Line> lines = openAccountsService.scan(null, null);
 
@@ -285,7 +288,7 @@ class OpenAccountsServiceTest {
                 .isTrue();
         assertThat(lines.stream().anyMatch(l -> "PAY".equals(l.action())
                 && l.partyName().equals("U V Beauty Parlour")
-                && l.amount().compareTo(new BigDecimal("50.00")) == 0))
+                && l.amount().compareTo(new BigDecimal("45.00")) == 0))
                 .isTrue();
         OpenAccountsService.Line pay = lines.stream()
                 .filter(l -> "PAY".equals(l.action()) && "U V Beauty Parlour".equals(l.partyName()))
@@ -294,6 +297,7 @@ class OpenAccountsServiceTest {
         assertThat(pay.itemCount()).isEqualTo(1);
         assertThat(pay.upiOrderCount()).isEqualTo(1);
         assertThat(pay.upiAppReceived()).isEqualByComparingTo("50.00");
+        assertThat(pay.commission()).isEqualByComparingTo("5.00");
         assertThat(pay.detail()).contains("goods ₹50.00");
     }
 
@@ -316,6 +320,8 @@ class OpenAccountsServiceTest {
                         .pendingClaimChargebacks(BigDecimal.ZERO)
                         .items(bags)
                         .build());
+        when(vendorClient.quoteCommercialTerms(eq(beautyVendor), any(), any(), anyList(), eq(false), eq(false)))
+                .thenReturn(quote("199.51", "20.00", "179.51", "₹5/order"));
 
         List<OpenAccountsService.Line> lines = openAccountsService.scan(null, null);
 
@@ -323,9 +329,11 @@ class OpenAccountsServiceTest {
                 .filter(l -> "PAY".equals(l.action()) && "U V Beauty Parlour".equals(l.partyName()))
                 .findFirst()
                 .orElseThrow();
-        assertThat(pay.amount()).isEqualByComparingTo("200.00");
+        assertThat(pay.amount()).isEqualByComparingTo("180.00");
+        assertThat(pay.commission()).isEqualByComparingTo("20.00");
         assertThat(pay.upiAppReceived()).isEqualByComparingTo("200.00");
         assertThat(pay.detail()).contains("goods ₹200.00");
+        assertThat(pay.detail()).contains("commission ₹20.00");
     }
 
     @Test
@@ -372,6 +380,9 @@ class OpenAccountsServiceTest {
                 .alreadySettled(false);
         if (onlineRemittance != null) {
             builder.onlineRemittanceAmount(new BigDecimal(onlineRemittance));
+            // Hybrid UPI slice: pass-through fees stay on the visit COD row only.
+            builder.platformFee(BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP));
+            builder.parlourPaymentFee(BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP));
         }
         return builder.build();
     }
@@ -467,6 +478,47 @@ class OpenAccountsServiceTest {
         assertThat(line.platformFee()).isEqualByComparingTo("8.00");
         assertThat(line.amount()).isEqualByComparingTo("2936.00");
         assertThat(line.detail()).contains("commission ₹40.00", "pay ₹2936.00");
+    }
+
+    @Test
+    void onlinePay_subtractsStoreCreditFromBuyerUpiReceived() {
+        when(orderClient.deliveredVendorTowns(any(), any())).thenReturn(List.of(
+                new OrderClient.VendorTown(vendorId, townId)));
+        UUID bagId = UUID.randomUUID();
+        when(orderClient.settlementBagKeys(any(), any())).thenReturn(
+                List.of(new OrderClient.BagKey(vendorId, townId, bagId)));
+        when(vendorClient.getVendorShopDisplayName(vendorId)).thenReturn("Vanamadhuri Restro");
+        when(settlementService.listCandidates(eq(townId), eq(vendorId), any(), any())).thenReturn(
+                SettlementCandidateView.builder()
+                        .vendorId(vendorId)
+                        .townId(townId)
+                        .pendingClaimChargebacks(BigDecimal.ZERO)
+                        .items(List.of(
+                                SettlementCandidateView.Item.builder()
+                                        .subOrderId(bagId)
+                                        .orderId(UUID.randomUUID())
+                                        .orderNumber("CLX/AP-161126-0001")
+                                        .paymentMethod("ONLINE")
+                                        .vendorAgentDelivery(false)
+                                        .subtotal(new BigDecimal("488.00"))
+                                        .platformFee(new BigDecimal("2.00"))
+                                        .storeCreditApplied(new BigDecimal("9.00"))
+                                        .placedAt(Instant.parse("2026-11-16T08:00:00Z"))
+                                        .deliveredAt(Instant.parse("2026-11-16T12:00:00Z"))
+                                        .alreadySettled(false)
+                                        .build()))
+                        .build());
+        when(vendorClient.quoteCommercialTerms(eq(vendorId), any(), any(), anyList(), eq(false), eq(false)))
+                .thenReturn(quote("488.00", "20.00", "468.00", null));
+
+        List<OpenAccountsService.Line> lines = openAccountsService.scan(null, null);
+
+        OpenAccountsService.Line pay = lines.stream()
+                .filter(l -> "PAY".equals(l.action()) && vendorId.equals(l.partyId()))
+                .findFirst()
+                .orElseThrow();
+        assertThat(pay.upiAppReceived()).isEqualByComparingTo("481.00");
+        assertThat(pay.amount()).isEqualByComparingTo("468.00");
     }
 
     @Test

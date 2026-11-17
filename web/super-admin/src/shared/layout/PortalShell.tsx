@@ -48,6 +48,7 @@ const NAV_GROUPS: Array<{ label: string; items: NavItem[] }> = [
       { to: '/reports', label: 'Reports', icon: 'reports' },
       { to: '/orders', label: 'Orders', icon: 'orders' },
       { to: '/claims', label: 'Claims', icon: 'claims' },
+      { to: '/cancellations', label: 'Cancellations', icon: 'claims' },
     ],
   },
   {

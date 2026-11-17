@@ -172,7 +172,7 @@ public class VendorClient {
         return msg.isBlank() ? fallback : msg;
     }
 
-    public String getVendorShopDisplayName(UUID vendorId) {
+    public VendorShopContext getVendorShopContext(UUID vendorId) {
         if (vendorId == null) {
             return null;
         }
@@ -185,13 +185,18 @@ public class VendorClient {
             if (response == null || response.getData() == null) {
                 return null;
             }
-            return response.getData().shopName();
+            return response.getData();
         } catch (RestClientResponseException ex) {
             if (ex.getStatusCode().value() == 404) {
                 return null;
             }
-            throw new BusinessException(ErrorCode.INTERNAL_ERROR, "Could not load vendor shop name");
+            throw new BusinessException(ErrorCode.INTERNAL_ERROR, "Could not load vendor shop context");
         }
+    }
+
+    public String getVendorShopDisplayName(UUID vendorId) {
+        VendorShopContext ctx = getVendorShopContext(vendorId);
+        return ctx == null ? null : ctx.shopName();
     }
 
     public void verifyVendorCodPin(UUID vendorId, String pin) {

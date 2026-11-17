@@ -17,6 +17,12 @@ public interface DiagnosticsOrderRepository extends JpaRepository<DiagnosticsOrd
 
     List<DiagnosticsOrder> findByBuyerIdAndTownIdOrderByPlacedAtDesc(UUID buyerId, UUID townId);
 
+    List<DiagnosticsOrder> findByTownIdAndStatusAndUpdatedAtGreaterThanEqualAndUpdatedAtLessThanOrderByUpdatedAtDesc(
+            UUID townId,
+            DiagnosticsOrderStatus status,
+            Instant updatedAtAfter,
+            Instant updatedAtBefore);
+
     List<DiagnosticsOrder> findByVendorIdOrderByPlacedAtDesc(UUID vendorId);
 
     long countByServingBranchIdAndSlotStartAndStatusNot(UUID branchId, Instant slotStart, DiagnosticsOrderStatus status);

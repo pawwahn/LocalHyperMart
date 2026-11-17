@@ -29,6 +29,9 @@ public class CreateOrderRequest {
      */
     private boolean useStoreCredit;
 
-    /** When true, hotel staff delivers (vendor agent). Hub delivery when false or omitted. */
+    /**
+     * Ignored at buyer checkout — always hub route initially. Vendor switches to hotel staff on the order desk.
+     * @deprecated buyers must not set this; kept for API compatibility only.
+     */
     private Boolean vendorAgentDelivery;
 }

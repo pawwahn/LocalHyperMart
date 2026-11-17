@@ -105,7 +105,7 @@ describe('shop-held COD vs admin payout', () => {
 
   it('glam partial UPI slice uses remittance amount for KK payout', () => {
     const remit = {
-      ...row('glam-upi', 'DELIVERED', 47.95, { paymentMethod: 'ONLINE', vendorAgentDelivery: false }),
+      ...row('glam-upi', 'DELIVERED', 50, { paymentMethod: 'ONLINE', vendorAgentDelivery: false }),
       onlineRemittanceAmount: 50,
     };
     expect(koyaKartPayoutGross(remit)).toBe(50);

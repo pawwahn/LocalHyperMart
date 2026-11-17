@@ -41,31 +41,34 @@ export function injectGlobalStyles(): void {
       --motion-fast: ${tokens.motion.fast};
       --motion-normal: ${tokens.motion.normal};
       --shell-pad: 0.85rem;
-      --shell-max: min(100vw - 1.7rem, 560px);
-      --tabbar-h: 64px;
+      --shell-max: 100%;
+      --tabbar-h: 60px;
       --sticky-cart-h: 56px;
-      --glam-dock-h: 9.25rem;
+      --glam-dock-h: 12.5rem;
       --touch-min: 44px;
       /* KoyaKart list stripes — subtle alternating rows (use with explicit row background) */
       --hlm-row-stripe-a: #ffffff;
       --hlm-row-stripe-b: color-mix(in srgb, var(--bg-muted) 48%, var(--bg-elevated) 52%);
     }
-    @media (min-width: 768px) {
+    @media (max-width: 1023px) {
       :root {
-        --shell-pad: 1.15rem;
-        --shell-max: min(100vw - 2.25rem, 1080px);
+        --shell-max: 100%;
+        --shell-pad: 0.85rem;
+        --tabbar-h: 60px;
       }
+      input, select, textarea { font-size: 16px !important; }
     }
     @media (min-width: 1024px) {
       :root {
+        --tabbar-h: 64px;
         --shell-pad: 1.35rem;
-        --shell-max: min(100vw - 2.5rem, 1320px);
+        --shell-max: min(calc(100vw - 2.5rem), 1320px);
       }
     }
     @media (min-width: 1280px) {
       :root {
         --shell-pad: 1.5rem;
-        --shell-max: min(100vw - 3rem, 1520px);
+        --shell-max: min(calc(100vw - 3rem), 1520px);
       }
     }
     @media (min-width: 1600px) {
@@ -89,11 +92,17 @@ export function injectGlobalStyles(): void {
       height: 0;
     }
     body, #root {
+      width: 100%;
       min-height: 100%;
       overflow-x: hidden;
       max-width: 100%;
       scrollbar-width: none;
       -ms-overflow-style: none;
+    }
+    @supports (min-height: 100dvh) {
+      body, #root, .hlm-buyer-shell {
+        min-height: 100dvh;
+      }
     }
     body {
       margin: 0;
@@ -104,6 +113,9 @@ export function injectGlobalStyles(): void {
       letter-spacing: -0.012em;
       -webkit-font-smoothing: antialiased;
       padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) 0 env(safe-area-inset-left, 0px);
+    }
+    body.hlm-scroll-lock {
+      overflow: hidden;
     }
     @media (min-width: 1024px) {
       #root {
@@ -179,14 +191,6 @@ export function injectGlobalStyles(): void {
     button:disabled { opacity: 0.55; cursor: not-allowed; }
     button, a, [role="button"] { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
     a { color: var(--accent); }
-    @media (max-width: 767px) {
-      :root {
-        --tabbar-h: 60px;
-        --shell-max: 100%;
-        --shell-pad: 0.85rem;
-      }
-      input, select, textarea { font-size: 16px !important; }
-    }
     ::selection { background: var(--highlight); color: #0a1a08; }
     @keyframes hlm-fade-up {
       from { opacity: 0; transform: translateY(8px); }

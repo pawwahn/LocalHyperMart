@@ -38,14 +38,25 @@ function profileError(status: number, body: string): Error {
       'User service unreachable. From LocalHyperMart folder run: .\\scripts\\restart-service.ps1 user-service',
     );
   }
-  if (status >= 500) {
-    return new Error('Server error loading profile. Retry or restart user-service.');
-  }
+  let apiMessage: string | null = null;
   try {
     const parsed = JSON.parse(body) as { message?: string };
-    if (parsed.message) return new Error(parsed.message);
+    if (parsed.message?.trim()) {
+      apiMessage = parsed.message.trim();
+    }
   } catch {
     /* ignore */
+  }
+  if (status >= 500) {
+    if (apiMessage === 'Internal server error') {
+      return new Error(
+        'Backend error loading your profile — usually database or user-service down. Retry after restarting api-gateway and user-service (see QA runbook).',
+      );
+    }
+    return new Error(apiMessage || 'Server error loading profile. Retry or restart user-service.');
+  }
+  if (apiMessage) {
+    return new Error(apiMessage);
   }
   return new Error(`Could not load profile (HTTP ${status}).`);
 }

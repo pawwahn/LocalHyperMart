@@ -64,11 +64,11 @@ public class PlatformSettingsService {
         pub.put("vendorOrderAlertMessage",
                 all.getOrDefault("vendorOrderAlertMessage", "Order received"));
         pub.put("membershipEnabled", asBool(all.get("membershipEnabled"), false));
-        pub.put("membershipQuarterlyPrice", asMoney(all.get("membershipQuarterlyPrice")));
+        pub.put("membershipQuarterlyPrice", readMoney(all.get("membershipQuarterlyPrice"), BigDecimal.ZERO));
         pub.put("membershipQuarterlyCredits", asInt(all.get("membershipQuarterlyCredits"), 0));
-        pub.put("membershipHalfYearPrice", asMoney(all.get("membershipHalfYearPrice")));
+        pub.put("membershipHalfYearPrice", readMoney(all.get("membershipHalfYearPrice"), BigDecimal.ZERO));
         pub.put("membershipHalfYearCredits", asInt(all.get("membershipHalfYearCredits"), 0));
-        pub.put("membershipAnnualPrice", asMoney(all.get("membershipAnnualPrice")));
+        pub.put("membershipAnnualPrice", readMoney(all.get("membershipAnnualPrice"), BigDecimal.ZERO));
         pub.put("membershipAnnualCredits", asInt(all.get("membershipAnnualCredits"), 0));
         pub.put("referralsEnabled", asBool(all.get("referralsEnabled"), false));
         pub.put("mealPlannerEnabled", asBool(all.get("mealPlannerEnabled"), false));

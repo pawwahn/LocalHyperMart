@@ -53,5 +53,7 @@ public class SettlementCandidateResponse {
          * on the paired visit / send-bill slice — do not quote per-order flat again on Pay.
          */
         BigDecimal onlineRemittanceAmount;
+        /** Store credit on the parent order allocated to this bag (reduces buyer cash / UPI). */
+        BigDecimal storeCreditApplied;
     }
 }

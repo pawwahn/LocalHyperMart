@@ -125,6 +125,18 @@ export async function updateTownCoverage(
   });
 }
 
+export async function updateTownName(
+  token: string,
+  townId: string,
+  name: string,
+): Promise<TownDetailDto> {
+  return apiRequest<TownDetailDto>(`/api/v1/towns/${townId}/name`, {
+    method: 'PATCH',
+    token,
+    body: { name: name.trim() },
+  });
+}
+
 export async function updateTownStatus(
   token: string,
   townId: string,

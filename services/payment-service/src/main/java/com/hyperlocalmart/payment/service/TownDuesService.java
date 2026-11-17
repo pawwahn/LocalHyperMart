@@ -7,6 +7,7 @@ import com.hyperlocalmart.payment.entity.HubPaymentRequestStatus;
 import com.hyperlocalmart.payment.entity.HubPaymentRequestType;
 import com.hyperlocalmart.payment.entity.Settlement;
 import com.hyperlocalmart.payment.entity.SettlementDirection;
+import com.hyperlocalmart.payment.entity.SettlementLineItem;
 import com.hyperlocalmart.payment.entity.SettlementPayeeType;
 import com.hyperlocalmart.payment.entity.SettlementStatus;
 import com.hyperlocalmart.payment.repository.CodCloseDayLineItemRepository;
@@ -35,6 +36,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 
@@ -389,6 +391,8 @@ public class TownDuesService {
                         ? "Vendor bill sent — collect it"
                         : "Bill sent — collect it";
             }
+            BigDecimal penalty = settlementPenalty(row);
+            String detail = settlementPenaltyDetail(row);
             out.add(new Draft(
                     row.getTownId(),
                     party,
@@ -401,12 +405,12 @@ public class TownDuesService {
                     money(row.getNetAmount()),
                     1,
                     row.getServiceInvoiceNumber(),
-                    null,
+                    detail,
                     vendorCommission(row, party),
                     null,
                     null,
                     null,
-                    null,
+                    penalty,
                     null,
                     null,
                     shopCod,
@@ -533,6 +537,46 @@ public class TownDuesService {
             if (months.size() > MAX_FRANCHISE_MONTHS) months.remove(0);
         }
         return months;
+    }
+
+    private static BigDecimal settlementPenalty(Settlement row) {
+        if (row.getLineItems() == null || row.getLineItems().isEmpty()) {
+            return null;
+        }
+        BigDecimal sum = row.getLineItems().stream()
+                .filter(line -> {
+                    String type = line.getLineType();
+                    return type != null
+                            && ("OTHER_CHARGE".equalsIgnoreCase(type)
+                            || "PENALTY".equalsIgnoreCase(type)
+                            || "CANCELLATION_PENALTY".equalsIgnoreCase(type));
+                })
+                .map(SettlementLineItem::getAmount)
+                .filter(Objects::nonNull)
+                .map(TownDuesService::money)
+                .map(BigDecimal::abs)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        return sum.signum() > 0 ? sum : null;
+    }
+
+    private static String settlementPenaltyDetail(Settlement row) {
+        if (row.getLineItems() == null) {
+            return null;
+        }
+        return row.getLineItems().stream()
+                .filter(line -> {
+                    String type = line.getLineType();
+                    return type != null
+                            && ("OTHER_CHARGE".equalsIgnoreCase(type)
+                            || "PENALTY".equalsIgnoreCase(type)
+                            || "CANCELLATION_PENALTY".equalsIgnoreCase(type));
+                })
+                .map(SettlementLineItem::getDescription)
+                .filter(Objects::nonNull)
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .findFirst()
+                .orElse(null);
     }
 
     /** Order-fee commission. Subscription bills store the fee in the same column with zero gross. */

@@ -145,6 +145,7 @@ public class SettlementService {
                             .membershipFee(item.membershipFee())
                             .parlourPaymentFee(item.parlourPaymentFee())
                             .onlineRemittanceAmount(item.onlineRemittanceAmount())
+                            .storeCreditApplied(item.storeCreditApplied())
                             .alreadySettled(settled.contains(item.subOrderId()))
                             .build();
                 })
@@ -231,9 +232,9 @@ public class SettlementService {
         }
 
         BigDecimal gross = resolved.stream()
-                .map(SettlementCandidateItem::subtotal)
-                .filter(Objects::nonNull)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
+                .map(item -> collection ? vendorSettlementGross(item) : vendorPayoutGross(item))
+                .reduce(BigDecimal.ZERO, BigDecimal::add)
+                .setScale(2, RoundingMode.HALF_UP);
 
         List<VendorClient.OrderLine> orderLines = resolved.stream()
                 .map(item -> new VendorClient.OrderLine(
@@ -324,12 +325,19 @@ public class SettlementService {
                         "Nothing to collect — no commission, platform fee, or extra charge on this batch. Monthly subscription is billed on the Subscription tab.");
             }
         } else {
-            net = gross.subtract(commission).subtract(claimChargebacks).subtract(otherCharges);
+            BigDecimal retainedFromRemittance = resolved.stream()
+                    .map(SettlementService::vendorPayoutBuyerPassThrough)
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+            net = gross.subtract(commission)
+                    .subtract(retainedFromRemittance)
+                    .subtract(claimChargebacks)
+                    .subtract(otherCharges);
             if (net.compareTo(BigDecimal.ZERO) < 0) {
                 throw new BusinessException(ErrorCode.VALIDATION_ERROR,
                         "Deductions (claims ₹" + claimChargebacks.toPlainString()
                                 + " + other ₹" + otherCharges.toPlainString()
                                 + " + fees ₹" + commission.toPlainString()
+                                + " + app pass-through ₹" + retainedFromRemittance.toPlainString()
                                 + ") exceed gross ₹" + gross.toPlainString()
                                 + ". Lower charges or include more orders.");
             }
@@ -459,13 +467,21 @@ public class SettlementService {
 
         if (otherCharges.compareTo(BigDecimal.ZERO) > 0) {
             String reason = request.getOtherChargesReason().trim();
+            UUID penaltyOrderId = request.getCancellationPenaltyOrderId();
+            if (penaltyOrderId != null) {
+                if (settlementLineItemRepository.existsCancellationPenaltyForOrder(penaltyOrderId)) {
+                    throw new BusinessException(ErrorCode.CONFLICT,
+                            "A cancellation penalty was already sent for this order");
+                }
+            }
+            String lineType = penaltyOrderId != null ? "CANCELLATION_PENALTY" : "OTHER_CHARGE";
             SettlementLineItem line = SettlementLineItem.builder()
                     .settlement(settlement)
-                    .orderId(null)
+                    .orderId(penaltyOrderId)
                     .subOrderId(null)
                     .orderNumber(null)
                     .subOrderNumber(null)
-                    .lineType("OTHER_CHARGE")
+                    .lineType(lineType)
                     .amount(collection ? otherCharges : otherCharges.negate())
                     .description(reason)
                     .build();
@@ -928,6 +944,13 @@ public class SettlementService {
     }
 
     private List<SubscriptionBillView> listSubscriptionBills(UUID vendorId, boolean includeUnsent) {
+        if (includeUnsent) {
+            VendorClient.VendorShopContext shop = vendorClient.getVendorShopContext(vendorId);
+            UUID townId = shop == null ? null : shop.townId();
+            if (!townClient.acceptingOrders(townId)) {
+                includeUnsent = false;
+            }
+        }
         Map<String, Settlement> billed = new HashMap<>();
         for (Settlement s : settlementRepository.findSubscriptionBills(vendorId)) {
             billed.putIfAbsent(s.getPeriodStart().format(YM), s);
@@ -1026,6 +1049,10 @@ public class SettlementService {
                 .orElse(null);
         if (existing != null) {
             return existing;
+        }
+        if (!townClient.acceptingOrders(townId)) {
+            throw new BusinessException(ErrorCode.TOWN_DISABLED,
+                    "Town is disabled — enable it before issuing a new subscription bill");
         }
         LocalDate monthStart = LocalDate.parse(month + "-01");
         LocalDate monthEnd = monthStart.withDayOfMonth(monthStart.lengthOfMonth());
@@ -1492,6 +1519,7 @@ public class SettlementService {
                         null,
                         null,
                         null,
+                        null,
                         null))
                 .toList();
 
@@ -1661,7 +1689,8 @@ public class SettlementService {
                 ? BigDecimal.ZERO : settlement.getNetAmount();
         BigDecimal claimFromLines = sumAbsByLineType(lines, "ADJUSTMENT");
         BigDecimal otherFromLines = sumAbsByLineType(lines, "OTHER_CHARGE")
-                .add(sumAbsByLineType(lines, "PENALTY"));
+                .add(sumAbsByLineType(lines, "PENALTY"))
+                .add(sumAbsByLineType(lines, "CANCELLATION_PENALTY"));
         BigDecimal claimChargebacks = claimFromLines;
         boolean collection = settlement.getDirection() == SettlementDirection.COLLECTION;
         if (!collection
@@ -1907,6 +1936,36 @@ public class SettlementService {
             return true;
         }
         return false;
+    }
+
+    private static BigDecimal vendorSettlementGross(SettlementCandidateItem item) {
+        return item.subtotal() == null
+                ? BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP)
+                : item.subtotal().setScale(2, RoundingMode.HALF_UP);
+    }
+
+    /** Glam partial prepay: {@code subtotal} on the UPI slice equals SUCCESS UPI held (same as remittance). */
+    private static BigDecimal vendorPayoutGross(SettlementCandidateItem item) {
+        if (item.onlineRemittanceAmount() != null && item.onlineRemittanceAmount().signum() > 0) {
+            return item.onlineRemittanceAmount().setScale(2, RoundingMode.HALF_UP);
+        }
+        return vendorSettlementGross(item);
+    }
+
+    /** Buyer app fees in the UPI bucket that are not paid out to the shop (glam full-UPI rows). */
+    private static BigDecimal vendorPayoutBuyerPassThrough(SettlementCandidateItem item) {
+        if (item.onlineRemittanceAmount() == null || item.onlineRemittanceAmount().signum() <= 0) {
+            return BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
+        }
+        return nz(item.platformFee())
+                .add(nz(item.codFee()))
+                .add(nz(item.parlourPaymentFee()))
+                .add(nz(item.membershipFee()))
+                .setScale(2, RoundingMode.HALF_UP);
+    }
+
+    private static BigDecimal nz(BigDecimal value) {
+        return value == null ? BigDecimal.ZERO : value;
     }
 
     private static boolean isCod(String paymentMethod) {

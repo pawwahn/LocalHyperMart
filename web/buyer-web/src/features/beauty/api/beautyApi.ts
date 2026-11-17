@@ -141,11 +141,38 @@ export {
   type BeautySlotId,
 } from '@hlm-beauty';
 
+/** Home visit travel fee from artist card payloads (camelCase or snake_case). */
+export function resolveHomeVisitCharge(artist: Pick<BeautyArtist, 'homeVisitCharge'> | null | undefined): number {
+  if (!artist) return 0;
+  const bag = artist as BeautyArtist & Record<string, unknown>;
+  const raw =
+    artist.homeVisitCharge ?? bag.home_visit_charge ?? bag.homeVisit ?? bag.home_visit ?? null;
+  if (raw == null || raw === '') return 0;
+  const n = typeof raw === 'number' ? raw : Number(String(raw).replace(/,/g, '').trim());
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.round(n));
+}
+
+export function glamVenuePayEstimate(
+  venueId: 'AT_HOME' | 'AT_STUDIO',
+  parts: { servicePrice: number; homeVisitFee: number; platformFee: number; parlourFee?: number },
+): number {
+  const travel = venueId === 'AT_HOME' ? Math.max(0, parts.homeVisitFee) : 0;
+  return (
+    Math.max(0, parts.servicePrice) +
+    travel +
+    Math.max(0, parts.platformFee) +
+    Math.max(0, parts.parlourFee ?? 0)
+  );
+}
+
 export function normalizeBeautyArtist(row: BeautyArtist): BeautyArtist {
   const ext = row as BeautyArtist & {
     blocked_slots_by_date?: string | null;
     service_for?: string | null;
+    home_visit_charge?: number | string | null;
   };
+  const homeVisitParsed = resolveHomeVisitCharge(row);
   const sch = scheduleFromArtist(row);
   const serviceFor =
     normalizeServiceFor(row.serviceFor ?? ext.service_for) ?? ('UNISEX' as VendorServiceFor);
@@ -157,6 +184,7 @@ export function normalizeBeautyArtist(row: BeautyArtist): BeautyArtist {
   return {
     ...row,
     serviceFor,
+    homeVisitCharge: homeVisitParsed > 0 ? homeVisitParsed : null,
     blockedSlotsByDate: row.blockedSlotsByDate ?? ext.blocked_slots_by_date ?? '{}',
     slotDayOpen: sch.dayOpen,
     slotDayClose: sch.dayClose,
@@ -275,7 +303,9 @@ function apiBase(): string {
   return '';
 }
 
-export async function uploadBeautyReferencePhoto(token: string, file: File): Promise<string> {
+export type BeautyReferenceUpload = { mediaId: string; url?: string | null };
+
+export async function uploadBeautyReferencePhoto(token: string, file: File): Promise<BeautyReferenceUpload> {
   const form = new FormData();
   form.append('file', file);
   form.append('context', 'BEAUTY_REFERENCE');
@@ -284,11 +314,14 @@ export async function uploadBeautyReferencePhoto(token: string, file: File): Pro
     headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
     body: form,
   });
-  const payload = (await response.json()) as { message?: string; data?: { mediaId?: string } };
+  const payload = (await response.json()) as {
+    message?: string;
+    data?: { mediaId?: string; url?: string | null };
+  };
   if (!response.ok || !payload.data?.mediaId) {
     throw new Error(payload.message || 'Photo upload failed');
   }
-  return payload.data.mediaId;
+  return { mediaId: payload.data.mediaId, url: payload.data.url ?? null };
 }
 
 export function rateBeautyBooking(

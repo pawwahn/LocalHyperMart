@@ -38,6 +38,13 @@ final class OrderBuyerFeeShare {
         return allocate(fee, subOrder);
     }
 
+    /** Wallet / store credit applied at checkout — reduces cash or UPI collected from the buyer. */
+    static BigDecimal storeCreditApplied(VendorSubOrder subOrder) {
+        Order order = subOrder.getOrder();
+        BigDecimal credit = order.getStoreCreditApplied() == null ? BigDecimal.ZERO : order.getStoreCreditApplied();
+        return allocate(credit, subOrder);
+    }
+
     private static BigDecimal allocate(BigDecimal fee, VendorSubOrder subOrder) {
         if (fee.signum() <= 0) {
             return BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);

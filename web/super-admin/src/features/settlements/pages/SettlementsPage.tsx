@@ -43,6 +43,7 @@ import {
   type VendorPaysSubTab,
   type VendorPayoutTab,
 } from '../components/VendorPayoutWorkspace';
+import { vendorPayoutGross, vendorPayoutPassThrough } from '../vendorPayoutGross';
 import {
   codCashLocationLabel,
   codCashStage,
@@ -485,10 +486,11 @@ export function SettlementsPage() {
   const selectedTotal = useMemo(() => {
     let sum = 0;
     for (const c of candidates) {
-      if (selected.has(c.subOrderId)) sum += Number(c.subtotal ?? 0);
+      if (!selected.has(c.subOrderId)) continue;
+      sum += collectFromVendor ? Number(c.subtotal ?? 0) : vendorPayoutGross(c);
     }
     return roundMoney(sum);
-  }, [candidates, selected]);
+  }, [candidates, selected, collectFromVendor]);
 
   const quoteGross =
     feeQuote?.grossAmount != null ? roundMoney(Number(feeQuote.grossAmount)) : null;
@@ -527,19 +529,31 @@ export function SettlementsPage() {
     [commissionNum, platformFeeNum, codFeeNum, planFeeNum],
   );
   const otherChargesNum = Math.max(0, roundMoney(Number(otherChargesAmount || 0)));
+  const glamPassThroughNum = useMemo(() => {
+    if (collectFromVendor) return 0;
+    let sum = 0;
+    for (const c of candidates) {
+      if (!selected.has(c.subOrderId)) continue;
+      sum += vendorPayoutPassThrough(c);
+    }
+    return roundMoney(sum);
+  }, [candidates, selected, collectFromVendor]);
   const totalCollectFees = useMemo(
     () => roundMoney(shopHeldFeeNum + otherChargesNum),
     [shopHeldFeeNum, otherChargesNum],
   );
   const grossMismatch =
-    quoteGross != null && Math.abs(quoteGross - selectedTotal) > 0.009;
+    !feeQuoteLoading &&
+    quoteGross != null &&
+    Math.abs(quoteGross - selectedTotal) > 0.009;
 
   const quoteMatches =
     selected.size > 0 &&
     feeQuote != null &&
+    !feeQuoteLoading &&
     (quoteGross == null || Math.abs(quoteGross - selectedTotal) <= 0.009);
-  /** Bags are selected but the fee quote is still for the other tab or not back yet. */
-  const netPending = selected.size > 0 && !quoteMatches;
+  /** Bags are selected but the fee quote is still loading or gross does not match payout bags. */
+  const netPending = selected.size > 0 && (feeQuoteLoading || !quoteMatches);
 
   const commissionBySubOrder = useMemo(() => {
     if (!collectFromVendor || !quoteMatches) return new Map<string, number>();
@@ -557,13 +571,17 @@ export function SettlementsPage() {
       feeQuote?.suggestedNet != null
         ? roundMoney(Number(feeQuote.suggestedNet))
         : roundMoney(selectedTotal - commissionNum);
-    return Math.max(0, roundMoney(afterFees - pendingClaimChargebacks - otherChargesNum));
+    return Math.max(
+      0,
+      roundMoney(afterFees - glamPassThroughNum - pendingClaimChargebacks - otherChargesNum),
+    );
   }, [
     quoteMatches,
     collectFromVendor,
     feeQuote,
     selectedTotal,
     totalCollectFees,
+    glamPassThroughNum,
     pendingClaimChargebacks,
     otherChargesNum,
   ]);
@@ -583,6 +601,7 @@ export function SettlementsPage() {
       setCommissionAmount('0');
       return;
     }
+    setFeeQuote(null);
     let cancelled = false;
     const debounceMs = selected.size > 40 ? 550 : 200;
     const timer = window.setTimeout(() => {
@@ -593,7 +612,7 @@ export function SettlementsPage() {
           const orderLines = candidates
             .filter((c) => selected.has(c.subOrderId))
             .map((c) => ({
-              amount: Number(c.subtotal ?? 0),
+              amount: collectFromVendor ? Number(c.subtotal ?? 0) : vendorPayoutGross(c),
               placedAt: c.placedAt ?? undefined,
             }));
           const quote = await quoteVendorCommercialTerms(token, vendorId, {
@@ -1131,6 +1150,33 @@ export function SettlementsPage() {
   }, [searchParams, setSearchParams]);
 
   useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem('hlm.cancellationPenaltyDraft');
+      if (!raw) return;
+      const draft = JSON.parse(raw) as {
+        townId?: string;
+        vendorId?: string;
+        suggestedAmount?: number;
+        reason?: string;
+      };
+      if (draft.townId) setTownId((prev) => prev || draft.townId!);
+      if (draft.vendorId) setVendorId((prev) => prev || draft.vendorId!);
+      if (draft.suggestedAmount != null && draft.suggestedAmount > 0) {
+        setOtherChargesAmount(String(draft.suggestedAmount));
+      }
+      if (draft.reason?.trim()) {
+        setOtherChargesReason(draft.reason.trim());
+      }
+      setTab('VENDOR');
+      setVendorTab('vendor-to-app');
+      setVendorPaysSubTab('collect');
+      sessionStorage.removeItem('hlm.cancellationPenaltyDraft');
+    } catch {
+      sessionStorage.removeItem('hlm.cancellationPenaltyDraft');
+    }
+  }, []);
+
+  useEffect(() => {
     setHistoryPage(0);
   }, [vendorTab, historyPageSize, vendorId, from, to]);
 
@@ -1194,7 +1240,7 @@ export function SettlementsPage() {
                 );
                 const otherLines = (s.lines ?? []).filter((l) => {
                   const t = (l.lineType ?? '').toUpperCase();
-                  return t === 'OTHER_CHARGE' || t === 'PENALTY';
+                  return t === 'OTHER_CHARGE' || t === 'PENALTY' || t === 'CANCELLATION_PENALTY';
                 });
                 const feeLines = (s.lines ?? []).filter((l) => {
                   const t = (l.lineType ?? '').toUpperCase();

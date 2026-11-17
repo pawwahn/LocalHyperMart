@@ -22,15 +22,48 @@ public class TownClient {
     private final TownServiceProperties townServiceProperties;
     private final ShortCallCache<DeliveryPayoutConfig> payoutConfigCache = new ShortCallCache<>();
     private final ShortCallCache<VendorAgentDeliveryConfig> vendorAgentConfigCache = new ShortCallCache<>();
+    private final ShortCallCache<Boolean> townOpenCache = new ShortCallCache<>();
 
     public void beginReplay() {
         payoutConfigCache.begin();
         vendorAgentConfigCache.begin();
+        townOpenCache.begin();
     }
 
     public void endReplay() {
         payoutConfigCache.end();
         vendorAgentConfigCache.end();
+        townOpenCache.end();
+    }
+
+    /** False when the town is missing, disabled, or town-service cannot be reached. */
+    public boolean acceptingOrders(UUID townId) {
+        if (townId == null) {
+            return false;
+        }
+        return townOpenCache.get(townId.toString(), () -> loadAcceptingOrders(townId));
+    }
+
+    private boolean loadAcceptingOrders(UUID townId) {
+        try {
+            RestClient client = restClientBuilder.baseUrl(townServiceProperties.getBaseUrl()).build();
+            ApiResponse<Map<String, Object>> response = client.get()
+                    .uri("/api/v1/internal/towns/{townId}/exists", townId)
+                    .retrieve()
+                    .body(new ParameterizedTypeReference<ApiResponse<Map<String, Object>>>() {});
+            if (response == null || response.getData() == null) {
+                return false;
+            }
+            Object accepting = response.getData().get("acceptingOrders");
+            if (accepting instanceof Boolean enabled) {
+                return enabled;
+            }
+            Object exists = response.getData().get("exists");
+            return exists instanceof Boolean enabled && enabled;
+        } catch (Exception ex) {
+            log.warn("Could not read town {} status: {}", townId, ex.getMessage());
+            return false;
+        }
     }
 
     public TdsConfig tdsConfig() {

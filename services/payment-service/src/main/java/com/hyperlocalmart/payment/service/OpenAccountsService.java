@@ -52,8 +52,6 @@ public class OpenAccountsService {
 
     private static final ZoneId IST = ZoneId.of("Asia/Kolkata");
     private static final LocalDate OPEN_START = LocalDate.of(2020, 1, 1);
-    /** When no from-date is set, only scan this many days of deliveries — open settlements still come from DB. */
-    private static final int UNBOUNDED_SCAN_DAYS = 120;
     private static final DateTimeFormatter MONTH = DateTimeFormatter.ofPattern("MMMM yyyy", Locale.ENGLISH);
 
     private final OrderClient orderClient;
@@ -98,7 +96,7 @@ public class OpenAccountsService {
 
     public List<Line> scan(LocalDate from, LocalDate to, UUID townId, OpenWorkScope scope) {
         LocalDate end = to == null ? LocalDate.now(IST) : to;
-        LocalDate start = from == null ? end.minusDays(UNBOUNDED_SCAN_DAYS) : from;
+        LocalDate start = from == null ? indiaFinancialYearStart(end) : from;
         if (start.isBefore(OPEN_START)) {
             start = OPEN_START;
         }
@@ -356,15 +354,23 @@ public class OpenAccountsService {
             BigDecimal net = BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
             BigDecimal commission = BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
             if (!glamOnlinePay.isEmpty()) {
+                VendorClient.CommercialTermsQuote glamQuote = vendorClient.quoteCommercialTerms(
+                        vendorId, start, end, orderLines(glamOnlinePay), false, false);
+                BigDecimal glamCommission = money(glamQuote.commissionAmount());
+                commission = commission.add(glamCommission);
                 BigDecimal remit = glamOnlinePay.stream()
                         .map(item -> money(item.getOnlineRemittanceAmount()))
                         .reduce(BigDecimal.ZERO, BigDecimal::add);
-                net = net.add(remit);
+                BigDecimal glamRetained = platformFees(glamOnlinePay)
+                        .add(parlourFees(glamOnlinePay))
+                        .add(codFees(glamOnlinePay))
+                        .add(membershipFees(glamOnlinePay));
+                net = net.add(remit.subtract(glamCommission).subtract(glamRetained).max(BigDecimal.ZERO));
             }
             if (!standardPay.isEmpty()) {
                 VendorClient.CommercialTermsQuote quote = vendorClient.quoteCommercialTerms(
                         vendorId, start, end, orderLines(standardPay), false, false);
-                commission = money(quote.commissionAmount());
+                commission = commission.add(money(quote.commissionAmount()));
                 net = net.add(money(quote.suggestedNet()));
             }
             net = net.subtract(claims);
@@ -374,8 +380,9 @@ public class OpenAccountsService {
             if (net.signum() > 0) {
                 String extra;
                 if (!glamOnlinePay.isEmpty() && standardPay.isEmpty()) {
-                    extra = "online UPI with KoyaKart · return to shop · pay " + inr(net)
-                            + " · commission on visit bill";
+                    extra = commission.signum() > 0
+                            ? "online UPI with KoyaKart · commission " + inr(commission) + " · pay " + inr(net)
+                            : "online UPI with KoyaKart · return to shop · pay " + inr(net);
                 } else if (!glamOnlinePay.isEmpty()) {
                     extra = "online UPI return " + inr(glamOnlinePay.stream()
                             .map(item -> money(item.getOnlineRemittanceAmount()))
@@ -398,7 +405,8 @@ public class OpenAccountsService {
                                 ? "Diagnostics — pay lab (UPI) · commission cut from payout"
                                 : "Diagnostics booking — pay lab (UPI)")
                         : "Pay the shop — commission already taken off";
-                BigDecimal platformRetained = feePart(platformFees(standardPay));
+                BigDecimal platformRetained = feePart(
+                        platformFees(standardPay).add(platformFees(glamOnlinePay)));
                 List<SettlementCandidateView.Item> upiPay =
                         pay.stream().filter(OpenAccountsService::isUpiPaidItem).toList();
                 BigDecimal upiAppReceived = feePart(sumUpiBuyerPaid(upiPay));
@@ -746,11 +754,11 @@ public class OpenAccountsService {
                 .filter(Objects::nonNull)
                 .min(LocalDate::compareTo)
                 .orElse(start);
-        LocalDate periodTo = gap.slices().stream()
+        LocalDate periodTo = periodEndThroughScan(gap.slices().stream()
                 .map(s -> istDay(s.breakdown().deliveredAt()))
                 .filter(Objects::nonNull)
                 .max(LocalDate::compareTo)
-                .orElse(end);
+                .orElse(null), end);
         out.add(line(gap.townId(), "VENDOR", gap.vendorId(), shop, "SEND_BILL",
                 "Delivered COD — platform fees (not on settlement yet)",
                 detail, periodFrom, periodTo, amount, gap.slices().size(),
@@ -793,11 +801,11 @@ public class OpenAccountsService {
                 .filter(Objects::nonNull)
                 .min(LocalDate::compareTo)
                 .orElse(start);
-        LocalDate periodTo = gap.breakdowns().stream()
+        LocalDate periodTo = periodEndThroughScan(gap.breakdowns().stream()
                 .map(b -> istDay(b.deliveredAt()))
                 .filter(Objects::nonNull)
                 .max(LocalDate::compareTo)
-                .orElse(end);
+                .orElse(null), end);
         out.add(line(gap.townId(), "HUB", gap.hubId(), name, "SEND_BILL",
                 "Delivered hub-route COD — not remitted to platform yet",
                 detail, periodFrom, periodTo, amount, gap.breakdowns().size(),
@@ -895,8 +903,10 @@ public class OpenAccountsService {
         }
         LocalDate periodFrom = open.stream().map(item -> istDay(item.getDeliveredAt())).filter(d -> d != null)
                 .min(LocalDate::compareTo).orElse(start);
-        LocalDate periodTo = open.stream().map(item -> istDay(item.getDeliveredAt())).filter(d -> d != null)
-                .max(LocalDate::compareTo).orElse(end);
+        LocalDate periodTo = periodEndThroughScan(
+                open.stream().map(item -> istDay(item.getDeliveredAt())).filter(d -> d != null)
+                        .max(LocalDate::compareTo).orElse(null),
+                end);
         out.add(line(townId, hub ? "HUB" : "AGENT", payeeId, name, "PAY",
                 hub ? "Hub delivery fees not paid yet" : "Delivery agent fees not paid yet",
                 detail, periodFrom, periodTo, amount, open.size(),
@@ -1070,12 +1080,33 @@ public class OpenAccountsService {
                 .orElse(fallback);
     }
 
-    private static LocalDate periodEnd(List<SettlementCandidateView.Item> items, LocalDate fallback) {
-        return items.stream()
+    /**
+     * Open-work rows use the scan window end (usually today IST), like vendor Payouts date presets,
+     * not only the latest bag delivery day in the bundle.
+     */
+    private static LocalDate periodEnd(List<SettlementCandidateView.Item> items, LocalDate scanEnd) {
+        LocalDate latest = items.stream()
                 .map(item -> istDay(item.getDeliveredAt() != null ? item.getDeliveredAt() : item.getPlacedAt()))
                 .filter(day -> day != null)
                 .max(LocalDate::compareTo)
-                .orElse(fallback);
+                .orElse(null);
+        return periodEndThroughScan(latest, scanEnd);
+    }
+
+    private static LocalDate periodEndThroughScan(LocalDate latestInItems, LocalDate scanEnd) {
+        if (latestInItems == null) {
+            return scanEnd;
+        }
+        if (scanEnd != null && scanEnd.isAfter(latestInItems)) {
+            return scanEnd;
+        }
+        return latestInItems;
+    }
+
+    /** India FY start (Apr–Mar), same default window as vendor Payouts / Reports. */
+    private static LocalDate indiaFinancialYearStart(LocalDate asOf) {
+        int fyYear = asOf.getMonthValue() >= 4 ? asOf.getYear() : asOf.getYear() - 1;
+        return LocalDate.of(fyYear, 4, 1);
     }
 
     private static LocalDate istDay(Instant instant) {
@@ -1134,8 +1165,7 @@ public class OpenAccountsService {
     }
 
     /**
-     * Glam hybrid rows carry {@code onlineRemittanceAmount} = SUCCESS UPI actually held for that slice
-     * (e.g. flat min prepay), which can differ from prorated service+travel on {@code subtotal}.
+     * Glam hybrid UPI rows: {@code subtotal} and {@code onlineRemittanceAmount} both equal SUCCESS UPI held.
      */
     private static BigDecimal rowGoodsOrRemittance(SettlementCandidateView.Item item) {
         if (item.getOnlineRemittanceAmount() != null && item.getOnlineRemittanceAmount().signum() > 0) {
@@ -1152,7 +1182,9 @@ public class OpenAccountsService {
                 .add(money(item.getPlatformFee()))
                 .add(money(item.getParlourPaymentFee()))
                 .add(money(item.getMembershipFee()))
-                .add(money(item.getCodFee()));
+                .add(money(item.getCodFee()))
+                .subtract(money(item.getStoreCreditApplied()))
+                .max(BigDecimal.ZERO);
     }
 
     private static BigDecimal sumUpiBuyerPaid(List<SettlementCandidateView.Item> items) {

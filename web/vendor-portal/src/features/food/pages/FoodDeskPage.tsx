@@ -17,7 +17,7 @@ import {
   type FoodMenuItemVm,
 } from '../api/foodApi';
 import { mediaFromPublicUrl, resolveMediaContentUrl } from '@/features/listings/api/listingsApi';
-import { FoodHotelPhotosCard } from '../components/FoodHotelPhotosCard';
+import { Link } from 'react-router-dom';
 import { FoodDishSheet, type FoodDishForm } from '../components/FoodDishSheet';
 
 const MAX_PHOTOS = 3;
@@ -388,14 +388,16 @@ export function FoodDeskPage() {
         </AddCategoryRow>
       </section>
 
-      {token && vendorId ? (
-        <FoodHotelPhotosCard
-          token={token}
-          vendorId={vendorId}
-          onToast={(msg) => showToast(msg, 'success')}
-          onError={(msg) => showToast(msg, 'danger')}
-        />
-      ) : null}
+      <Link to="/hotel-images" style={S.hotelImagesLink}>
+        <span aria-hidden>📷</span>
+        <span>
+          <strong>Hotel Images</strong>
+          <span style={S.hotelImagesHint}> — photos buyers see on your Food page</span>
+        </span>
+        <span aria-hidden style={S.hotelImagesChevron}>
+          →
+        </span>
+      </Link>
 
       {loading ? <p style={S.muted}>Loading menu…</p> : null}
 
@@ -621,6 +623,22 @@ const S: Record<string, CSSProperties> = {
     lineHeight: 1.15,
   },
   heroSub: { margin: '0.25rem 0 0', fontSize: '0.78rem', color: 'var(--text-muted)', maxWidth: '28rem', lineHeight: 1.35 },
+  hotelImagesLink: {
+    display: 'grid',
+    gridTemplateColumns: 'auto 1fr auto',
+    alignItems: 'center',
+    gap: '0.45rem',
+    padding: '0.45rem 0.6rem',
+    borderRadius: 12,
+    border: '1px solid color-mix(in srgb, var(--accent) 28%, var(--border))',
+    background: 'color-mix(in srgb, var(--accent) 6%, var(--bg-elevated))',
+    textDecoration: 'none',
+    color: 'var(--text)',
+    fontSize: '0.82rem',
+    lineHeight: 1.3,
+  },
+  hotelImagesHint: { fontWeight: 500, color: 'var(--text-muted)', fontSize: '0.74rem' },
+  hotelImagesChevron: { color: 'var(--accent)', fontWeight: 800, fontSize: '0.95rem' },
   statGrid: { display: 'flex', flexWrap: 'wrap', gap: '0.35rem' },
   statPill: {
     minWidth: 62,

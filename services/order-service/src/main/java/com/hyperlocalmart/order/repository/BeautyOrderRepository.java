@@ -25,6 +25,12 @@ public interface BeautyOrderRepository extends JpaRepository<BeautyOrder, UUID> 
 
     List<BeautyOrder> findByTownIdOrderByPlacedAtDesc(UUID townId);
 
+    List<BeautyOrder> findByTownIdAndStatusAndUpdatedAtGreaterThanEqualAndUpdatedAtLessThanOrderByUpdatedAtDesc(
+            UUID townId,
+            BeautyOrderStatus status,
+            Instant updatedAtAfter,
+            Instant updatedAtBefore);
+
     boolean existsByReferencePhotoMediaId(UUID referencePhotoMediaId);
 
     long countByVendorIdAndSlotStartAndStatusNot(UUID vendorId, Instant slotStart, BeautyOrderStatus status);

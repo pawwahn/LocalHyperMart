@@ -209,6 +209,10 @@ export function TownPickerSheet() {
             <p style={styles.confirmWarn}>
               Your cart for the previous town will be cleared. This cannot be undone.
             </p>
+            <p style={styles.confirmHint}>
+              After you switch, we&apos;ll show what&apos;s available in{' '}
+              <strong>{pendingTown.displayName.split(',')[0]}</strong> and how to open each service.
+            </p>
             <div style={styles.confirmActions}>
               <Button type="button" disabled={busy} onClick={() => void confirmSwitch()} fullWidth>
                 {busy ? 'Switching…' : 'Yes, switch town'}
@@ -394,6 +398,12 @@ const styles: Record<string, CSSProperties> = {
     border: '1px solid rgba(245, 158, 11, 0.45)',
     borderRadius: 10,
     padding: '0.55rem 0.65rem',
+  },
+  confirmHint: {
+    margin: 0,
+    fontSize: '0.78rem',
+    lineHeight: 1.4,
+    color: 'var(--text-muted)',
   },
   confirmActions: { display: 'grid', gap: '0.4rem' },
 };

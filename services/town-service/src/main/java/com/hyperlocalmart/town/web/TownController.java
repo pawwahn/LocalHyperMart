@@ -5,6 +5,7 @@ import com.hyperlocalmart.town.dto.request.CreateTownRequest;
 import com.hyperlocalmart.town.dto.request.PatchTownFeatureFlagsRequest;
 import com.hyperlocalmart.town.dto.request.UpdateTownConfigRequest;
 import com.hyperlocalmart.town.dto.request.UpdateTownCoverageRequest;
+import com.hyperlocalmart.town.dto.request.UpdateTownNameRequest;
 import com.hyperlocalmart.town.dto.request.UpdateTownStatusRequest;
 import com.hyperlocalmart.town.dto.response.MembershipConfigResponse;
 import com.hyperlocalmart.town.dto.response.ReferralConfigResponse;
@@ -78,6 +79,17 @@ public class TownController {
         UUID actorId = AdminAuth.requireUserId(httpRequest);
         return ResponseEntity.ok(ApiResponses.ok(httpRequest,
                 townService.updateCoverage(townId, request, actorId)));
+    }
+
+    @PatchMapping("/api/v1/towns/{townId}/name")
+    public ResponseEntity<ApiResponse<TownDetailResponse>> updateTownName(
+            @PathVariable UUID townId,
+            @Valid @RequestBody UpdateTownNameRequest request,
+            HttpServletRequest httpRequest) {
+        AdminAuth.requirePlatformWrite(httpRequest);
+        UUID actorId = AdminAuth.requireUserId(httpRequest);
+        return ResponseEntity.ok(ApiResponses.ok(httpRequest,
+                townService.updateName(townId, request, actorId)));
     }
 
     @PatchMapping("/api/v1/towns/{townId}/status")

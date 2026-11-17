@@ -669,20 +669,11 @@ public class OrderService {
         String orderLineKind = foodCart ? "FOOD" : "GROCERY";
         boolean vendorAgentDelivery = false;
         if (foodCart) {
-            TownClient.VendorAgentDeliverySettings vad = townClient.getVendorAgentDeliverySettings(request.getTownId());
-            Boolean reqVendorAgent = request.getVendorAgentDelivery();
-            if (reqVendorAgent == null) {
-                if (vad.enabled()) {
-                    throw new BusinessException(ErrorCode.VALIDATION_ERROR,
-                            "Choose hub delivery or hotel staff delivery for food orders");
-                }
-            } else {
-                vendorAgentDelivery = reqVendorAgent;
-                if (vendorAgentDelivery && !vad.enabled()) {
-                    throw new BusinessException(ErrorCode.VALIDATION_ERROR,
-                            "Hotel staff delivery is not available in this town");
-                }
+            if (Boolean.TRUE.equals(request.getVendorAgentDelivery())) {
+                throw new BusinessException(ErrorCode.VALIDATION_ERROR,
+                        "Delivery method is set by the hotel after the order is placed");
             }
+            vendorAgentDelivery = false;
         } else if (Boolean.TRUE.equals(request.getVendorAgentDelivery())) {
             throw new BusinessException(ErrorCode.VALIDATION_ERROR,
                     "Hotel staff delivery applies only to food orders");

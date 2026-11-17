@@ -584,6 +584,10 @@ export function TownsPage() {
             setHistoryTick((n) => n + 1);
           }}
           onRequestTownStatus={(next) => requestStatus(configTown, next)}
+          onTownUpdated={(updated) => {
+            setTowns((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
+            setConfigTown(updated);
+          }}
           townStatusBusy={busyId === configTown.id}
         />
       ) : null}

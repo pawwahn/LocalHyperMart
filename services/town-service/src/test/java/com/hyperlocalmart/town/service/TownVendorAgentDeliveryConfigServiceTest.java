@@ -20,6 +20,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -46,6 +47,20 @@ class TownVendorAgentDeliveryConfigServiceTest {
                 .createdAt(Instant.now())
                 .updatedAt(Instant.now())
                 .build();
+    }
+
+    @Test
+    void get_missingConfig_returnsDefaultsWithoutWrite() {
+        when(townRepository.existsById(townId)).thenReturn(true);
+        when(townConfigRepository
+                .findFirstByTownIdAndConfigKeyAndEffectiveToIsNullOrderByEffectiveFromDesc(
+                        eq(townId), eq(TownVendorAgentDeliveryConfigService.CONFIG_KEY)))
+                .thenReturn(Optional.empty());
+
+        TownVendorAgentDeliveryConfigResponse response = service.get(townId);
+
+        assertThat(response.isEnabled()).isFalse();
+        verify(townConfigRepository, never()).save(org.mockito.ArgumentMatchers.any());
     }
 
     @Test

@@ -50,6 +50,8 @@ const PACKAGE_META_FALLBACK = 'Health package · home collection included';
 
 const POPULAR_TEST_SEARCHES = ['CBC', 'Thyroid', 'HbA1c', 'Lipid profile', 'Vitamin D', 'LFT'] as const;
 
+const DIAG_HERO_IMG = '/diagnostics/hero-home-collection.jpg';
+
 const HOME_COLLECTION_FLOW = [
   { title: 'Book online', detail: 'Choose lab, tests & time slot' },
   { title: 'Home visit', detail: 'Phlebotomist collects sample safely' },
@@ -83,21 +85,34 @@ function packageSearchHaystack(pkg: DiagnosticsPackage, testNameById: Map<string
 }
 
 const SKIN = `
-.hlm-diag-root,
+.hlm-diag-scope,
 .hlm-diag-unavailable {
-  --diag-ink: #134e4a;
-  --diag-ink-mid: #115e59;
-  --diag-muted: #5b8a83;
-  --diag-line: #99f6e4;
-  --diag-accent: #0d9488;
-  --diag-accent-deep: #047857;
-  --diag-accent-bright: #14b8a6;
-  --diag-accent-soft: #ecfdf5;
-  --diag-accent-tint: #ccfbf1;
-  --diag-sky-soft: #e0f7fa;
-  --diag-on-dark: #ffffff;
-  --diag-shadow: rgba(13, 148, 136, 0.22);
-  --diag-shadow-soft: rgba(13, 148, 136, 0.1);
+  --diag-brand: #0c2f2a;
+  --diag-brand-hover: #081f1c;
+  --diag-royal: #0f3d36;
+  --diag-gold: #c6a75e;
+  --diag-gold-soft: #f5efe2;
+  --diag-gold-line: #e2d4bc;
+  --diag-ink: #142826;
+  --diag-ink-mid: #2c403c;
+  --diag-muted: #6f7d7a;
+  --diag-line: #e8e0d4;
+  --diag-accent: #0f3d36;
+  --diag-accent-deep: #0c2f2a;
+  --diag-accent-bright: #155a50;
+  --diag-accent-soft: #f6f3ed;
+  --diag-accent-tint: #ede6d8;
+  --diag-sky-soft: #faf7f2;
+  --diag-page: #f7f3ec;
+  --diag-panel-edge: #ebe3d8;
+  --diag-cream: #fffdfa;
+  --diag-on-dark: #fffef9;
+  --diag-shadow: rgba(12, 47, 42, 0.14);
+  --diag-shadow-soft: rgba(12, 47, 42, 0.07);
+}
+.hlm-diag-scope {
+  color: var(--diag-ink);
+  color-scheme: light;
 }
 .hlm-diag-root {
   display: grid;
@@ -105,76 +120,122 @@ const SKIN = `
   padding: 0.2rem 0.1rem 5.5rem;
   color: var(--diag-ink);
   color-scheme: light;
-  background:
-    radial-gradient(circle at 6% 2%, rgba(45, 212, 191, 0.2), transparent 45%),
-    radial-gradient(circle at 96% 8%, rgba(56, 189, 248, 0.14), transparent 42%),
-    linear-gradient(180deg, #ecfdf5 0%, #f0fdfa 45%, #ecfeff 100%);
-  border-radius: 22px;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.95);
+  background: linear-gradient(180deg, var(--diag-page) 0%, #faf6f0 100%);
+  border-radius: 16px;
 }
 .hlm-diag-root--dock {
   padding-bottom: calc(5.5rem + var(--tabbar-h, 60px));
 }
 .hlm-diag-hero {
   position: relative;
-  border-radius: 22px;
-  padding: 1rem 0.95rem 0.95rem;
-  overflow: hidden;
-  color: #fff;
-  background:
-    radial-gradient(100% 85% at 100% 0%, rgba(255,255,255,0.28) 0%, transparent 48%),
-    radial-gradient(80% 65% at 0% 100%, rgba(45, 212, 191, 0.45) 0%, transparent 52%),
-    linear-gradient(135deg, #047857 0%, #0d9488 42%, #2dd4bf 100%);
-  box-shadow: 0 20px 48px var(--diag-shadow), inset 0 1px 0 rgba(255,255,255,0.22);
-}
-.hlm-diag-hero-deco {
-  position: absolute;
-  right: 0.65rem;
-  top: 0.55rem;
-  width: 3.4rem;
-  height: 3.4rem;
   border-radius: 16px;
-  background: rgba(255,255,255,0.12);
-  border: 1px solid rgba(255,255,255,0.22);
+  padding: 0.75rem 0.85rem;
+  overflow: hidden;
+  color: var(--diag-ink);
+  background: linear-gradient(145deg, var(--diag-cream) 0%, #f9f4eb 52%, #f3ece2 100%);
+  border: 1px solid var(--diag-line);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 6px 22px var(--diag-shadow-soft);
+}
+.hlm-diag-hero::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--diag-gold), transparent);
+  opacity: 0.85;
+}
+.hlm-diag-hero-grid {
   display: grid;
-  place-items: center;
-  backdrop-filter: blur(8px);
+  gap: 0.65rem;
+  align-items: center;
+}
+@media (min-width: 640px) {
+  .hlm-diag-hero-grid {
+    grid-template-columns: minmax(0, 1fr) minmax(9.75rem, 36%);
+    gap: 0.75rem;
+    align-items: center;
+  }
 }
 .hlm-diag-hero-body {
   position: relative;
   z-index: 1;
-  padding-right: 3.75rem;
   display: grid;
-  gap: 0.35rem;
+  gap: 0.38rem;
+  min-width: 0;
+}
+.hlm-diag-hero-visual {
+  position: relative;
+  border-radius: 12px;
+  overflow: hidden;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  min-height: 7.75rem;
+  max-height: 10.5rem;
+  background: var(--diag-gold-soft);
+  box-shadow:
+    0 0 0 1px var(--diag-gold-line),
+    0 10px 24px var(--diag-shadow-soft);
+  border: 1px solid rgba(255, 255, 255, 0.95);
+}
+@media (min-width: 640px) {
+  .hlm-diag-hero-visual {
+    aspect-ratio: 4 / 3;
+    min-height: 7.25rem;
+    max-height: 9.25rem;
+    max-width: 13.25rem;
+    justify-self: end;
+    width: 100%;
+  }
+}
+@media (min-width: 960px) {
+  .hlm-diag-hero-visual {
+    max-width: 14.5rem;
+    max-height: 10rem;
+  }
+}
+.hlm-diag-hero-visual img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: 55% 40%;
+  display: block;
 }
 .hlm-diag-kicker {
   display: inline-flex;
   width: fit-content;
-  padding: 0.2rem 0.55rem;
+  padding: 0.18rem 0.5rem;
   border-radius: 999px;
-  font-size: 0.58rem;
+  font-size: 0.56rem;
   font-weight: 800;
-  letter-spacing: 0.07em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  background: rgba(255,255,255,0.14);
-  border: 1px solid rgba(255,255,255,0.28);
+  color: var(--diag-royal);
+  background: rgba(255, 253, 248, 0.92);
+  border: 1px solid var(--diag-gold-line);
 }
 .hlm-diag-hero h1 {
   margin: 0;
   font-family: var(--font-display);
-  font-size: clamp(1.28rem, 4.5vw, 1.48rem);
+  font-size: clamp(1.35rem, 4.5vw, 1.85rem);
   font-weight: 900;
-  letter-spacing: -0.035em;
+  letter-spacing: -0.03em;
   line-height: 1.12;
   text-wrap: balance;
+  color: var(--diag-ink);
 }
 .hlm-diag-hero p {
   margin: 0;
-  font-size: 0.76rem;
+  font-size: 0.74rem;
   font-weight: 600;
-  line-height: 1.45;
-  opacity: 0.94;
-  max-width: 20rem;
+  line-height: 1.48;
+  color: var(--diag-muted);
+  max-width: 26rem;
 }
 .hlm-diag-hero-trust {
   display: flex;
@@ -187,9 +248,9 @@ const SKIN = `
   font-weight: 800;
   padding: 0.22rem 0.48rem;
   border-radius: 999px;
-  background: rgba(255,255,255,0.14);
-  border: 1px solid rgba(255,255,255,0.28);
-  color: rgba(255,255,255,0.96);
+  background: #fff;
+  border: 1px solid var(--diag-line);
+  color: var(--diag-ink-mid);
   letter-spacing: 0.02em;
 }
 .hlm-diag-hero-links {
@@ -201,16 +262,12 @@ const SKIN = `
 .hlm-diag-hero-links a {
   font-size: 0.68rem;
   font-weight: 800;
-  color: var(--diag-on-dark);
+  color: var(--diag-royal);
   text-decoration: none;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.45);
+  border-bottom: 1px solid color-mix(in srgb, var(--diag-gold) 55%, transparent);
 }
 .hlm-diag-flow-compact {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.28rem;
-  align-items: center;
-  padding: 0.1rem 0;
+  display: none;
 }
 .hlm-diag-flow-pill {
   display: inline-flex;
@@ -269,50 +326,214 @@ const SKIN = `
 .hlm-diag-progress {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 0.28rem;
-  padding: 0.45rem 0.55rem;
-  border-radius: 14px;
-  background: rgba(255,255,255,0.72);
-  border: 1px solid color-mix(in srgb, var(--diag-accent) 12%, var(--diag-line));
+  gap: 0.15rem;
+  padding: 0.45rem 0.5rem;
+  border-radius: 12px;
+  background: var(--diag-cream);
+  border: 1px solid var(--diag-line);
+  box-shadow: 0 2px 12px var(--diag-shadow-soft);
 }
 .hlm-diag-progress span {
   text-align: center;
   font-size: 0.58rem;
   font-weight: 800;
-  color: var(--diag-muted);
+  color: #9aa5a3;
   line-height: 1.25;
-  padding: 0.22rem 0.12rem;
+  padding: 0.32rem 0.12rem 0.28rem;
   border-radius: 8px;
+  position: relative;
+  border-bottom: 2px solid transparent;
 }
 .hlm-diag-progress span em {
-  display: block;
+  display: inline-grid;
+  place-items: center;
   font-style: normal;
-  font-size: 0.62rem;
-  margin-bottom: 0.08rem;
+  font-size: 0.58rem;
+  width: 1.15rem;
+  height: 1.15rem;
+  margin: 0 auto 0.12rem;
+  border-radius: 999px;
+  background: var(--diag-gold-soft);
+  color: var(--diag-muted);
+  border: 1px solid var(--diag-line);
 }
 .hlm-diag-progress span.hlm-diag-progress--on {
-  color: var(--diag-accent-deep);
-  background: var(--diag-accent-tint);
-  box-shadow: inset 0 0 0 1px var(--diag-line);
+  color: var(--diag-royal);
+  background: linear-gradient(180deg, #fffefb 0%, var(--diag-gold-soft) 100%);
+  border-bottom-color: var(--diag-gold);
+}
+.hlm-diag-progress span.hlm-diag-progress--on em {
+  background: var(--diag-brand);
+  color: var(--diag-on-dark);
+  border: 1px solid var(--diag-gold);
 }
 .hlm-diag-progress span.hlm-diag-progress--done {
-  color: var(--diag-accent);
+  color: var(--diag-royal);
+  border-bottom-color: color-mix(in srgb, var(--diag-gold) 40%, transparent);
+}
+.hlm-diag-progress span.hlm-diag-progress--done em {
+  background: var(--diag-brand);
+  color: var(--diag-on-dark);
+  border: 1px solid color-mix(in srgb, var(--diag-gold) 65%, transparent);
+  font-size: 0.62rem;
+}
+.hlm-diag-layout {
+  display: grid;
+  gap: 0.65rem;
+  align-items: start;
+}
+@media (min-width: 820px) {
+  .hlm-diag-layout {
+    grid-template-columns: minmax(0, 1fr) minmax(16rem, 19.5rem);
+    gap: 0.85rem;
+  }
+}
+.hlm-diag-main {
+  display: grid;
+  gap: 0.65rem;
+  min-width: 0;
+}
+.hlm-diag-aside {
+  min-width: 0;
+}
+@media (min-width: 900px) {
+  .hlm-diag-aside {
+    position: sticky;
+    top: 0.35rem;
+  }
+}
+.hlm-diag-summary {
+  border-radius: 14px;
+  padding: 0;
+  overflow: hidden;
+  background: var(--diag-cream);
+  border: 1px solid var(--diag-panel-edge);
+  box-shadow: 0 10px 28px var(--diag-shadow-soft);
+  display: grid;
+}
+.hlm-diag-summary-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.55rem 0.7rem;
+  background: linear-gradient(135deg, #0a2a26 0%, var(--diag-brand) 55%, #11483f 100%);
+  color: var(--diag-on-dark);
+  border-bottom: 2px solid var(--diag-gold);
+  font-family: var(--font-display);
+  font-size: 0.86rem;
+  font-weight: 900;
+  letter-spacing: -0.02em;
+}
+.hlm-diag-summary-body {
+  display: grid;
+  gap: 0.48rem;
+  padding: 0.6rem 0.65rem 0.65rem;
+}
+.hlm-diag-summary-icon {
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--diag-gold) 22%, transparent);
+  color: var(--diag-gold-soft);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--diag-gold) 55%, transparent);
+  flex-shrink: 0;
+}
+.hlm-diag-summary-items {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.hlm-diag-summary-item {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.32rem 0.38rem;
+  border-radius: 10px;
+  background: #faf7f2;
+  border: 1px solid var(--diag-line);
+}
+.hlm-diag-summary-item-copy {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.45rem;
+}
+.hlm-diag-summary-item-copy strong {
+  font-size: 0.74rem;
+  font-weight: 800;
+  color: var(--diag-ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.hlm-diag-summary-item-copy span {
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: var(--diag-ink-mid);
+  flex-shrink: 0;
+}
+.hlm-diag-summary-remove {
+  border: none;
+  background: transparent;
+  color: #94a3b8;
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+  padding: 0.15rem;
+  border-radius: 6px;
+}
+.hlm-diag-summary-remove:hover {
+  color: #b91c1c;
+  background: #fef2f2;
+}
+.hlm-diag-summary-empty {
+  margin: 0;
+  padding: 0.5rem 0.15rem;
+  text-align: center;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--diag-muted);
+  line-height: 1.4;
+}
+.hlm-diag-summary-total {
+  margin: 0.15rem 0 0;
+  padding-top: 0.45rem;
+  border-top: 1px dashed #e2e8f0;
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.5rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--diag-muted);
+}
+.hlm-diag-summary-total strong {
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  font-weight: 900;
+  color: var(--diag-ink);
+  letter-spacing: -0.02em;
 }
 .hlm-diag-step {
-  width: 1.85rem;
-  height: 1.85rem;
-  border-radius: 12px;
-  background:
-    linear-gradient(145deg, #fff 0%, var(--diag-accent-soft) 55%, var(--diag-sky-soft) 100%) padding-box,
-    linear-gradient(145deg, #5eead4, var(--diag-accent), var(--diag-accent-deep)) border-box;
-  border: 2px solid transparent;
-  color: var(--diag-accent);
-  font-size: 0.74rem;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 10px;
+  background: linear-gradient(165deg, var(--diag-royal) 0%, var(--diag-brand) 100%);
+  border: 1px solid color-mix(in srgb, var(--diag-gold) 45%, transparent);
+  color: var(--diag-on-dark);
+  font-size: 0.72rem;
   font-weight: 900;
   display: grid;
   place-items: center;
   flex-shrink: 0;
-  box-shadow: 0 4px 14px var(--diag-shadow-soft);
+  box-shadow: 0 4px 12px var(--diag-shadow-soft);
   font-family: var(--font-display);
 }
 .hlm-diag-panel-head-text {
@@ -344,9 +565,9 @@ const SKIN = `
   margin: -0.15rem 0 0.45rem;
 }
 .hlm-diag-quick button {
-  border: 1px solid var(--diag-accent-tint);
-  background: var(--diag-accent-soft);
-  color: var(--diag-accent);
+  border: 1px solid var(--diag-line);
+  background: #fff;
+  color: var(--diag-ink-mid);
   border-radius: 999px;
   padding: 0.28rem 0.55rem;
   font-size: 0.66rem;
@@ -354,29 +575,27 @@ const SKIN = `
   cursor: pointer;
 }
 .hlm-diag-quick button[aria-pressed="true"] {
-  background: var(--diag-accent);
+  background: linear-gradient(180deg, var(--diag-royal), var(--diag-brand));
   color: var(--diag-on-dark);
-  border-color: var(--diag-accent);
+  border-color: color-mix(in srgb, var(--diag-gold) 35%, var(--diag-brand));
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--diag-gold) 30%, transparent);
 }
 .hlm-diag-unavailable {
   display: grid;
   gap: 0.65rem;
   padding: 0.25rem 0.1rem 1rem;
   border-radius: 22px;
-  background:
-    radial-gradient(circle at 12% 8%, rgba(45, 212, 191, 0.18), transparent 42%),
-    linear-gradient(180deg, #ecfdf5 0%, #ecfeff 100%);
+  background: var(--diag-page);
 }
 .hlm-diag-unavailable-card {
   border-radius: 20px;
   padding: 1.1rem 0.95rem;
-  background:
-    radial-gradient(90% 70% at 100% 0%, rgba(255,255,255,0.25) 0%, transparent 50%),
-    linear-gradient(135deg, #047857 0%, #0d9488 50%, #2dd4bf 100%);
+  background: linear-gradient(160deg, #0a2a26 0%, var(--diag-brand) 100%);
   color: var(--diag-on-dark);
   display: grid;
   gap: 0.45rem;
-  box-shadow: 0 18px 40px var(--diag-shadow);
+  box-shadow: 0 16px 36px var(--diag-shadow);
+  border: 1px solid color-mix(in srgb, var(--diag-gold) 25%, transparent);
 }
 .hlm-diag-unavailable-card h2 {
   margin: 0;
@@ -393,11 +612,11 @@ const SKIN = `
   opacity: 0.94;
 }
 .hlm-diag-panel {
-  border-radius: 16px;
-  padding: 0.55rem 0.6rem;
-  background: var(--bg-elevated);
-  border: 1px solid color-mix(in srgb, var(--border) 88%, transparent);
-  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.04);
+  border-radius: 14px;
+  padding: 0.6rem 0.65rem;
+  background: var(--diag-cream);
+  border: 1px solid var(--diag-panel-edge);
+  box-shadow: 0 2px 14px var(--diag-shadow-soft);
 }
 .hlm-diag-panel-head {
   display: flex;
@@ -436,9 +655,28 @@ const SKIN = `
 }
 .hlm-diag-lab-card:active { transform: scale(0.98); }
 .hlm-diag-lab-card--on {
-  border-color: var(--diag-accent);
-  background: linear-gradient(90deg, var(--diag-accent-soft) 0%, #fff 100%);
-  box-shadow: 0 4px 12px var(--diag-shadow-soft);
+  border-color: color-mix(in srgb, var(--diag-gold) 40%, var(--diag-brand));
+  background: linear-gradient(90deg, var(--diag-gold-soft) 0%, var(--diag-cream) 70%);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--diag-gold) 22%, transparent);
+}
+.hlm-diag-lab-radio {
+  width: 1.05rem;
+  height: 1.05rem;
+  border-radius: 999px;
+  border: 2px solid #cbd5e1;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  background: #fff;
+}
+.hlm-diag-lab-card--on .hlm-diag-lab-radio {
+  border-color: var(--diag-brand);
+}
+.hlm-diag-lab-radio-dot {
+  width: 0.48rem;
+  height: 0.48rem;
+  border-radius: 999px;
+  background: var(--diag-brand);
 }
 .hlm-diag-lab-card-copy {
   flex: 1;
@@ -459,8 +697,9 @@ const SKIN = `
   background: var(--diag-accent-soft);
 }
 .hlm-diag-lab-card--on .hlm-diag-lab-avatar {
-  background: var(--diag-accent);
+  background: linear-gradient(165deg, var(--diag-royal), var(--diag-brand));
   color: var(--diag-on-dark);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--diag-gold) 40%, transparent);
 }
 .hlm-diag-lab-name {
   font-size: 0.72rem;
@@ -485,7 +724,8 @@ const SKIN = `
   display: flex;
   padding: 0.2rem;
   border-radius: 12px;
-  background: var(--diag-accent-soft);
+  background: var(--diag-gold-soft);
+  border: 1px solid var(--diag-line);
   margin-bottom: 0.55rem;
 }
 .hlm-diag-segment button {
@@ -501,9 +741,10 @@ const SKIN = `
   line-height: 1.2;
 }
 .hlm-diag-segment button[aria-selected="true"] {
-  background: #fff;
-  color: var(--diag-accent);
-  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.08);
+  background: var(--diag-cream);
+  color: var(--diag-royal);
+  box-shadow: 0 2px 8px var(--diag-shadow-soft);
+  border: 1px solid var(--diag-gold-line);
 }
 .hlm-diag-search {
   display: flex;
@@ -512,8 +753,8 @@ const SKIN = `
   padding: 0 0.65rem;
   min-height: 42px;
   border-radius: 12px;
-  border: 1px solid #e2e8f0;
-  background: #f8fafc;
+  border: 1px solid var(--diag-line);
+  background: #faf7f2;
   margin-bottom: 0.55rem;
 }
 .hlm-diag-search input {
@@ -527,11 +768,21 @@ const SKIN = `
 }
 .hlm-diag-search input:focus { outline: none; }
 .hlm-diag-search input::placeholder { color: var(--diag-muted); font-weight: 600; }
+.hlm-diag-search-icon {
+  color: var(--diag-muted);
+  font-size: 0.9rem;
+  flex-shrink: 0;
+}
 .hlm-diag-catalog-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.28rem;
+  gap: 0.32rem;
   align-items: stretch;
+}
+@media (min-width: 520px) {
+  .hlm-diag-catalog-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 }
 @media (max-width: 359px) {
   .hlm-diag-catalog-grid {
@@ -542,14 +793,26 @@ const SKIN = `
   display: grid;
   gap: 0.28rem;
 }
+.hlm-diag-test-icon {
+  width: 1.85rem;
+  height: 1.85rem;
+  border-radius: 10px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  background: var(--diag-accent-soft);
+  border: 1px solid var(--diag-accent-tint);
+  color: var(--diag-brand);
+}
 .hlm-diag-test-cell {
   display: grid;
   grid-template-rows: minmax(1.35rem, auto) 0.72rem 1.85rem;
   gap: 0.06rem;
-  padding: 0.3rem 0.4rem 0.32rem;
-  border: 1px solid var(--diag-line);
-  border-radius: 10px;
+  padding: 0.38rem 0.42rem 0.34rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
   background: #fff;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.03);
   min-width: 0;
   height: 100%;
   min-height: 5.2rem;
@@ -557,16 +820,23 @@ const SKIN = `
   transition: border-color 140ms ease, background 140ms ease;
 }
 .hlm-diag-test-cell--on {
-  border-color: var(--diag-accent);
-  background: var(--diag-accent-soft);
+  border-color: color-mix(in srgb, var(--diag-gold) 35%, var(--diag-brand));
+  background: linear-gradient(180deg, var(--diag-gold-soft) 0%, var(--diag-cream) 100%);
 }
 .hlm-diag-test-head {
   display: flex;
   align-items: flex-start;
-  justify-content: space-between;
-  gap: 0.2rem;
+  gap: 0.35rem;
   min-height: 0;
   overflow: hidden;
+}
+.hlm-diag-test-head-copy {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.2rem;
 }
 .hlm-diag-test-prep-slot {
   height: 0.72rem;
@@ -618,9 +888,9 @@ const SKIN = `
   font-size: 0.52rem;
   font-weight: 800;
   letter-spacing: 0.01em;
-  color: var(--diag-accent);
+  color: var(--diag-brand);
   background: var(--diag-accent-tint);
-  border: 1px solid color-mix(in srgb, var(--diag-accent) 16%, transparent);
+  border: 1px solid color-mix(in srgb, var(--diag-brand) 16%, transparent);
   line-height: 1.2;
   max-width: 100%;
   white-space: nowrap;
@@ -655,7 +925,7 @@ const SKIN = `
   font-size: 0.68rem;
   font-weight: 900;
   letter-spacing: -0.02em;
-  color: var(--diag-accent);
+  color: var(--diag-ink-mid);
   white-space: nowrap;
   flex-shrink: 0;
   line-height: 1.25;
@@ -664,21 +934,20 @@ const SKIN = `
 .hlm-diag-add {
   min-width: 2.75rem;
   min-height: 32px;
-  border: 1.5px solid var(--diag-accent);
+  border: 1.5px solid var(--diag-brand);
   border-radius: 8px;
   padding: 0.22rem 0.35rem;
   font-size: 0.62rem;
   font-weight: 800;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--diag-accent);
+  letter-spacing: 0.02em;
+  color: var(--diag-brand);
   background: #fff;
   cursor: pointer;
 }
 .hlm-diag-add--on {
-  background: var(--diag-accent);
+  background: linear-gradient(180deg, var(--diag-royal), var(--diag-brand));
   color: var(--diag-on-dark);
-  border-color: var(--diag-accent);
+  border-color: color-mix(in srgb, var(--diag-gold) 35%, var(--diag-brand));
 }
 .hlm-diag-field {
   width: 100%;
@@ -701,7 +970,7 @@ const SKIN = `
 }
 select.hlm-diag-field {
   padding-right: 1.85rem;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%230d9488' d='M3 4.5 6 7.5 9 4.5'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%230c2f2a' d='M3 4.5 6 7.5 9 4.5'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 0.55rem center;
 }
@@ -744,10 +1013,11 @@ input[type='number'].hlm-diag-field::-webkit-inner-spin-button {
   cursor: pointer;
 }
 .hlm-diag-chip--on {
-  border-color: var(--diag-accent);
-  background: var(--diag-accent-soft);
-  color: var(--diag-accent-deep);
+  border-color: color-mix(in srgb, var(--diag-gold) 40%, var(--diag-brand));
+  background: linear-gradient(180deg, var(--diag-royal), var(--diag-brand));
+  color: var(--diag-on-dark);
   font-weight: 800;
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--diag-gold) 28%, transparent);
 }
 .hlm-diag-slot-scroll {
   max-height: 9.5rem;
@@ -790,14 +1060,47 @@ input[type='number'].hlm-diag-field::-webkit-inner-spin-button {
   margin-top: 0.65rem;
   width: 100%;
   border: none;
-  border-radius: 14px;
-  padding: 0.82rem;
+  border-radius: 12px;
+  padding: 0.78rem 0.85rem;
   font-weight: 800;
-  font-size: 0.9rem;
+  font-size: 0.86rem;
   cursor: pointer;
-  background: linear-gradient(135deg, var(--diag-accent-deep), var(--diag-accent-bright));
+  background: linear-gradient(180deg, var(--diag-royal) 0%, var(--diag-brand) 100%);
   color: var(--diag-on-dark);
-  box-shadow: 0 10px 24px var(--diag-shadow);
+  box-shadow:
+    0 8px 22px var(--diag-shadow),
+    inset 0 1px 0 color-mix(in srgb, var(--diag-gold) 35%, transparent);
+  letter-spacing: 0.01em;
+}
+.hlm-diag-primary:not(:disabled):active {
+  background: linear-gradient(180deg, var(--diag-brand-hover), #0a2522);
+}
+.hlm-diag-summary-cta {
+  margin-top: 0.1rem;
+}
+.hlm-diag-pay-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+.hlm-diag-pay-opt {
+  flex: 1 1 9rem;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 0.5rem 0.55rem;
+  background: #fff;
+  text-align: left;
+  cursor: pointer;
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: var(--diag-ink-mid);
+  line-height: 1.25;
+}
+.hlm-diag-pay-opt--on {
+  border-color: color-mix(in srgb, var(--diag-gold) 45%, var(--diag-brand));
+  background: var(--diag-gold-soft);
+  color: var(--diag-royal);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--diag-gold) 25%, transparent);
 }
 .hlm-diag-primary:disabled {
   opacity: 0.55;
@@ -805,12 +1108,6 @@ input[type='number'].hlm-diag-field::-webkit-inner-spin-button {
   box-shadow: none;
 }
 .hlm-diag-dock {
-  --diag-accent: #0d9488;
-  --diag-accent-deep: #047857;
-  --diag-on-dark: #ffffff;
-  --diag-ink: #134e4a;
-  --diag-muted: #5b8a83;
-  --diag-shadow: rgba(13, 148, 136, 0.22);
   position: fixed;
   left: 50%;
   transform: translateX(-50%);
@@ -829,9 +1126,9 @@ input[type='number'].hlm-diag-field::-webkit-inner-spin-button {
   gap: 0.55rem;
   padding: 0.45rem 0.55rem 0.45rem 0.65rem;
   border-radius: 16px;
-  background: linear-gradient(180deg, #ffffff 0%, #f0fdfa 100%);
+  background: var(--diag-cream);
   color: var(--diag-ink);
-  box-shadow: 0 14px 36px var(--diag-shadow), 0 0 0 1px var(--diag-line);
+  box-shadow: 0 12px 32px var(--diag-shadow), 0 0 0 1px var(--diag-line);
 }
 .hlm-diag-dock-copy {
   flex: 1;
@@ -855,7 +1152,7 @@ input[type='number'].hlm-diag-field::-webkit-inner-spin-button {
   padding: 0.55rem 0.85rem;
   font-size: 0.75rem;
   font-weight: 800;
-  background: linear-gradient(135deg, var(--diag-accent-deep), var(--diag-accent));
+  background: linear-gradient(180deg, var(--diag-royal), var(--diag-brand));
   color: var(--diag-on-dark);
   cursor: pointer;
   white-space: nowrap;
@@ -872,7 +1169,7 @@ input[type='number'].hlm-diag-field::-webkit-inner-spin-button {
 .hlm-diag-date-wrap .hlm-picker-date-icon {
   background: var(--diag-accent-soft);
   border-radius: 10px;
-  color: var(--diag-accent);
+  color: var(--diag-brand);
 }
 .hlm-diag-catalog-empty {
   margin: 0;
@@ -994,6 +1291,23 @@ function labInitials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
   if (parts.length >= 2) return `${parts[0][0] ?? ''}${parts[1][0] ?? ''}`.toUpperCase();
   return name.slice(0, 2).toUpperCase();
+}
+
+function DiagTestTubeIcon() {
+  return (
+    <span className="hlm-diag-test-icon" aria-hidden>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+        <path
+          d="M9 3h6v4l4 10a3 3 0 0 1-3 3H8a3 3 0 0 1-3-3l4-10V3Z"
+          stroke="currentColor"
+          strokeWidth="1.75"
+          strokeLinejoin="round"
+        />
+        <path d="M9 7h6" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
+        <path d="M10 13h4" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
+      </svg>
+    </span>
+  );
 }
 
 export function DiagnosticsPage() {
@@ -1132,6 +1446,35 @@ export function DiagnosticsPage() {
     () => Object.entries(packageCart).reduce((sum, [, qty]) => sum + (qty > 0 ? qty : 0), 0),
     [packageCart],
   );
+
+  const cartLineItems = useMemo(() => {
+    const rows: { key: string; kind: 'test' | 'package'; id: string; name: string; price: number }[] = [];
+    for (const test of catalogTests) {
+      const qty = cart[test.id] ?? 0;
+      if (qty > 0) {
+        rows.push({
+          key: `t:${test.id}`,
+          kind: 'test',
+          id: test.id,
+          name: test.name,
+          price: Number(test.price || 0) * qty,
+        });
+      }
+    }
+    for (const pkg of catalogPackages) {
+      const qty = packageCart[pkg.id] ?? 0;
+      if (qty > 0) {
+        rows.push({
+          key: `p:${pkg.id}`,
+          kind: 'package',
+          id: pkg.id,
+          name: pkg.name,
+          price: Number(pkg.price || 0) * qty,
+        });
+      }
+    }
+    return rows;
+  }, [cart, packageCart, catalogTests, catalogPackages]);
 
   const catalogQuery = catalogSearch.trim().toLowerCase();
   const filteredTests = useMemo(() => {
@@ -1373,10 +1716,15 @@ export function DiagnosticsPage() {
     const visitDone = Boolean(patientId && addressId && selectedSlot && detail?.eligible !== false);
     const payDone = visitDone && disclaimerOk && testCount > 0;
     return [
-      { id: 'lab', label: 'Lab', done: labDone, current: !labDone },
-      { id: 'tests', label: 'Tests', done: testsDone, current: labDone && !testsDone },
-      { id: 'visit', label: 'Home visit', done: visitDone, current: testsDone && !visitDone },
-      { id: 'pay', label: 'Pay & book', done: payDone, current: visitDone && !payDone },
+      { id: 'lab', label: 'Choose lab', done: labDone, current: !labDone },
+      { id: 'tests', label: 'Select tests', done: testsDone, current: labDone && !testsDone },
+      { id: 'visit', label: 'Patient details', done: Boolean(patientId), current: testsDone && !patientId },
+      {
+        id: 'pay',
+        label: 'Schedule & pay',
+        done: payDone,
+        current: Boolean(patientId) && !payDone,
+      },
     ] as const;
   }, [labId, testCount, patientId, addressId, selectedSlot, detail?.eligible, disclaimerOk]);
 
@@ -1428,31 +1776,40 @@ export function DiagnosticsPage() {
     document.getElementById(bookingSectionId)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
+  function scrollToSchedule() {
+    document.getElementById('hlm-diag-schedule')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
   return (
     <PortalShell hideTitle showDeliveryBanner={false} showStickyCart={false}>
+      <div className="hlm-diag-scope">
       <style>{SKIN}</style>
       <div className={showDock ? 'hlm-diag-root hlm-diag-root--dock' : 'hlm-diag-root'}>
         <header className="hlm-diag-hero">
-          <div className="hlm-diag-hero-deco" aria-hidden>
-            <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
-              <path d="M8 4h8v3H8V4Z" stroke="rgba(255,255,255,0.92)" strokeWidth="1.75" strokeLinejoin="round" />
-              <path d="M7 9h10l-1.2 11H8.2L7 9Z" stroke="rgba(255,255,255,0.92)" strokeWidth="1.75" strokeLinejoin="round" />
-              <path d="M10 13h4M12 11v4" stroke="rgba(255,255,255,0.92)" strokeWidth="1.75" strokeLinecap="round" />
-            </svg>
-          </div>
-          <div className="hlm-diag-hero-body">
-            <span className="hlm-diag-kicker">
-              {hasTown ? `${townLabel} · Koya Diagnostics` : 'Koya Diagnostics'}
-            </span>
-            <h1>Lab tests at your doorstep</h1>
-            <p>Book CBC, thyroid, diabetes panels &amp; more — home sample pickup by a trained phlebotomist, reports from local labs.</p>
-            <div className="hlm-diag-hero-trust" aria-label="Service highlights">
-              <span>Home collection</span>
-              <span>Fasting guidance</span>
-              <span>Digital reports</span>
+          <div className="hlm-diag-hero-grid">
+            <div className="hlm-diag-hero-body">
+              <span className="hlm-diag-kicker">
+                {hasTown ? `${townLabel} · Koya Diagnostics` : 'Koya Diagnostics'}
+              </span>
+              <h1>Book lab tests from home</h1>
+              <p>
+                CBC, thyroid, diabetes panels &amp; more — book tests, sample pickup at home by a trained phlebotomist,
+                and get your reports online.
+              </p>
+              <div className="hlm-diag-hero-links">
+                <Link to="/orders">Lab orders &amp; reports →</Link>
+              </div>
             </div>
-            <div className="hlm-diag-hero-links">
-              <Link to="/orders">Lab orders &amp; reports →</Link>
+            <div className="hlm-diag-hero-visual">
+              <img
+                src={DIAG_HERO_IMG}
+                alt="Phlebotomist collecting a blood sample at home"
+                width={520}
+                height={390}
+                decoding="async"
+                fetchPriority="high"
+                sizes="(min-width: 960px) 232px, (min-width: 640px) 212px, 100vw"
+              />
             </div>
           </div>
         </header>
@@ -1469,7 +1826,7 @@ export function DiagnosticsPage() {
                     : undefined
               }
             >
-              <em aria-hidden>{index + 1}</em>
+              <em aria-hidden>{step.done && !step.current ? '✓' : index + 1}</em>
               {step.label}
             </span>
           ))}
@@ -1485,13 +1842,15 @@ export function DiagnosticsPage() {
 
         {error ? <p className="hlm-diag-error">{error}</p> : null}
 
+        <div className="hlm-diag-layout">
+          <div className="hlm-diag-main">
         <section className="hlm-diag-panel" aria-label="Select lab">
           <div className="hlm-diag-panel-head">
             <span className="hlm-diag-step" aria-hidden>
               1
             </span>
             <div className="hlm-diag-panel-head-text">
-              <p className="hlm-diag-section-title">Select lab</p>
+              <p className="hlm-diag-section-title">Select a lab</p>
               <p className="hlm-diag-section-sub">
                 {labs.length
                   ? `${labs.length} partner lab${labs.length === 1 ? '' : 's'} in ${townLabel}`
@@ -1516,12 +1875,15 @@ export function DiagnosticsPage() {
                     setCatalogSearch('');
                   }}
                 >
+                  <span className="hlm-diag-lab-radio" aria-hidden>
+                    {lab.vendorId === labId ? <span className="hlm-diag-lab-radio-dot" /> : null}
+                  </span>
                   <span className="hlm-diag-lab-avatar">{labInitials(lab.businessName)}</span>
                   <span className="hlm-diag-lab-card-copy">
                     <span className="hlm-diag-lab-name">{lab.businessName}</span>
                     <span className="hlm-diag-lab-meta">
                       {lab.testCount ? `${lab.testCount}+ tests · ` : ''}
-                      Pick-up {money(Number(lab.homeCollectionFee ?? 0))}
+                      Home pickup {money(Number(lab.homeCollectionFee ?? 0))}
                     </span>
                   </span>
                 </button>
@@ -1538,7 +1900,7 @@ export function DiagnosticsPage() {
               2
             </span>
             <div className="hlm-diag-panel-head-text">
-              <p className="hlm-diag-section-title">Tests &amp; packages</p>
+              <p className="hlm-diag-section-title">Choose tests &amp; packages</p>
               <p className="hlm-diag-section-sub">Fasting &amp; prep notes appear on each test</p>
             </div>
             <span className="hlm-diag-panel-head-side">
@@ -1550,6 +1912,13 @@ export function DiagnosticsPage() {
 
           {catalogTab === 'tests' && catalogTests.length > 0 ? (
             <div className="hlm-diag-quick" role="group" aria-label="Popular test searches">
+              <button
+                type="button"
+                aria-pressed={!catalogSearch.trim()}
+                onClick={() => setCatalogSearch('')}
+              >
+                All
+              </button>
               {POPULAR_TEST_SEARCHES.map((term) => {
                 const active = catalogSearch.trim().toLowerCase() === term.toLowerCase();
                 return (
@@ -1588,7 +1957,7 @@ export function DiagnosticsPage() {
           </div>
 
           <label className="hlm-diag-search">
-            <span aria-hidden style={{ color: '#5b8a83', fontSize: '0.9rem' }}>
+            <span aria-hidden className="hlm-diag-search-icon">
               ⌕
             </span>
             <input
@@ -1615,8 +1984,11 @@ export function DiagnosticsPage() {
                       className={on ? 'hlm-diag-test-cell hlm-diag-test-cell--on' : 'hlm-diag-test-cell'}
                     >
                       <div className="hlm-diag-test-head">
-                        <p className="hlm-diag-test-name">{test.name}</p>
-                        <span className="hlm-diag-test-price">{money(test.price)}</span>
+                        <DiagTestTubeIcon />
+                        <div className="hlm-diag-test-head-copy">
+                          <p className="hlm-diag-test-name">{test.name}</p>
+                          <span className="hlm-diag-test-price">{money(test.price)}</span>
+                        </div>
                       </div>
                       <div className="hlm-diag-test-prep-slot" aria-hidden={!prep}>
                         {prep ? (
@@ -1630,7 +2002,7 @@ export function DiagnosticsPage() {
                         className={on ? 'hlm-diag-add hlm-diag-add--on' : 'hlm-diag-add'}
                         onClick={() => toggleTest(test.id)}
                       >
-                        {on ? 'Added' : 'Add'}
+                        {on ? 'Added' : '+ Add'}
                       </button>
                     </div>
                   );
@@ -1657,8 +2029,11 @@ export function DiagnosticsPage() {
                     className={on ? 'hlm-diag-test-cell hlm-diag-test-cell--on' : 'hlm-diag-test-cell'}
                   >
                     <div className="hlm-diag-test-head">
-                      <p className="hlm-diag-test-name">{pkg.name}</p>
-                      <span className="hlm-diag-test-price">{money(pkg.price)}</span>
+                      <DiagTestTubeIcon />
+                      <div className="hlm-diag-test-head-copy">
+                        <p className="hlm-diag-test-name">{pkg.name}</p>
+                        <span className="hlm-diag-test-price">{money(pkg.price)}</span>
+                      </div>
                     </div>
                     <div className="hlm-diag-test-prep-slot">
                       <p className="hlm-diag-test-meta">{packageSubtitleText(pkg, testNameById)}</p>
@@ -1668,7 +2043,7 @@ export function DiagnosticsPage() {
                       className={on ? 'hlm-diag-add hlm-diag-add--on' : 'hlm-diag-add'}
                       onClick={() => togglePackage(pkg.id)}
                     >
-                      {on ? 'Added' : 'Add'}
+                      {on ? 'Added' : '+ Add'}
                     </button>
                   </div>
                 );
@@ -1690,7 +2065,7 @@ export function DiagnosticsPage() {
         <section
           id={bookingSectionId}
           className="hlm-diag-panel"
-          style={bookingFocus ? { boxShadow: '0 0 0 2px rgba(13, 148, 136, 0.4)' } : undefined}
+          style={bookingFocus ? { boxShadow: '0 0 0 2px rgba(198, 167, 94, 0.55)' } : undefined}
           aria-label="Patient details"
         >
           <div className="hlm-diag-panel-head">
@@ -1828,13 +2203,13 @@ export function DiagnosticsPage() {
           ) : null}
         </section>
 
-        <section className="hlm-diag-panel" aria-label="Collection slot and address">
+        <section className="hlm-diag-panel" id="hlm-diag-schedule" aria-label="Collection slot and address">
           <div className="hlm-diag-panel-head">
             <span className="hlm-diag-step" aria-hidden>
               4
             </span>
             <div className="hlm-diag-panel-head-text">
-              <p className="hlm-diag-section-title">Home collection slot</p>
+              <p className="hlm-diag-section-title">Collection address &amp; schedule</p>
               <p className="hlm-diag-section-sub">1-hour windows · phlebotomist visits your address</p>
             </div>
             <span className="hlm-diag-panel-head-side">
@@ -1903,48 +2278,21 @@ export function DiagnosticsPage() {
           )}
         </section>
 
-        <section className="hlm-diag-panel" aria-label="Bill summary">
+        <section className="hlm-diag-panel" aria-label="Payment method">
           <div className="hlm-diag-panel-head">
             <span className="hlm-diag-step" aria-hidden>
               5
             </span>
             <div className="hlm-diag-panel-head-text">
-              <p className="hlm-diag-section-title">Bill summary</p>
-              <p className="hlm-diag-section-sub">Tests, home collection &amp; platform fee before you pay</p>
+              <p className="hlm-diag-section-title">Payment method</p>
+              <p className="hlm-diag-section-sub">Pay online or at doorstep when the phlebotomist visits</p>
             </div>
-            <span className="hlm-diag-panel-head-side">
-              {testCount} item{testCount === 1 ? '' : 's'}
-            </span>
           </div>
-          <ul className="hlm-diag-fee-list">
-            <li>
-              <span>Tests &amp; packages</span>
-              <strong>{money(testsSubtotal)}</strong>
-            </li>
-            <li>
-              <span>Home collection</span>
-              <strong>{money(homeFee)}</strong>
-            </li>
-            <li>
-              <span>Platform fee</span>
-              <strong>{money(platformFee)}</strong>
-            </li>
-            {codFee > 0 ? (
-              <li>
-                <span>COD handling</span>
-                <strong>{money(codFee)}</strong>
-              </li>
-            ) : null}
-            <li className="hlm-diag-fee-total">
-              <span>Amount payable</span>
-              <strong>{money(checkoutTotal)}</strong>
-            </li>
-          </ul>
-          <div style={styles.chipRow}>
+          <div className="hlm-diag-pay-row">
             {diagnosticsCodEnabled ? (
               <button
                 type="button"
-                className={paymentMethod === 'CASH' ? 'hlm-diag-chip hlm-diag-chip--on' : 'hlm-diag-chip'}
+                className={paymentMethod === 'CASH' ? 'hlm-diag-pay-opt hlm-diag-pay-opt--on' : 'hlm-diag-pay-opt'}
                 onClick={() => setPaymentMethod('CASH')}
               >
                 Pay at doorstep (COD)
@@ -1953,7 +2301,7 @@ export function DiagnosticsPage() {
             {upiEnabled ? (
               <button
                 type="button"
-                className={paymentMethod === 'UPI' ? 'hlm-diag-chip hlm-diag-chip--on' : 'hlm-diag-chip'}
+                className={paymentMethod === 'UPI' ? 'hlm-diag-pay-opt hlm-diag-pay-opt--on' : 'hlm-diag-pay-opt'}
                 onClick={() => setPaymentMethod('UPI')}
               >
                 Pay online
@@ -1981,9 +2329,82 @@ export function DiagnosticsPage() {
             disabled={busy || Boolean(bookBlock)}
             onClick={() => void confirmBooking()}
           >
-            {busy ? busyLabel : `Book home collection · ${money(checkoutTotal)}`}
+            {busy ? busyLabel : `Book home collection – ${money(checkoutTotal)}`}
           </button>
         </section>
+          </div>
+
+          <aside className="hlm-diag-aside" aria-label="Booking summary">
+            <div className="hlm-diag-summary">
+              <div className="hlm-diag-summary-banner">
+                <span className="hlm-diag-summary-icon" aria-hidden>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                    <path
+                      d="M9 5h6v3H9V5Zm-2 5h10l-1 9H8l-1-9Z"
+                      stroke="currentColor"
+                      strokeWidth="1.75"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </span>
+                Booking summary
+              </div>
+              <div className="hlm-diag-summary-body">
+                {cartLineItems.length > 0 ? (
+                  <ul className="hlm-diag-summary-items">
+                    {cartLineItems.map((row) => (
+                      <li key={row.key} className="hlm-diag-summary-item">
+                        <div className="hlm-diag-summary-item-copy">
+                          <strong title={row.name}>{row.name}</strong>
+                          <span>{money(row.price)}</span>
+                        </div>
+                        <button
+                          type="button"
+                          className="hlm-diag-summary-remove"
+                          aria-label={`Remove ${row.name}`}
+                          onClick={() => (row.kind === 'test' ? toggleTest(row.id) : togglePackage(row.id))}
+                        >
+                          ×
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="hlm-diag-summary-empty">Add tests or packages to see your booking summary.</p>
+                )}
+                <ul className="hlm-diag-fee-list" style={{ marginTop: cartLineItems.length ? 0 : undefined }}>
+                  <li>
+                    <span>Home collection</span>
+                    <strong>{money(homeFee)}</strong>
+                  </li>
+                  <li>
+                    <span>Platform fee</span>
+                    <strong>{money(platformFee)}</strong>
+                  </li>
+                  {codFee > 0 ? (
+                    <li>
+                      <span>COD handling</span>
+                      <strong>{money(codFee)}</strong>
+                    </li>
+                  ) : null}
+                </ul>
+                <p className="hlm-diag-summary-total">
+                  <span>Total amount</span>
+                  <strong>{money(checkoutTotal)}</strong>
+                </p>
+                <button
+                  type="button"
+                  className="hlm-diag-primary hlm-diag-summary-cta"
+                  style={{ marginTop: 0 }}
+                  disabled={testCount === 0}
+                  onClick={() => (testCount > 0 ? scrollToSchedule() : undefined)}
+                >
+                  Continue to schedule →
+                </button>
+              </div>
+            </div>
+          </aside>
+        </div>
       </div>
 
       {showDock ? (
@@ -2001,16 +2422,17 @@ export function DiagnosticsPage() {
           </div>
         </div>
       ) : null}
+      </div>
     </PortalShell>
   );
 }
 
 const styles: Record<string, CSSProperties> = {
   warn: { color: '#b45309', fontSize: '0.78rem', margin: '0.5rem 0 0' },
-  muted: { color: '#5b8a83', fontSize: '0.78rem', lineHeight: 1.45, margin: '0 0 0.35rem' },
-  link: { color: '#0d9488', fontWeight: 700 },
+  muted: { color: '#6d7e7a', fontSize: '0.78rem', lineHeight: 1.45, margin: '0 0 0.35rem' },
+  link: { color: '#0f3d36', fontWeight: 700 },
   chipRow: { display: 'flex', flexWrap: 'wrap', gap: '0.35rem' },
-  field: { display: 'grid', gap: '0.3rem', fontSize: '0.72rem', fontWeight: 800, marginBottom: '0.45rem', color: '#115e59' },
+  field: { display: 'grid', gap: '0.3rem', fontSize: '0.72rem', fontWeight: 800, marginBottom: '0.45rem', color: '#2c403c' },
   patientAddBox: { marginTop: '0.4rem', display: 'grid', gap: '0.35rem' },
   checkRow: { display: 'flex', gap: '0.5rem', alignItems: 'flex-start', fontSize: '0.72rem', lineHeight: 1.45 },
 };

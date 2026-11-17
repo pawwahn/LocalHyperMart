@@ -88,6 +88,8 @@ public class VendorSalesReportResponse {
         private String prepayMode;
         /** Glam UPI slice: SUCCESS total KoyaKart remits on Pay (not prorated goods). */
         private BigDecimal onlineRemittanceAmount;
+        /** Store credit on the parent order allocated to this bag. */
+        private BigDecimal storeCreditAppliedAmount;
         private List<VendorSalesReportItem> items;
     }
 

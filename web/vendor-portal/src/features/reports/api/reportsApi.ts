@@ -54,6 +54,8 @@ export type SalesReportRow = {
   onlineRemittanceAmount?: number | null;
   /** COD cash for this bag (buyer paid share incl. delivery/platform on mixed orders). */
   codCashCollectedAmount?: number | null;
+  /** Wallet / store credit on the order allocated to this bag. */
+  storeCreditAppliedAmount?: number | null;
   items?: SalesReportItem[] | null;
 };
 

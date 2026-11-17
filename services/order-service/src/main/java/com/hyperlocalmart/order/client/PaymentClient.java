@@ -19,6 +19,7 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 @Component
@@ -303,6 +304,44 @@ public class PaymentClient implements SuccessfulOnlineTotalLookup {
     }
 
     public record CollectedSuccessBatchRow(UUID orderId, BigDecimal amount) {
+    }
+
+    public record CancellationPenaltyOrderRef(UUID orderId, String orderNumber) {
+    }
+
+  /** Order IDs that already have a cancellation penalty bill or collection. */
+    public Set<UUID> findCancellationPenaltyOrderIds(Collection<CancellationPenaltyOrderRef> orders) {
+        if (orders == null || orders.isEmpty()) {
+            return Set.of();
+        }
+        List<Map<String, Object>> payload = orders.stream()
+                .filter(o -> o != null && o.orderId() != null)
+                .map(o -> {
+                    Map<String, Object> row = new HashMap<>();
+                    row.put("orderId", o.orderId());
+                    if (o.orderNumber() != null && !o.orderNumber().isBlank()) {
+                        row.put("orderNumber", o.orderNumber().trim());
+                    }
+                    return row;
+                })
+                .toList();
+        if (payload.isEmpty()) {
+            return Set.of();
+        }
+        try {
+            RestClient client = restClients.forBaseUrl(paymentServiceProperties.getBaseUrl());
+            ApiResponse<List<UUID>> response = client.post()
+                    .uri("/api/v1/internal/settlements/cancellation-penalties/lookup")
+                    .body(Map.of("orders", payload))
+                    .retrieve()
+                    .body(new ParameterizedTypeReference<ApiResponse<List<UUID>>>() {});
+            if (response == null || response.getData() == null) {
+                return Set.of();
+            }
+            return new java.util.HashSet<>(response.getData());
+        } catch (RuntimeException ex) {
+            return Set.of();
+        }
     }
 
     public record PaymentInitiateResult(
