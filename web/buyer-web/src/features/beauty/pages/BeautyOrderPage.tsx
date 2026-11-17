@@ -12,6 +12,7 @@ import { buildBeautyBuyerTimeline } from '../lib/beautyOrderProgress';
 import { StarRating } from '@/features/shop/components/StarRating';
 import { useBuyerAlerts } from '@/features/shop/hooks/useBuyerAlerts';
 import { beautyPaymentPlanView } from '@hlm-beauty';
+import { BUYER_ORDER_LAYOUT_CSS } from '@/shared/layout/buyerOrderLayout';
 import {
   BEAUTY_SERVICES,
   beautyOccasionLabel,
@@ -199,8 +200,9 @@ export function BeautyOrderPage() {
       showStickyCart={false}
       showTownPicker={false}
     >
+      <style>{BUYER_ORDER_LAYOUT_CSS}</style>
       <style>{BOOKING_CSS}</style>
-      <div className="hlm-booking">
+      <div className="hlm-booking hlm-buyer-order">
         <Link to="/orders" className="hlm-booking-back">
           <span className="hlm-booking-back-chev" aria-hidden>
             ‹
@@ -463,6 +465,7 @@ const BOOKING_CSS = `
 .hlm-booking {
   width: 100%;
   min-width: 0;
+  max-width: var(--shell-max);
   display: grid;
   gap: 0.5rem;
   padding-bottom: 1.25rem;

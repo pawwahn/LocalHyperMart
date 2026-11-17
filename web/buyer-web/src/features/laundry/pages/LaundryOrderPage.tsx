@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type CSSProperties } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useParams } from 'react-router-dom';
 import { OrderStatusTimeline } from '@/features/shop/components/OrderStatusTimeline';
 import { buildLaundryBuyerTimeline } from '../lib/laundryOrderProgress';
@@ -18,6 +18,7 @@ import {
   type LaundryOrder,
 } from '../api/laundryApi';
 import { useBuyerAlerts } from '@/features/shop/hooks/useBuyerAlerts';
+import { BUYER_ORDER_LAYOUT_CSS } from '@/shared/layout/buyerOrderLayout';
 
 function money(value: number): string {
   const amount = Number(value) || 0;
@@ -105,78 +106,123 @@ export function LaundryOrderPage() {
   }
 
   const total = order ? Number(order.goodsAmount) + Number(order.platformFeeAmount || 0) + Number(order.codFee || 0) : 0;
-  const pickup = order?.pickupSlotStart ? `${when(order.pickupSlotStart)}${order.pickupSlotEnd ? ` – ${when(order.pickupSlotEnd)}` : ''}` : '';
+  const pickup = order?.pickupSlotStart
+    ? `${when(order.pickupSlotStart)}${order.pickupSlotEnd ? ` – ${when(order.pickupSlotEnd)}` : ''}`
+    : '';
   const timeline = useMemo(() => (order ? buildLaundryBuyerTimeline(order) : []), [order]);
 
   return (
-    <PortalShell title="Laundry order" showDeliveryBanner={false} showStickyCart={false}>
-      <div style={styles.pageRail}>
-      <Link to="/orders" style={styles.back}>
-        <span style={styles.backChev} aria-hidden>
-          ‹
-        </span>
-        My orders
-      </Link>
+    <PortalShell hideTitle showDeliveryBanner={false} showStickyCart={false} showTownPicker={false}>
+      <style>{BUYER_ORDER_LAYOUT_CSS}</style>
+      <div className="hlm-buyer-order">
+        <Link to="/orders" className="hlm-buyer-order-back">
+          <span className="hlm-buyer-order-back-chev" aria-hidden>
+            ‹
+          </span>
+          My orders
+        </Link>
 
-      {loading ? <p style={styles.muted}>Loading order…</p> : null}
-      {error ? <p style={styles.error}>{error}</p> : null}
-      {order ? (
-        <div style={styles.stack}>
-        <article style={styles.card}>
-          <div style={styles.head}>
-            <strong>{order.orderNumber}</strong>
-            <span style={styles.pill}>{order.statusLabel}</span>
-          </div>
-          <p style={styles.shop}>{order.shopName} · {money(total)} · {order.paymentMethod === 'UPI' ? 'UPI' : 'Cash'}</p>
-          {laundryAgentCashBuyerNote(order.agentCashPickupReport, order.agentCashDropReport) ? (
-            <p style={styles.payNote}>
-              {laundryAgentCashBuyerNote(order.agentCashPickupReport, order.agentCashDropReport)}
-            </p>
-          ) : null}
-          <LaundryCustomerNote note={customerNote(order)} />
-          <p style={styles.muted}>{laundryLabel('logistics', order.logistics)}</p>
-          {order.addressText ? <p style={styles.muted}>{order.addressText}</p> : null}
-          {pickup ? <p style={styles.line}><span>Pickup</span><strong>{pickup}</strong></p> : null}
-          <p style={styles.line}>
-            <span>Estimated ready</span>
-            <strong>{order.estimatedReadyAt ? when(order.estimatedReadyAt) : 'Shop will set this'}</strong>
-          </p>
-        </article>
+        {loading ? <p className="hlm-buyer-order-muted">Loading order…</p> : null}
+        {error ? <p className="hlm-buyer-order-error">{error}</p> : null}
+        {order ? (
+          <div className="hlm-buyer-order-stack">
+            <header className="hlm-buyer-order-hero hlm-buyer-order-span-full">
+              <div className="hlm-buyer-order-hero-main">
+                <div className="hlm-buyer-order-hero-top">
+                  <span className="hlm-buyer-order-id">{order.orderNumber}</span>
+                  <span className="hlm-buyer-order-pill">{order.statusLabel}</span>
+                </div>
+                <h1 className="hlm-buyer-order-title">Laundry order</h1>
+                <p className="hlm-buyer-order-lead">
+                  {order.shopName} · {order.paymentMethod === 'UPI' ? 'UPI' : 'Cash'}
+                </p>
+                {laundryAgentCashBuyerNote(order.agentCashPickupReport, order.agentCashDropReport) ? (
+                  <p className="hlm-buyer-order-pay-note">
+                    {laundryAgentCashBuyerNote(order.agentCashPickupReport, order.agentCashDropReport)}
+                  </p>
+                ) : null}
+                <LaundryCustomerNote note={customerNote(order)} />
+                <p className="hlm-buyer-order-muted">{laundryLabel('logistics', order.logistics)}</p>
+                {order.addressText ? <p className="hlm-buyer-order-muted">{order.addressText}</p> : null}
+                {pickup ? (
+                  <p className="hlm-buyer-order-row">
+                    <span>Pickup</span>
+                    <strong>{pickup}</strong>
+                  </p>
+                ) : null}
+                <p className="hlm-buyer-order-row">
+                  <span>Estimated ready</span>
+                  <strong>{order.estimatedReadyAt ? when(order.estimatedReadyAt) : 'Shop will set this'}</strong>
+                </p>
+              </div>
+              <div className="hlm-buyer-order-total-chip" aria-label="Order total">
+                <span className="hlm-buyer-order-total-label">Pay the shop</span>
+                <span className="hlm-buyer-order-total-amt">{money(total)}</span>
+              </div>
+            </header>
 
-        {timeline.length > 0 ? (
-          <OrderStatusTimeline
-            steps={timeline}
-            orderStatus={order.status}
-            displayStatus={order.statusLabel}
-          />
-        ) : null}
-
-        <article style={styles.card}>
-          <ul style={styles.lines}>
-            {order.lines.map((line) => (
-              <li key={line.id} style={styles.item}>
-                <span>{line.confirmedQuantity} × {line.otherLabel || laundryLabel('item', line.itemType)}</span>
-                <span style={styles.muted}>{laundryLabel('service', line.serviceType)}</span>
-                <strong>{money(Number(line.lineAmount || line.unitPrice * line.confirmedQuantity))}</strong>
-              </li>
-            ))}
-          </ul>
-          <div style={styles.bill}>
-            <span>Pieces</span><span>{money(Number(order.goodsAmount) - Number(order.logisticsCharge || 0))}</span>
-            <span>Trip</span><span>{money(Number(order.logisticsCharge || 0))}</span>
-            <span>Platform fee</span><span>{money(Number(order.platformFeeAmount || 0))}</span>
-            {Number(order.codFee) > 0 ? (<><span>COD charge</span><span>{money(Number(order.codFee))}</span></>) : null}
-            <strong>Pay the shop</strong><strong>{money(total)}</strong>
-          </div>
-          {Number(order.walletCredited) > 0 ? <p style={styles.note}>₹{Number(order.walletCredited)} is in your wallet.</p> : null}
-          {order.status === 'AWAITING_PAYMENT' ? (
-            <div style={styles.actions}>
-              <button type="button" style={styles.primaryBtn} disabled={busy} onClick={() => setConfirmPay(true)}>Pay now</button>
+            <div className="hlm-buyer-order-col-aside">
+              {timeline.length > 0 ? (
+                <OrderStatusTimeline
+                  steps={timeline}
+                  orderStatus={order.status}
+                  displayStatus={order.statusLabel}
+                  defaultExpanded
+                />
+              ) : null}
+              {order.status === 'AWAITING_PAYMENT' ? (
+                <article className="hlm-buyer-order-card">
+                  <h2 className="hlm-buyer-order-section-title">Complete payment</h2>
+                  <p className="hlm-buyer-order-muted">Pay online to confirm this pickup.</p>
+                  <button
+                    type="button"
+                    className="hlm-buyer-order-primary-btn"
+                    disabled={busy}
+                    onClick={() => setConfirmPay(true)}
+                  >
+                    Pay now
+                  </button>
+                </article>
+              ) : null}
             </div>
-          ) : null}
-        </article>
-        </div>
-      ) : null}
+
+            <div className="hlm-buyer-order-col-main">
+            <article className="hlm-buyer-order-card">
+              <h2 className="hlm-buyer-order-section-title">Pieces</h2>
+              <ul className="hlm-buyer-order-lines">
+                {order.lines.map((line) => (
+                  <li key={line.id} className="hlm-buyer-order-line-item">
+                    <span>
+                      {line.confirmedQuantity} × {line.otherLabel || laundryLabel('item', line.itemType)}
+                    </span>
+                    <span className="hlm-buyer-order-muted">{laundryLabel('service', line.serviceType)}</span>
+                    <strong>{money(Number(line.lineAmount || line.unitPrice * line.confirmedQuantity))}</strong>
+                  </li>
+                ))}
+              </ul>
+              <div className="hlm-buyer-order-bill">
+                <span>Pieces</span>
+                <span>{money(Number(order.goodsAmount) - Number(order.logisticsCharge || 0))}</span>
+                <span>Trip</span>
+                <span>{money(Number(order.logisticsCharge || 0))}</span>
+                <span>Platform fee</span>
+                <span>{money(Number(order.platformFeeAmount || 0))}</span>
+                {Number(order.codFee) > 0 ? (
+                  <>
+                    <span>COD charge</span>
+                    <span>{money(Number(order.codFee))}</span>
+                  </>
+                ) : null}
+                <strong>Total</strong>
+                <strong>{money(total)}</strong>
+              </div>
+              {Number(order.walletCredited) > 0 ? (
+                <p className="hlm-buyer-order-muted">₹{Number(order.walletCredited)} is in your wallet.</p>
+              ) : null}
+            </article>
+            </div>
+          </div>
+        ) : null}
       </div>
       <ConfirmDialog
         open={confirmPay}
@@ -193,50 +239,3 @@ export function LaundryOrderPage() {
     </PortalShell>
   );
 }
-
-const styles: Record<string, CSSProperties> = {
-  pageRail: {
-    width: 'min(100%, 26rem)',
-    marginInline: 'auto',
-    display: 'grid',
-    gap: '0.55rem',
-    minWidth: 0,
-  },
-  back: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: '0.15rem',
-    color: 'var(--accent)',
-    textDecoration: 'none',
-    fontWeight: 800,
-    fontSize: '0.88rem',
-    padding: '0.35rem 0.5rem 0.35rem 0.15rem',
-    marginLeft: '-0.15rem',
-    borderRadius: 10,
-  },
-  backChev: { fontSize: '1.25rem', lineHeight: 1, marginTop: -1 },
-  stack: { display: 'grid', gap: '0.55rem' },
-  card: { display: 'grid', gap: '0.45rem', padding: '0.7rem 0.75rem', borderRadius: 14, background: 'var(--bg-elevated)', border: '1px solid var(--border)' },
-  head: { display: 'flex', justifyContent: 'space-between', gap: '0.5rem', alignItems: 'center' },
-  pill: { fontSize: '0.68rem', fontWeight: 800, letterSpacing: '0.03em', textTransform: 'uppercase', color: 'var(--accent-hover)', background: 'color-mix(in srgb, var(--accent) 14%, transparent)', borderRadius: 999, padding: '0.15rem 0.45rem' },
-  shop: { margin: 0, fontWeight: 800 },
-  payNote: {
-    margin: 0,
-    padding: '0.4rem 0.5rem',
-    borderRadius: 10,
-    fontSize: '0.78rem',
-    fontWeight: 650,
-    lineHeight: 1.35,
-    background: 'color-mix(in srgb, var(--accent) 12%, transparent)',
-    border: '1px solid color-mix(in srgb, var(--accent) 22%, transparent)',
-  },
-  muted: { margin: 0, color: 'var(--text-muted)', fontSize: '0.78rem' },
-  line: { margin: 0, display: 'flex', justifyContent: 'space-between', gap: '0.6rem', fontSize: '0.82rem' },
-  lines: { listStyle: 'none', margin: 0, padding: '0.35rem 0.45rem', display: 'grid', gap: '0.35rem', borderRadius: 10, background: 'var(--bg)', border: '1px solid var(--border)' },
-  item: { display: 'grid', gridTemplateColumns: '1fr auto', gap: '0.1rem 0.6rem', fontSize: '0.84rem', fontWeight: 700 },
-  bill: { display: 'grid', gridTemplateColumns: '1fr auto', gap: '0.12rem 0.8rem', maxWidth: 260, fontSize: '0.8rem' },
-  note: { margin: 0, fontSize: '0.8rem' },
-  actions: { display: 'flex', flexWrap: 'wrap', gap: '0.4rem', alignItems: 'center' },
-  primaryBtn: { display: 'inline-flex', alignItems: 'center', minHeight: 44, padding: '0 0.85rem', borderRadius: 10, border: 0, background: 'var(--accent)', color: '#fff', fontWeight: 800 },
-  error: { color: '#b91c1c', fontWeight: 700 },
-};

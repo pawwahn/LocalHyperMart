@@ -18,6 +18,7 @@ import { StarRating } from '../components/StarRating';
 import { ScratchCardSheet } from '../components/ScratchCardSheet';
 import type { ClaimType, OrderDetailDto } from '../api/shopApi';
 import { membershipSlabLabel } from '../lib/membershipSlabLabel';
+import { BUYER_ORDER_LAYOUT_CSS } from '@/shared/layout/buyerOrderLayout';
 
 function money(v: number | null | undefined): string {
   return `₹${Number(v ?? 0).toFixed(2)}`;
@@ -266,6 +267,8 @@ export function OrderDetailPage() {
   }
 
   const statusLabel = order?.displayStatus || order?.status || '';
+  const showOrderAside =
+    Boolean(order && ((order.timeline?.length ?? 0) > 0 || order.deliveryAgentRating));
 
   return (
     <PortalShell
@@ -275,9 +278,10 @@ export function OrderDetailPage() {
       showDeliveryBanner={false}
       showTownPicker={false}
     >
-      <div style={styles.pageRail}>
-      <Link to="/orders" style={styles.back}>
-        <span style={styles.backChev} aria-hidden>
+      <style>{BUYER_ORDER_LAYOUT_CSS}</style>
+      <div className="hlm-buyer-order">
+      <Link to="/orders" className="hlm-buyer-order-back">
+        <span className="hlm-buyer-order-back-chev" aria-hidden>
           ‹
         </span>
         My orders
@@ -294,8 +298,8 @@ export function OrderDetailPage() {
           onAction={() => navigate('/orders')}
         />
       ) : order ? (
-        <div style={styles.stack}>
-          <section style={styles.heroCard}>
+        <div className="hlm-buyer-order-stack">
+          <section className="hlm-buyer-order-span-full" style={styles.heroCard}>
             <div style={styles.heroTop}>
               <span style={{ ...styles.statusPill, ...statusPillStyle(statusLabel) }}>{statusLabel}</span>
               <span style={styles.payChip}>{displayPaymentLabel(order)}</span>
@@ -365,7 +369,7 @@ export function OrderDetailPage() {
           </section>
 
           {order.scratchCard ? (
-            <Card elevated style={styles.scratchCard}>
+            <Card elevated className="hlm-buyer-order-span-full" style={styles.scratchCard}>
               <div style={styles.scratchRow}>
                 <div>
                   <p style={styles.scratchTitle}>
@@ -384,6 +388,17 @@ export function OrderDetailPage() {
                 ) : null}
               </div>
             </Card>
+          ) : null}
+
+          {showOrderAside ? (
+          <div className="hlm-buyer-order-col-aside">
+          {order.timeline && order.timeline.length > 0 ? (
+            <OrderStatusTimeline
+              steps={order.timeline}
+              orderStatus={order.status}
+              displayStatus={order.displayStatus}
+              defaultExpanded
+            />
           ) : null}
 
           {order.deliveryAgentRating ? (
@@ -455,15 +470,10 @@ export function OrderDetailPage() {
               )}
             </Card>
           ) : null}
-
-          {order.timeline && order.timeline.length > 0 ? (
-            <OrderStatusTimeline
-              steps={order.timeline}
-              orderStatus={order.status}
-              displayStatus={order.displayStatus}
-            />
+          </div>
           ) : null}
 
+          <div className={showOrderAside ? 'hlm-buyer-order-col-main' : 'hlm-buyer-order-col-main hlm-buyer-order-span-full'}>
           <section style={styles.section}>
             <div style={styles.sectionHead}>
               <h2 style={styles.h2}>Items</h2>
@@ -695,6 +705,7 @@ export function OrderDetailPage() {
               ))}
             </section>
           ) : null}
+          </div>
         </div>
       ) : null}
       </div>
@@ -758,27 +769,6 @@ export function OrderDetailPage() {
 }
 
 const styles: Record<string, CSSProperties> = {
-  pageRail: {
-    width: 'min(100%, 26rem)',
-    marginInline: 'auto',
-    display: 'grid',
-    gap: '0.55rem',
-    minWidth: 0,
-  },
-  back: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: '0.15rem',
-    color: 'var(--accent)',
-    textDecoration: 'none',
-    fontWeight: 800,
-    fontSize: '0.88rem',
-    padding: '0.35rem 0.5rem 0.35rem 0.15rem',
-    marginLeft: '-0.15rem',
-    borderRadius: 10,
-  },
-  backChev: { fontSize: '1.25rem', lineHeight: 1, marginTop: -1 },
-  stack: { display: 'grid', gap: '0.65rem' },
   heroCard: {
     padding: '0.85rem 0.9rem 0.95rem',
     borderRadius: 18,

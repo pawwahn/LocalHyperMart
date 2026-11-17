@@ -93,9 +93,9 @@ const SKIN = `
   --diag-gold: #c6a75e;
   --diag-gold-soft: #f5efe2;
   --diag-gold-line: #e2d4bc;
-  --diag-ink: #142826;
-  --diag-ink-mid: #2c403c;
-  --diag-muted: #6f7d7a;
+  --diag-ink: #2f2b26;
+  --diag-ink-mid: #524a42;
+  --diag-muted: #787066;
   --diag-line: #e8e0d4;
   --diag-accent: #0f3d36;
   --diag-accent-deep: #0c2f2a;
@@ -107,8 +107,8 @@ const SKIN = `
   --diag-panel-edge: #ebe3d8;
   --diag-cream: #fffdfa;
   --diag-on-dark: #fffef9;
-  --diag-shadow: rgba(12, 47, 42, 0.14);
-  --diag-shadow-soft: rgba(12, 47, 42, 0.07);
+  --diag-shadow: rgba(47, 43, 38, 0.12);
+  --diag-shadow-soft: rgba(47, 43, 38, 0.06);
 }
 .hlm-diag-scope {
   color: var(--diag-ink);
@@ -412,17 +412,29 @@ const SKIN = `
   display: grid;
 }
 .hlm-diag-summary-banner {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 0.4rem;
-  padding: 0.55rem 0.7rem;
-  background: linear-gradient(135deg, #0a2a26 0%, var(--diag-brand) 55%, #11483f 100%);
-  color: var(--diag-on-dark);
-  border-bottom: 2px solid var(--diag-gold);
+  gap: 0.45rem;
+  padding: 0.6rem 0.7rem;
+  background: linear-gradient(145deg, var(--diag-accent-soft) 0%, #faf6f0 58%, var(--diag-cream) 100%);
+  color: var(--diag-ink);
+  border-bottom: 1px solid var(--diag-line);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
   font-family: var(--font-display);
   font-size: 0.86rem;
   font-weight: 900;
   letter-spacing: -0.02em;
+}
+.hlm-diag-summary-banner::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--diag-gold), transparent);
+  opacity: 0.88;
 }
 .hlm-diag-summary-body {
   display: grid;
@@ -435,9 +447,10 @@ const SKIN = `
   border-radius: 8px;
   display: grid;
   place-items: center;
-  background: color-mix(in srgb, var(--diag-gold) 22%, transparent);
-  color: var(--diag-gold-soft);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--diag-gold) 55%, transparent);
+  background: linear-gradient(165deg, var(--diag-royal) 0%, var(--diag-brand) 100%);
+  color: var(--diag-on-dark);
+  border: 1px solid color-mix(in srgb, var(--diag-gold) 38%, transparent);
+  box-shadow: 0 2px 8px var(--diag-shadow-soft);
   flex-shrink: 0;
 }
 .hlm-diag-summary-items {

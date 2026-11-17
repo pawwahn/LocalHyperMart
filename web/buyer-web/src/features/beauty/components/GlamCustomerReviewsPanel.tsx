@@ -123,8 +123,6 @@ export function GlamCustomerReviewsPanel({ token, vendorId, artistName, preview 
   const hasMore = page + 1 < totalPages;
   const loadedCount = items.length > 0 ? items.length : displayItems.length;
 
-  const inlineItems = sheetOpen ? displayItems : displayItems.slice(0, 3);
-
   const reviewsBlock = (list: BeautyCustomerReview[], listClass: string) => (
     <div className={listClass}>
       {loading && list.length === 0 ? (
@@ -135,15 +133,10 @@ export function GlamCustomerReviewsPanel({ token, vendorId, artistName, preview 
     </div>
   );
 
-  const actionsBlock = (showSeeAll: boolean) =>
-    (showSeeAll && totalElements > 3) || (sheetOpen && (hasMore || totalElements > 0)) ? (
+  const sheetActions =
+    sheetOpen && (hasMore || totalElements > 0) ? (
       <div className="hlm-glam-reviews-actions">
-        {showSeeAll && totalElements > 3 ? (
-          <button type="button" className="hlm-glam-reviews-link-btn" onClick={() => setSheetOpen(true)}>
-            See all {totalElements} reviews
-          </button>
-        ) : null}
-        {hasMore && sheetOpen ? (
+        {hasMore ? (
           <button
             type="button"
             className="hlm-glam-reviews-load"
@@ -153,13 +146,32 @@ export function GlamCustomerReviewsPanel({ token, vendorId, artistName, preview 
             {loadingMore ? 'Loading…' : `Load more (${loadedCount} of ${totalElements})`}
           </button>
         ) : null}
-        {!hasMore && loadedCount > 0 && totalElements > 0 && sheetOpen ? (
+        {!hasMore && loadedCount > 0 && totalElements > 0 ? (
           <span className="hlm-glam-reviews-end">Showing all {totalElements} reviews with comments</span>
         ) : null}
       </div>
     ) : null;
 
-  const summaryBlock = (
+  const ratingTotal = summary?.totalRatings ?? 0;
+  const latestSnippet = displayItems[0]?.comment?.trim() ?? '';
+  const snippetPreview =
+    latestSnippet.length > 72 ? `${latestSnippet.slice(0, 71).trimEnd()}…` : latestSnippet;
+
+  const summaryHistogram = histogram.length > 0 ? (
+    <div className="hlm-glam-reviews-bars" aria-label="Rating breakdown">
+      {histogram.map((row) => (
+        <div key={row.stars} className="hlm-glam-reviews-bar-row">
+          <span className="hlm-glam-reviews-bar-label">{row.stars}★</span>
+          <div className="hlm-glam-reviews-bar-track">
+            <div className="hlm-glam-reviews-bar-fill" style={{ width: `${row.pct}%` }} />
+          </div>
+          <span className="hlm-glam-reviews-bar-pct">{row.pct}%</span>
+        </div>
+      ))}
+    </div>
+  ) : null;
+
+  const summaryFull = (
     <>
       <div className="hlm-glam-reviews-summary">
         <div className="hlm-glam-reviews-score-block">
@@ -167,40 +179,52 @@ export function GlamCustomerReviewsPanel({ token, vendorId, artistName, preview 
             {avgDisplay != null ? Number(avgDisplay).toFixed(1) : '—'}
           </span>
           <span className="hlm-glam-reviews-score-label">
-            {summary?.totalRatings ?? 0} rating{(summary?.totalRatings ?? 0) === 1 ? '' : 's'}
+            {ratingTotal} rating{ratingTotal === 1 ? '' : 's'}
           </span>
           {commentCount > 0 ? (
             <span className="hlm-glam-reviews-comment-count">{commentCount} with comments</span>
           ) : null}
         </div>
-        {histogram.length > 0 ? (
-          <div className="hlm-glam-reviews-bars" aria-label="Rating breakdown">
-            {histogram.map((row) => (
-              <div key={row.stars} className="hlm-glam-reviews-bar-row">
-                <span className="hlm-glam-reviews-bar-label">{row.stars}★</span>
-                <div className="hlm-glam-reviews-bar-track">
-                  <div className="hlm-glam-reviews-bar-fill" style={{ width: `${row.pct}%` }} />
-                </div>
-                <span className="hlm-glam-reviews-bar-pct">{row.pct}%</span>
-              </div>
-            ))}
-          </div>
-        ) : null}
+        {summaryHistogram}
       </div>
       {error ? <p className="hlm-glam-reviews-error">{error}</p> : null}
     </>
   );
 
+  const openSheet = () => setSheetOpen(true);
+
   return (
     <>
-      <section className="hlm-glam-reviews-panel" aria-label={`Customer reviews for ${artistName}`}>
-        <div className="hlm-glam-reviews-panel-head">
-          <h3 className="hlm-glam-reviews-title">Customer reviews</h3>
-          <p className="hlm-glam-reviews-sub">Verified bookings · newest first</p>
-        </div>
-        {summaryBlock}
-        {reviewsBlock(inlineItems, 'hlm-glam-reviews-list')}
-        {actionsBlock(!sheetOpen)}
+      <section className="hlm-glam-reviews-compact" aria-label={`Customer reviews for ${artistName}`}>
+        <button type="button" className="hlm-glam-reviews-compact-main" onClick={openSheet}>
+          <span className="hlm-glam-reviews-compact-score" aria-hidden>
+            <span className="hlm-glam-reviews-compact-star">★</span>
+            {loading && avgDisplay == null ? '…' : avgDisplay != null ? Number(avgDisplay).toFixed(1) : '—'}
+          </span>
+          <span className="hlm-glam-reviews-compact-meta">
+            <span className="hlm-glam-reviews-compact-label">Buyer reviews</span>
+            <span className="hlm-glam-reviews-compact-count">
+              {ratingTotal > 0 ? (
+                <>
+                  {ratingTotal} rating{ratingTotal === 1 ? '' : 's'}
+                  {commentCount > 0 ? ` · ${commentCount} commented` : ''}
+                </>
+              ) : (
+                'Verified bookings'
+              )}
+            </span>
+          </span>
+          {snippetPreview && !loading ? (
+            <span className="hlm-glam-reviews-compact-quote">&ldquo;{snippetPreview}&rdquo;</span>
+          ) : loading ? (
+            <span className="hlm-glam-reviews-compact-quote hlm-glam-reviews-compact-quote--muted">Loading…</span>
+          ) : null}
+        </button>
+        <button type="button" className="hlm-glam-reviews-compact-cta" onClick={openSheet}>
+          {totalElements > 0 ? `All ${totalElements}` : 'Reviews'}
+          <span aria-hidden>→</span>
+        </button>
+        {error ? <p className="hlm-glam-reviews-error hlm-glam-reviews-error--compact">{error}</p> : null}
       </section>
 
       {sheetOpen ? (
@@ -220,9 +244,9 @@ export function GlamCustomerReviewsPanel({ token, vendorId, artistName, preview 
                 ✕
               </button>
             </div>
-            {summaryBlock}
+            {summaryFull}
             {reviewsBlock(displayItems, 'hlm-glam-reviews-list hlm-glam-reviews-list--sheet')}
-            {actionsBlock(false)}
+            {sheetActions}
           </div>
         </div>
       ) : null}

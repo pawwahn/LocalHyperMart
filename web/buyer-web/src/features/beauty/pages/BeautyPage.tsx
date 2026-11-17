@@ -490,15 +490,20 @@ const SKIN = `
 .hlm-glam-occasions {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.4rem;
+  gap: 0.28rem;
+}
+@media (min-width: 380px) {
+  .hlm-glam-occasions {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
 }
 .hlm-glam-occasion {
   position: relative;
   border: 1.5px solid rgba(120, 53, 15, 0.12);
-  border-radius: 14px;
+  border-radius: 11px;
   padding: 0;
-  min-height: 4.85rem;
-  aspect-ratio: 5 / 4;
+  min-height: 0;
+  aspect-ratio: 5 / 3;
   background: #fdf2f8;
   cursor: pointer;
   text-align: left;
@@ -536,12 +541,15 @@ const SKIN = `
 .hlm-glam-occasion-copy {
   position: relative;
   z-index: 2;
-  padding: 0.35rem 0.4rem 0.42rem;
+  padding: 0.22rem 0.28rem 0.28rem;
   display: grid;
-  gap: 0.05rem;
+  gap: 0.02rem;
 }
-.hlm-glam-occasion-emoji { font-size: 0.85rem; line-height: 1; filter: drop-shadow(0 2px 6px rgba(0,0,0,0.35)); }
-.hlm-glam-occasion-label { font-size: 0.62rem; font-weight: 900; color: #fff; text-shadow: 0 2px 8px rgba(0,0,0,0.45); letter-spacing: 0.01em; }
+.hlm-glam-occasion-emoji { font-size: 0.68rem; line-height: 1; filter: drop-shadow(0 2px 6px rgba(0,0,0,0.35)); }
+.hlm-glam-occasion-label { font-size: 0.54rem; font-weight: 900; color: #fff; text-shadow: 0 2px 8px rgba(0,0,0,0.45); letter-spacing: 0.01em; line-height: 1.15; }
+@media (min-width: 380px) {
+  .hlm-glam-occasion { aspect-ratio: 4 / 5; }
+}
 .hlm-glam-artists-scroll {
   margin: 0 -0.35rem;
   padding: 0.1rem 0.35rem 0.05rem;
@@ -775,21 +783,120 @@ const SKIN = `
   border-color: #ddd6fe;
   color: #6d28d9;
 }
-.hlm-glam-reviews-panel {
-  margin-top: 0.55rem;
-  padding: 0.65rem 0.75rem;
-  border-radius: 14px;
-  border: 1px solid #f9a8d4;
-  background: linear-gradient(180deg, #fff 0%, #fff7fb 100%);
-  box-shadow: 0 8px 24px rgba(190, 24, 93, 0.06);
+.hlm-glam-reviews-compact {
+  margin-top: 0.45rem;
+  display: flex;
+  align-items: stretch;
+  gap: 0.35rem;
+  min-width: 0;
 }
-.hlm-glam-reviews-panel-head {
+.hlm-glam-reviews-compact-main {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-rows: auto auto;
+  gap: 0.1rem 0.5rem;
+  align-items: center;
+  padding: 0.42rem 0.55rem;
+  border-radius: 12px;
+  border: 1px solid #fbcfe8;
+  background: linear-gradient(135deg, #fff 0%, #fff1f2 55%, #fff7ed 100%);
+  box-shadow: 0 4px 14px rgba(190, 24, 93, 0.07);
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  -webkit-tap-highlight-color: transparent;
+}
+.hlm-glam-reviews-compact-main:active {
+  transform: scale(0.99);
+}
+.hlm-glam-reviews-compact-score {
+  grid-row: 1 / span 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-width: 2.35rem;
+  padding: 0.15rem 0.25rem;
+  border-radius: 10px;
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  font-size: 0.92rem;
+  font-weight: 900;
+  line-height: 1.05;
+  color: #c2410c;
+}
+.hlm-glam-reviews-compact-star {
+  font-size: 0.55rem;
+  line-height: 1;
+  color: #ea580c;
+}
+.hlm-glam-reviews-compact-meta {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  justify-content: space-between;
-  gap: 0.25rem 0.75rem;
-  margin-bottom: 0.5rem;
+  gap: 0.2rem 0.45rem;
+  min-width: 0;
+}
+.hlm-glam-reviews-compact-label {
+  font-size: 0.68rem;
+  font-weight: 900;
+  color: #9d174d;
+  letter-spacing: -0.01em;
+}
+.hlm-glam-reviews-compact-count {
+  font-size: 0.6rem;
+  font-weight: 700;
+  color: #6b7280;
+}
+.hlm-glam-reviews-compact-quote {
+  grid-column: 2;
+  margin: 0;
+  font-size: 0.62rem;
+  font-weight: 600;
+  line-height: 1.35;
+  color: #374151;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.hlm-glam-reviews-compact-quote--muted {
+  color: #9ca3af;
+  font-style: italic;
+}
+.hlm-glam-reviews-compact-cta {
+  flex-shrink: 0;
+  align-self: stretch;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.05rem;
+  min-width: 3.1rem;
+  padding: 0.35rem 0.5rem;
+  border-radius: 12px;
+  border: none;
+  background: linear-gradient(160deg, #be185d, #db2777);
+  color: #fff;
+  font-size: 0.62rem;
+  font-weight: 900;
+  line-height: 1.15;
+  cursor: pointer;
+  font-family: inherit;
+  box-shadow: 0 6px 16px rgba(190, 24, 93, 0.28);
+  -webkit-tap-highlight-color: transparent;
+}
+.hlm-glam-reviews-compact-cta span {
+  font-size: 0.72rem;
+  opacity: 0.95;
+}
+.hlm-glam-reviews-compact-cta:active {
+  transform: scale(0.98);
+}
+.hlm-glam-reviews-error--compact {
+  flex: 1 1 100%;
+  margin-top: 0.15rem;
 }
 .hlm-glam-reviews-title {
   margin: 0;
@@ -1224,10 +1331,10 @@ const SKIN = `
 }
 .hlm-glam-service-picker {
   display: grid;
-  grid-template-columns: minmax(4.1rem, 4.75rem) minmax(0, 1fr);
-  gap: 0.45rem;
+  grid-template-columns: minmax(4.35rem, 5rem) minmax(0, 1fr);
+  gap: 0.5rem;
   align-items: stretch;
-  min-height: min(42vh, 17.5rem);
+  min-height: 0;
 }
 .hlm-glam-service-cats {
   display: grid;
@@ -1238,8 +1345,8 @@ const SKIN = `
 .hlm-glam-service-cat {
   border: 1px solid #ece5dd;
   border-radius: 12px;
-  padding: 0.38rem 0.28rem;
-  min-height: 2.85rem;
+  padding: 0.42rem 0.3rem;
+  min-height: 3rem;
   display: grid;
   place-items: center;
   gap: 0.08rem;
@@ -1255,9 +1362,9 @@ const SKIN = `
   box-shadow: 0 0 0 1px rgba(131, 24, 67, 0.18);
   color: #831843;
 }
-.hlm-glam-service-cat-emoji { font-size: 0.95rem; line-height: 1; }
+.hlm-glam-service-cat-emoji { font-size: 1.02rem; line-height: 1; }
 .hlm-glam-service-cat-label {
-  font-size: 0.5rem;
+  font-size: 0.52rem;
   font-weight: 900;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -1266,9 +1373,9 @@ const SKIN = `
 }
 .hlm-glam-service-list {
   display: grid;
-  gap: 0.35rem;
+  gap: 0.4rem;
   overflow-y: auto;
-  max-height: min(42vh, 17.5rem);
+  max-height: min(46vh, 19.5rem);
   padding: 0.15rem 0.1rem 0.2rem 0;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior-y: auto;
@@ -1291,8 +1398,8 @@ const SKIN = `
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: 0.45rem;
-  padding: 0.42rem 0.45rem;
+  gap: 0.5rem;
+  padding: 0.48rem 0.52rem;
   border-radius: 14px;
   border: 1px solid #ece5dd;
   background: #fff;
@@ -1307,9 +1414,9 @@ const SKIN = `
   box-shadow: 0 0 0 1px rgba(131, 24, 67, 0.2), 0 6px 18px rgba(76, 5, 25, 0.08);
 }
 .hlm-glam-service-thumb {
-  width: 2.65rem;
-  height: 2.65rem;
-  border-radius: 11px;
+  width: 3.05rem;
+  height: 3.05rem;
+  border-radius: 12px;
   object-fit: cover;
   flex-shrink: 0;
   box-shadow: 0 2px 8px rgba(76, 5, 25, 0.12);
@@ -1321,14 +1428,14 @@ const SKIN = `
 }
 .hlm-glam-service-card-title {
   margin: 0;
-  font-size: 0.72rem;
+  font-size: 0.78rem;
   font-weight: 900;
   color: #1c1917;
   line-height: 1.2;
 }
 .hlm-glam-service-card-detail {
   margin: 0;
-  font-size: 0.6rem;
+  font-size: 0.64rem;
   font-weight: 600;
   color: #78716c;
   line-height: 1.3;
@@ -1339,7 +1446,7 @@ const SKIN = `
   gap: 0.22rem;
 }
 .hlm-glam-service-card-price {
-  font-size: 0.76rem;
+  font-size: 0.82rem;
   font-weight: 900;
   color: #9d174d;
   white-space: nowrap;
@@ -1347,8 +1454,8 @@ const SKIN = `
 .hlm-glam-service-card input[type='checkbox'] {
   appearance: none;
   -webkit-appearance: none;
-  width: 1.05rem;
-  height: 1.05rem;
+  width: 1.12rem;
+  height: 1.12rem;
   margin: 0;
   cursor: pointer;
   border: 2px solid #cbd5e1;
@@ -1389,8 +1496,8 @@ const SKIN = `
   }
   .hlm-glam-service-cat {
     flex: 0 0 auto;
-    min-width: 4.5rem;
-    min-height: 2.65rem;
+    min-width: 4.85rem;
+    min-height: 2.85rem;
     scroll-snap-align: start;
   }
   .hlm-glam-service-list {
@@ -1597,8 +1704,9 @@ select.hlm-glam-field {
   background: #fef2f2;
   border-color: #fecaca;
 }
-@media (max-width: 360px) {
+@media (max-width: 379px) {
   .hlm-glam-occasions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .hlm-glam-occasion { aspect-ratio: 5 / 3; }
 }
 @media (max-width: 520px) {
   .hlm-glam-artist {
@@ -2513,18 +2621,18 @@ export function BeautyPage() {
                 </div>
               </div>
             )}
+            {artist && token ? (
+              <GlamCustomerReviewsPanel
+                token={token}
+                vendorId={artist.vendorId}
+                artistName={artistDisplayName(artist)}
+                preview={artist.customerReviews}
+              />
+            ) : null}
           </div>
 
           {artist ? (
             <>
-              {token ? (
-                <GlamCustomerReviewsPanel
-                  token={token}
-                  vendorId={artist.vendorId}
-                  artistName={artistDisplayName(artist)}
-                  preview={artist.customerReviews}
-                />
-              ) : null}
               <div className="hlm-glam-when-where-row">
                 <div className="hlm-glam-panel hlm-glam-panel-priority" aria-label="When">
                   <div className="hlm-glam-panel-head">

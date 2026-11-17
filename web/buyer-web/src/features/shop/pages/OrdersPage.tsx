@@ -14,6 +14,7 @@ import { fetchMyBeautyOrders, type BeautyOrder } from '@/features/beauty/api/bea
 import { fetchMyDiagnosticsOrders, type DiagnosticsOrder } from '@/features/diagnostics/api/diagnosticsApi';
 import { diagnosticsReportReady } from '@/features/diagnostics/lib/diagnosticsOrderProgress';
 import { useBuyerAlerts } from '../hooks/useBuyerAlerts';
+import { BUYER_ORDER_LAYOUT_CSS } from '@/shared/layout/buyerOrderLayout';
 
 const PAGE_SIZE = 20;
 
@@ -263,6 +264,7 @@ export function OrdersPage() {
       showDeliveryBanner={false}
       showTownPicker={false}
     >
+      <style>{BUYER_ORDER_LAYOUT_CSS}</style>
       {loading && history.length === 0 ? (
         <LoadingBlock label="Loading your order history…" />
       ) : error && history.length === 0 && !laundryLoading ? (
@@ -288,7 +290,7 @@ export function OrdersPage() {
           onAction={() => navigate('/shop')}
         />
       ) : (
-        <div style={styles.wrap}>
+        <div className="hlm-buyer-orders-page" style={styles.wrap}>
           {error ? (
             <Banner tone="warning">
               Couldn’t refresh fully. Showing your last loaded orders.{' '}
@@ -327,7 +329,7 @@ export function OrdersPage() {
             </label>
           </div>
 
-          <div style={styles.toolbar}>
+          <div className="hlm-buyer-orders-toolbar" style={styles.toolbar}>
             <input
               style={styles.search}
               value={query}
@@ -348,7 +350,7 @@ export function OrdersPage() {
             </p>
           ) : (
             <>
-              <div style={styles.list}>
+              <div className="hlm-buyer-orders-list" style={styles.list}>
                 {shown.map((row, index) => {
                   if (row.kind === 'diagnostics') {
                     const order = row.order;
@@ -361,6 +363,7 @@ export function OrdersPage() {
                       <button
                         key={order.id}
                         type="button"
+                        className="hlm-buyer-orders-row"
                         style={{
                           ...styles.row,
                           borderTop: index === 0 ? 'none' : '1px solid var(--border)',
@@ -369,8 +372,8 @@ export function OrdersPage() {
                       >
                         <div style={styles.rowMain}>
                           <div style={styles.metaRow}>
-                            <span style={styles.orderNo}>{order.orderNumber}</span>
-                            <p style={styles.meta}>
+                            <span className="hlm-buyer-orders-order-no" style={styles.orderNo}>{order.orderNumber}</span>
+                            <p className="hlm-buyer-orders-meta" style={styles.meta}>
                               {formatWhen(order.placedAt)}
                               {' · '}
                               Diagnostics · {testsCount} test{testsCount === 1 ? '' : 's'} · {order.shopName}
@@ -386,7 +389,7 @@ export function OrdersPage() {
                           </div>
                         </div>
                         <div style={styles.rowSide}>
-                          <p style={styles.amount}>₹{total.toFixed(2).replace(/\.00$/, '')}</p>
+                          <p className="hlm-buyer-orders-amount" style={styles.amount}>₹{total.toFixed(2).replace(/\.00$/, '')}</p>
                           <OrderUpdateDot show={hasUnreadOrder(order.id)} />
                           <p style={styles.chevron}>›</p>
                         </div>
@@ -401,6 +404,7 @@ export function OrdersPage() {
                       <button
                         key={order.id}
                         type="button"
+                        className="hlm-buyer-orders-row"
                         style={{
                           ...styles.row,
                           borderTop: index === 0 ? 'none' : '1px solid var(--border)',
@@ -409,8 +413,8 @@ export function OrdersPage() {
                       >
                         <div style={styles.rowMain}>
                           <div style={styles.metaRow}>
-                            <span style={styles.orderNo}>{order.orderNumber}</span>
-                            <p style={styles.meta}>
+                            <span className="hlm-buyer-orders-order-no" style={styles.orderNo}>{order.orderNumber}</span>
+                            <p className="hlm-buyer-orders-meta" style={styles.meta}>
                               {formatWhen(order.placedAt ?? undefined)}
                               {' · '}
                               Glam · {order.serviceLabel ?? order.serviceType}
@@ -422,7 +426,7 @@ export function OrdersPage() {
                           <p style={styles.payHint}>{payHint}</p>
                         </div>
                         <div style={styles.rowSide}>
-                          <p style={styles.amount}>₹{total.toFixed(2).replace(/\.00$/, '')}</p>
+                          <p className="hlm-buyer-orders-amount" style={styles.amount}>₹{total.toFixed(2).replace(/\.00$/, '')}</p>
                           <OrderUpdateDot show={hasUnreadOrder(order.id)} />
                           <p style={styles.chevron}>›</p>
                         </div>
@@ -436,6 +440,7 @@ export function OrdersPage() {
                       <button
                         key={order.id}
                         type="button"
+                        className="hlm-buyer-orders-row"
                         style={{
                           ...styles.row,
                           borderTop: index === 0 ? 'none' : '1px solid var(--border)',
@@ -444,8 +449,8 @@ export function OrdersPage() {
                       >
                         <div style={styles.rowMain}>
                           <div style={styles.metaRow}>
-                            <span style={styles.orderNo}>{order.orderNumber}</span>
-                            <p style={styles.meta}>
+                            <span className="hlm-buyer-orders-order-no" style={styles.orderNo}>{order.orderNumber}</span>
+                            <p className="hlm-buyer-orders-meta" style={styles.meta}>
                               {formatWhen(order.placedAt)}
                               {' · '}
                               {order.pieceCount} piece{order.pieceCount === 1 ? '' : 's'}
@@ -458,7 +463,7 @@ export function OrdersPage() {
                           </div>
                         </div>
                         <div style={styles.rowSide}>
-                          <p style={styles.amount}>₹{total.toFixed(2).replace(/\.00$/, '')}</p>
+                          <p className="hlm-buyer-orders-amount" style={styles.amount}>₹{total.toFixed(2).replace(/\.00$/, '')}</p>
                           <OrderUpdateDot show={hasUnreadOrder(order.id)} />
                           <p style={styles.chevron}>›</p>
                         </div>
@@ -476,6 +481,7 @@ export function OrdersPage() {
                     <button
                       key={o.orderId}
                       type="button"
+                      className="hlm-buyer-orders-row"
                       style={{
                         ...styles.row,
                         borderTop: index === 0 ? 'none' : '1px solid var(--border)',
@@ -486,8 +492,8 @@ export function OrdersPage() {
                     >
                       <div style={styles.rowMain}>
                         <div style={styles.metaRow}>
-                          <span style={styles.orderNo}>{o.orderNumber}</span>
-                          <p style={styles.meta}>
+                          <span className="hlm-buyer-orders-order-no" style={styles.orderNo}>{o.orderNumber}</span>
+                          <p className="hlm-buyer-orders-meta" style={styles.meta}>
                             {formatWhen(o.placedAt || o.createdAt)}
                             {' · '}
                             {o.itemCount} item{o.itemCount === 1 ? '' : 's'}
@@ -498,7 +504,7 @@ export function OrdersPage() {
                         </div>
                       </div>
                       <div style={styles.rowSide}>
-                        <p style={styles.amount}>₹{Number(o.totalAmount).toFixed(2).replace(/\.00$/, '')}</p>
+                        <p className="hlm-buyer-orders-amount" style={styles.amount}>₹{Number(o.totalAmount).toFixed(2).replace(/\.00$/, '')}</p>
                         <OrderUpdateDot show={hasUnreadOrder(o.orderId)} />
                         <p style={styles.chevron}>›</p>
                       </div>
